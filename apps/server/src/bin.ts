@@ -8,4 +8,8 @@ import { Command } from "effect/unstable/cli";
 import { t3Cli } from "./cli";
 import { version } from "../package.json" with { type: "json" };
 
-Command.run(t3Cli, { version }).pipe(Effect.provide(NodeServices.layer), NodeRuntime.runMain);
+const main = Command.run(t3Cli, { version }).pipe(
+  Effect.provide(NodeServices.layer),
+) as Effect.Effect<void, unknown, never>;
+
+NodeRuntime.runMain(main);

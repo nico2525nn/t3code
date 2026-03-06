@@ -26,6 +26,7 @@ import { afterEach, it, vi } from "vitest";
 
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { Open, type OpenShape } from "./open";
+import type { OrchestrationReadModel } from "@t3tools/contracts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite";
 import { ProviderHealth, type ProviderHealthShape } from "./provider/Services/ProviderHealth";
 import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService";
@@ -58,8 +59,10 @@ const defaultProviderService: ProviderServiceShape = {
   sendTurn: () => Effect.die(new Error("sendTurn not implemented in test")),
   interruptTurn: () => Effect.die(new Error("interruptTurn not implemented in test")),
   respondToRequest: () => Effect.die(new Error("respondToRequest not implemented in test")),
+  respondToUserInput: () => Effect.die(new Error("respondToUserInput not implemented in test")),
   stopSession: () => Effect.die(new Error("stopSession not implemented in test")),
   listSessions: () => Effect.succeed([]),
+  getCapabilities: () => Effect.die(new Error("getCapabilities not implemented in test")),
   rollbackConversation: () => Effect.die(new Error("rollbackConversation not implemented in test")),
   stopAll: () => Effect.void,
   streamEvents: Stream.empty as Stream.Stream<ProviderRuntimeEvent>,
@@ -165,6 +168,13 @@ const getServerConfigEffect = (client: ServerRpcClient) => {
     readonly getServerConfig: (_: undefined) => Effect.Effect<ServerConfigPayload, never, never>;
   };
   return typedClient.getServerConfig(undefined);
+};
+
+const getSnapshotEffect = (client: ServerRpcClient) => {
+  const typedClient = client as ServerRpcClient & {
+    readonly getSnapshot: (_: undefined) => Effect.Effect<OrchestrationReadModel, never, never>;
+  };
+  return typedClient.getSnapshot(undefined);
 };
 
 const upsertKeybindingEffect = (client: ServerRpcClient) => {
@@ -325,7 +335,7 @@ describe("wsServer", () => {
               expect(bootstrap.bootstrapProjectId).toBeDefined();
               expect(bootstrap.bootstrapThreadId).toBeDefined();
 
-              const snapshot = yield* client.getSnapshot(undefined);
+              const snapshot = yield* getSnapshotEffect(client);
               expect(snapshot.projects).toHaveLength(1);
               expect(snapshot.threads).toHaveLength(1);
               expect(snapshot.projects[0]?.workspaceRoot).toBe("/workspace/example-project");
