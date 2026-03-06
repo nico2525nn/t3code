@@ -20,6 +20,17 @@ describe("normalizeCustomModelSlugs", () => {
       ]),
     ).toEqual(["custom/internal-model"]);
   });
+
+  it("normalizes provider-specific aliases for claude and cursor", () => {
+    expect(normalizeCustomModelSlugs(["sonnet"], "claudeCode")).toEqual([]);
+    expect(normalizeCustomModelSlugs(["claude/custom-sonnet"], "claudeCode")).toEqual([
+      "claude/custom-sonnet",
+    ]);
+    expect(normalizeCustomModelSlugs(["composer"], "cursor")).toEqual([]);
+    expect(normalizeCustomModelSlugs(["cursor/custom-model"], "cursor")).toEqual([
+      "cursor/custom-model",
+    ]);
+  });
 });
 
 describe("getAppModelOptions", () => {
@@ -45,6 +56,13 @@ describe("getAppModelOptions", () => {
       isCustom: true,
     });
   });
+  it("keeps a saved custom provider model available as an exact slug option", () => {
+    const options = getAppModelOptions("claudeCode", ["claude/custom-opus"], "claude/custom-opus");
+
+    expect(options.some((option) => option.slug === "claude/custom-opus" && option.isCustom)).toBe(
+      true,
+    );
+  });
 });
 
 describe("resolveAppModelSelection", () => {
@@ -62,5 +80,15 @@ describe("resolveAppModelSelection", () => {
 describe("timestamp format defaults", () => {
   it("defaults timestamp format to locale", () => {
     expect(DEFAULT_TIMESTAMP_FORMAT).toBe("locale");
+  });
+});
+
+describe("provider-specific custom models", () => {
+  it("includes provider-specific custom slugs in non-codex model lists", () => {
+    const claudeOptions = getAppModelOptions("claudeCode", ["claude/custom-opus"]);
+    const cursorOptions = getAppModelOptions("cursor", ["cursor/custom-model"]);
+
+    expect(claudeOptions.some((option) => option.slug === "claude/custom-opus")).toBe(true);
+    expect(cursorOptions.some((option) => option.slug === "cursor/custom-model")).toBe(true);
   });
 });
