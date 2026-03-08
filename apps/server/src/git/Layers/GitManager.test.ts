@@ -23,6 +23,7 @@ interface FakeGhScenario {
   prListSequence?: string[];
   createdPrUrl?: string;
   defaultBranch?: string;
+  repoNameWithOwner?: string;
   failWith?: GitHubCliError;
 }
 
@@ -165,6 +166,35 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
   };
 }
 
+function ghPr(
+  overrides: Partial<{
+    number: number;
+    title: string;
+    url: string;
+    baseRefName: string;
+    headRefName: string;
+    headRepository: { name: string };
+    headRepositoryOwner: { login: string };
+    state: "OPEN" | "CLOSED" | "MERGED";
+    mergedAt: string | null;
+    updatedAt: string | null;
+  }> = {},
+) {
+  return {
+    number: 1,
+    title: "PR",
+    url: "https://github.com/pingdotgg/codething-mvp/pull/1",
+    baseRefName: "main",
+    headRefName: "feature/test",
+    headRepository: { name: "codething-mvp" },
+    headRepositoryOwner: { login: "pingdotgg" },
+    state: "OPEN" as const,
+    updatedAt: "2026-02-01T10:00:00Z",
+    ...overrides,
+    ...(overrides.mergedAt !== undefined ? { mergedAt: overrides.mergedAt } : {}),
+  };
+}
+
 function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
   service: GitHubCliShape;
   ghCalls: string[];
@@ -213,6 +243,17 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
     }
 
     if (args[0] === "repo" && args[1] === "view") {
+      const jqExpression = args[args.indexOf("--jq") + 1];
+      if (jqExpression === ".nameWithOwner") {
+        return Effect.succeed({
+          stdout: `${scenario.repoNameWithOwner ?? "pingdotgg/codething-mvp"}\n`,
+          stderr: "",
+          code: 0,
+          signal: null,
+          timedOut: false,
+        });
+      }
+
       return Effect.succeed({
         stdout: `${scenario.defaultBranch ?? "main"}\n`,
         stderr: "",
@@ -337,13 +378,12 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         ghScenario: {
           prListSequence: [
             JSON.stringify([
-              {
+              ghPr({
                 number: 13,
                 title: "Existing PR",
                 url: "https://github.com/pingdotgg/codething-mvp/pull/13",
-                baseRefName: "main",
                 headRefName: "feature/status-open-pr",
-              },
+              }),
             ]),
           ],
         },
@@ -362,6 +402,35 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("status ignores fork PRs that only match by branch name", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+
+      const { manager } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            JSON.stringify([
+              ghPr({
+                number: 99,
+                title: "Fork main PR",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/99",
+                headRefName: "main",
+                headRepositoryOwner: { login: "random-user" },
+                headRepository: { name: "t3code" },
+              }),
+            ]),
+          ],
+          repoNameWithOwner: "pingdotgg/t3code",
+        },
+      });
+
+      const status = yield* manager.status({ cwd: repoDir });
+      expect(status.branch).toBe("main");
+      expect(status.pr).toBeNull();
+    }),
+  );
+
   it.effect("status returns merged PR state when latest PR was merged", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -372,16 +441,15 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         ghScenario: {
           prListSequence: [
             JSON.stringify([
-              {
+              ghPr({
                 number: 22,
                 title: "Merged PR",
                 url: "https://github.com/pingdotgg/codething-mvp/pull/22",
-                baseRefName: "main",
                 headRefName: "feature/status-merged-pr",
                 state: "MERGED",
                 mergedAt: "2026-01-30T10:00:00Z",
                 updatedAt: "2026-01-30T10:00:00Z",
-              },
+              }),
             ]),
           ],
         },
@@ -410,25 +478,23 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         ghScenario: {
           prListSequence: [
             JSON.stringify([
-              {
+              ghPr({
                 number: 45,
                 title: "Merged PR",
                 url: "https://github.com/pingdotgg/codething-mvp/pull/45",
-                baseRefName: "main",
                 headRefName: "feature/status-open-over-merged",
                 state: "MERGED",
                 mergedAt: "2026-01-31T10:00:00Z",
                 updatedAt: "2026-02-01T10:00:00Z",
-              },
-              {
+              }),
+              ghPr({
                 number: 46,
                 title: "Open PR",
                 url: "https://github.com/pingdotgg/codething-mvp/pull/46",
-                baseRefName: "main",
                 headRefName: "feature/status-open-over-merged",
                 state: "OPEN",
                 updatedAt: "2026-01-30T10:00:00Z",
-              },
+              }),
             ]),
           ],
         },
@@ -709,21 +775,20 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         fs.writeFileSync(path.join(repoDir, "feature.txt"), "feature\n");
 
         const { manager, ghCalls } = yield* makeManager({
-          ghScenario: {
-            prListSequence: [
-              "[]",
-              JSON.stringify([
-                {
-                  number: 77,
-                  title: "Add no-upstream PR flow",
-                  url: "https://github.com/pingdotgg/codething-mvp/pull/77",
-                  baseRefName: "main",
-                  headRefName: "feature/no-upstream-pr",
-                },
-              ]),
-            ],
-          },
-        });
+        ghScenario: {
+          prListSequence: [
+            "[]",
+            JSON.stringify([
+              ghPr({
+                number: 77,
+                title: "Add no-upstream PR flow",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/77",
+                headRefName: "feature/no-upstream-pr",
+              }),
+            ]),
+          ],
+        },
+      });
 
         const result = yield* runStackedAction(manager, {
           cwd: repoDir,
@@ -782,13 +847,12 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         ghScenario: {
           prListSequence: [
             JSON.stringify([
-              {
+              ghPr({
                 number: 42,
                 title: "Existing PR",
                 url: "https://github.com/pingdotgg/codething-mvp/pull/42",
-                baseRefName: "main",
                 headRefName: "feature/existing-pr",
-              },
+              }),
             ]),
           ],
         },
@@ -823,13 +887,12 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           prListSequence: [
             "[]",
             JSON.stringify([
-              {
+              ghPr({
                 number: 88,
                 title: "Add stacked git actions",
                 url: "https://github.com/pingdotgg/codething-mvp/pull/88",
-                baseRefName: "main",
                 headRefName: "feature-create-pr",
-              },
+              }),
             ]),
           ],
         },

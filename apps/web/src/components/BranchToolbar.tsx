@@ -7,8 +7,10 @@ import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
 import {
   EnvMode,
+  getEnvModeButtonLabel,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
+  resolveEnvToggleAction,
 } from "./BranchToolbar.logic";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { Button } from "./ui/button";
@@ -44,6 +46,11 @@ export default function BranchToolbar({
     activeWorktreePath,
     hasServerThread,
     draftThreadEnvMode: draftThread?.envMode,
+  });
+  const envToggleAction = resolveEnvToggleAction({
+    activeWorktreePath,
+    effectiveEnvMode,
+    envLocked,
   });
 
   const setThreadBranch = useCallback(
@@ -98,12 +105,25 @@ export default function BranchToolbar({
     ],
   );
 
+  const handleEnvToggle = useCallback(() => {
+    if (envToggleAction === "locked") {
+      return;
+    }
+    if (envToggleAction === "detach-worktree") {
+      setThreadBranch(null, null);
+      onComposerFocusRequest?.();
+      return;
+    }
+    onEnvModeChange(envToggleAction === "set-worktree" ? "worktree" : "local");
+    onComposerFocusRequest?.();
+  }, [envToggleAction, onComposerFocusRequest, onEnvModeChange, setThreadBranch]);
+
   if (!activeThreadId || !activeProject) return null;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
       <div className="flex items-center gap-2">
-        {envLocked || activeWorktreePath ? (
+        {envToggleAction === "locked" ? (
           <span className="border border-transparent px-[calc(--spacing(2)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
             {activeWorktreePath ? "Worktree" : "Local"}
           </span>
@@ -113,9 +133,12 @@ export default function BranchToolbar({
             variant="ghost"
             className="text-muted-foreground/70 hover:text-foreground/80"
             size="xs"
-            onClick={() => onEnvModeChange(effectiveEnvMode === "local" ? "worktree" : "local")}
+            onClick={handleEnvToggle}
           >
-            {effectiveEnvMode === "worktree" ? "New worktree" : "Local"}
+            {getEnvModeButtonLabel({
+              activeWorktreePath,
+              effectiveEnvMode,
+            })}
           </Button>
         )}
       </div>

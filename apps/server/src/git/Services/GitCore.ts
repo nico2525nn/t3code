@@ -111,6 +111,14 @@ export interface GitCoreShape {
   ) => Effect.Effect<string | null, GitCommandError>;
 
   /**
+   * Read a configured remote URL from the local repository.
+   */
+  readonly readRemoteUrl: (
+    cwd: string,
+    remoteName: string,
+  ) => Effect.Effect<string | null, GitCommandError>;
+
+  /**
    * List local + remote branches and branch metadata.
    */
   readonly listBranches: (

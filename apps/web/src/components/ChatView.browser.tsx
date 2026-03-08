@@ -409,6 +409,16 @@ async function waitForInteractionModeButton(expectedLabel: "Chat" | "Plan"): Pro
   );
 }
 
+async function waitForEnvModeButton(expectedLabel: "Local" | "Worktree" | "New worktree") {
+  return waitForElement(
+    () =>
+      Array.from(document.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === expectedLabel,
+      ) as HTMLButtonElement | null,
+    `Unable to find ${expectedLabel} environment mode button.`,
+  );
+}
+
 async function waitForImagesToLoad(scope: ParentNode): Promise<void> {
   const images = Array.from(scope.querySelectorAll("img"));
   if (images.length === 0) {
@@ -798,6 +808,51 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("lets a new draft thread detach an inherited worktree before the first message", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: "feature/demo",
+          worktreePath: "/repo/project/.t3/worktrees/feature-demo",
+          envMode: "worktree",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+    });
+
+    try {
+      const worktreeButton = await waitForEnvModeButton("Worktree");
+      worktreeButton.click();
+
+      await vi.waitFor(
+        () => {
+          const draftThread = useComposerDraftStore.getState().getDraftThread(THREAD_ID);
+          expect(draftThread).toMatchObject({
+            branch: null,
+            worktreePath: null,
+            envMode: "local",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await waitForEnvModeButton("Local");
     } finally {
       await mounted.cleanup();
     }

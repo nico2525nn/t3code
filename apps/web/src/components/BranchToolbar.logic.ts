@@ -1,6 +1,7 @@
 import type { GitBranch } from "@t3tools/contracts";
 
 export type EnvMode = "local" | "worktree";
+export type EnvToggleAction = "locked" | "set-worktree" | "set-local" | "detach-worktree";
 
 export function resolveEffectiveEnvMode(input: {
   activeWorktreePath: string | null;
@@ -26,6 +27,32 @@ export function resolveDraftEnvModeAfterBranchChange(input: {
     return "worktree";
   }
   return "local";
+}
+
+export function resolveEnvToggleAction(input: {
+  activeWorktreePath: string | null;
+  effectiveEnvMode: EnvMode;
+  envLocked: boolean;
+}): EnvToggleAction {
+  const { activeWorktreePath, effectiveEnvMode, envLocked } = input;
+  if (envLocked) {
+    return "locked";
+  }
+  if (activeWorktreePath) {
+    return "detach-worktree";
+  }
+  return effectiveEnvMode === "worktree" ? "set-local" : "set-worktree";
+}
+
+export function getEnvModeButtonLabel(input: {
+  activeWorktreePath: string | null;
+  effectiveEnvMode: EnvMode;
+}): string {
+  const { activeWorktreePath, effectiveEnvMode } = input;
+  if (activeWorktreePath) {
+    return "Worktree";
+  }
+  return effectiveEnvMode === "worktree" ? "New worktree" : "Local";
 }
 
 export function resolveBranchToolbarValue(input: {

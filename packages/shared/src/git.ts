@@ -59,3 +59,52 @@ export function resolveAutoFeatureBranchName(
 
   return `${resolvedBase}-${suffix}`;
 }
+
+export interface GitHubRepositoryIdentity {
+  owner: string;
+  name: string;
+}
+
+/**
+ * Parse a GitHub-style remote URL into `{ owner, name }`.
+ * Supports SSH scp syntax and URL-based remotes.
+ */
+export function parseGitHubRepositoryFromRemoteUrl(
+  remoteUrl: string,
+): GitHubRepositoryIdentity | null {
+  const trimmed = remoteUrl.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const scpMatch = trimmed.match(/^[^@]+@[^:]+:(.+)$/);
+  const rawPath = scpMatch?.[1] ?? (() => {
+    try {
+      return new URL(trimmed).pathname;
+    } catch {
+      return null;
+    }
+  })();
+
+  if (!rawPath) {
+    return null;
+  }
+
+  const segments = rawPath
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/\.git$/i, "")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+
+  if (segments.length !== 2) {
+    return null;
+  }
+
+  const owner = segments[0];
+  const name = segments[1];
+  if (!owner || !name) {
+    return null;
+  }
+  return { owner, name };
+}

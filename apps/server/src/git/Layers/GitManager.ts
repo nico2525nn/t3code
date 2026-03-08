@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import { Effect, FileSystem, Layer, Path } from "effect";
-import { resolveAutoFeatureBranchName, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import {
+  parseGitHubRepositoryFromRemoteUrl,
+  resolveAutoFeatureBranchName,
+  sanitizeFeatureBranchName,
+  type GitHubRepositoryIdentity,
+} from "@t3tools/shared/git";
 
 import { GitManagerError } from "../Errors.ts";
 import { GitManager, type GitManagerShape } from "../Services/GitManager.ts";
@@ -18,8 +23,32 @@ interface OpenPrInfo {
 }
 
 interface PullRequestInfo extends OpenPrInfo {
+  headRepositoryOwner: string | null;
+  headRepositoryName: string | null;
   state: "open" | "closed" | "merged";
   updatedAt: string | null;
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parsePullRequestHeadRepositoryOwner(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return normalizeOptionalString(value);
+  }
+  return normalizeOptionalString((value as Record<string, unknown>).login);
+}
+
+function parsePullRequestHeadRepositoryName(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return normalizeOptionalString((value as Record<string, unknown>).name);
 }
 
 function parsePullRequestList(raw: unknown): PullRequestInfo[] {
@@ -34,6 +63,8 @@ function parsePullRequestList(raw: unknown): PullRequestInfo[] {
     const url = record.url;
     const baseRefName = record.baseRefName;
     const headRefName = record.headRefName;
+    const headRepositoryOwner = parsePullRequestHeadRepositoryOwner(record.headRepositoryOwner);
+    const headRepositoryName = parsePullRequestHeadRepositoryName(record.headRepository);
     const state = record.state;
     const mergedAt = record.mergedAt;
     const updatedAt = record.updatedAt;
@@ -66,6 +97,8 @@ function parsePullRequestList(raw: unknown): PullRequestInfo[] {
       url,
       baseRefName,
       headRefName,
+      headRepositoryOwner,
+      headRepositoryName,
       state: normalizedState,
       updatedAt: typeof updatedAt === "string" && updatedAt.trim().length > 0 ? updatedAt : null,
     });
@@ -157,6 +190,49 @@ function extractBranchFromRef(ref: string): string {
   return normalized.slice(firstSlash + 1).trim();
 }
 
+function extractRemoteNameFromUpstreamRef(upstreamRef: string): string | null {
+  const trimmed = upstreamRef.trim();
+  const separatorIndex = trimmed.indexOf("/");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const remoteName = trimmed.slice(0, separatorIndex).trim();
+  return remoteName.length > 0 ? remoteName : null;
+}
+
+function parseGitHubRepositoryIdentity(raw: string): GitHubRepositoryIdentity | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const [owner, name, ...rest] = trimmed.split("/").map((segment) => segment.trim());
+  if (!owner || !name || rest.length > 0) {
+    return null;
+  }
+
+  return { owner, name };
+}
+
+function matchesPullRequestHeadRepository(
+  pr: PullRequestInfo,
+  branch: string,
+  repository: GitHubRepositoryIdentity,
+): boolean {
+  return (
+    pr.headRefName === branch &&
+    pr.headRepositoryOwner?.toLowerCase() === repository.owner.toLowerCase() &&
+    pr.headRepositoryName?.toLowerCase() === repository.name.toLowerCase()
+  );
+}
+
+function comparePullRequestsByUpdatedAt(a: PullRequestInfo, b: PullRequestInfo): number {
+  const left = a.updatedAt ? Date.parse(a.updatedAt) : 0;
+  const right = b.updatedAt ? Date.parse(b.updatedAt) : 0;
+  return right - left;
+}
+
 function toStatusPr(pr: PullRequestInfo): {
   number: number;
   title: string;
@@ -184,33 +260,48 @@ export const makeGitManager = Effect.gen(function* () {
 
   const tempDir = process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP ?? "/tmp";
 
-  const findOpenPr = (cwd: string, branch: string) =>
-    gitHubCli
-      .listOpenPullRequests({
-        cwd,
-        headBranch: branch,
-        limit: 1,
-      })
-      .pipe(
-        Effect.map((prs) => {
-          const [first] = prs;
-          if (!first) {
-            return null;
-          }
-          return {
-            number: first.number,
-            title: first.title,
-            url: first.url,
-            baseRefName: first.baseRefName,
-            headRefName: first.headRefName,
-            state: "open",
-            updatedAt: null,
-          } satisfies PullRequestInfo;
-        }),
-      );
-
-  const findLatestPr = (cwd: string, branch: string) =>
+  const resolveCurrentHeadRepository = (cwd: string, upstreamRef: string | null) =>
     Effect.gen(function* () {
+      if (upstreamRef) {
+        const remoteName = extractRemoteNameFromUpstreamRef(upstreamRef);
+        if (remoteName) {
+          const remoteUrl = yield* gitCore
+            .readRemoteUrl(cwd, remoteName)
+            .pipe(Effect.catch(() => Effect.succeed(null)));
+          if (remoteUrl) {
+            const parsedRemote = parseGitHubRepositoryFromRemoteUrl(remoteUrl);
+            if (parsedRemote) {
+              return parsedRemote;
+            }
+          }
+        }
+      }
+
+      const repoNameWithOwner = yield* gitHubCli
+        .execute({
+          cwd,
+          args: ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+        })
+        .pipe(
+          Effect.map((result) => result.stdout.trim()),
+          Effect.catch(() => Effect.succeed("")),
+        );
+
+      return parseGitHubRepositoryIdentity(repoNameWithOwner);
+    });
+
+  const findMatchingPrs = (
+    cwd: string,
+    branch: string,
+    upstreamRef: string | null,
+    state: "open" | "all",
+  ) =>
+    Effect.gen(function* () {
+      const currentHeadRepository = yield* resolveCurrentHeadRepository(cwd, upstreamRef);
+      if (!currentHeadRepository) {
+        return [] as PullRequestInfo[];
+      }
+
       const stdout = yield* gitHubCli
         .execute({
           cwd,
@@ -220,38 +311,49 @@ export const makeGitManager = Effect.gen(function* () {
             "--head",
             branch,
             "--state",
-            "all",
+            state,
             "--limit",
             "20",
             "--json",
-            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt",
+            "number,title,url,baseRefName,headRefName,headRepository,headRepositoryOwner,state,mergedAt,updatedAt",
           ],
         })
         .pipe(Effect.map((result) => result.stdout));
 
       const raw = stdout.trim();
       if (raw.length === 0) {
-        return null;
+        return [] as PullRequestInfo[];
       }
 
       const parsedJson = yield* Effect.try({
         try: () => JSON.parse(raw) as unknown,
         catch: (cause) =>
-          gitManagerError("findLatestPr", "GitHub CLI returned invalid PR list JSON.", cause),
+          gitManagerError("findMatchingPrs", "GitHub CLI returned invalid PR list JSON.", cause),
       });
 
-      const parsed = parsePullRequestList(parsedJson).toSorted((a, b) => {
-        const left = a.updatedAt ? Date.parse(a.updatedAt) : 0;
-        const right = b.updatedAt ? Date.parse(b.updatedAt) : 0;
-        return right - left;
-      });
-
-      const latestOpenPr = parsed.find((pr) => pr.state === "open");
-      if (latestOpenPr) {
-        return latestOpenPr;
-      }
-      return parsed[0] ?? null;
+      return parsePullRequestList(parsedJson)
+        .filter((pr) => matchesPullRequestHeadRepository(pr, branch, currentHeadRepository))
+        .toSorted(comparePullRequestsByUpdatedAt);
     });
+
+  const findOpenPr = (cwd: string, branch: string, upstreamRef: string | null) =>
+    findMatchingPrs(cwd, branch, upstreamRef, "open").pipe(
+      Effect.map((prs) => {
+        const [first] = prs;
+        return first ?? null;
+      }),
+    );
+
+  const findLatestPr = (cwd: string, branch: string, upstreamRef: string | null) =>
+    findMatchingPrs(cwd, branch, upstreamRef, "all").pipe(
+      Effect.map((parsed) => {
+        const latestOpenPr = parsed.find((pr) => pr.state === "open");
+        if (latestOpenPr) {
+          return latestOpenPr;
+        }
+        return parsed[0] ?? null;
+      }),
+    );
 
   const resolveBaseBranch = (cwd: string, branch: string, upstreamRef: string | null) =>
     Effect.gen(function* () {
@@ -361,7 +463,7 @@ export const makeGitManager = Effect.gen(function* () {
         );
       }
 
-      const existing = yield* findOpenPr(cwd, branch);
+      const existing = yield* findOpenPr(cwd, branch, details.upstreamRef);
       if (existing) {
         return {
           status: "opened_existing" as const,
@@ -403,7 +505,7 @@ export const makeGitManager = Effect.gen(function* () {
         })
         .pipe(Effect.ensuring(fileSystem.remove(bodyFile).pipe(Effect.catch(() => Effect.void))));
 
-      const created = yield* findOpenPr(cwd, branch);
+      const created = yield* findOpenPr(cwd, branch, details.upstreamRef);
       if (!created) {
         return {
           status: "created" as const,
@@ -428,7 +530,7 @@ export const makeGitManager = Effect.gen(function* () {
 
     const pr =
       details.branch !== null
-        ? yield* findLatestPr(input.cwd, details.branch).pipe(
+        ? yield* findLatestPr(input.cwd, details.branch, details.upstreamRef).pipe(
             Effect.map((latest) => (latest ? toStatusPr(latest) : null)),
             Effect.catch(() => Effect.succeed(null)),
           )

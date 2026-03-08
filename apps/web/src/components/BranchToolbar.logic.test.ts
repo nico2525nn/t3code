@@ -2,9 +2,11 @@ import type { GitBranch } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 import {
   dedupeRemoteBranchesWithLocalMatches,
+  getEnvModeButtonLabel,
   deriveLocalBranchNameFromRemoteRef,
   resolveDraftEnvModeAfterBranchChange,
   resolveBranchToolbarValue,
+  resolveEnvToggleAction,
 } from "./BranchToolbar.logic";
 
 describe("resolveDraftEnvModeAfterBranchChange", () => {
@@ -71,6 +73,71 @@ describe("resolveBranchToolbarValue", () => {
         currentGitBranch: "main",
       }),
     ).toBe("main");
+  });
+});
+
+describe("resolveEnvToggleAction", () => {
+  it("allows detaching an inherited worktree before the thread is locked", () => {
+    expect(
+      resolveEnvToggleAction({
+        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        effectiveEnvMode: "worktree",
+        envLocked: false,
+      }),
+    ).toBe("detach-worktree");
+  });
+
+  it("keeps the toggle locked once the thread environment is immutable", () => {
+    expect(
+      resolveEnvToggleAction({
+        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        effectiveEnvMode: "worktree",
+        envLocked: true,
+      }),
+    ).toBe("locked");
+  });
+
+  it("switches between local and new-worktree modes when no worktree is attached", () => {
+    expect(
+      resolveEnvToggleAction({
+        activeWorktreePath: null,
+        effectiveEnvMode: "local",
+        envLocked: false,
+      }),
+    ).toBe("set-worktree");
+    expect(
+      resolveEnvToggleAction({
+        activeWorktreePath: null,
+        effectiveEnvMode: "worktree",
+        envLocked: false,
+      }),
+    ).toBe("set-local");
+  });
+});
+
+describe("getEnvModeButtonLabel", () => {
+  it("shows the attached worktree label when a worktree is already bound", () => {
+    expect(
+      getEnvModeButtonLabel({
+        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        effectiveEnvMode: "worktree",
+      }),
+    ).toBe("Worktree");
+  });
+
+  it("distinguishes between local mode and pending new-worktree mode", () => {
+    expect(
+      getEnvModeButtonLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "local",
+      }),
+    ).toBe("Local");
+    expect(
+      getEnvModeButtonLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "worktree",
+      }),
+    ).toBe("New worktree");
   });
 });
 
