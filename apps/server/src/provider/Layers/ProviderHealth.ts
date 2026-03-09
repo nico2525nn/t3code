@@ -8,6 +8,9 @@
  *
  * @module ProviderHealthLive
  */
+import * as fs from "node:fs";
+import * as OS from "node:os";
+import * as NodePath from "node:path";
 import type {
   ServerProviderAuthStatus,
   ServerProviderStatus,
@@ -167,6 +170,70 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
   };
 }
 
+// ── Codex CLI config detection ──────────────────────────────────────
+
+/**
+ * Providers that use OpenAI-native authentication via `codex login`.
+ * When the configured `model_provider` is one of these, the `codex login
+ * status` probe still runs. For any other provider value the auth probe
+ * is skipped because authentication is handled externally (e.g. via
+ * environment variables like `PORTKEY_API_KEY` or `AZURE_API_KEY`).
+ */
+const OPENAI_AUTH_PROVIDERS = new Set(["openai"]);
+
+/**
+ * Read the `model_provider` value from the Codex CLI config file.
+ *
+ * Looks for the file at `$CODEX_HOME/config.toml` (falls back to
+ * `~/.codex/config.toml`). Uses a simple line-by-line scan rather than
+ * a full TOML parser to avoid adding a dependency for a single key.
+ *
+ * Returns `undefined` when the file does not exist or does not set
+ * `model_provider`.
+ */
+export function readCodexConfigModelProvider(): string | undefined {
+  const codexHome = process.env.CODEX_HOME || NodePath.join(OS.homedir(), ".codex");
+  const configPath = NodePath.join(codexHome, "config.toml");
+
+  let content: string;
+  try {
+    content = fs.readFileSync(configPath, "utf8");
+  } catch {
+    return undefined;
+  }
+
+  // We need to find `model_provider = "..."` at the top level of the
+  // TOML file (i.e. before any `[section]` header). Lines inside
+  // `[profiles.*]`, `[model_providers.*]`, etc. are ignored.
+  let inTopLevel = true;
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    // Skip comments and empty lines.
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    // Detect section headers — once we leave the top level, stop.
+    if (trimmed.startsWith("[")) {
+      inTopLevel = false;
+      continue;
+    }
+    if (!inTopLevel) continue;
+
+    const match = trimmed.match(/^model_provider\s*=\s*["']([^"']+)["']/);
+    if (match) return match[1];
+  }
+  return undefined;
+}
+
+/**
+ * Returns `true` when the Codex CLI is configured with a custom
+ * (non-OpenAI) model provider, meaning `codex login` auth is not
+ * required because authentication is handled through provider-specific
+ * environment variables.
+ */
+export function hasCustomModelProvider(): boolean {
+  const provider = readCodexConfigModelProvider();
+  return provider !== undefined && !OPENAI_AUTH_PROVIDERS.has(provider);
+}
+
 // ── Effect-native command execution ─────────────────────────────────
 
 const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
@@ -265,6 +332,22 @@ export const checkCodexProviderStatus: Effect.Effect<
   }
 
   // Probe 2: `codex login status` — is the user authenticated?
+  //
+  // Custom model providers (e.g. Portkey, Azure OpenAI proxy) handle
+  // authentication through their own environment variables, so `codex
+  // login status` will report "not logged in" even when the CLI works
+  // fine.  Skip the auth probe entirely for non-OpenAI providers.
+  if (hasCustomModelProvider()) {
+    return {
+      provider: CODEX_PROVIDER,
+      status: "ready" as const,
+      available: true,
+      authStatus: "unknown" as const,
+      checkedAt,
+      message: "Using a custom Codex model provider; OpenAI login check skipped.",
+    } satisfies ServerProviderStatus;
+  }
+
   const authProbe = yield* runCodexCommand(["login", "status"]).pipe(
     Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
     Effect.result,
