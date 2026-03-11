@@ -37,6 +37,9 @@ export class WsTransport {
 
   constructor(url?: string) {
     this.url = url ?? resolveServerWsUrl();
+    if (!this.url) {
+      throw new Error("WebSocket URL is required");
+    }
     this.connect();
   }
 
