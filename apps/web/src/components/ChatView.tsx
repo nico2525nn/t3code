@@ -503,7 +503,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const customModelsByProvider = useMemo(
     () => ({
       codex: settings.customCodexModels,
-      claudeCode: settings.customClaudeModels,
+      claudeAgent: settings.customClaudeModels,
     }),
     [settings.customClaudeModels, settings.customCodexModels],
   );

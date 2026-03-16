@@ -141,8 +141,8 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
 
       yield* runtimeRepository.upsert({
         threadId,
-        providerName: "claudeCode",
-        adapterKey: "claudeCode",
+        providerName: "claudeAgent",
+        adapterKey: "claudeAgent",
         runtimeMode: "full-access",
         status: "running",
         lastSeenAt: new Date().toISOString(),

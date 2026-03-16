@@ -4,7 +4,7 @@ import { assertFailure } from "@effect/vitest/utils";
 
 import { Effect, Layer, Stream } from "effect";
 
-import { ClaudeCodeAdapter, ClaudeCodeAdapterShape } from "../Services/ClaudeCodeAdapter.ts";
+import { ClaudeAdapter, ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { CodexAdapter, CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderAdapterRegistryLive } from "./ProviderAdapterRegistry.ts";
@@ -28,8 +28,8 @@ const fakeCodexAdapter: CodexAdapterShape = {
   streamEvents: Stream.empty,
 };
 
-const fakeClaudeAdapter: ClaudeCodeAdapterShape = {
-  provider: "claudeCode",
+const fakeClaudeAdapter: ClaudeAdapterShape = {
+  provider: "claudeAgent",
   capabilities: { sessionModelSwitch: "in-session" },
   startSession: vi.fn(),
   sendTurn: vi.fn(),
@@ -51,7 +51,7 @@ const layer = it.layer(
       ProviderAdapterRegistryLive,
       Layer.mergeAll(
         Layer.succeed(CodexAdapter, fakeCodexAdapter),
-        Layer.succeed(ClaudeCodeAdapter, fakeClaudeAdapter),
+        Layer.succeed(ClaudeAdapter, fakeClaudeAdapter),
       ),
     ),
     NodeServices.layer,
@@ -63,12 +63,12 @@ layer("ProviderAdapterRegistryLive", (it) => {
     Effect.gen(function* () {
       const registry = yield* ProviderAdapterRegistry;
       const codex = yield* registry.getByProvider("codex");
-      const claude = yield* registry.getByProvider("claudeCode");
+      const claude = yield* registry.getByProvider("claudeAgent");
       assert.equal(codex, fakeCodexAdapter);
       assert.equal(claude, fakeClaudeAdapter);
 
       const providers = yield* registry.listProviders();
-      assert.deepEqual(providers, ["codex", "claudeCode"]);
+      assert.deepEqual(providers, ["codex", "claudeAgent"]);
     }),
   );
 

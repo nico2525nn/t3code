@@ -1,7 +1,7 @@
 /**
  * ProviderAdapterRegistryLive - In-memory provider adapter lookup layer.
  *
- * Binds provider kinds (codex/claudeCode/...) to concrete adapter services.
+ * Binds provider kinds (codex/claudeAgent/...) to concrete adapter services.
  * This layer only performs adapter lookup; it does not route session-scoped
  * calls or own provider lifecycle workflows.
  *
@@ -15,7 +15,7 @@ import {
   ProviderAdapterRegistry,
   type ProviderAdapterRegistryShape,
 } from "../Services/ProviderAdapterRegistry.ts";
-import { ClaudeCodeAdapter } from "../Services/ClaudeCodeAdapter.ts";
+import { ClaudeAdapter } from "../Services/ClaudeAdapter.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
 
 export interface ProviderAdapterRegistryLiveOptions {
@@ -27,7 +27,7 @@ const makeProviderAdapterRegistry = (options?: ProviderAdapterRegistryLiveOption
     const adapters =
       options?.adapters !== undefined
         ? options.adapters
-        : [yield* CodexAdapter, yield* ClaudeCodeAdapter];
+        : [yield* CodexAdapter, yield* ClaudeAdapter];
     const byProvider = new Map(adapters.map((adapter) => [adapter.provider, adapter]));
 
     const getByProvider: ProviderAdapterRegistryShape["getByProvider"] = (provider) => {

@@ -11,7 +11,7 @@ import {
 } from "@t3tools/contracts";
 
 const MODEL_SLUG_SET_BY_PROVIDER: Record<ProviderKind, ReadonlySet<ModelSlug>> = {
-  claudeCode: new Set(MODEL_OPTIONS_BY_PROVIDER.claudeCode.map((option) => option.slug)),
+  claudeAgent: new Set(MODEL_OPTIONS_BY_PROVIDER.claudeAgent.map((option) => option.slug)),
   codex: new Set(MODEL_OPTIONS_BY_PROVIDER.codex.map((option) => option.slug)),
 };
 

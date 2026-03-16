@@ -26,7 +26,7 @@ import { ProviderHealth, type ProviderHealthShape } from "../Services/ProviderHe
 
 const DEFAULT_TIMEOUT_MS = 4_000;
 const CODEX_PROVIDER = "codex" as const;
-const CLAUDE_CODE_PROVIDER = "claudeCode" as const;
+const CLAUDE_AGENT_PROVIDER = "claudeAgent" as const;
 
 // ── Pure helpers ────────────────────────────────────────────────────
 
@@ -407,7 +407,7 @@ export const checkCodexProviderStatus: Effect.Effect<
   } satisfies ServerProviderStatus;
 });
 
-// ── Claude Code health check ────────────────────────────────────────
+// ── Claude Agent health check ───────────────────────────────────────
 
 export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
   readonly status: ServerProviderStatusState;
@@ -425,7 +425,7 @@ export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
       status: "warning",
       authStatus: "unknown",
       message:
-        "Claude Code authentication status command is unavailable in this version of Claude Code.",
+        "Claude Agent authentication status command is unavailable in this version of Claude.",
     };
   }
 
@@ -439,7 +439,7 @@ export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
     return {
       status: "error",
       authStatus: "unauthenticated",
-      message: "Claude Code is not authenticated. Run `claude auth login` and try again.",
+      message: "Claude is not authenticated. Run `claude auth login` and try again.",
     };
   }
 
@@ -466,7 +466,7 @@ export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
     return {
       status: "error",
       authStatus: "unauthenticated",
-      message: "Claude Code is not authenticated. Run `claude auth login` and try again.",
+      message: "Claude is not authenticated. Run `claude auth login` and try again.",
     };
   }
   if (parsedAuth.attemptedJsonParse) {
@@ -474,7 +474,7 @@ export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
       status: "warning",
       authStatus: "unknown",
       message:
-        "Could not verify Claude Code authentication status from JSON output (missing auth marker).",
+        "Could not verify Claude authentication status from JSON output (missing auth marker).",
     };
   }
   if (result.code === 0) {
@@ -486,12 +486,12 @@ export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
     status: "warning",
     authStatus: "unknown",
     message: detail
-      ? `Could not verify Claude Code authentication status. ${detail}`
-      : "Could not verify Claude Code authentication status.",
+      ? `Could not verify Claude authentication status. ${detail}`
+      : "Could not verify Claude authentication status.",
   };
 }
 
-export const checkClaudeCodeProviderStatus: Effect.Effect<
+export const checkClaudeProviderStatus: Effect.Effect<
   ServerProviderStatus,
   never,
   ChildProcessSpawner.ChildProcessSpawner
@@ -507,25 +507,25 @@ export const checkClaudeCodeProviderStatus: Effect.Effect<
   if (Result.isFailure(versionProbe)) {
     const error = versionProbe.failure;
     return {
-      provider: CLAUDE_CODE_PROVIDER,
+      provider: CLAUDE_AGENT_PROVIDER,
       status: "error" as const,
       available: false,
       authStatus: "unknown" as const,
       checkedAt,
       message: isCommandMissingCause(error)
-        ? "Claude Code CLI (`claude`) is not installed or not on PATH."
-        : `Failed to execute Claude Code CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
+        ? "Claude Agent CLI (`claude`) is not installed or not on PATH."
+        : `Failed to execute Claude Agent CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
     };
   }
 
   if (Option.isNone(versionProbe.success)) {
     return {
-      provider: CLAUDE_CODE_PROVIDER,
+      provider: CLAUDE_AGENT_PROVIDER,
       status: "error" as const,
       available: false,
       authStatus: "unknown" as const,
       checkedAt,
-      message: "Claude Code CLI is installed but failed to run. Timed out while running command.",
+      message: "Claude Agent CLI is installed but failed to run. Timed out while running command.",
     };
   }
 
@@ -533,14 +533,14 @@ export const checkClaudeCodeProviderStatus: Effect.Effect<
   if (version.code !== 0) {
     const detail = detailFromResult(version);
     return {
-      provider: CLAUDE_CODE_PROVIDER,
+      provider: CLAUDE_AGENT_PROVIDER,
       status: "error" as const,
       available: false,
       authStatus: "unknown" as const,
       checkedAt,
       message: detail
-        ? `Claude Code CLI is installed but failed to run. ${detail}`
-        : "Claude Code CLI is installed but failed to run.",
+        ? `Claude Agent CLI is installed but failed to run. ${detail}`
+        : "Claude Agent CLI is installed but failed to run.",
     };
   }
 
@@ -553,33 +553,32 @@ export const checkClaudeCodeProviderStatus: Effect.Effect<
   if (Result.isFailure(authProbe)) {
     const error = authProbe.failure;
     return {
-      provider: CLAUDE_CODE_PROVIDER,
+      provider: CLAUDE_AGENT_PROVIDER,
       status: "warning" as const,
       available: true,
       authStatus: "unknown" as const,
       checkedAt,
       message:
         error instanceof Error
-          ? `Could not verify Claude Code authentication status: ${error.message}.`
-          : "Could not verify Claude Code authentication status.",
+          ? `Could not verify Claude authentication status: ${error.message}.`
+          : "Could not verify Claude authentication status.",
     };
   }
 
   if (Option.isNone(authProbe.success)) {
     return {
-      provider: CLAUDE_CODE_PROVIDER,
+      provider: CLAUDE_AGENT_PROVIDER,
       status: "warning" as const,
       available: true,
       authStatus: "unknown" as const,
       checkedAt,
-      message:
-        "Could not verify Claude Code authentication status. Timed out while running command.",
+      message: "Could not verify Claude authentication status. Timed out while running command.",
     };
   }
 
   const parsed = parseClaudeAuthStatusFromOutput(authProbe.success.value);
   return {
-    provider: CLAUDE_CODE_PROVIDER,
+    provider: CLAUDE_AGENT_PROVIDER,
     status: parsed.status,
     available: true,
     authStatus: parsed.authStatus,
@@ -593,10 +592,9 @@ export const checkClaudeCodeProviderStatus: Effect.Effect<
 export const ProviderHealthLive = Layer.effect(
   ProviderHealth,
   Effect.gen(function* () {
-    const statusesFiber = yield* Effect.all(
-      [checkCodexProviderStatus, checkClaudeCodeProviderStatus],
-      { concurrency: "unbounded" },
-    ).pipe(Effect.forkScoped);
+    const statusesFiber = yield* Effect.all([checkCodexProviderStatus, checkClaudeProviderStatus], {
+      concurrency: "unbounded",
+    }).pipe(Effect.forkScoped);
 
     return {
       getStatuses: Fiber.join(statusesFiber),

@@ -189,7 +189,7 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex" || providerName === "claudeCode") {
+  if (providerName === "codex" || providerName === "claudeAgent") {
     return providerName;
   }
   return "codex";
@@ -197,25 +197,25 @@ function toLegacyProvider(providerName: string | null): ProviderKind {
 
 const CODEX_MODEL_SLUGS = new Set<string>(getModelOptions("codex").map((option) => option.slug));
 const CLAUDE_MODEL_SLUGS = new Set<string>(
-  getModelOptions("claudeCode").map((option) => option.slug),
+  getModelOptions("claudeAgent").map((option) => option.slug),
 );
 
 function inferProviderForThreadModel(input: {
   readonly model: string;
   readonly sessionProviderName: string | null;
 }): ProviderKind {
-  if (input.sessionProviderName === "codex" || input.sessionProviderName === "claudeCode") {
+  if (input.sessionProviderName === "codex" || input.sessionProviderName === "claudeAgent") {
     return input.sessionProviderName;
   }
-  const normalizedClaude = normalizeModelSlug(input.model, "claudeCode");
+  const normalizedClaude = normalizeModelSlug(input.model, "claudeAgent");
   if (normalizedClaude && CLAUDE_MODEL_SLUGS.has(normalizedClaude)) {
-    return "claudeCode";
+    return "claudeAgent";
   }
   const normalizedCodex = normalizeModelSlug(input.model, "codex");
   if (normalizedCodex && CODEX_MODEL_SLUGS.has(normalizedCodex)) {
     return "codex";
   }
-  return input.model.trim().startsWith("claude-") ? "claudeCode" : "codex";
+  return input.model.trim().startsWith("claude-") ? "claudeAgent" : "codex";
 }
 
 function resolveWsHttpOrigin(): string {

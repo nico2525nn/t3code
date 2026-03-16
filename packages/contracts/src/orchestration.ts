@@ -27,7 +27,7 @@ export const ORCHESTRATION_WS_CHANNELS = {
   domainEvent: "orchestration.domainEvent",
 } as const;
 
-export const ProviderKind = Schema.Literals(["codex", "claudeCode"]);
+export const ProviderKind = Schema.Literals(["codex", "claudeAgent"]);
 export type ProviderKind = typeof ProviderKind.Type;
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
@@ -49,7 +49,7 @@ export const CodexProviderStartOptions = Schema.Struct({
   homePath: Schema.optional(TrimmedNonEmptyString),
 });
 
-export const ClaudeCodeProviderStartOptions = Schema.Struct({
+export const ClaudeProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyString),
   permissionMode: Schema.optional(TrimmedNonEmptyString),
   maxThinkingTokens: Schema.optional(NonNegativeInt),
@@ -57,7 +57,7 @@ export const ClaudeCodeProviderStartOptions = Schema.Struct({
 
 export const ProviderStartOptions = Schema.Struct({
   codex: Schema.optional(CodexProviderStartOptions),
-  claudeCode: Schema.optional(ClaudeCodeProviderStartOptions),
+  claudeAgent: Schema.optional(ClaudeProviderStartOptions),
 });
 export type ProviderStartOptions = typeof ProviderStartOptions.Type;
 

@@ -204,7 +204,7 @@ describe("store read model sync", () => {
     expect(next.threads[0]?.model).toBe("claude-opus-4-6");
   });
 
-  it("resolves claude aliases when session provider is claudeCode", () => {
+  it("resolves claude aliases when session provider is claudeAgent", () => {
     const initialState = makeState(makeThread());
     const readModel = makeReadModel(
       makeReadModelThread({
@@ -212,7 +212,7 @@ describe("store read model sync", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "claudeCode",
+          providerName: "claudeAgent",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,

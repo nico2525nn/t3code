@@ -5,7 +5,7 @@ import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
-  checkClaudeCodeProviderStatus,
+  checkClaudeProviderStatus,
   checkCodexProviderStatus,
   hasCustomModelProvider,
   parseAuthStatusFromOutput,
@@ -467,13 +467,13 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
     );
   });
 
-  // ── checkClaudeCodeProviderStatus tests ──────────────────────────
+  // ── checkClaudeProviderStatus tests ──────────────────────────
 
-  describe("checkClaudeCodeProviderStatus", () => {
+  describe("checkClaudeProviderStatus", () => {
     it.effect("returns ready when claude is installed and authenticated", () =>
       Effect.gen(function* () {
-        const status = yield* checkClaudeCodeProviderStatus;
-        assert.strictEqual(status.provider, "claudeCode");
+        const status = yield* checkClaudeProviderStatus;
+        assert.strictEqual(status.provider, "claudeAgent");
         assert.strictEqual(status.status, "ready");
         assert.strictEqual(status.available, true);
         assert.strictEqual(status.authStatus, "authenticated");
@@ -496,22 +496,22 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
 
     it.effect("returns unavailable when claude is missing", () =>
       Effect.gen(function* () {
-        const status = yield* checkClaudeCodeProviderStatus;
-        assert.strictEqual(status.provider, "claudeCode");
+        const status = yield* checkClaudeProviderStatus;
+        assert.strictEqual(status.provider, "claudeAgent");
         assert.strictEqual(status.status, "error");
         assert.strictEqual(status.available, false);
         assert.strictEqual(status.authStatus, "unknown");
         assert.strictEqual(
           status.message,
-          "Claude Code CLI (`claude`) is not installed or not on PATH.",
+          "Claude Agent CLI (`claude`) is not installed or not on PATH.",
         );
       }).pipe(Effect.provide(failingSpawnerLayer("spawn claude ENOENT"))),
     );
 
     it.effect("returns error when version check fails with non-zero exit code", () =>
       Effect.gen(function* () {
-        const status = yield* checkClaudeCodeProviderStatus;
-        assert.strictEqual(status.provider, "claudeCode");
+        const status = yield* checkClaudeProviderStatus;
+        assert.strictEqual(status.provider, "claudeAgent");
         assert.strictEqual(status.status, "error");
         assert.strictEqual(status.available, false);
       }).pipe(
@@ -528,14 +528,14 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
 
     it.effect("returns unauthenticated when auth status reports not logged in", () =>
       Effect.gen(function* () {
-        const status = yield* checkClaudeCodeProviderStatus;
-        assert.strictEqual(status.provider, "claudeCode");
+        const status = yield* checkClaudeProviderStatus;
+        assert.strictEqual(status.provider, "claudeAgent");
         assert.strictEqual(status.status, "error");
         assert.strictEqual(status.available, true);
         assert.strictEqual(status.authStatus, "unauthenticated");
         assert.strictEqual(
           status.message,
-          "Claude Code is not authenticated. Run `claude auth login` and try again.",
+          "Claude is not authenticated. Run `claude auth login` and try again.",
         );
       }).pipe(
         Effect.provide(
@@ -556,8 +556,8 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
 
     it.effect("returns unauthenticated when output includes 'not logged in'", () =>
       Effect.gen(function* () {
-        const status = yield* checkClaudeCodeProviderStatus;
-        assert.strictEqual(status.provider, "claudeCode");
+        const status = yield* checkClaudeProviderStatus;
+        assert.strictEqual(status.provider, "claudeAgent");
         assert.strictEqual(status.status, "error");
         assert.strictEqual(status.available, true);
         assert.strictEqual(status.authStatus, "unauthenticated");
@@ -575,14 +575,14 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
 
     it.effect("returns warning when auth status command is unsupported", () =>
       Effect.gen(function* () {
-        const status = yield* checkClaudeCodeProviderStatus;
-        assert.strictEqual(status.provider, "claudeCode");
+        const status = yield* checkClaudeProviderStatus;
+        assert.strictEqual(status.provider, "claudeAgent");
         assert.strictEqual(status.status, "warning");
         assert.strictEqual(status.available, true);
         assert.strictEqual(status.authStatus, "unknown");
         assert.strictEqual(
           status.message,
-          "Claude Code authentication status command is unavailable in this version of Claude Code.",
+          "Claude Agent authentication status command is unavailable in this version of Claude.",
         );
       }).pipe(
         Effect.provide(

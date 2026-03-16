@@ -88,8 +88,8 @@ Update/add tests in `packages/contracts/src/*.test.ts` for:
 
 Create:
 
-1. `apps/server/src/provider/Services/ClaudeCodeAdapter.ts`
-2. `apps/server/src/provider/Layers/ClaudeCodeAdapter.ts`
+1. `apps/server/src/provider/Services/ClaudeAdapter.ts`
+2. `apps/server/src/provider/Layers/ClaudeAdapter.ts`
 
 Adapter must implement `ProviderAdapterShape<ProviderAdapterError>`.
 
@@ -279,7 +279,7 @@ Map orchestration stop/interrupt expectations onto SDK controls:
 
 Update provider registry layer to include Claude:
 
-1. add `claudeCode` -> `ClaudeCodeAdapter`
+1. add `claudeCode` -> `ClaudeAdapter`
 2. ensure `ProviderService.listProviderStatuses()` reports Claude availability
 
 ### 3.2 Persist provider binding
@@ -384,7 +384,7 @@ Cover:
 
 ### 6.2 Adapter layer tests
 
-Add `ClaudeCodeAdapter.test.ts` covering:
+Add `ClaudeAdapter.test.ts` covering:
 
 1. session start
 2. event mapping
