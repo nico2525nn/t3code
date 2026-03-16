@@ -416,7 +416,7 @@ describe("ProviderCommandReactor", () => {
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
       provider: "claudeAgent",
       cwd: "/tmp/provider-project",
-      model: "gpt-5-codex",
+      model: "claude-sonnet-4-6",
       runtimeMode: "approval-required",
     });
 

@@ -1,6 +1,7 @@
 import {
   type ChatAttachment,
   CommandId,
+  DEFAULT_MODEL_BY_PROVIDER,
   EventId,
   type OrchestrationEvent,
   type ProviderModelOptions,
@@ -211,7 +212,11 @@ const make = Effect.gen(function* () {
       ? thread.session.providerName
       : undefined;
     const preferredProvider: ProviderKind | undefined = options?.provider ?? currentProvider;
-    const desiredModel = options?.model ?? thread.model;
+    const providerIsChanging =
+      options?.provider !== undefined && options.provider !== currentProvider;
+    const desiredModel =
+      options?.model ??
+      (providerIsChanging ? DEFAULT_MODEL_BY_PROVIDER[options.provider!] : thread.model);
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
       projects: readModel.projects,
