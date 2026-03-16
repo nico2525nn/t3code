@@ -5,7 +5,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { ApprovalRequestId, ThreadId } from "@t3tools/contracts";
+import { ApprovalRequestId, ProviderItemId, ThreadId } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Random, Stream } from "effect";
 
@@ -1057,6 +1057,32 @@ describe("ClaudeAdapterLive", () => {
 
       yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
 
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "approve this",
+        attachments: [],
+      });
+      yield* Stream.take(adapter.streamEvents, 1).pipe(Stream.runDrain);
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-approval-1",
+        uuid: "stream-approval-thread",
+        parent_tool_use_id: null,
+        event: {
+          type: "message_start",
+          message: {
+            id: "msg-approval-thread",
+          },
+        },
+      } as unknown as SDKMessage);
+
+      const threadStarted = yield* Stream.runHead(adapter.streamEvents);
+      assert.equal(threadStarted._tag, "Some");
+      if (threadStarted._tag !== "Some" || threadStarted.value.type !== "thread.started") {
+        return;
+      }
+
       const createInput = harness.getLastCreateQueryInput();
       const canUseTool = createInput?.options.canUseTool;
       assert.equal(typeof canUseTool, "function");
@@ -1089,6 +1115,9 @@ describe("ClaudeAdapterLive", () => {
       if (requested.value.type !== "request.opened") {
         return;
       }
+      assert.deepEqual(requested.value.providerRefs, {
+        providerItemId: ProviderItemId.makeUnsafe("tool-use-1"),
+      });
       const runtimeRequestId = requested.value.requestId;
       assert.equal(typeof runtimeRequestId, "string");
       if (runtimeRequestId === undefined) {
@@ -1112,6 +1141,9 @@ describe("ClaudeAdapterLive", () => {
       }
       assert.equal(resolved.value.requestId, requested.value.requestId);
       assert.equal(resolved.value.payload.decision, "accept");
+      assert.deepEqual(resolved.value.providerRefs, {
+        providerItemId: ProviderItemId.makeUnsafe("tool-use-1"),
+      });
 
       const permissionResult = yield* Effect.promise(() => permissionPromise);
       assert.equal((permissionResult as PermissionResult).behavior, "allow");
@@ -1469,6 +1501,32 @@ describe("ClaudeAdapterLive", () => {
       // Drain the session startup events (started, configured, state.changed).
       yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
 
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "question turn",
+        attachments: [],
+      });
+      yield* Stream.take(adapter.streamEvents, 1).pipe(Stream.runDrain);
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-user-input-1",
+        uuid: "stream-user-input-thread",
+        parent_tool_use_id: null,
+        event: {
+          type: "message_start",
+          message: {
+            id: "msg-user-input-thread",
+          },
+        },
+      } as unknown as SDKMessage);
+
+      const threadStarted = yield* Stream.runHead(adapter.streamEvents);
+      assert.equal(threadStarted._tag, "Some");
+      if (threadStarted._tag !== "Some" || threadStarted.value.type !== "thread.started") {
+        return;
+      }
+
       const createInput = harness.getLastCreateQueryInput();
       const canUseTool = createInput?.options.canUseTool;
       assert.equal(typeof canUseTool, "function");
@@ -1510,6 +1568,9 @@ describe("ClaudeAdapterLive", () => {
       assert.equal(typeof requestId, "string");
       assert.equal(requestedEvent.value.payload.questions.length, 1);
       assert.equal(requestedEvent.value.payload.questions[0]?.question, "Which framework?");
+      assert.deepEqual(requestedEvent.value.providerRefs, {
+        providerItemId: ProviderItemId.makeUnsafe("tool-ask-1"),
+      });
 
       // Respond with the user's answers.
       yield* adapter.respondToUserInput(
@@ -1530,6 +1591,9 @@ describe("ClaudeAdapterLive", () => {
       }
       assert.deepEqual(resolvedEvent.value.payload.answers, {
         "Which framework?": "React",
+      });
+      assert.deepEqual(resolvedEvent.value.providerRefs, {
+        providerItemId: ProviderItemId.makeUnsafe("tool-ask-1"),
       });
 
       // The canUseTool promise should resolve with the answers in SDK format.

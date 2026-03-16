@@ -370,10 +370,18 @@ function streamKindFromDeltaType(deltaType: string): ClaudeTextStreamKind {
   return deltaType.includes("thinking") ? "reasoning_text" : "assistant_text";
 }
 
-function providerThreadRef(
-  context: ClaudeSessionContext,
-): { readonly providerThreadId: string } | {} {
-  return context.resumeSessionId ? { providerThreadId: context.resumeSessionId } : {};
+function nativeProviderRefs(
+  _context: ClaudeSessionContext,
+  options?: {
+    readonly providerItemId?: string | undefined;
+  },
+): NonNullable<ProviderRuntimeEvent["providerRefs"]> {
+  if (options?.providerItemId) {
+    return {
+      providerItemId: ProviderItemId.makeUnsafe(options.providerItemId),
+    };
+  }
+  return {};
 }
 
 function extractAssistantTextBlocks(message: SDKMessage): Array<string> {
@@ -829,11 +837,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               streamKind: "assistant_text",
               delta: block.fallbackText,
             },
-            providerRefs: {
-              ...providerThreadRef(context),
-              providerTurnId: String(turnState.turnId),
-              providerItemId: ProviderItemId.makeUnsafe(block.itemId),
-            },
+            providerRefs: nativeProviderRefs(context),
             ...(options?.rawMethod || options?.rawPayload
               ? {
                   raw: {
@@ -863,11 +867,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             title: "Assistant message",
             ...(block.fallbackText.length > 0 ? { detail: block.fallbackText } : {}),
           },
-          providerRefs: {
-            ...providerThreadRef(context),
-            providerTurnId: turnState.turnId,
-            providerItemId: ProviderItemId.makeUnsafe(block.itemId),
-          },
+          providerRefs: nativeProviderRefs(context),
           ...(options?.rawMethod || options?.rawPayload
             ? {
                 raw: {
@@ -998,10 +998,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             class: "provider_error",
             ...(cause !== undefined ? { detail: cause } : {}),
           },
-          providerRefs: {
-            ...providerThreadRef(context),
-            ...(turnState ? { providerTurnId: String(turnState.turnId) } : {}),
-          },
+          providerRefs: nativeProviderRefs(context),
         });
       });
 
@@ -1024,10 +1021,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             message,
             ...(detail !== undefined ? { detail } : {}),
           },
-          providerRefs: {
-            ...providerThreadRef(context),
-            ...(turnState ? { providerTurnId: String(turnState.turnId) } : {}),
-          },
+          providerRefs: nativeProviderRefs(context),
         });
       });
 
@@ -1082,11 +1076,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 input: tool.input,
               },
             },
-            providerRefs: {
-              ...providerThreadRef(context),
-              providerTurnId: turnState.turnId,
-              providerItemId: ProviderItemId.makeUnsafe(tool.itemId),
-            },
+            providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
             raw: {
               source: "claude.sdk.message",
               method: "claude/result",
@@ -1127,10 +1117,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               : {}),
             ...(errorMessage ? { errorMessage } : {}),
           },
-          providerRefs: {
-            ...providerThreadRef(context),
-            providerTurnId: turnState.turnId,
-          },
+          providerRefs: nativeProviderRefs(context),
         });
 
         const updatedAt = yield* nowIso;
@@ -1200,15 +1187,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 streamKind,
                 delta: deltaText,
               },
-              providerRefs: {
-                ...providerThreadRef(context),
-                providerTurnId: context.turnState.turnId,
-                ...(assistantBlockEntry?.block
-                  ? {
-                      providerItemId: ProviderItemId.makeUnsafe(assistantBlockEntry.block.itemId),
-                    }
-                  : {}),
-              },
+              providerRefs: nativeProviderRefs(context),
               raw: {
                 source: "claude.sdk.message",
                 method: "claude/stream_event/content_block_delta",
@@ -1275,11 +1254,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                   input: nextTool.input,
                 },
               },
-              providerRefs: {
-                ...providerThreadRef(context),
-                ...(context.turnState ? { providerTurnId: String(context.turnState.turnId) } : {}),
-                providerItemId: ProviderItemId.makeUnsafe(nextTool.itemId),
-              },
+              providerRefs: nativeProviderRefs(context, { providerItemId: nextTool.itemId }),
               raw: {
                 source: "claude.sdk.message",
                 method: "claude/stream_event/content_block_delta/input_json_delta",
@@ -1348,11 +1323,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 input: toolInput,
               },
             },
-            providerRefs: {
-              ...providerThreadRef(context),
-              ...(context.turnState ? { providerTurnId: String(context.turnState.turnId) } : {}),
-              providerItemId: ProviderItemId.makeUnsafe(tool.itemId),
-            },
+            providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
             raw: {
               source: "claude.sdk.message",
               method: "claude/stream_event/content_block_start",
@@ -1425,11 +1396,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               ...(tool.detail ? { detail: tool.detail } : {}),
               data: toolData,
             },
-            providerRefs: {
-              ...providerThreadRef(context),
-              ...(context.turnState ? { providerTurnId: String(context.turnState.turnId) } : {}),
-              providerItemId: ProviderItemId.makeUnsafe(tool.itemId),
-            },
+            providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
             raw: {
               source: "claude.sdk.message",
               method: "claude/user",
@@ -1452,11 +1419,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 streamKind,
                 delta: toolResult.text,
               },
-              providerRefs: {
-                ...providerThreadRef(context),
-                providerTurnId: context.turnState.turnId,
-                providerItemId: ProviderItemId.makeUnsafe(tool.itemId),
-              },
+              providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
               raw: {
                 source: "claude.sdk.message",
                 method: "claude/user",
@@ -1481,11 +1444,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               ...(tool.detail ? { detail: tool.detail } : {}),
               data: toolData,
             },
-            providerRefs: {
-              ...providerThreadRef(context),
-              ...(context.turnState ? { providerTurnId: String(context.turnState.turnId) } : {}),
-              providerItemId: ProviderItemId.makeUnsafe(tool.itemId),
-            },
+            providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
             raw: {
               source: "claude.sdk.message",
               method: "claude/user",
@@ -1550,10 +1509,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           createdAt: stamp.createdAt,
           threadId: context.session.threadId,
           ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
-          providerRefs: {
-            ...providerThreadRef(context),
-            ...(context.turnState ? { providerTurnId: context.turnState.turnId } : {}),
-          },
+          providerRefs: nativeProviderRefs(context),
           raw: {
             source: "claude.sdk.message" as const,
             method: sdkNativeMethod(message),
@@ -1709,10 +1665,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           createdAt: stamp.createdAt,
           threadId: context.session.threadId,
           ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
-          providerRefs: {
-            ...providerThreadRef(context),
-            ...(context.turnState ? { providerTurnId: context.turnState.turnId } : {}),
-          },
+          providerRefs: nativeProviderRefs(context),
           raw: {
             source: "claude.sdk.message" as const,
             method: sdkNativeMethod(message),
@@ -1854,11 +1807,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               requestType: pending.requestType,
               decision: "cancel",
             },
-            providerRefs: {
-              ...providerThreadRef(context),
-              ...(context.turnState ? { providerTurnId: String(context.turnState.turnId) } : {}),
-              providerRequestId: requestId,
-            },
+            providerRefs: nativeProviderRefs(context),
           });
         }
         context.pendingApprovals.clear();
@@ -1994,11 +1943,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
               requestId: asRuntimeRequestId(requestId),
               payload: { questions },
-              providerRefs: {
-                ...(context.session.threadId ? { providerThreadId: context.session.threadId } : {}),
-                ...(context.turnState ? { providerTurnId: String(context.turnState.turnId) } : {}),
-                providerRequestId: requestId,
-              },
+              providerRefs: nativeProviderRefs(context, {
+                providerItemId: callbackOptions.toolUseID,
+              }),
               raw: {
                 source: "claude.sdk.permission",
                 method: "canUseTool/AskUserQuestion",
@@ -2033,11 +1980,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
               requestId: asRuntimeRequestId(requestId),
               payload: { answers },
-              providerRefs: {
-                ...(context.session.threadId ? { providerThreadId: context.session.threadId } : {}),
-                ...(context.turnState ? { providerTurnId: String(context.turnState.turnId) } : {}),
-                providerRequestId: requestId,
-              },
+              providerRefs: nativeProviderRefs(context, {
+                providerItemId: callbackOptions.toolUseID,
+              }),
               raw: {
                 source: "claude.sdk.permission",
                 method: "canUseTool/AskUserQuestion/resolved",
@@ -2115,15 +2060,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                     ...(callbackOptions.toolUseID ? { toolUseId: callbackOptions.toolUseID } : {}),
                   },
                 },
-                providerRefs: {
-                  ...(context.session.threadId
-                    ? { providerThreadId: context.session.threadId }
-                    : {}),
-                  ...(context.turnState
-                    ? { providerTurnId: String(context.turnState.turnId) }
-                    : {}),
-                  providerRequestId: requestId,
-                },
+                providerRefs: nativeProviderRefs(context, {
+                  providerItemId: callbackOptions.toolUseID,
+                }),
                 raw: {
                   source: "claude.sdk.permission",
                   method: "canUseTool/request",
@@ -2166,15 +2105,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                   requestType,
                   decision,
                 },
-                providerRefs: {
-                  ...(context.session.threadId
-                    ? { providerThreadId: context.session.threadId }
-                    : {}),
-                  ...(context.turnState
-                    ? { providerTurnId: String(context.turnState.turnId) }
-                    : {}),
-                  providerRequestId: requestId,
-                },
+                providerRefs: nativeProviderRefs(context, {
+                  providerItemId: callbackOptions.toolUseID,
+                }),
                 raw: {
                   source: "claude.sdk.permission",
                   method: "canUseTool/decision",
@@ -2399,9 +2332,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           threadId: context.session.threadId,
           turnId,
           payload: input.model ? { model: input.model } : {},
-          providerRefs: {
-            providerTurnId: String(turnId),
-          },
+          providerRefs: {},
         });
 
         const message = buildUserMessage(input);
