@@ -1148,6 +1148,52 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
           if (!tool) {
             return;
           }
+
+          let finalTool = tool;
+          if (tool.partialInputJson.length > 0) {
+            const parsedInput = tryParseJsonRecord(tool.partialInputJson);
+            if (parsedInput) {
+              const detail = summarizeToolRequest(tool.toolName, parsedInput);
+              finalTool = {
+                ...tool,
+                input: parsedInput,
+                ...(detail ? { detail } : {}),
+              };
+              context.inFlightTools.set(index, finalTool);
+            }
+          }
+
+          const stamp = yield* makeEventStamp();
+          yield* offerRuntimeEvent({
+            type: "item.updated",
+            eventId: stamp.eventId,
+            provider: PROVIDER,
+            createdAt: stamp.createdAt,
+            threadId: context.session.threadId,
+            ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
+            itemId: asRuntimeItemId(finalTool.itemId),
+            payload: {
+              itemType: finalTool.itemType,
+              status: "inProgress",
+              title: finalTool.title,
+              ...(finalTool.detail ? { detail: finalTool.detail } : {}),
+              data: {
+                toolName: finalTool.toolName,
+                input: finalTool.input,
+              },
+            },
+            providerRefs: {
+              ...providerThreadRef(context),
+              ...(context.turnState ? { providerTurnId: String(context.turnState.turnId) } : {}),
+              providerItemId: ProviderItemId.makeUnsafe(finalTool.itemId),
+            },
+            raw: {
+              source: "claude.sdk.message",
+              method: "claude/stream_event/content_block_stop",
+              payload: message,
+            },
+          });
+          return;
         }
       });
 
