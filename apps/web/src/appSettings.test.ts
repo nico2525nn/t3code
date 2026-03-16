@@ -8,12 +8,11 @@ import {
 } from "./appSettings";
 
 describe("normalizeCustomModelSlugs", () => {
-  it("normalizes aliases, removes built-ins, and deduplicates values", () => {
+  it("removes literal built-ins, trims whitespace, and deduplicates values", () => {
     expect(
       normalizeCustomModelSlugs([
         " custom/internal-model ",
         "gpt-5.3-codex",
-        "5.3",
         "custom/internal-model",
         "",
         null,
@@ -21,8 +20,10 @@ describe("normalizeCustomModelSlugs", () => {
     ).toEqual(["custom/internal-model"]);
   });
 
-  it("normalizes provider-specific aliases for claude", () => {
-    expect(normalizeCustomModelSlugs(["sonnet"], "claudeCode")).toEqual([]);
+  it("preserves aliases and dated versions as custom models", () => {
+    expect(normalizeCustomModelSlugs(["claude-sonnet-4-6-20251117"], "claudeCode")).toEqual([
+      "claude-sonnet-4-6-20251117",
+    ]);
     expect(normalizeCustomModelSlugs(["claude/custom-sonnet"], "claudeCode")).toEqual([
       "claude/custom-sonnet",
     ]);

@@ -1816,7 +1816,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
 
     const stopAll: ClaudeCodeAdapterShape["stopAll"] = () =>
       Effect.forEach(
-        sessions,
+        Array.from(sessions),
         ([, context]) =>
           stopSessionInternal(context, {
             emitExitEvent: true,
@@ -1826,7 +1826,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
 
     yield* Effect.addFinalizer(() =>
       Effect.forEach(
-        sessions,
+        Array.from(sessions),
         ([, context]) =>
           stopSessionInternal(context, {
             emitExitEvent: false,

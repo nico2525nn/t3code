@@ -57,18 +57,19 @@ export function normalizeCustomModelSlugs(
   const builtInModelSlugs = BUILT_IN_MODEL_SLUGS_BY_PROVIDER[provider];
 
   for (const candidate of models) {
-    const normalized = normalizeModelSlug(candidate, provider);
+    if (typeof candidate !== "string") continue;
+    const trimmed = candidate.trim();
     if (
-      !normalized ||
-      normalized.length > MAX_CUSTOM_MODEL_LENGTH ||
-      builtInModelSlugs.has(normalized) ||
-      seen.has(normalized)
+      !trimmed ||
+      trimmed.length > MAX_CUSTOM_MODEL_LENGTH ||
+      builtInModelSlugs.has(trimmed) ||
+      seen.has(trimmed)
     ) {
       continue;
     }
 
-    seen.add(normalized);
-    normalizedModels.push(normalized);
+    seen.add(trimmed);
+    normalizedModels.push(trimmed);
     if (normalizedModels.length >= MAX_CUSTOM_MODEL_COUNT) {
       break;
     }
