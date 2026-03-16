@@ -44,9 +44,7 @@ describe("normalizeModelSlug", () => {
   it("uses provider-specific aliases", () => {
     expect(normalizeModelSlug("sonnet", "claudeCode")).toBe("claude-sonnet-4-6");
     expect(normalizeModelSlug("opus-4.6", "claudeCode")).toBe("claude-opus-4-6");
-    expect(normalizeModelSlug("claude-haiku-4-5-20251001", "claudeCode")).toBe(
-      "claude-haiku-4-5",
-    );
+    expect(normalizeModelSlug("claude-haiku-4-5-20251001", "claudeCode")).toBe("claude-haiku-4-5");
   });
 });
 
