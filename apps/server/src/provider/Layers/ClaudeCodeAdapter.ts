@@ -134,6 +134,19 @@ export interface ClaudeCodeAdapterLiveOptions {
   readonly nativeEventLogger?: EventNdjsonLogger;
 }
 
+const CLAUDE_ENV_PREFIX_BLOCKLIST = ["T3CODE_", "VITE_"];
+
+function createClaudeSpawnEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const filtered: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(baseEnv)) {
+    if (value === undefined) continue;
+    const upper = key.toUpperCase();
+    if (CLAUDE_ENV_PREFIX_BLOCKLIST.some((prefix) => upper.startsWith(prefix))) continue;
+    filtered[key] = value;
+  }
+  return filtered;
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -256,7 +269,7 @@ function isReadOnlyToolName(toolName: string): boolean {
     normalized.includes("view") ||
     normalized.includes("grep") ||
     normalized.includes("glob") ||
-    normalized.includes("search")
+    (normalized.includes("search") && !normalized.includes("web"))
   );
 }
 
@@ -1917,7 +1930,7 @@ function makeClaudeCodeAdapter(options?: ClaudeCodeAdapterLiveOptions) {
           ...(resumeState?.resumeSessionAt ? { resumeSessionAt: resumeState.resumeSessionAt } : {}),
           includePartialMessages: true,
           canUseTool,
-          env: process.env,
+          env: createClaudeSpawnEnv(process.env),
           ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
         };
 

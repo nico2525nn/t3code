@@ -84,7 +84,39 @@ function extractAuthBoolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
-export function parseAuthStatusFromOutput(result: CommandResult): {
+interface ProviderAuthLabels {
+  readonly unknownCommandMessage: string;
+  readonly unauthenticatedMessage: string;
+  readonly jsonParseWarning: string;
+  readonly verifyFailurePrefix: string;
+  readonly loginHints: ReadonlyArray<string>;
+}
+
+const CODEX_AUTH_LABELS: ProviderAuthLabels = {
+  unknownCommandMessage:
+    "Codex CLI authentication status command is unavailable in this Codex version.",
+  unauthenticatedMessage: "Codex CLI is not authenticated. Run `codex login` and try again.",
+  jsonParseWarning:
+    "Could not verify Codex authentication status from JSON output (missing auth marker).",
+  verifyFailurePrefix: "Could not verify Codex authentication status",
+  loginHints: ["run `codex login`", "run codex login"],
+};
+
+const CLAUDE_AUTH_LABELS: ProviderAuthLabels = {
+  unknownCommandMessage:
+    "Claude Code authentication status command is unavailable in this version of Claude Code.",
+  unauthenticatedMessage:
+    "Claude Code is not authenticated. Run `claude auth login` and try again.",
+  jsonParseWarning:
+    "Could not verify Claude Code authentication status from JSON output (missing auth marker).",
+  verifyFailurePrefix: "Could not verify Claude Code authentication status",
+  loginHints: ["run `claude login`", "run claude login"],
+};
+
+function parseAuthStatusWithLabels(
+  result: CommandResult,
+  labels: ProviderAuthLabels,
+): {
   readonly status: ServerProviderStatusState;
   readonly authStatus: ServerProviderAuthStatus;
   readonly message?: string;
@@ -99,7 +131,7 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
     return {
       status: "warning",
       authStatus: "unknown",
-      message: "Codex CLI authentication status command is unavailable in this Codex version.",
+      message: labels.unknownCommandMessage,
     };
   }
 
@@ -107,13 +139,12 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
     lowerOutput.includes("not logged in") ||
     lowerOutput.includes("login required") ||
     lowerOutput.includes("authentication required") ||
-    lowerOutput.includes("run `codex login`") ||
-    lowerOutput.includes("run codex login")
+    labels.loginHints.some((hint) => lowerOutput.includes(hint))
   ) {
     return {
       status: "error",
       authStatus: "unauthenticated",
-      message: "Codex CLI is not authenticated. Run `codex login` and try again.",
+      message: labels.unauthenticatedMessage,
     };
   }
 
@@ -139,15 +170,14 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
     return {
       status: "error",
       authStatus: "unauthenticated",
-      message: "Codex CLI is not authenticated. Run `codex login` and try again.",
+      message: labels.unauthenticatedMessage,
     };
   }
   if (parsedAuth.attemptedJsonParse) {
     return {
       status: "warning",
       authStatus: "unknown",
-      message:
-        "Could not verify Codex authentication status from JSON output (missing auth marker).",
+      message: labels.jsonParseWarning,
     };
   }
   if (result.code === 0) {
@@ -158,10 +188,12 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
   return {
     status: "warning",
     authStatus: "unknown",
-    message: detail
-      ? `Could not verify Codex authentication status. ${detail}`
-      : "Could not verify Codex authentication status.",
+    message: detail ? `${labels.verifyFailurePrefix}. ${detail}` : `${labels.verifyFailurePrefix}.`,
   };
+}
+
+export function parseAuthStatusFromOutput(result: CommandResult) {
+  return parseAuthStatusWithLabels(result, CODEX_AUTH_LABELS);
 }
 
 // ── Codex CLI config detection ──────────────────────────────────────
@@ -239,10 +271,10 @@ const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.
     (acc, chunk) => acc + new TextDecoder().decode(chunk),
   );
 
-const runCodexCommand = (args: ReadonlyArray<string>) =>
+const runCliCommand = (binary: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const command = ChildProcess.make("codex", [...args], {
+    const command = ChildProcess.make(binary, [...args], {
       shell: process.platform === "win32",
     });
 
@@ -260,26 +292,9 @@ const runCodexCommand = (args: ReadonlyArray<string>) =>
     return { stdout, stderr, code: exitCode } satisfies CommandResult;
   }).pipe(Effect.scoped);
 
-const runClaudeCommand = (args: ReadonlyArray<string>) =>
-  Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const command = ChildProcess.make("claude", [...args], {
-      shell: process.platform === "win32",
-    });
+const runCodexCommand = (args: ReadonlyArray<string>) => runCliCommand("codex", args);
 
-    const child = yield* spawner.spawn(command);
-
-    const [stdout, stderr, exitCode] = yield* Effect.all(
-      [
-        collectStreamAsString(child.stdout),
-        collectStreamAsString(child.stderr),
-        child.exitCode.pipe(Effect.map(Number)),
-      ],
-      { concurrency: "unbounded" },
-    );
-
-    return { stdout, stderr, code: exitCode } satisfies CommandResult;
-  }).pipe(Effect.scoped);
+const runClaudeCommand = (args: ReadonlyArray<string>) => runCliCommand("claude", args);
 
 // ── Health check ────────────────────────────────────────────────────
 
@@ -409,86 +424,8 @@ export const checkCodexProviderStatus: Effect.Effect<
 
 // ── Claude Code health check ────────────────────────────────────────
 
-export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
-  readonly status: ServerProviderStatusState;
-  readonly authStatus: ServerProviderAuthStatus;
-  readonly message?: string;
-} {
-  const lowerOutput = `${result.stdout}\n${result.stderr}`.toLowerCase();
-
-  if (
-    lowerOutput.includes("unknown command") ||
-    lowerOutput.includes("unrecognized command") ||
-    lowerOutput.includes("unexpected argument")
-  ) {
-    return {
-      status: "warning",
-      authStatus: "unknown",
-      message:
-        "Claude Code authentication status command is unavailable in this version of Claude Code.",
-    };
-  }
-
-  if (
-    lowerOutput.includes("not logged in") ||
-    lowerOutput.includes("login required") ||
-    lowerOutput.includes("authentication required") ||
-    lowerOutput.includes("run `claude login`") ||
-    lowerOutput.includes("run claude login")
-  ) {
-    return {
-      status: "error",
-      authStatus: "unauthenticated",
-      message: "Claude Code is not authenticated. Run `claude auth login` and try again.",
-    };
-  }
-
-  // `claude auth status` returns JSON with a `loggedIn` boolean.
-  const parsedAuth = (() => {
-    const trimmed = result.stdout.trim();
-    if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
-      return { attemptedJsonParse: false as const, auth: undefined as boolean | undefined };
-    }
-    try {
-      return {
-        attemptedJsonParse: true as const,
-        auth: extractAuthBoolean(JSON.parse(trimmed)),
-      };
-    } catch {
-      return { attemptedJsonParse: false as const, auth: undefined as boolean | undefined };
-    }
-  })();
-
-  if (parsedAuth.auth === true) {
-    return { status: "ready", authStatus: "authenticated" };
-  }
-  if (parsedAuth.auth === false) {
-    return {
-      status: "error",
-      authStatus: "unauthenticated",
-      message: "Claude Code is not authenticated. Run `claude auth login` and try again.",
-    };
-  }
-  if (parsedAuth.attemptedJsonParse) {
-    return {
-      status: "warning",
-      authStatus: "unknown",
-      message:
-        "Could not verify Claude Code authentication status from JSON output (missing auth marker).",
-    };
-  }
-  if (result.code === 0) {
-    return { status: "ready", authStatus: "authenticated" };
-  }
-
-  const detail = detailFromResult(result);
-  return {
-    status: "warning",
-    authStatus: "unknown",
-    message: detail
-      ? `Could not verify Claude Code authentication status. ${detail}`
-      : "Could not verify Claude Code authentication status.",
-  };
+export function parseClaudeAuthStatusFromOutput(result: CommandResult) {
+  return parseAuthStatusWithLabels(result, CLAUDE_AUTH_LABELS);
 }
 
 export const checkClaudeCodeProviderStatus: Effect.Effect<
