@@ -48,12 +48,12 @@ export const ProviderSession = Schema.Struct({
 });
 export type ProviderSession = typeof ProviderSession.Type;
 
-const CodexProviderStartOptions = Schema.Struct({
+export const CodexProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
   homePath: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 
-const ClaudeCodeProviderStartOptions = Schema.Struct({
+export const ClaudeCodeProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
   permissionMode: Schema.optional(TrimmedNonEmptyStringSchema),
   maxThinkingTokens: Schema.optional(NonNegativeInt),
