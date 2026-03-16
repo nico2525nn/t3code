@@ -1995,7 +1995,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               requestId: asRuntimeRequestId(requestId),
               payload: { questions },
               providerRefs: {
-                ...(context.session.threadId ? { providerThreadId: context.session.threadId } : {}),
+                ...providerThreadRef(context),
                 ...(context.turnState ? { providerTurnId: String(context.turnState.turnId) } : {}),
                 providerRequestId: requestId,
               },
@@ -2034,7 +2034,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               requestId: asRuntimeRequestId(requestId),
               payload: { answers },
               providerRefs: {
-                ...(context.session.threadId ? { providerThreadId: context.session.threadId } : {}),
+                ...providerThreadRef(context),
                 ...(context.turnState ? { providerTurnId: String(context.turnState.turnId) } : {}),
                 providerRequestId: requestId,
               },
@@ -2116,9 +2116,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                   },
                 },
                 providerRefs: {
-                  ...(context.session.threadId
-                    ? { providerThreadId: context.session.threadId }
-                    : {}),
+                  ...providerThreadRef(context),
                   ...(context.turnState
                     ? { providerTurnId: String(context.turnState.turnId) }
                     : {}),
@@ -2167,9 +2165,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                   decision,
                 },
                 providerRefs: {
-                  ...(context.session.threadId
-                    ? { providerThreadId: context.session.threadId }
-                    : {}),
+                  ...providerThreadRef(context),
                   ...(context.turnState
                     ? { providerTurnId: String(context.turnState.turnId) }
                     : {}),
