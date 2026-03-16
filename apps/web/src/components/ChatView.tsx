@@ -519,12 +519,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       customModelsForSelectedProvider,
       draftModel,
     ) as ModelSlug;
-  }, [
-    baseThreadModel,
-    composerDraft.model,
-    customModelsForSelectedProvider,
-    selectedProvider,
-  ]);
+  }, [baseThreadModel, composerDraft.model, customModelsForSelectedProvider, selectedProvider]);
   const reasoningOptions = getReasoningEffortOptions(selectedProvider);
   const supportsReasoningEffort = reasoningOptions.length > 0;
   const selectedEffort = composerDraft.effort ?? getDefaultReasoningEffort(selectedProvider);
