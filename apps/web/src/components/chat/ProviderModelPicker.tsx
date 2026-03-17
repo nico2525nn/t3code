@@ -74,6 +74,13 @@ const COMING_SOON_PROVIDER_OPTIONS = [
   { id: "gemini", label: "Gemini", icon: Gemini },
 ] as const;
 
+function providerIconClassName(
+  provider: ProviderKind | ProviderPickerKind,
+  fallbackClassName: string,
+): string {
+  return provider === "claudeAgent" ? "text-[#d97757]" : fallbackClassName;
+}
+
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   provider: ProviderKind;
   model: ModelSlug;
@@ -134,8 +141,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             aria-hidden="true"
             className={cn(
               "size-4 shrink-0",
-              props.provider === "claudeAgent" ? "text-[#d97757]" : "text-muted-foreground/70",
-              props.provider === "claudeAgent" && props.ultrathinkActive
+              providerIconClassName(activeProvider, "text-muted-foreground/70"),
+              activeProvider === "claudeAgent" && props.ultrathinkActive
                 ? "ultrathink-chroma"
                 : undefined,
             )}
@@ -171,7 +178,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   <MenuSubTrigger>
                     <OptionIcon
                       aria-hidden="true"
-                      className="size-4 shrink-0 text-muted-foreground/85"
+                      className={cn(
+                        "size-4 shrink-0",
+                        providerIconClassName(option.value, "text-muted-foreground/85"),
+                      )}
                     />
                     {option.label}
                   </MenuSubTrigger>

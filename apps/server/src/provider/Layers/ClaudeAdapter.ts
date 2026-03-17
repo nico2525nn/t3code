@@ -40,7 +40,11 @@ import {
 import {
   applyClaudePromptEffortPrefix,
   getEffectiveClaudeCodeEffort,
+  getReasoningEffortOptions,
+  resolveReasoningEffortForProvider,
   supportsClaudeFastMode,
+  supportsClaudeThinkingToggle,
+  supportsClaudeUltrathinkKeyword,
 } from "@t3tools/shared/model";
 import { Cause, DateTime, Deferred, Effect, Layer, Queue, Random, Ref, Stream } from "effect";
 
@@ -351,10 +355,18 @@ function buildUserMessage(input: ProviderSendTurnInput): SDKUserMessage {
     }
   }
 
-  const text = applyClaudePromptEffortPrefix(
-    fragments.join("\n\n"),
+  const requestedEffort = resolveReasoningEffortForProvider(
+    "claudeAgent",
     input.modelOptions?.claudeAgent?.effort ?? null,
   );
+  const supportedEffortOptions = getReasoningEffortOptions("claudeAgent", input.model);
+  const promptEffort =
+    requestedEffort === "ultrathink" && supportsClaudeUltrathinkKeyword(input.model)
+      ? "ultrathink"
+      : requestedEffort && supportedEffortOptions.includes(requestedEffort)
+        ? requestedEffort
+        : null;
+  const text = applyClaudePromptEffortPrefix(fragments.join("\n\n"), promptEffort);
 
   return {
     type: "user",
@@ -2197,13 +2209,30 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           );
 
         const providerOptions = input.providerOptions?.claudeAgent;
-        const effort = input.modelOptions?.claudeAgent?.effort;
+        const requestedEffort = resolveReasoningEffortForProvider(
+          "claudeAgent",
+          input.modelOptions?.claudeAgent?.effort ?? null,
+        );
+        const supportedEffortOptions = getReasoningEffortOptions("claudeAgent", input.model);
+        const effort =
+          requestedEffort && supportedEffortOptions.includes(requestedEffort)
+            ? requestedEffort
+            : null;
         const fastMode =
           input.modelOptions?.claudeAgent?.fastMode === true && supportsClaudeFastMode(input.model);
+        const thinking =
+          typeof input.modelOptions?.claudeAgent?.thinking === "boolean" &&
+          supportsClaudeThinkingToggle(input.model)
+            ? input.modelOptions.claudeAgent.thinking
+            : undefined;
         const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
         const permissionMode =
           toPermissionMode(providerOptions?.permissionMode) ??
           (input.runtimeMode === "full-access" ? "bypassPermissions" : undefined);
+        const settings = {
+          ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
+          ...(fastMode ? { fastMode: true } : {}),
+        };
 
         const queryOptions: ClaudeQueryOptions = {
           ...(input.cwd ? { cwd: input.cwd } : {}),
@@ -2219,7 +2248,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           ...(providerOptions?.maxThinkingTokens !== undefined
             ? { maxThinkingTokens: providerOptions.maxThinkingTokens }
             : {}),
-          ...(fastMode ? { settings: { fastMode: true } } : {}),
+          ...(Object.keys(settings).length > 0 ? { settings } : {}),
           ...(resumeState?.resume ? { resume: resumeState.resume } : {}),
           ...(resumeState?.resumeSessionAt ? { resumeSessionAt: resumeState.resumeSessionAt } : {}),
           includePartialMessages: true,

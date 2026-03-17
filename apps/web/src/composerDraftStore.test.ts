@@ -337,8 +337,8 @@ describe("composerDraftStore project draft thread mapping", () => {
   });
 });
 
-describe("composerDraftStore fast mode", () => {
-  const threadId = ThreadId.makeUnsafe("thread-service-tier");
+describe("composerDraftStore modelOptions", () => {
+  const threadId = ThreadId.makeUnsafe("thread-model-options");
 
   beforeEach(() => {
     useComposerDraftStore.setState({
@@ -348,17 +348,39 @@ describe("composerDraftStore fast mode", () => {
     });
   });
 
-  it("stores fast mode in the draft", () => {
+  it("stores provider-scoped model options in the draft", () => {
     const store = useComposerDraftStore.getState();
-    store.setFastMode(threadId, true);
+    store.setModelOptions(threadId, {
+      codex: {
+        reasoningEffort: "xhigh",
+        fastMode: true,
+      },
+      claudeAgent: {
+        thinking: false,
+      },
+    });
 
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.fastMode).toBe(true);
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelOptions).toEqual({
+      codex: {
+        reasoningEffort: "xhigh",
+        fastMode: true,
+      },
+      claudeAgent: {
+        thinking: false,
+      },
+    });
   });
 
-  it("clears fast mode when reset to the default", () => {
+  it("drops default-only model options from the draft", () => {
     const store = useComposerDraftStore.getState();
-    store.setFastMode(threadId, true);
-    store.setFastMode(threadId, false);
+    store.setModelOptions(threadId, {
+      codex: {
+        reasoningEffort: "high",
+      },
+      claudeAgent: {
+        thinking: true,
+      },
+    });
 
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
   });

@@ -1,27 +1,21 @@
-import { ThreadId } from "@t3tools/contracts";
 import "../../index.css";
 
+import { ThreadId } from "@t3tools/contracts";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
-import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
-import { ClaudeTraitsMenuContent } from "./ClaudeTraitsPicker";
-import { CodexTraitsMenuContent } from "./CodexTraitsPicker";
+import { ClaudeTraitsPicker } from "./ClaudeTraitsPicker";
 import { useComposerDraftStore } from "../../composerDraftStore";
 
-async function mountMenu(props?: {
+async function mountPicker(props?: {
   model?: string;
   prompt?: string;
-  provider?: "codex" | "claudeAgent";
-  codexEffort?: "low" | "medium" | "high" | "xhigh";
-  codexFastMode?: boolean;
-  claudeEffort?: "low" | "medium" | "high" | "max" | "ultrathink";
-  claudeThinking?: boolean;
-  claudeFastMode?: boolean;
+  effort?: "low" | "medium" | "high" | "max" | "ultrathink" | null;
+  thinkingEnabled?: boolean | null;
+  fastModeEnabled?: boolean;
 }) {
-  const threadId = ThreadId.makeUnsafe("thread-compact-menu");
-  const provider = props?.provider ?? "claudeAgent";
+  const threadId = ThreadId.makeUnsafe("thread-claude-traits");
   useComposerDraftStore.setState({
     draftsByThreadId: {
       [threadId]: {
@@ -29,26 +23,14 @@ async function mountMenu(props?: {
         images: [],
         nonPersistedImageIds: [],
         persistedAttachments: [],
-        provider,
+        provider: "claudeAgent",
         model: props?.model ?? "claude-opus-4-6",
         modelOptions: {
-          ...(provider === "codex"
-            ? {
-                codex: {
-                  ...(props?.codexEffort ? { reasoningEffort: props.codexEffort } : {}),
-                  ...(props?.codexFastMode ? { fastMode: true } : {}),
-                },
-              }
-            : {}),
-          ...(provider === "claudeAgent"
-            ? {
-                claudeAgent: {
-                  ...(props?.claudeEffort ? { effort: props.claudeEffort } : {}),
-                  ...(props?.claudeThinking === false ? { thinking: false } : {}),
-                  ...(props?.claudeFastMode ? { fastMode: true } : {}),
-                },
-              }
-            : {}),
+          claudeAgent: {
+            ...(props?.effort ? { effort: props.effort } : {}),
+            ...(props?.thinkingEnabled === false ? { thinking: false } : {}),
+            ...(props?.fastModeEnabled ? { fastMode: true } : {}),
+          },
         },
         runtimeMode: null,
         interactionMode: null,
@@ -61,30 +43,16 @@ async function mountMenu(props?: {
   document.body.append(host);
   const onPromptChange = vi.fn();
   const screen = await render(
-    <CompactComposerControlsMenu
-      activePlan={false}
-      interactionMode="default"
-      planSidebarOpen={false}
-      runtimeMode="approval-required"
-      traitsMenuContent={
-        provider === "codex" ? (
-          <CodexTraitsMenuContent threadId={threadId} />
-        ) : (
-          <ClaudeTraitsMenuContent
-            threadId={threadId}
-            model={props?.model ?? "claude-opus-4-6"}
-            onPromptChange={onPromptChange}
-          />
-        )
-      }
-      onToggleInteractionMode={vi.fn()}
-      onTogglePlanSidebar={vi.fn()}
-      onToggleRuntimeMode={vi.fn()}
+    <ClaudeTraitsPicker
+      threadId={threadId}
+      model={props?.model ?? "claude-opus-4-6"}
+      onPromptChange={onPromptChange}
     />,
     { container: host },
   );
 
   return {
+    onPromptChange,
     cleanup: async () => {
       await screen.unmount();
       host.remove();
@@ -92,7 +60,7 @@ async function mountMenu(props?: {
   };
 }
 
-describe("CompactComposerControlsMenu", () => {
+describe("ClaudeTraitsPicker", () => {
   afterEach(() => {
     document.body.innerHTML = "";
     useComposerDraftStore.setState({
@@ -103,10 +71,10 @@ describe("CompactComposerControlsMenu", () => {
   });
 
   it("shows fast mode controls for Opus", async () => {
-    const mounted = await mountMenu();
+    const mounted = await mountPicker();
 
     try {
-      await page.getByLabelText("More composer controls").click();
+      await page.getByRole("button").click();
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
@@ -119,11 +87,11 @@ describe("CompactComposerControlsMenu", () => {
     }
   });
 
-  it("hides fast mode controls for non-Opus Claude models", async () => {
-    const mounted = await mountMenu({ model: "claude-sonnet-4-6" });
+  it("hides fast mode controls for non-Opus models", async () => {
+    const mounted = await mountPicker({ model: "claude-sonnet-4-6" });
 
     try {
-      await page.getByLabelText("More composer controls").click();
+      await page.getByRole("button").click();
 
       await vi.waitFor(() => {
         expect(document.body.textContent ?? "").not.toContain("Fast Mode");
@@ -134,12 +102,12 @@ describe("CompactComposerControlsMenu", () => {
   });
 
   it("shows only the provided effort options", async () => {
-    const mounted = await mountMenu({
+    const mounted = await mountPicker({
       model: "claude-sonnet-4-6",
     });
 
     try {
-      await page.getByLabelText("More composer controls").click();
+      await page.getByRole("button").click();
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
@@ -154,14 +122,17 @@ describe("CompactComposerControlsMenu", () => {
     }
   });
 
-  it("shows a Claude thinking on/off section for Haiku", async () => {
-    const mounted = await mountMenu({
+  it("shows a thinking on/off dropdown for Haiku", async () => {
+    const mounted = await mountPicker({
       model: "claude-haiku-4-5",
-      claudeThinking: true,
+      thinkingEnabled: true,
     });
 
     try {
-      await page.getByLabelText("More composer controls").click();
+      await vi.waitFor(() => {
+        expect(document.body.textContent ?? "").toContain("Thinking On");
+      });
+      await page.getByRole("button").click();
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
@@ -174,15 +145,20 @@ describe("CompactComposerControlsMenu", () => {
     }
   });
 
-  it("shows prompt-controlled Ultrathink messaging with disabled effort controls", async () => {
-    const mounted = await mountMenu({
+  it("shows prompt-controlled Ultrathink state with disabled effort controls", async () => {
+    const mounted = await mountPicker({
+      effort: "high",
       model: "claude-opus-4-6",
       prompt: "Ultrathink:\nInvestigate this",
-      claudeEffort: "high",
+      fastModeEnabled: false,
     });
 
     try {
-      await page.getByLabelText("More composer controls").click();
+      await vi.waitFor(() => {
+        expect(document.body.textContent ?? "").toContain("Ultrathink");
+        expect(document.body.textContent ?? "").not.toContain("Ultrathink · Prompt");
+      });
+      await page.getByRole("button").click();
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
