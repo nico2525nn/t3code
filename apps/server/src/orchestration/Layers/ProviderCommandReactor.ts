@@ -229,7 +229,7 @@ const make = Effect.gen(function* () {
         detail: `Model '${options.model}' does not belong to provider '${threadProvider}' for thread '${threadId}'.`,
       });
     }
-    const preferredProvider: ProviderKind = currentProvider ?? options?.provider ?? threadProvider;
+    const preferredProvider: ProviderKind = currentProvider ?? threadProvider;
     const desiredModel = options?.model ?? thread.model;
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
