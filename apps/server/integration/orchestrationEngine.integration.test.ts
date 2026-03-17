@@ -5,6 +5,7 @@ import {
   ApprovalRequestId,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  DEFAULT_MODEL_BY_PROVIDER,
   EventId,
   MessageId,
   ProjectId,
@@ -106,6 +107,8 @@ function withRealCodexHarness<A, E>(
 const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
   Effect.gen(function* () {
     const createdAt = nowIso();
+    const provider = harness.adapterHarness?.provider ?? "codex";
+    const defaultModel = DEFAULT_MODEL_BY_PROVIDER[provider];
 
     yield* harness.engine.dispatch({
       type: "project.create",
@@ -113,7 +116,7 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       projectId: PROJECT_ID,
       title: "Integration Project",
       workspaceRoot: harness.workspaceDir,
-      defaultModel: "gpt-5-codex",
+      defaultModel,
       createdAt,
     });
 
@@ -123,7 +126,7 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       threadId: THREAD_ID,
       projectId: PROJECT_ID,
       title: "Integration Thread",
-      model: "gpt-5-codex",
+      model: defaultModel,
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       runtimeMode: "approval-required",
       branch: null,
