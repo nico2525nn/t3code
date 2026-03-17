@@ -1,8 +1,8 @@
 import {
-  type CodexReasoningEffort,
   type ProviderKind,
   RuntimeMode,
   ProviderInteractionMode,
+  type ProviderReasoningEffort,
 } from "@t3tools/contracts";
 import { getDefaultReasoningEffort } from "@t3tools/shared/model";
 import { memo } from "react";
@@ -24,22 +24,24 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   interactionMode: ProviderInteractionMode;
   planSidebarOpen: boolean;
   runtimeMode: RuntimeMode;
-  selectedEffort: CodexReasoningEffort | null;
+  selectedEffort: ProviderReasoningEffort | null;
   selectedProvider: ProviderKind;
   selectedCodexFastModeEnabled: boolean;
-  reasoningOptions: ReadonlyArray<CodexReasoningEffort>;
-  onEffortSelect: (effort: CodexReasoningEffort) => void;
+  reasoningOptions: ReadonlyArray<ProviderReasoningEffort>;
+  onEffortSelect: (effort: ProviderReasoningEffort) => void;
   onCodexFastModeChange: (enabled: boolean) => void;
   onToggleInteractionMode: () => void;
   onTogglePlanSidebar: () => void;
   onToggleRuntimeMode: () => void;
 }) {
-  const defaultReasoningEffort = getDefaultReasoningEffort("codex");
-  const reasoningLabelByOption: Record<CodexReasoningEffort, string> = {
+  const defaultReasoningEffort = getDefaultReasoningEffort(props.selectedProvider);
+  const reasoningLabelByOption: Record<ProviderReasoningEffort, string> = {
     low: "Low",
     medium: "Medium",
     high: "High",
     xhigh: "Extra High",
+    max: "Max",
+    ultrathink: "Ultrathink",
   };
 
   return (
@@ -57,10 +59,12 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <EllipsisIcon aria-hidden="true" className="size-4" />
       </MenuTrigger>
       <MenuPopup align="start">
-        {props.selectedProvider === "codex" && props.selectedEffort != null ? (
+        {props.selectedEffort != null ? (
           <>
             <MenuGroup>
-              <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Reasoning</div>
+              <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
+                {props.selectedProvider === "codex" ? "Reasoning" : "Effort"}
+              </div>
               <MenuRadioGroup
                 value={props.selectedEffort}
                 onValueChange={(value) => {
@@ -78,20 +82,28 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
                 ))}
               </MenuRadioGroup>
             </MenuGroup>
-            <MenuDivider />
-            <MenuGroup>
-              <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Fast Mode</div>
-              <MenuRadioGroup
-                value={props.selectedCodexFastModeEnabled ? "on" : "off"}
-                onValueChange={(value) => {
-                  props.onCodexFastModeChange(value === "on");
-                }}
-              >
-                <MenuRadioItem value="off">off</MenuRadioItem>
-                <MenuRadioItem value="on">on</MenuRadioItem>
-              </MenuRadioGroup>
-            </MenuGroup>
-            <MenuDivider />
+            {props.selectedProvider === "codex" ? (
+              <>
+                <MenuDivider />
+                <MenuGroup>
+                  <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
+                    Fast Mode
+                  </div>
+                  <MenuRadioGroup
+                    value={props.selectedCodexFastModeEnabled ? "on" : "off"}
+                    onValueChange={(value) => {
+                      props.onCodexFastModeChange(value === "on");
+                    }}
+                  >
+                    <MenuRadioItem value="off">off</MenuRadioItem>
+                    <MenuRadioItem value="on">on</MenuRadioItem>
+                  </MenuRadioGroup>
+                </MenuGroup>
+                <MenuDivider />
+              </>
+            ) : (
+              <MenuDivider />
+            )}
           </>
         ) : null}
         <MenuGroup>

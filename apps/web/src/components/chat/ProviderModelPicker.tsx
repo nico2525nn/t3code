@@ -79,6 +79,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   model: ModelSlug;
   lockedProvider: ProviderKind | null;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
+  ultrathinkActive?: boolean;
   compact?: boolean;
   disabled?: boolean;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
@@ -129,7 +130,16 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         <span
           className={cn("flex min-w-0 items-center gap-2", props.compact ? "max-w-36" : undefined)}
         >
-          <ProviderIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground/70" />
+          <ProviderIcon
+            aria-hidden="true"
+            className={cn(
+              "size-4 shrink-0",
+              props.provider === "claudeAgent" ? "text-[#d97757]" : "text-muted-foreground/70",
+              props.provider === "claudeAgent" && props.ultrathinkActive
+                ? "ultrathink-chroma"
+                : undefined,
+            )}
+          />
           <span className="truncate">{selectedModelLabel}</span>
           <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
         </span>

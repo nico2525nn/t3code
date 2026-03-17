@@ -37,6 +37,7 @@ import {
   TurnId,
   type UserInputQuestion,
 } from "@t3tools/contracts";
+import { applyClaudePromptEffortPrefix, getEffectiveClaudeCodeEffort } from "@t3tools/shared/model";
 import { Cause, DateTime, Deferred, Effect, Layer, Queue, Random, Ref, Stream } from "effect";
 
 import {
@@ -234,6 +235,14 @@ function classifyToolItemType(toolName: string): CanonicalItemType {
     return "collab_agent_tool_call";
   }
   if (
+    normalized === "task" ||
+    normalized === "agent" ||
+    normalized.includes("subagent") ||
+    normalized.includes("sub-agent")
+  ) {
+    return "collab_agent_tool_call";
+  }
+  if (
     normalized.includes("bash") ||
     normalized.includes("command") ||
     normalized.includes("shell") ||
@@ -311,7 +320,7 @@ function titleForTool(itemType: CanonicalItemType): string {
     case "mcp_tool_call":
       return "MCP tool call";
     case "collab_agent_tool_call":
-      return "Agent task";
+      return "Subagent task";
     case "web_search":
       return "Web search";
     case "image_view":
@@ -338,7 +347,10 @@ function buildUserMessage(input: ProviderSendTurnInput): SDKUserMessage {
     }
   }
 
-  const text = fragments.join("\n\n");
+  const text = applyClaudePromptEffortPrefix(
+    fragments.join("\n\n"),
+    input.modelOptions?.claudeAgent?.effort ?? null,
+  );
 
   return {
     type: "user",
@@ -1085,6 +1097,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           });
           context.inFlightTools.delete(index);
         }
+        // Clear any remaining stale entries (e.g. from interrupted content blocks)
+        context.inFlightTools.clear();
 
         for (const blockIndex of turnState.assistantTextBlockOrder) {
           yield* completeAssistantTextBlock(context, blockIndex, {
@@ -1465,6 +1479,46 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           return;
         }
 
+        // Auto-start a synthetic turn for assistant messages that arrive without
+        // an active turn (e.g., background agent/subagent responses between user prompts).
+        if (!context.turnState) {
+          const turnId = TurnId.makeUnsafe(yield* Random.nextUUIDv4);
+          const startedAt = yield* nowIso;
+          context.turnState = {
+            turnId,
+            startedAt,
+            items: [],
+            assistantTextBlocks: new Map(),
+            assistantTextBlockOrder: [],
+            nextSyntheticAssistantBlockIndex: -1,
+          };
+          context.session = {
+            ...context.session,
+            status: "running",
+            activeTurnId: turnId,
+            updatedAt: startedAt,
+          };
+          const turnStartedStamp = yield* makeEventStamp();
+          yield* offerRuntimeEvent({
+            type: "turn.started",
+            eventId: turnStartedStamp.eventId,
+            provider: PROVIDER,
+            createdAt: turnStartedStamp.createdAt,
+            threadId: context.session.threadId,
+            turnId,
+            payload: {},
+            providerRefs: {
+              ...nativeProviderRefs(context),
+              providerTurnId: turnId,
+            },
+            raw: {
+              source: "claude.sdk.message",
+              method: "claude/synthetic-turn-start",
+              payload: {},
+            },
+          });
+        }
+
         if (context.turnState) {
           context.turnState.items.push(message.message);
           yield* backfillAssistantTextBlocksFromSnapshot(context, message);
@@ -1604,6 +1658,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               payload: {
                 taskId: RuntimeTaskId.makeUnsafe(message.task_id),
                 description: message.description,
+                ...(message.summary ? { summary: message.summary } : {}),
                 ...(message.usage ? { usage: message.usage } : {}),
                 ...(message.last_tool_name ? { lastToolName: message.last_tool_name } : {}),
               },
@@ -2138,6 +2193,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           );
 
         const providerOptions = input.providerOptions?.claudeAgent;
+        const effort = input.modelOptions?.claudeAgent?.effort;
+        const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
         const permissionMode =
           toPermissionMode(providerOptions?.permissionMode) ??
           (input.runtimeMode === "full-access" ? "bypassPermissions" : undefined);
@@ -2148,6 +2205,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           ...(providerOptions?.binaryPath
             ? { pathToClaudeCodeExecutable: providerOptions.binaryPath }
             : {}),
+          ...(effectiveEffort ? { effort: effectiveEffort } : {}),
           ...(permissionMode ? { permissionMode } : {}),
           ...(permissionMode === "bypassPermissions"
             ? { allowDangerouslySkipPermissions: true }
@@ -2239,6 +2297,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             config: {
               ...(input.model ? { model: input.model } : {}),
               ...(input.cwd ? { cwd: input.cwd } : {}),
+              ...(effectiveEffort ? { effort: effectiveEffort } : {}),
               ...(permissionMode ? { permissionMode } : {}),
               ...(providerOptions?.maxThinkingTokens !== undefined
                 ? { maxThinkingTokens: providerOptions.maxThinkingTokens }
@@ -2273,11 +2332,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const context = yield* requireSession(input.threadId);
 
         if (context.turnState) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "sendTurn",
-            issue: `Thread '${input.threadId}' already has an active turn '${context.turnState.turnId}'.`,
-          });
+          // Auto-close a stale synthetic turn (from background agent responses
+          // between user prompts) to prevent blocking the user's next turn.
+          yield* completeTurn(context, "completed");
         }
 
         if (input.model) {

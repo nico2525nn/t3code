@@ -1,12 +1,15 @@
 import {
+  CLAUDE_CODE_EFFORT_OPTIONS,
   CODEX_REASONING_EFFORT_OPTIONS,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_REASONING_EFFORT_BY_PROVIDER,
   MODEL_OPTIONS_BY_PROVIDER,
   MODEL_SLUG_ALIASES_BY_PROVIDER,
   REASONING_EFFORT_OPTIONS_BY_PROVIDER,
+  type ClaudeCodeEffort,
   type CodexReasoningEffort,
   type ModelSlug,
+  type ProviderReasoningEffort,
   type ProviderKind,
 } from "@t3tools/contracts";
 
@@ -81,18 +84,79 @@ export function inferProviderForModel(
   return typeof model === "string" && model.trim().startsWith("claude-") ? "claudeAgent" : fallback;
 }
 
+export function getReasoningEffortOptions(provider: "codex"): ReadonlyArray<CodexReasoningEffort>;
+export function getReasoningEffortOptions(provider: "claudeAgent"): ReadonlyArray<ClaudeCodeEffort>;
+export function getReasoningEffortOptions(
+  provider?: ProviderKind,
+): ReadonlyArray<ProviderReasoningEffort>;
 export function getReasoningEffortOptions(
   provider: ProviderKind = "codex",
-): ReadonlyArray<CodexReasoningEffort> {
+): ReadonlyArray<ProviderReasoningEffort> {
   return REASONING_EFFORT_OPTIONS_BY_PROVIDER[provider];
 }
 
 export function getDefaultReasoningEffort(provider: "codex"): CodexReasoningEffort;
-export function getDefaultReasoningEffort(provider: ProviderKind): CodexReasoningEffort | null;
+export function getDefaultReasoningEffort(provider: "claudeAgent"): ClaudeCodeEffort;
+export function getDefaultReasoningEffort(provider?: ProviderKind): ProviderReasoningEffort;
 export function getDefaultReasoningEffort(
   provider: ProviderKind = "codex",
-): CodexReasoningEffort | null {
+): ProviderReasoningEffort {
   return DEFAULT_REASONING_EFFORT_BY_PROVIDER[provider];
 }
 
-export { CODEX_REASONING_EFFORT_OPTIONS };
+export function resolveReasoningEffortForProvider(
+  provider: "codex",
+  effort: string | null | undefined,
+): CodexReasoningEffort | null;
+export function resolveReasoningEffortForProvider(
+  provider: "claudeAgent",
+  effort: string | null | undefined,
+): ClaudeCodeEffort | null;
+export function resolveReasoningEffortForProvider(
+  provider: ProviderKind,
+  effort: string | null | undefined,
+): ProviderReasoningEffort | null;
+export function resolveReasoningEffortForProvider(
+  provider: ProviderKind,
+  effort: string | null | undefined,
+): ProviderReasoningEffort | null {
+  if (typeof effort !== "string") {
+    return null;
+  }
+
+  const trimmed = effort.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const options = REASONING_EFFORT_OPTIONS_BY_PROVIDER[provider] as ReadonlyArray<string>;
+  return options.includes(trimmed) ? (trimmed as ProviderReasoningEffort) : null;
+}
+
+export function getEffectiveClaudeCodeEffort(
+  effort: ClaudeCodeEffort | null | undefined,
+): Exclude<ClaudeCodeEffort, "ultrathink"> | null {
+  if (!effort) {
+    return null;
+  }
+  return effort === "ultrathink" ? "max" : effort;
+}
+
+export function applyClaudePromptEffortPrefix(
+  text: string,
+  effort: ClaudeCodeEffort | null | undefined,
+): string {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  if (effort !== "ultrathink") {
+    return trimmed;
+  }
+  if (trimmed.startsWith("Ultrathink:")) {
+    return trimmed;
+  }
+  return `Ultrathink:\n${trimmed}`;
+}
+
+export { CLAUDE_CODE_EFFORT_OPTIONS, CODEX_REASONING_EFFORT_OPTIONS };
