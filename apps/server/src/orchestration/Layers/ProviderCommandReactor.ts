@@ -498,16 +498,19 @@ const make = Effect.gen(function* () {
       interactionMode: event.payload.interactionMode,
       createdAt: event.payload.createdAt,
     }).pipe(
-      Effect.catchCause((cause) =>
-        appendProviderFailureActivity({
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return Effect.failCause(cause);
+        }
+        return appendProviderFailureActivity({
           threadId: event.payload.threadId,
           kind: "provider.turn.start.failed",
           summary: "Provider turn start failed",
           detail: Cause.pretty(cause),
           turnId: null,
           createdAt: event.payload.createdAt,
-        }),
-      ),
+        });
+      }),
     );
   });
 
