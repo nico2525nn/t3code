@@ -111,14 +111,95 @@ const isServerNotRunningError = (error: Error): boolean => {
 };
 
 function rejectUpgrade(socket: Duplex, statusCode: number, message: string): void {
+  const statusText =
+    statusCode === 401 ? "Unauthorized" : statusCode === 403 ? "Forbidden" : "Bad Request";
   socket.end(
-    `HTTP/1.1 ${statusCode} ${statusCode === 401 ? "Unauthorized" : "Bad Request"}\r\n` +
+    `HTTP/1.1 ${statusCode} ${statusText}\r\n` +
       "Connection: close\r\n" +
       "Content-Type: text/plain\r\n" +
       `Content-Length: ${Buffer.byteLength(message)}\r\n` +
       "\r\n" +
       message,
   );
+}
+
+function getFirstHeaderValue(header: string | readonly string[] | undefined): string | undefined {
+  if (typeof header === "string") {
+    return header;
+  }
+  return header?.[0];
+}
+
+function getForwardedHeaderValue(
+  header: string | readonly string[] | undefined,
+): string | undefined {
+  const value = getFirstHeaderValue(header)?.trim();
+  if (!value) {
+    return undefined;
+  }
+  const [firstValue] = value.split(",");
+  return firstValue?.trim() || undefined;
+}
+
+function normalizeRequestHost(header: string | readonly string[] | undefined): string | null {
+  const host = getForwardedHeaderValue(header);
+  if (!host) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(`http://${host}`);
+    return parsed.host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function hasAllowedRequestHost(
+  request: http.IncomingMessage,
+  allowedHosts: ReadonlySet<string>,
+): boolean {
+  if (allowedHosts.size === 0) {
+    return true;
+  }
+
+  const requestHost =
+    normalizeRequestHost(request.headers["x-forwarded-host"]) ??
+    normalizeRequestHost(request.headers.host);
+  return requestHost !== null && allowedHosts.has(requestHost);
+}
+
+function getUpgradeRequestOrigin(request: http.IncomingMessage): URL | null {
+  const host =
+    normalizeRequestHost(request.headers["x-forwarded-host"]) ??
+    normalizeRequestHost(request.headers.host);
+  if (!host) {
+    return null;
+  }
+
+  const protocol =
+    getForwardedHeaderValue(request.headers["x-forwarded-proto"]) ??
+    ((request.socket as { encrypted?: boolean }).encrypted ? "https" : "http");
+
+  try {
+    return new URL(`${protocol}://${host}`);
+  } catch {
+    return null;
+  }
+}
+
+function hasVerifiedWebSocketOrigin(request: http.IncomingMessage): boolean {
+  const requestOrigin = getUpgradeRequestOrigin(request);
+  const originHeader = getForwardedHeaderValue(request.headers.origin);
+  if (!requestOrigin || !originHeader) {
+    return false;
+  }
+
+  try {
+    return new URL(originHeader).origin === requestOrigin.origin;
+  } catch {
+    return false;
+  }
 }
 
 function websocketRawToString(raw: unknown): string | null {
@@ -244,10 +325,12 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     staticDir,
     devUrl,
     authToken,
+    allowedHosts,
     host,
     logWebSocketEvents,
     autoBootstrapProjectFromCwd,
   } = serverConfig;
+  const allowedHostSet = new Set(allowedHosts);
   const availableEditors = resolveAvailableEditors();
 
   const gitManager = yield* GitManager;
@@ -423,6 +506,11 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
     void Effect.runPromise(
       Effect.gen(function* () {
+        if (!hasAllowedRequestHost(req, allowedHostSet)) {
+          respond(403, { "Content-Type": "text/plain" }, "Forbidden host");
+          return;
+        }
+
         const url = new URL(req.url ?? "/", `http://localhost:${port}`);
         if (tryHandleProjectFaviconRequest(url, res)) {
           return;
@@ -931,6 +1019,16 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
   httpServer.on("upgrade", (request, socket, head) => {
     socket.on("error", () => {}); // Prevent unhandled `EPIPE`/`ECONNRESET` from crashing the process if the client disconnects mid-handshake
+
+    if (!hasAllowedRequestHost(request, allowedHostSet)) {
+      rejectUpgrade(socket, 403, "Forbidden host");
+      return;
+    }
+
+    if (!devUrl && !hasVerifiedWebSocketOrigin(request)) {
+      rejectUpgrade(socket, 403, "Forbidden WebSocket origin");
+      return;
+    }
 
     if (authToken) {
       let providedToken: string | null = null;

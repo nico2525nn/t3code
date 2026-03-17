@@ -100,6 +100,8 @@ it.layer(testLayer)("server CLI command", (it) => {
         "--no-browser",
         "--auth-token",
         "auth-secret",
+        "--allowed-hosts",
+        "app.example, ADMIN.example:8443",
       ]);
 
       assert.equal(start.mock.calls.length, 1);
@@ -110,6 +112,7 @@ it.layer(testLayer)("server CLI command", (it) => {
       assert.equal(resolvedConfig?.devUrl?.toString(), "http://127.0.0.1:5173/");
       assert.equal(resolvedConfig?.noBrowser, true);
       assert.equal(resolvedConfig?.authToken, "auth-secret");
+      assert.deepEqual(resolvedConfig?.allowedHosts, ["app.example", "admin.example:8443"]);
       assert.equal(resolvedConfig?.autoBootstrapProjectFromCwd, false);
       assert.equal(resolvedConfig?.logWebSocketEvents, true);
       assert.equal(stop.mock.calls.length, 1);
@@ -135,6 +138,7 @@ it.layer(testLayer)("server CLI command", (it) => {
         VITE_DEV_SERVER_URL: "http://localhost:5173",
         T3CODE_NO_BROWSER: "true",
         T3CODE_AUTH_TOKEN: "env-token",
+        T3CODE_ALLOWED_HOSTS: "app.example, admin.example:8443",
       });
 
       assert.equal(start.mock.calls.length, 1);
@@ -145,6 +149,7 @@ it.layer(testLayer)("server CLI command", (it) => {
       assert.equal(resolvedConfig?.devUrl?.toString(), "http://localhost:5173/");
       assert.equal(resolvedConfig?.noBrowser, true);
       assert.equal(resolvedConfig?.authToken, "env-token");
+      assert.deepEqual(resolvedConfig?.allowedHosts, ["app.example", "admin.example:8443"]);
       assert.equal(resolvedConfig?.autoBootstrapProjectFromCwd, false);
       assert.equal(resolvedConfig?.logWebSocketEvents, true);
       assert.equal(findAvailablePort.mock.calls.length, 0);
@@ -233,6 +238,18 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
+  it.effect("prefers --allowed-hosts over T3CODE_ALLOWED_HOSTS", () =>
+    Effect.gen(function* () {
+      yield* runCli(["--allowed-hosts", "cli.example:4321"], {
+        T3CODE_ALLOWED_HOSTS: "env.example",
+        T3CODE_NO_BROWSER: "true",
+      });
+
+      assert.equal(start.mock.calls.length, 1);
+      assert.deepEqual(resolvedConfig?.allowedHosts, ["cli.example:4321"]);
+    }),
+  );
+
   it.effect("records a startup heartbeat with thread/project counts", () =>
     Effect.gen(function* () {
       const recordTelemetry = vi.fn(
@@ -282,6 +299,17 @@ it.layer(testLayer)("server CLI command", (it) => {
   it.effect("does not start server for invalid --dev-url values", () =>
     Effect.gen(function* () {
       yield* runCli(["--dev-url", "not-a-url"]).pipe(Effect.catch(() => Effect.void));
+
+      assert.equal(start.mock.calls.length, 0);
+      assert.equal(stop.mock.calls.length, 0);
+    }),
+  );
+
+  it.effect("does not start server for invalid --allowed-hosts values", () =>
+    Effect.gen(function* () {
+      yield* runCli(["--allowed-hosts", "https://app.example/path"]).pipe(
+        Effect.catch(() => Effect.void),
+      );
 
       assert.equal(start.mock.calls.length, 0);
       assert.equal(stop.mock.calls.length, 0);

@@ -280,10 +280,16 @@ function asWebSocketResponse(message: unknown): WebSocketResponse | null {
   return message as WebSocketResponse;
 }
 
-function connectWsOnce(port: number, token?: string): Promise<WebSocket> {
+function connectWsOnce(
+  port: number,
+  token?: string,
+  headers?: Record<string, string>,
+): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const query = token ? `?token=${encodeURIComponent(token)}` : "";
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/${query}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/${query}`, {
+      headers: headers ?? { origin: `http://127.0.0.1:${port}` },
+    });
     const channels: SocketChannels = {
       push: { queue: [], waiters: [] },
       response: { queue: [], waiters: [] },
@@ -307,12 +313,17 @@ function connectWsOnce(port: number, token?: string): Promise<WebSocket> {
   });
 }
 
-async function connectWs(port: number, token?: string, attempts = 5): Promise<WebSocket> {
+async function connectWs(
+  port: number,
+  token?: string,
+  attempts = 5,
+  headers?: Record<string, string>,
+): Promise<WebSocket> {
   let lastError: unknown = new Error("WebSocket connection failed");
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      return await connectWsOnce(port, token);
+      return await connectWsOnce(port, token, headers);
     } catch (error) {
       lastError = error;
       if (attempt < attempts - 1) {
@@ -328,8 +339,9 @@ async function connectWs(port: number, token?: string, attempts = 5): Promise<We
 async function connectAndAwaitWelcome(
   port: number,
   token?: string,
+  headers?: Record<string, string>,
 ): Promise<[WebSocket, WsPushMessage<typeof WS_CHANNELS.serverWelcome>]> {
-  const ws = await connectWs(port, token);
+  const ws = await connectWs(port, token, 5, headers);
   const welcome = await waitForPush(ws, WS_CHANNELS.serverWelcome);
   return [ws, welcome];
 }
@@ -401,6 +413,7 @@ async function rewriteKeybindingsAndWaitForPush(
 async function requestPath(
   port: number,
   requestPath: string,
+  headers?: Record<string, string>,
 ): Promise<{ statusCode: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = Http.request(
@@ -409,6 +422,7 @@ async function requestPath(
         port,
         path: requestPath,
         method: "GET",
+        headers,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -474,6 +488,7 @@ describe("WebSocket Server", () => {
       logWebSocketEvents?: boolean;
       devUrl?: string;
       authToken?: string;
+      allowedHosts?: readonly string[];
       stateDir?: string;
       staticDir?: string;
       providerLayer?: Layer.Layer<ProviderService, never>;
@@ -508,6 +523,7 @@ describe("WebSocket Server", () => {
       devUrl: options.devUrl ? new URL(options.devUrl) : undefined,
       noBrowser: true,
       authToken: options.authToken,
+      allowedHosts: options.allowedHosts ?? [],
       autoBootstrapProjectFromCwd: options.autoBootstrapProjectFromCwd ?? false,
       logWebSocketEvents: options.logWebSocketEvents ?? Boolean(options.devUrl),
     } satisfies ServerConfigShape);
@@ -646,6 +662,44 @@ describe("WebSocket Server", () => {
     const response = await fetch(`http://127.0.0.1:${port}/`);
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("static-root");
+  });
+
+  it("rejects HTTP requests when the host is not allowed", async () => {
+    const stateDir = makeTempDir("t3code-state-host-guard-");
+    const staticDir = makeTempDir("t3code-static-host-guard-");
+    fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>host-guard</h1>", "utf8");
+
+    server = await createTestServer({
+      cwd: "/test/project",
+      stateDir,
+      staticDir,
+      allowedHosts: ["app.example"],
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const response = await requestPath(port, "/");
+    expect(response.statusCode).toBe(403);
+    expect(response.body).toBe("Forbidden host");
+  });
+
+  it("accepts HTTP requests when the host is allowed", async () => {
+    const stateDir = makeTempDir("t3code-state-host-allow-");
+    const staticDir = makeTempDir("t3code-static-host-allow-");
+    fs.writeFileSync(path.join(staticDir, "index.html"), "<h1>host-allow</h1>", "utf8");
+
+    server = await createTestServer({
+      cwd: "/test/project",
+      stateDir,
+      staticDir,
+      allowedHosts: ["app.example"],
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const response = await requestPath(port, "/", { host: "app.example" });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("host-allow");
   });
 
   it("rejects static path traversal attempts", async () => {
@@ -1811,5 +1865,85 @@ describe("WebSocket Server", () => {
 
     const [authorizedWs] = await connectAndAwaitWelcome(port, "secret-token");
     connections.push(authorizedWs);
+  });
+
+  it("rejects websocket connections in production when the origin header is missing", async () => {
+    server = await createTestServer({ cwd: "/test" });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    await expect(connectWs(port, undefined, 5, {})).rejects.toThrow("WebSocket connection failed");
+  });
+
+  it("rejects websocket connections in production when the origin header is mismatched", async () => {
+    server = await createTestServer({ cwd: "/test" });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    await expect(
+      connectWs(port, undefined, 5, {
+        origin: "http://malicious.example",
+      }),
+    ).rejects.toThrow("WebSocket connection failed");
+  });
+
+  it("accepts websocket connections in production when the origin header matches the request origin", async () => {
+    server = await createTestServer({ cwd: "/test" });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port, undefined, {
+      origin: `http://127.0.0.1:${port}`,
+    });
+    connections.push(ws);
+  });
+
+  it("accepts websocket connections in production behind a reverse proxy when forwarded origin matches", async () => {
+    server = await createTestServer({ cwd: "/test" });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port, undefined, {
+      origin: "https://t3.example",
+      "x-forwarded-host": "t3.example",
+      "x-forwarded-proto": "https",
+    });
+    connections.push(ws);
+  });
+
+  it("rejects websocket connections when the host is not allowed", async () => {
+    server = await createTestServer({
+      cwd: "/test",
+      allowedHosts: ["app.example"],
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    await expect(connectWs(port)).rejects.toThrow("WebSocket connection failed");
+  });
+
+  it("accepts websocket connections when the forwarded host is allowed", async () => {
+    server = await createTestServer({
+      cwd: "/test",
+      allowedHosts: ["app.example"],
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port, undefined, {
+      origin: "https://app.example",
+      "x-forwarded-host": "app.example",
+      "x-forwarded-proto": "https",
+    });
+    connections.push(ws);
+  });
+
+  it("skips origin verification when running against a dev URL", async () => {
+    server = await createTestServer({ cwd: "/test", devUrl: "http://localhost:5173" });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
   });
 });

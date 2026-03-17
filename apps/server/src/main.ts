@@ -6,7 +6,19 @@
  *
  * @module CliConfig
  */
-import { Config, Data, Effect, FileSystem, Layer, Option, Path, Schema, ServiceMap } from "effect";
+import {
+  Config,
+  Data,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Path,
+  Schema,
+  SchemaIssue,
+  SchemaTransformation,
+  ServiceMap,
+} from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { NetService } from "@t3tools/shared/Net";
 import {
@@ -32,6 +44,63 @@ export class StartupError extends Data.TaggedError("StartupError")<{
   readonly cause?: unknown;
 }> {}
 
+const AllowedHost = Schema.String.pipe(
+  Schema.decodeTo(
+    Schema.String,
+    SchemaTransformation.transformOrFail({
+      decode: (input) => {
+        const candidate = input.trim();
+        const invalidHostIssue = new SchemaIssue.InvalidValue(Option.some(input), {
+          message: `Invalid host "${input}". Expected bare host[:port], for example "app.example" or "app.example:443".`,
+        });
+
+        if (candidate.length === 0 || candidate.includes("://")) {
+          return Effect.fail(invalidHostIssue);
+        }
+
+        const candidateUrl = `http://${candidate}`;
+        if (!URL.canParse(candidateUrl)) {
+          return Effect.fail(invalidHostIssue);
+        }
+
+        const parsed = new URL(candidateUrl);
+        if (
+          parsed.username ||
+          parsed.password ||
+          parsed.pathname !== "/" ||
+          parsed.search ||
+          parsed.hash
+        ) {
+          return Effect.fail(invalidHostIssue);
+        }
+
+        return Effect.succeed(parsed.host.toLowerCase());
+      },
+      encode: (input) => Effect.succeed(input),
+    }),
+  ),
+);
+
+const AllowedHostsCsv = Schema.String.pipe(
+  Schema.decodeTo(
+    Schema.Array(AllowedHost),
+    SchemaTransformation.transformOrFail({
+      decode: (input) =>
+        Effect.succeed(
+          Array.from(
+            new Set(
+              input
+                .split(",")
+                .map((entry) => entry.trim())
+                .filter((entry) => entry.length > 0),
+            ),
+          ),
+        ),
+      encode: (input: readonly string[]) => Effect.succeed(input.join(", ")),
+    }),
+  ),
+);
+
 interface CliInput {
   readonly mode: Option.Option<RuntimeMode>;
   readonly port: Option.Option<number>;
@@ -40,6 +109,7 @@ interface CliInput {
   readonly devUrl: Option.Option<URL>;
   readonly noBrowser: Option.Option<boolean>;
   readonly authToken: Option.Option<string>;
+  readonly allowedHosts: Option.Option<readonly string[]>;
   readonly autoBootstrapProjectFromCwd: Option.Option<boolean>;
   readonly logWebSocketEvents: Option.Option<boolean>;
 }
@@ -112,6 +182,10 @@ const CliEnvConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  allowedHosts: Config.schema(AllowedHostsCsv, "T3CODE_ALLOWED_HOSTS").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   autoBootstrapProjectFromCwd: Config.boolean("T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
@@ -158,6 +232,7 @@ const ServerConfigLive = (input: CliInput) =>
       const devUrl = Option.getOrElse(input.devUrl, () => env.devUrl);
       const noBrowser = resolveBooleanFlag(input.noBrowser, env.noBrowser ?? mode === "desktop");
       const authToken = Option.getOrUndefined(input.authToken) ?? env.authToken;
+      const allowedHosts = Option.getOrUndefined(input.allowedHosts) ?? env.allowedHosts ?? [];
       const autoBootstrapProjectFromCwd = resolveBooleanFlag(
         input.autoBootstrapProjectFromCwd,
         env.autoBootstrapProjectFromCwd ?? mode === "web",
@@ -185,6 +260,7 @@ const ServerConfigLive = (input: CliInput) =>
         devUrl,
         noBrowser,
         authToken,
+        allowedHosts,
         autoBootstrapProjectFromCwd,
         logWebSocketEvents,
       } satisfies ServerConfigShape;
@@ -317,6 +393,13 @@ const authTokenFlag = Flag.string("auth-token").pipe(
   Flag.withAlias("token"),
   Flag.optional,
 );
+const allowedHostsFlag = Flag.string("allowed-hosts").pipe(
+  Flag.withSchema(AllowedHostsCsv),
+  Flag.withDescription(
+    "Comma-separated host[:port] values allowed for inbound HTTP and WebSocket traffic (equivalent to T3CODE_ALLOWED_HOSTS).",
+  ),
+  Flag.optional,
+);
 const autoBootstrapProjectFromCwdFlag = Flag.boolean("auto-bootstrap-project-from-cwd").pipe(
   Flag.withDescription(
     "Create a project for the current working directory on startup when missing.",
@@ -339,6 +422,7 @@ export const t3Cli = Command.make("t3", {
   devUrl: devUrlFlag,
   noBrowser: noBrowserFlag,
   authToken: authTokenFlag,
+  allowedHosts: allowedHostsFlag,
   autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
   logWebSocketEvents: logWebSocketEventsFlag,
 }).pipe(
