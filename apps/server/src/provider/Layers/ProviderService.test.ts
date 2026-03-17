@@ -651,7 +651,6 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
-
   it.effect("lists no sessions after adapter runtime clears", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;

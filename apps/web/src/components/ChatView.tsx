@@ -3393,8 +3393,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
             >
               <div
                 className={cn(
-                  "group rounded-[22px] transition-colors duration-200",
-                  isClaudeUltrathink ? "ultrathink-frame p-[2px]" : "p-px",
+                  "group rounded-[22px] p-px transition-colors duration-200",
+                  isClaudeUltrathink ? "ultrathink-frame" : undefined,
                 )}
                 onDragEnter={onComposerDragEnter}
                 onDragOver={onComposerDragOver}
@@ -3442,13 +3442,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
                     )}
                   >
-                    {isClaudeUltrathink ? (
-                      <div className="mb-2 flex items-center gap-2">
-                        <span className="ultrathink-pill inline-flex items-center rounded-md border border-transparent px-2.5 py-0.5 font-medium text-[12px] sm:text-[13px]">
-                          <span className="ultrathink-word">Ultrathink</span>
-                        </span>
-                      </div>
-                    ) : null}
                     {composerMenuOpen && !isComposerApprovalState && (
                       <div className="absolute inset-x-0 bottom-full z-20 mb-2 px-1">
                         <ComposerCommandMenu
