@@ -44,10 +44,7 @@ const ThemeTokenValue = TrimmedNonEmptyString.check(
   Schema.isPattern(/^[^\n\r{};]+$/),
 );
 
-export const ThemeTokenNameSchema = Schema.Literals(THEME_TOKEN_NAMES);
-export const ThemePaletteTokens = Schema.Record(ThemeTokenNameSchema, ThemeTokenValue).check(
-  Schema.isMaxLength(THEME_TOKEN_NAMES.length),
-);
+export const ThemePaletteTokens = Schema.Record(Schema.String, ThemeTokenValue);
 export type ThemePaletteTokens = typeof ThemePaletteTokens.Type;
 
 export const ThemePaletteDefinition = Schema.Struct({

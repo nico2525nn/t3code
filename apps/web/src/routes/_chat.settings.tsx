@@ -433,8 +433,15 @@ function SettingsRouteView() {
                       <p className="text-xs font-medium text-destructive">
                         Invalid custom theme entries
                       </p>
-                      {themeIssues.map((issue, index) => (
-                        <p key={`${issue.kind}:${index}`} className="text-xs text-destructive">
+                      {themeIssues.map((issue) => (
+                        <p
+                          key={
+                            issue.kind === "themes.invalid-entry"
+                              ? `${issue.kind}:${issue.index}`
+                              : `${issue.kind}:${issue.message}`
+                          }
+                          className="text-xs text-destructive"
+                        >
                           {issue.kind === "themes.invalid-entry"
                             ? `Entry ${issue.index + 1}: ${issue.message}`
                             : issue.message}

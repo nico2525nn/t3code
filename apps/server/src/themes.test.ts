@@ -1,7 +1,7 @@
 import { ThemePaletteConfig, type ThemePaletteDefinition } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Logger, Path, Schema } from "effect";
+import { Effect, FileSystem, Layer, Path, Schema } from "effect";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { Themes, ThemesLive } from "./themes";
 
@@ -120,7 +120,7 @@ it.layer(NodeServices.layer)("themes", (it) => {
           message: configState.issues[0]?.message ?? "",
         },
       ]);
-    }).pipe(Effect.provide(makeThemesLayer()), Logger.withMinimumLogLevel("Fatal")),
+    }).pipe(Effect.provide(makeThemesLayer())),
   );
 
   it.effect("persists valid custom themes without mutation", () =>

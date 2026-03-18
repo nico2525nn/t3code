@@ -1,4 +1,8 @@
-import type { ThemePaletteDefinition, ThemeTokenName } from "@t3tools/contracts";
+import {
+  THEME_TOKEN_NAMES,
+  type ThemePaletteDefinition,
+  type ThemeTokenName,
+} from "@t3tools/contracts";
 
 export type ResolvedThemeMode = "light" | "dark";
 export type ThemePreference = ResolvedThemeMode | "system";
@@ -202,9 +206,25 @@ function resolveThemePalette(
     label: input.label,
     description,
     source,
-    light: { ...DEFAULT_LIGHT_TOKENS, ...(input.light ?? {}) },
-    dark: { ...DEFAULT_DARK_TOKENS, ...(input.dark ?? {}) },
+    light: { ...DEFAULT_LIGHT_TOKENS, ...sanitizeThemeTokenOverrides(input.light) },
+    dark: { ...DEFAULT_DARK_TOKENS, ...sanitizeThemeTokenOverrides(input.dark) },
   } satisfies ThemePalette;
+}
+
+function sanitizeThemeTokenOverrides(overrides: Record<string, string> | undefined) {
+  const sanitized: ThemeTokenOverrides = {};
+  if (!overrides) {
+    return sanitized;
+  }
+
+  for (const tokenName of THEME_TOKEN_NAMES) {
+    const value = overrides[tokenName];
+    if (typeof value === "string") {
+      sanitized[tokenName] = value;
+    }
+  }
+
+  return sanitized;
 }
 
 const BUILT_IN_THEME_PALETTE_MAP = new Map(
