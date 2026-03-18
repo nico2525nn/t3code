@@ -7,6 +7,7 @@ import {
   type ProviderKind,
   type ToolLifecycleItemType,
   type UserInputQuestion,
+  type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
 
@@ -14,6 +15,7 @@ import type {
   ChatMessage,
   ProposedPlan,
   SessionPhase,
+  Thread,
   ThreadSession,
   TurnDiffSummary,
 } from "./types";
@@ -72,6 +74,8 @@ export interface LatestProposedPlanState {
   updatedAt: string;
   turnId: TurnId | null;
   planMarkdown: string;
+  implementedAt: string | null;
+  implementationThreadId: ThreadId | null;
 }
 
 export type TimelineEntry =
@@ -374,13 +378,7 @@ export function findLatestProposedPlan(
       )
       .at(-1);
     if (matchingTurnPlan) {
-      return {
-        id: matchingTurnPlan.id,
-        createdAt: matchingTurnPlan.createdAt,
-        updatedAt: matchingTurnPlan.updatedAt,
-        turnId: matchingTurnPlan.turnId,
-        planMarkdown: matchingTurnPlan.planMarkdown,
-      };
+      return toLatestProposedPlanState(matchingTurnPlan);
     }
   }
 
@@ -394,13 +392,37 @@ export function findLatestProposedPlan(
     return null;
   }
 
-  return {
-    id: latestPlan.id,
-    createdAt: latestPlan.createdAt,
-    updatedAt: latestPlan.updatedAt,
-    turnId: latestPlan.turnId,
-    planMarkdown: latestPlan.planMarkdown,
-  };
+  return toLatestProposedPlanState(latestPlan);
+}
+
+export function findSidebarProposedPlan(input: {
+  threads: ReadonlyArray<Pick<Thread, "id" | "proposedPlans">>;
+  latestTurn: Pick<OrchestrationLatestTurn, "turnId" | "sourceProposedPlan"> | null;
+  latestTurnSettled: boolean;
+  threadId: ThreadId | string | null | undefined;
+}): LatestProposedPlanState | null {
+  const activeThreadPlans =
+    input.threads.find((thread) => thread.id === input.threadId)?.proposedPlans ?? [];
+
+  if (!input.latestTurnSettled) {
+    const sourceProposedPlan = input.latestTurn?.sourceProposedPlan;
+    if (sourceProposedPlan) {
+      const sourcePlan = input.threads
+        .find((thread) => thread.id === sourceProposedPlan.threadId)
+        ?.proposedPlans.find((plan) => plan.id === sourceProposedPlan.planId);
+      if (sourcePlan) {
+        return toLatestProposedPlanState(sourcePlan);
+      }
+    }
+  }
+
+  return findLatestProposedPlan(activeThreadPlans, input.latestTurn?.turnId ?? null);
+}
+
+export function hasActionableProposedPlan(
+  proposedPlan: LatestProposedPlanState | Pick<ProposedPlan, "implementedAt"> | null,
+): boolean {
+  return proposedPlan !== null && proposedPlan.implementedAt === null;
 }
 
 export function deriveWorkLogEntries(
@@ -413,6 +435,7 @@ export function deriveWorkLogEntries(
     .filter((activity) => activity.kind !== "tool.started")
     .filter((activity) => activity.kind !== "task.started" && activity.kind !== "task.completed")
     .filter((activity) => activity.summary !== "Checkpoint captured")
+    .filter((activity) => !isPlanBoundaryToolActivity(activity))
     .map((activity) => {
       const payload =
         activity.payload && typeof activity.payload === "object"
@@ -452,6 +475,30 @@ export function deriveWorkLogEntries(
       }
       return entry;
     });
+}
+
+function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
+    return false;
+  }
+
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  return typeof payload?.detail === "string" && payload.detail.startsWith("ExitPlanMode:");
+}
+
+function toLatestProposedPlanState(proposedPlan: ProposedPlan): LatestProposedPlanState {
+  return {
+    id: proposedPlan.id,
+    createdAt: proposedPlan.createdAt,
+    updatedAt: proposedPlan.updatedAt,
+    turnId: proposedPlan.turnId,
+    planMarkdown: proposedPlan.planMarkdown,
+    implementedAt: proposedPlan.implementedAt,
+    implementationThreadId: proposedPlan.implementationThreadId,
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

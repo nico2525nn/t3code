@@ -59,8 +59,10 @@ import {
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  findSidebarProposedPlan,
   findLatestProposedPlan,
   deriveWorkLogEntries,
+  hasActionableProposedPlan,
   hasToolActivityForTurn,
   isLatestTurnSettled,
   formatElapsed,
@@ -768,6 +770,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
       activeLatestTurn?.turnId ?? null,
     );
   }, [activeLatestTurn?.turnId, activeThread?.proposedPlans, latestTurnSettled]);
+  const sidebarProposedPlan = useMemo(
+    () =>
+      findSidebarProposedPlan({
+        threads,
+        latestTurn: activeLatestTurn,
+        latestTurnSettled,
+        threadId: activeThread?.id ?? null,
+      }),
+    [activeLatestTurn, activeThread?.id, latestTurnSettled, threads],
+  );
   const activePlan = useMemo(
     () => deriveActivePlanState(threadActivities, activeLatestTurn?.turnId ?? undefined),
     [activeLatestTurn?.turnId, threadActivities],
@@ -776,7 +788,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
     latestTurnSettled &&
-    activeProposedPlan !== null;
+    hasActionableProposedPlan(activeProposedPlan);
   const activePendingApproval = pendingApprovals[0] ?? null;
   const isComposerApprovalState = activePendingApproval !== null;
   const hasComposerHeader =
@@ -1608,7 +1620,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const togglePlanSidebar = useCallback(() => {
     setPlanSidebarOpen((open) => {
       if (open) {
-        const turnKey = activePlan?.turnId ?? activeProposedPlan?.turnId ?? null;
+        const turnKey = activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? null;
         if (turnKey) {
           planSidebarDismissedForTurnRef.current = turnKey;
         }
@@ -1617,7 +1629,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       return !open;
     });
-  }, [activePlan?.turnId, activeProposedPlan?.turnId]);
+  }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -2943,6 +2955,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
           assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
           runtimeMode,
           interactionMode: nextInteractionMode,
+          ...(nextInteractionMode === "default" && activeProposedPlan
+            ? {
+                sourceProposedPlan: {
+                  threadId: activeThread.id,
+                  planId: activeProposedPlan.id,
+                },
+              }
+            : {}),
           createdAt: messageCreatedAt,
         });
         // Optimistically open the plan sidebar when implementing (not refining).
@@ -2967,6 +2987,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [
       activeThread,
+      activeProposedPlan,
       beginSendPhase,
       forceStickToBottom,
       isConnecting,
@@ -3792,7 +3813,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         {isComposerFooterCompact ? (
                           <CompactComposerControlsMenu
                             activePlan={Boolean(
-                              activePlan || activeProposedPlan || planSidebarOpen,
+                              activePlan || sidebarProposedPlan || planSidebarOpen,
                             )}
                             interactionMode={interactionMode}
                             planSidebarOpen={planSidebarOpen}
@@ -3888,7 +3909,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               </span>
                             </Button>
 
-                            {activePlan || activeProposedPlan || planSidebarOpen ? (
+                            {activePlan || sidebarProposedPlan || planSidebarOpen ? (
                               <>
                                 <Separator
                                   orientation="vertical"
@@ -4118,14 +4139,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
         {planSidebarOpen ? (
           <PlanSidebar
             activePlan={activePlan}
-            activeProposedPlan={activeProposedPlan}
+            activeProposedPlan={sidebarProposedPlan}
             markdownCwd={gitCwd ?? undefined}
             workspaceRoot={activeProject?.cwd ?? undefined}
             timestampFormat={timestampFormat}
             onClose={() => {
               setPlanSidebarOpen(false);
               // Track that the user explicitly dismissed for this turn so auto-open won't fight them.
-              const turnKey = activePlan?.turnId ?? activeProposedPlan?.turnId ?? null;
+              const turnKey = activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? null;
               if (turnKey) {
                 planSidebarDismissedForTurnRef.current = turnKey;
               }
