@@ -28,6 +28,7 @@ import { makeEventNdjsonLogger } from "./provider/Layers/EventNdjsonLogger";
 
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
 import { KeybindingsLive } from "./keybindings";
+import { ThemesLive } from "./themes";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { GitCoreLive } from "./git/Layers/GitCore";
 import { GitHubCliLive } from "./git/Layers/GitHubCli";
@@ -127,5 +128,6 @@ export function makeServerRuntimeServicesLayer() {
     gitManagerLayer,
     terminalLayer,
     KeybindingsLive,
+    ThemesLive,
   ).pipe(Layer.provideMerge(NodeServices.layer));
 }
