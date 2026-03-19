@@ -195,9 +195,21 @@ function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
     Effect.runSync(PubSub.publish(runtimeEventPubSub, event as unknown as ProviderRuntimeEvent));
   };
 
+  const updateSession = (
+    threadId: ThreadId,
+    update: (session: ProviderSession) => ProviderSession,
+  ): void => {
+    const existing = sessions.get(threadId);
+    if (!existing) {
+      return;
+    }
+    sessions.set(threadId, update(existing));
+  };
+
   return {
     adapter,
     emit,
+    updateSession,
     startSession,
     sendTurn,
     interruptTurn,
@@ -348,16 +360,29 @@ it.effect(
         Layer.provide(firstDirectoryLayer),
         Layer.provide(AnalyticsService.layerTest),
       );
+      const updatedResumeCursor = {
+        threadId: asThreadId("thread-1"),
+        resume: "resume-session-1",
+        resumeSessionAt: "assistant-message-1",
+        turnCount: 1,
+      };
 
       const startedSession = yield* Effect.gen(function* () {
         const provider = yield* ProviderService;
         const threadId = asThreadId("thread-1");
-        return yield* provider.startSession(threadId, {
+        const session = yield* provider.startSession(threadId, {
           provider: "codex",
           cwd: "/tmp/project",
           runtimeMode: "full-access",
           threadId,
         });
+        firstCodex.updateSession(threadId, (existing) => ({
+          ...existing,
+          status: "ready",
+          resumeCursor: updatedResumeCursor,
+          updatedAt: new Date(Date.now() + 1_000).toISOString(),
+        }));
+        return session;
       }).pipe(Effect.provide(firstProviderLayer));
 
       const persistedAfterStopAll = yield* Effect.gen(function* () {
@@ -367,7 +392,7 @@ it.effect(
       assert.equal(Option.isSome(persistedAfterStopAll), true);
       if (Option.isSome(persistedAfterStopAll)) {
         assert.equal(persistedAfterStopAll.value.status, "stopped");
-        assert.deepEqual(persistedAfterStopAll.value.resumeCursor, startedSession.resumeCursor);
+        assert.deepEqual(persistedAfterStopAll.value.resumeCursor, updatedResumeCursor);
       }
 
       const secondCodex = makeFakeCodexAdapter();
@@ -410,7 +435,7 @@ it.effect(
         };
         assert.equal(startPayload.provider, "codex");
         assert.equal(startPayload.cwd, "/tmp/project");
-        assert.deepEqual(startPayload.resumeCursor, startedSession.resumeCursor);
+        assert.deepEqual(startPayload.resumeCursor, updatedResumeCursor);
         assert.equal(startPayload.threadId, startedSession.threadId);
       }
       assert.equal(secondCodex.rollbackThread.mock.calls.length, 1);
@@ -733,7 +758,7 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
       const consumer = yield* Stream.runForEach(provider.streamEvents, (event) =>
         Ref.update(eventsRef, (current) => [...current, event]),
       ).pipe(Effect.forkChild);
-      yield* sleep(20);
+      yield* sleep(50);
 
       const completedEvent: LegacyProviderRuntimeEvent = {
         type: "turn.completed",
@@ -746,7 +771,7 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
       };
 
       fanout.codex.emit(completedEvent);
-      yield* sleep(20);
+      yield* sleep(50);
 
       const events = yield* Ref.get(eventsRef);
       yield* Fiber.interrupt(consumer);
@@ -772,7 +797,7 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
         Stream.runForEach((event) => Ref.update(receivedRef, (current) => [...current, event])),
         Effect.forkChild,
       );
-      yield* sleep(20);
+      yield* sleep(50);
 
       fanout.codex.emit({
         type: "tool.started",
@@ -836,7 +861,7 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
         Stream.runForEach(() => Effect.fail("listener crash")),
         Effect.forkChild,
       );
-      yield* sleep(20);
+      yield* sleep(50);
 
       const events: ReadonlyArray<LegacyProviderRuntimeEvent> = [
         {

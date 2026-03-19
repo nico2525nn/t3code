@@ -87,13 +87,14 @@ interface ClaudeTurnState {
   readonly startedAt: string;
   readonly items: Array<unknown>;
   readonly assistantTextBlocks: Map<number, AssistantTextBlockState>;
-  readonly assistantTextBlockOrder: Array<number>;
+  readonly assistantTextBlockOrder: Array<AssistantTextBlockState>;
   readonly capturedProposedPlanKeys: Set<string>;
   nextSyntheticAssistantBlockIndex: number;
 }
 
 interface AssistantTextBlockState {
   readonly itemId: string;
+  readonly blockIndex: number;
   emittedTextDelta: boolean;
   fallbackText: string;
   streamClosed: boolean;
@@ -829,7 +830,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
 
         const existing = turnState.assistantTextBlocks.get(blockIndex);
-        if (existing) {
+        if (existing && !existing.completionEmitted) {
           if (existing.fallbackText.length === 0 && options?.fallbackText) {
             existing.fallbackText = options.fallbackText;
           }
@@ -841,13 +842,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
         const block: AssistantTextBlockState = {
           itemId: yield* Random.nextUUIDv4,
+          blockIndex,
           emittedTextDelta: false,
           fallbackText: options?.fallbackText ?? "",
           streamClosed: options?.streamClosed ?? false,
           completionEmitted: false,
         };
         turnState.assistantTextBlocks.set(blockIndex, block);
-        turnState.assistantTextBlockOrder.push(blockIndex);
+        turnState.assistantTextBlockOrder.push(block);
         return { blockIndex, block };
       });
 
@@ -877,7 +879,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
     const completeAssistantTextBlock = (
       context: ClaudeSessionContext,
-      blockIndex: number,
+      block: AssistantTextBlockState,
       options?: {
         readonly force?: boolean;
         readonly rawMethod?: string;
@@ -886,8 +888,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const turnState = context.turnState;
-        const block = turnState?.assistantTextBlocks.get(blockIndex);
-        if (!turnState || !block || block.completionEmitted) {
+        if (!turnState || block.completionEmitted) {
           return;
         }
 
@@ -923,6 +924,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
 
         block.completionEmitted = true;
+        if (turnState.assistantTextBlocks.get(block.blockIndex) === block) {
+          turnState.assistantTextBlocks.delete(block.blockIndex);
+        }
 
         const stamp = yield* makeEventStamp();
         yield* offerRuntimeEvent({
@@ -967,19 +971,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           return;
         }
 
-        const orderedBlocks = turnState.assistantTextBlockOrder
-          .map((blockIndex) => ({
-            blockIndex,
-            block: turnState.assistantTextBlocks.get(blockIndex),
-          }))
-          .filter(
-            (
-              entry,
-            ): entry is {
-              readonly blockIndex: number;
-              readonly block: AssistantTextBlockState;
-            } => entry.block !== undefined,
-          );
+        const orderedBlocks = turnState.assistantTextBlockOrder.map((block) => ({
+          blockIndex: block.blockIndex,
+          block,
+        }));
 
         for (const [position, text] of snapshotTextBlocks.entries()) {
           const existingEntry = orderedBlocks[position];
@@ -1003,7 +998,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           }
 
           if (entry.block.streamClosed && !entry.block.completionEmitted) {
-            yield* completeAssistantTextBlock(context, entry.blockIndex, {
+            yield* completeAssistantTextBlock(context, entry.block, {
               rawMethod: "claude/assistant",
               rawPayload: message,
             });
@@ -1208,8 +1203,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         // Clear any remaining stale entries (e.g. from interrupted content blocks)
         context.inFlightTools.clear();
 
-        for (const blockIndex of turnState.assistantTextBlockOrder) {
-          yield* completeAssistantTextBlock(context, blockIndex, {
+        for (const block of turnState.assistantTextBlockOrder) {
+          yield* completeAssistantTextBlock(context, block, {
             force: true,
             rawMethod: "claude/result",
             rawPayload: result ?? { status },
@@ -1460,7 +1455,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           const assistantBlock = context.turnState?.assistantTextBlocks.get(index);
           if (assistantBlock) {
             assistantBlock.streamClosed = true;
-            yield* completeAssistantTextBlock(context, index, {
+            yield* completeAssistantTextBlock(context, assistantBlock, {
               rawMethod: "claude/stream_event/content_block_stop",
               rawPayload: message,
             });

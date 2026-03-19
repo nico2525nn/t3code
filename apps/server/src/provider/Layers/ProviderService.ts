@@ -88,7 +88,12 @@ function toRuntimeStatus(session: ProviderSession): "starting" | "running" | "st
 
 function toRuntimePayloadFromSession(
   session: ProviderSession,
-  extra?: { readonly modelOptions?: unknown; readonly providerOptions?: unknown },
+  extra?: {
+    readonly modelOptions?: unknown;
+    readonly providerOptions?: unknown;
+    readonly lastRuntimeEvent?: string;
+    readonly lastRuntimeEventAt?: string;
+  },
 ): Record<string, unknown> {
   return {
     cwd: session.cwd ?? null,
@@ -97,6 +102,10 @@ function toRuntimePayloadFromSession(
     lastError: session.lastError ?? null,
     ...(extra?.modelOptions !== undefined ? { modelOptions: extra.modelOptions } : {}),
     ...(extra?.providerOptions !== undefined ? { providerOptions: extra.providerOptions } : {}),
+    ...(extra?.lastRuntimeEvent !== undefined ? { lastRuntimeEvent: extra.lastRuntimeEvent } : {}),
+    ...(extra?.lastRuntimeEventAt !== undefined
+      ? { lastRuntimeEventAt: extra.lastRuntimeEventAt }
+      : {}),
   };
 }
 
@@ -162,7 +171,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const upsertSessionBinding = (
       session: ProviderSession,
       threadId: ThreadId,
-      extra?: { readonly modelOptions?: unknown; readonly providerOptions?: unknown },
+      extra?: {
+        readonly modelOptions?: unknown;
+        readonly providerOptions?: unknown;
+        readonly lastRuntimeEvent?: string;
+        readonly lastRuntimeEventAt?: string;
+      },
     ) =>
       directory.upsert({
         threadId,
@@ -177,7 +191,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const adapters = yield* Effect.forEach(providers, (provider) =>
       registry.getByProvider(provider),
     );
-
     const processRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
       publishRuntimeEvent(event);
 
@@ -513,6 +526,17 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const runStopAll = () =>
       Effect.gen(function* () {
         const threadIds = yield* directory.listThreadIds();
+        const activeSessions = yield* Effect.forEach(adapters, (adapter) =>
+          adapter.listSessions(),
+        ).pipe(
+          Effect.map((sessionsByAdapter) => sessionsByAdapter.flatMap((sessions) => sessions)),
+        );
+        yield* Effect.forEach(activeSessions, (session) =>
+          upsertSessionBinding(session, session.threadId, {
+            lastRuntimeEvent: "provider.stopAll",
+            lastRuntimeEventAt: new Date().toISOString(),
+          }),
+        ).pipe(Effect.asVoid);
         yield* Effect.forEach(adapters, (adapter) => adapter.stopAll()).pipe(Effect.asVoid);
         yield* Effect.forEach(threadIds, (threadId) =>
           directory.getProvider(threadId).pipe(
