@@ -46,8 +46,21 @@ import {
   supportsClaudeThinkingToggle,
   supportsClaudeUltrathinkKeyword,
 } from "@t3tools/shared/model";
-import { Cause, DateTime, Deferred, Effect, Layer, Queue, Random, Ref, Stream } from "effect";
+import {
+  Cause,
+  DateTime,
+  Deferred,
+  Effect,
+  FileSystem,
+  Layer,
+  Queue,
+  Random,
+  Ref,
+  Stream,
+} from "effect";
 
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { ServerConfig } from "../../config.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -363,21 +376,14 @@ function titleForTool(itemType: CanonicalItemType): string {
   }
 }
 
-function buildUserMessage(input: ProviderSendTurnInput): SDKUserMessage {
-  const fragments: string[] = [];
+const SUPPORTED_CLAUDE_IMAGE_MIME_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
-  if (input.input && input.input.trim().length > 0) {
-    fragments.push(input.input.trim());
-  }
-
-  for (const attachment of input.attachments ?? []) {
-    if (attachment.type === "image") {
-      fragments.push(
-        `Attached image: ${attachment.name} (${attachment.mimeType}, ${attachment.sizeBytes} bytes).`,
-      );
-    }
-  }
-
+function buildPromptText(input: ProviderSendTurnInput): string {
   const requestedEffort = resolveReasoningEffortForProvider(
     "claudeAgent",
     input.modelOptions?.claudeAgent?.effort ?? null,
@@ -389,17 +395,99 @@ function buildUserMessage(input: ProviderSendTurnInput): SDKUserMessage {
       : requestedEffort && supportedEffortOptions.includes(requestedEffort)
         ? requestedEffort
         : null;
-  const text = applyClaudePromptEffortPrefix(fragments.join("\n\n"), promptEffort);
+  return applyClaudePromptEffortPrefix(input.input?.trim() ?? "", promptEffort);
+}
 
+function buildUserMessage(input: {
+  readonly sdkContent: Array<Record<string, unknown>>;
+}): SDKUserMessage {
   return {
     type: "user",
     session_id: "",
     parent_tool_use_id: null,
     message: {
       role: "user",
-      content: [{ type: "text", text }],
+      content: input.sdkContent,
     },
   } as SDKUserMessage;
+}
+
+function buildClaudeImageContentBlock(input: {
+  readonly mimeType: string;
+  readonly bytes: Uint8Array;
+}): Record<string, unknown> {
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: input.mimeType,
+      data: Buffer.from(input.bytes).toString("base64"),
+    },
+  };
+}
+
+function buildUserMessageEffect(
+  input: ProviderSendTurnInput,
+  dependencies: {
+    readonly fileSystem: FileSystem.FileSystem;
+    readonly stateDir: string;
+  },
+): Effect.Effect<SDKUserMessage, ProviderAdapterRequestError> {
+  return Effect.gen(function* () {
+    const text = buildPromptText(input);
+    const sdkContent: Array<Record<string, unknown>> = [];
+
+    if (text.length > 0) {
+      sdkContent.push({ type: "text", text });
+    }
+
+    for (const attachment of input.attachments ?? []) {
+      if (attachment.type !== "image") {
+        continue;
+      }
+
+      if (!SUPPORTED_CLAUDE_IMAGE_MIME_TYPES.has(attachment.mimeType)) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "turn/start",
+          detail: `Unsupported Claude image attachment type '${attachment.mimeType}'.`,
+        });
+      }
+
+      const attachmentPath = resolveAttachmentPath({
+        stateDir: dependencies.stateDir,
+        attachment,
+      });
+      if (!attachmentPath) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "turn/start",
+          detail: `Invalid attachment id '${attachment.id}'.`,
+        });
+      }
+
+      const bytes = yield* dependencies.fileSystem.readFile(attachmentPath).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "turn/start",
+              detail: toMessage(cause, "Failed to read attachment file."),
+              cause,
+            }),
+        ),
+      );
+
+      sdkContent.push(
+        buildClaudeImageContentBlock({
+          mimeType: attachment.mimeType,
+          bytes,
+        }),
+      );
+    }
+
+    return buildUserMessage({ sdkContent });
+  });
 }
 
 function turnStatusFromResult(result: SDKResultMessage): ProviderRuntimeTurnStatus {
@@ -699,6 +787,8 @@ function sdkNativeItemId(message: SDKMessage): string | undefined {
 
 function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
   return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const serverConfig = yield* ServerConfig;
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath !== undefined
@@ -2571,7 +2661,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           providerRefs: {},
         });
 
-        const message = buildUserMessage(input);
+        const message = yield* buildUserMessageEffect(input, {
+          fileSystem,
+          stateDir: serverConfig.stateDir,
+        });
 
         yield* Queue.offer(context.promptQueue, {
           type: "message",

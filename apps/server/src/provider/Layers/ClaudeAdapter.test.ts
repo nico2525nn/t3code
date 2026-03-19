@@ -1,3 +1,8 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {
   Options as ClaudeQueryOptions,
   PermissionMode,
@@ -7,8 +12,10 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { ApprovalRequestId, ProviderItemId, ThreadId } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Fiber, Random, Stream } from "effect";
+import { Effect, Fiber, Layer, Random, Stream } from "effect";
 
+import { attachmentRelativePath } from "../../attachmentStore.ts";
+import { ServerConfig } from "../../config.ts";
 import { ProviderAdapterValidationError } from "../Errors.ts";
 import { ClaudeAdapter } from "../Services/ClaudeAdapter.ts";
 import { makeClaudeAdapterLive, type ClaudeAdapterLiveOptions } from "./ClaudeAdapter.ts";
@@ -93,21 +100,12 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   }
 }
 
-interface Harness {
-  readonly layer: ReturnType<typeof makeClaudeAdapterLive>;
-  readonly query: FakeClaudeQuery;
-  readonly getLastCreateQueryInput: () =>
-    | {
-        readonly prompt: AsyncIterable<SDKUserMessage>;
-        readonly options: ClaudeQueryOptions;
-      }
-    | undefined;
-}
-
 function makeHarness(config?: {
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: ClaudeAdapterLiveOptions["nativeEventLogger"];
-}): Harness {
+  readonly cwd?: string;
+  readonly stateDir?: string;
+}) {
   const query = new FakeClaudeQuery();
   let createInput:
     | {
@@ -134,7 +132,15 @@ function makeHarness(config?: {
   };
 
   return {
-    layer: makeClaudeAdapterLive(adapterOptions),
+    layer: makeClaudeAdapterLive(adapterOptions).pipe(
+      Layer.provideMerge(
+        ServerConfig.layerTest(
+          config?.cwd ?? "/tmp/claude-adapter-test",
+          config?.stateDir ?? "/tmp",
+        ),
+      ),
+      Layer.provideMerge(NodeServices.layer),
+    ),
     query,
     getLastCreateQueryInput: () => createInput,
   };
@@ -176,6 +182,24 @@ async function readFirstPromptText(
     return undefined;
   }
   return content.text;
+}
+
+async function readFirstPromptMessage(
+  input:
+    | {
+        readonly prompt: AsyncIterable<SDKUserMessage>;
+      }
+    | undefined,
+): Promise<SDKUserMessage | undefined> {
+  const iterator = input?.prompt[Symbol.asyncIterator]();
+  if (!iterator) {
+    return undefined;
+  }
+  const next = await iterator.next();
+  if (next.done) {
+    return undefined;
+  }
+  return next.value;
 }
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-claude-1");
@@ -455,6 +479,70 @@ describe("ClaudeAdapterLive", () => {
       assert.equal(createInput?.options.effort, undefined);
       const promptText = yield* Effect.promise(() => readFirstPromptText(createInput));
       assert.equal(promptText, "Ultrathink:\nInvestigate the edge cases");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("embeds image attachments in Claude user messages", () => {
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "claude-attachments-"));
+    const harness = makeHarness({
+      cwd: "/tmp/project-claude-attachments",
+      stateDir,
+    });
+    return Effect.gen(function* () {
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() =>
+          rmSync(stateDir, {
+            recursive: true,
+            force: true,
+          }),
+        ),
+      );
+
+      const adapter = yield* ClaudeAdapter;
+
+      const attachment = {
+        type: "image" as const,
+        id: "thread-claude-attachment-12345678-1234-1234-1234-123456789abc",
+        name: "diagram.png",
+        mimeType: "image/png",
+        sizeBytes: 4,
+      };
+      const attachmentPath = path.join(stateDir, "attachments", attachmentRelativePath(attachment));
+      mkdirSync(path.dirname(attachmentPath), { recursive: true });
+      writeFileSync(attachmentPath, Uint8Array.from([1, 2, 3, 4]));
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "What's in this image?",
+        attachments: [attachment],
+      });
+
+      const createInput = harness.getLastCreateQueryInput();
+      const promptMessage = yield* Effect.promise(() => readFirstPromptMessage(createInput));
+      assert.isDefined(promptMessage);
+      assert.deepEqual(promptMessage?.message.content, [
+        {
+          type: "text",
+          text: "What's in this image?",
+        },
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: "AQIDBA==",
+          },
+        },
+      ]);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
