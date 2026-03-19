@@ -806,11 +806,14 @@ const makeGitCore = Effect.gen(function* () {
 
   const commit: GitCoreShape["commit"] = (cwd, subject, body, extraArgs = []) =>
     Effect.gen(function* () {
-      const args = ["commit", ...extraArgs, "-m", subject];
+      const args = ["commit", "-m", subject];
       const trimmedBody = body.trim();
       if (trimmedBody.length > 0) {
         args.push("-m", trimmedBody);
       }
+      // Append extra flags after the message args so an argument-consuming
+      // flag (e.g. `-C`) cannot accidentally swallow `-m` or the subject.
+      args.push(...extraArgs);
       yield* runGit("GitCore.commit.commit", cwd, args);
       const commitSha = yield* runGitStdout("GitCore.commit.revParseHead", cwd, [
         "rev-parse",

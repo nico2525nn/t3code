@@ -207,11 +207,21 @@ interface CommitAndBranchSuggestion {
   commitMessage: string;
 }
 
-function tokenizeCommitFlags(rawFlags?: string): string[] {
-  return (rawFlags ?? "")
+/**
+ * Tokenize and sanitise user-provided extra flags for `git commit`.
+ *
+ * Each token must look like a CLI flag (start with `-`).  Tokens that don't
+ * start with a dash are silently dropped so that a malformed value like
+ * `--author "Foo"` (which the naive split turns into `["--author", "Foo"]`)
+ * cannot inject a positional argument into the git invocation.
+ */
+export function tokenizeCommitFlags(rawFlags?: string): string[] {
+  const tokens = (rawFlags ?? "")
     .trim()
     .split(/\s+/g)
     .filter((value) => value.length > 0);
+
+  return tokens.filter((token) => token.startsWith("-"));
 }
 
 function formatCommitMessage(subject: string, body: string): string {

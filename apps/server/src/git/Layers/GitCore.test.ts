@@ -12,6 +12,7 @@ import { GitCoreLive } from "./GitCore.ts";
 import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
 import { GitCommandError } from "../Errors.ts";
 import { type ProcessRunResult, runProcess } from "../../processRunner.ts";
+import { tokenizeCommitFlags } from "./GitManager.ts";
 
 // ── Helpers ──
 
@@ -1900,6 +1901,92 @@ it.layer(TestLayer)("git integration", (it) => {
         expect(result.branches.every((branch) => !branch.isRemote)).toBe(true);
         expect(didFailRemoteBranches).toBe(true);
         expect(didFailRemoteNames).toBe(true);
+      }),
+    );
+  });
+
+  describe("tokenizeCommitFlags", () => {
+    it("returns empty array for undefined", () => {
+      expect(tokenizeCommitFlags(undefined)).toEqual([]);
+    });
+
+    it("returns empty array for empty string", () => {
+      expect(tokenizeCommitFlags("")).toEqual([]);
+    });
+
+    it("returns empty array for whitespace-only string", () => {
+      expect(tokenizeCommitFlags("   ")).toEqual([]);
+    });
+
+    it("tokenizes a single flag", () => {
+      expect(tokenizeCommitFlags("--no-gpg-sign")).toEqual(["--no-gpg-sign"]);
+    });
+
+    it("tokenizes multiple flags separated by spaces", () => {
+      expect(tokenizeCommitFlags("--no-gpg-sign --signoff")).toEqual([
+        "--no-gpg-sign",
+        "--signoff",
+      ]);
+    });
+
+    it("handles extra whitespace between flags", () => {
+      expect(tokenizeCommitFlags("  --no-gpg-sign   --signoff  ")).toEqual([
+        "--no-gpg-sign",
+        "--signoff",
+      ]);
+    });
+
+    it("keeps flags with = values intact", () => {
+      expect(tokenizeCommitFlags("--cleanup=verbatim")).toEqual(["--cleanup=verbatim"]);
+    });
+
+    it("drops tokens that do not start with a dash", () => {
+      expect(tokenizeCommitFlags("--author Foo")).toEqual(["--author"]);
+    });
+
+    it("drops all non-flag tokens from a mixed input", () => {
+      expect(tokenizeCommitFlags("HEAD --no-verify somefile.txt -S")).toEqual([
+        "--no-verify",
+        "-S",
+      ]);
+    });
+  });
+
+  describe("commit with extraArgs", () => {
+    it.effect("passes extra flags through to git commit", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const core = yield* GitCore;
+
+        yield* writeTextFile(path.join(tmp, "extra.txt"), "extra args test\n");
+        yield* git(tmp, ["add", "extra.txt"]);
+
+        const { commitSha } = yield* core.commit(tmp, "test extra args", "", [
+          "--no-gpg-sign",
+        ]);
+        expect(commitSha).toBeTruthy();
+
+        // Verify the commit was created with the right message
+        const logOutput = yield* git(tmp, ["log", "-1", "--pretty=%s"]);
+        expect(logOutput).toBe("test extra args");
+      }),
+    );
+
+    it.effect("works without extra args (backward compat)", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const core = yield* GitCore;
+
+        yield* writeTextFile(path.join(tmp, "compat.txt"), "compat test\n");
+        yield* git(tmp, ["add", "compat.txt"]);
+
+        const { commitSha } = yield* core.commit(tmp, "no extra args", "");
+        expect(commitSha).toBeTruthy();
+
+        const logOutput = yield* git(tmp, ["log", "-1", "--pretty=%s"]);
+        expect(logOutput).toBe("no extra args");
       }),
     );
   });
