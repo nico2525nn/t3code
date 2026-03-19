@@ -350,11 +350,11 @@ describe("wsNativeApi", () => {
     const { createWsNativeApi } = await import("./wsNativeApi");
 
     const api = createWsNativeApi();
-    await api.git.runStackedAction({ cwd: "/repo", action: "commit" });
+    await api.git.runStackedAction({ actionId: "action-1", cwd: "/repo", action: "commit" });
 
     expect(requestMock).toHaveBeenCalledWith(
       WS_METHODS.gitRunStackedAction,
-      { cwd: "/repo", action: "commit" },
+      { actionId: "action-1", cwd: "/repo", action: "commit" },
       { timeoutMs: null },
     );
   });

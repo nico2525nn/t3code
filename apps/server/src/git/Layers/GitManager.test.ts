@@ -450,13 +450,20 @@ function runStackedAction(
   input: {
     cwd: string;
     action: "commit" | "commit_push" | "commit_push_pr";
+    actionId?: string;
     commitMessage?: string;
     featureBranch?: boolean;
     filePaths?: readonly string[];
   },
   options?: Parameters<GitManagerShape["runStackedAction"]>[1],
 ) {
-  return manager.runStackedAction(input, options);
+  return manager.runStackedAction(
+    {
+      ...input,
+      actionId: input.actionId ?? "test-action-id",
+    },
+    options,
+  );
 }
 
 function resolvePullRequest(manager: GitManagerShape, input: { cwd: string; reference: string }) {

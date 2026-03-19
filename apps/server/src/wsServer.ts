@@ -8,7 +8,6 @@
  */
 import http from "node:http";
 import type { Duplex } from "node:stream";
-import { randomUUID } from "node:crypto";
 
 import Mime from "@effect/platform-node/Mime";
 import {
@@ -795,7 +794,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       case WS_METHODS.gitRunStackedAction: {
         const body = stripRequestTag(request.body);
         return yield* gitManager.runStackedAction(body, {
-          actionId: randomUUID(),
+          actionId: body.actionId,
           progressReporter: {
             publish: (event) =>
               pushBus.publishClient(ws, WS_CHANNELS.gitActionProgress, event).pipe(Effect.asVoid),

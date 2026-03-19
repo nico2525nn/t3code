@@ -48,6 +48,7 @@ import {
   gitStatusQueryOptions,
   invalidateGitQueries,
 } from "~/lib/gitReactQuery";
+import { randomUUID } from "~/lib/utils";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { readNativeApi } from "~/nativeApi";
 
@@ -70,7 +71,7 @@ type GitActionToastId = ReturnType<typeof toastManager.add>;
 
 interface ActiveGitActionProgress {
   toastId: GitActionToastId;
-  actionId: string | null;
+  actionId: string;
   title: string;
   phaseStartedAtMs: number | null;
   hookStartedAtMs: number | null;
@@ -313,15 +314,11 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       if (gitCwd && event.cwd !== gitCwd) {
         return;
       }
-      if (progress.actionId !== null && progress.actionId !== event.actionId) {
+      if (progress.actionId !== event.actionId) {
         return;
       }
 
       const now = Date.now();
-      if (progress.actionId === null) {
-        progress.actionId = event.actionId;
-      }
-
       switch (event.kind) {
         case "action_started":
           progress.phaseStartedAtMs = now;
@@ -457,6 +454,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         forcePushOnly: forcePushOnlyProgress,
         featureBranch,
       });
+      const actionId = randomUUID();
       const resolvedProgressToastId =
         progressToastId ??
         toastManager.add({
@@ -469,7 +467,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
 
       activeGitActionProgressRef.current = {
         toastId: resolvedProgressToastId,
-        actionId: null,
+        actionId,
         title: progressStages[0] ?? "Running git action...",
         phaseStartedAtMs: null,
         hookStartedAtMs: null,
@@ -489,6 +487,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       }
 
       const promise = runImmediateGitActionMutation.mutateAsync({
+        actionId,
         action,
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
