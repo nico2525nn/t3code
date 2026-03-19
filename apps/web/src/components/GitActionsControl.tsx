@@ -5,7 +5,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
 import { GitHubIcon } from "./Icons";
 import {
@@ -218,9 +218,6 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
-  const runGitActionWithToastRef = useRef<((input: RunGitActionWithToastInput) => void) | null>(
-    null,
-  );
 
   const updateActiveProgressToast = useCallback(() => {
     const progress = activeGitActionProgressRef.current;
@@ -407,7 +404,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     });
   }, [gitStatusForActions, threadToastData]);
 
-  const runGitActionWithToast = useCallback(
+  const runGitActionWithToast = useEffectEvent(
     async ({
       action,
       commitMessage,
@@ -532,7 +529,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
                 actionProps: {
                   children: "Push",
                   onClick: () => {
-                    runGitActionWithToastRef.current?.({
+                    void runGitActionWithToast({
                       action: "commit_push",
                       forcePushOnlyProgress: true,
                       onConfirmed: closeResultToast,
@@ -560,7 +557,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
                       children: "Create PR",
                       onClick: () => {
                         closeResultToast();
-                        runGitActionWithToastRef.current?.({
+                        void runGitActionWithToast({
                           action: "commit_push_pr",
                           forcePushOnlyProgress: true,
                           statusOverride: actionStatus,
@@ -581,14 +578,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         });
       }
     },
-    [gitStatusForActions, isDefaultBranch, runImmediateGitActionMutation, threadToastData],
   );
-
-  useEffect(() => {
-    runGitActionWithToastRef.current = (input) => {
-      void runGitActionWithToast(input);
-    };
-  }, [runGitActionWithToast]);
 
   const continuePendingDefaultBranchAction = useCallback(() => {
     if (!pendingDefaultBranchAction) return;
