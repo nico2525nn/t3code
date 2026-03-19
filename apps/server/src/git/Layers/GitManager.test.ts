@@ -1996,8 +1996,11 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           }),
           expect.objectContaining({
             kind: "hook_output",
-            hookName: "pre-commit",
             text: "hook: start",
+          }),
+          expect.objectContaining({
+            kind: "hook_output",
+            text: "hook: end",
           }),
           expect.objectContaining({
             kind: "hook_finished",
