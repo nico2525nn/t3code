@@ -694,6 +694,7 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
     expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
       provider: "claudeAgent",
+      resumeCursor: { opaque: "resume-1" },
       modelOptions: {
         claudeAgent: {
           effort: "max",

@@ -308,8 +308,17 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           threadId,
           provider: parsed.provider ?? "codex",
         };
+        const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+        const effectiveResumeCursor =
+          input.resumeCursor ??
+          (persistedBinding?.provider === input.provider
+            ? persistedBinding.resumeCursor
+            : undefined);
         const adapter = yield* registry.getByProvider(input.provider);
-        const session = yield* adapter.startSession(input);
+        const session = yield* adapter.startSession({
+          ...input,
+          ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
+        });
 
         if (session.provider !== adapter.provider) {
           return yield* toValidationError(

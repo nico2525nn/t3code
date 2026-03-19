@@ -2071,6 +2071,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const startedAt = yield* nowIso;
         const resumeState = readClaudeResumeState(input.resumeCursor);
         const threadId = input.threadId;
+        const existingResumeSessionId = resumeState?.resume;
+        const newSessionId =
+          existingResumeSessionId === undefined ? yield* Random.nextUUIDv4 : undefined;
+        const sessionId = existingResumeSessionId ?? newSessionId;
 
         const promptQueue = yield* Queue.unbounded<PromptQueueItem>();
         const prompt = Stream.fromQueue(promptQueue).pipe(
@@ -2388,8 +2392,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             ? { maxThinkingTokens: providerOptions.maxThinkingTokens }
             : {}),
           ...(Object.keys(settings).length > 0 ? { settings } : {}),
-          ...(resumeState?.resume ? { resume: resumeState.resume } : {}),
-          ...(resumeState?.resumeSessionAt ? { resumeSessionAt: resumeState.resumeSessionAt } : {}),
+          ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
+          ...(newSessionId ? { sessionId: newSessionId } : {}),
           includePartialMessages: true,
           canUseTool,
           env: process.env,
@@ -2421,7 +2425,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           ...(threadId ? { threadId } : {}),
           resumeCursor: {
             ...(threadId ? { threadId } : {}),
-            ...(resumeState?.resume ? { resume: resumeState.resume } : {}),
+            ...(sessionId ? { resume: sessionId } : {}),
             ...(resumeState?.resumeSessionAt
               ? { resumeSessionAt: resumeState.resumeSessionAt }
               : {}),
@@ -2437,7 +2441,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           query: queryRuntime,
           startedAt,
           basePermissionMode: permissionMode,
-          resumeSessionId: resumeState?.resume,
+          resumeSessionId: sessionId,
           pendingApprovals,
           pendingUserInputs,
           turns: [],

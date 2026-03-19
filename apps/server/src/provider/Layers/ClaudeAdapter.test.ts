@@ -1806,7 +1806,7 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("passes parsed resume cursor values to Claude query options", () => {
+  it.effect("passes Claude resume ids without pinning a stale assistant checkpoint", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -1833,14 +1833,15 @@ describe("ClaudeAdapterLive", () => {
 
       const createInput = harness.getLastCreateQueryInput();
       assert.equal(createInput?.options.resume, "550e8400-e29b-41d4-a716-446655440000");
-      assert.equal(createInput?.options.resumeSessionAt, "assistant-99");
+      assert.equal(createInput?.options.sessionId, undefined);
+      assert.equal(createInput?.options.resumeSessionAt, undefined);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
     );
   });
 
-  it.effect("does not synthesize resume session id from generated thread ids", () => {
+  it.effect("uses an app-generated Claude session id for fresh sessions", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -1851,10 +1852,21 @@ describe("ClaudeAdapterLive", () => {
         runtimeMode: "full-access",
       });
 
-      assert.equal("resume" in (session.resumeCursor as Record<string, unknown>), false);
-
       const createInput = harness.getLastCreateQueryInput();
+      const sessionResumeCursor = session.resumeCursor as {
+        threadId?: string;
+        resume?: string;
+        turnCount?: number;
+      };
+      assert.equal(sessionResumeCursor.threadId, THREAD_ID);
+      assert.equal(typeof sessionResumeCursor.resume, "string");
+      assert.equal(sessionResumeCursor.turnCount, 0);
+      assert.match(
+        sessionResumeCursor.resume ?? "",
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
       assert.equal(createInput?.options.resume, undefined);
+      assert.equal(createInput?.options.sessionId, sessionResumeCursor.resume);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
