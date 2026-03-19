@@ -2209,6 +2209,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             );
 
             const answersDeferred = yield* Deferred.make<ProviderUserInputAnswers>();
+            let aborted = false;
             const pendingInput: PendingUserInput = {
               questions,
               answers: answersDeferred,
@@ -2242,6 +2243,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               if (!pendingUserInputs.has(requestId)) {
                 return;
               }
+              aborted = true;
               pendingUserInputs.delete(requestId);
               Effect.runFork(Deferred.succeed(answersDeferred, {} as ProviderUserInputAnswers));
             };
@@ -2271,6 +2273,13 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 payload: { answers },
               },
             });
+
+            if (aborted) {
+              return {
+                behavior: "deny",
+                message: "User cancelled tool execution.",
+              } satisfies PermissionResult;
+            }
 
             // Return the answers to the SDK in the expected format:
             // { questions: [...], answers: { questionText: selectedLabel } }

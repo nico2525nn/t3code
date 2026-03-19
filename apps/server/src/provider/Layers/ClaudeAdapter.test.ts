@@ -2497,6 +2497,74 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("denies AskUserQuestion when the waiting turn is aborted", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "approval-required",
+      });
+
+      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+
+      const createInput = harness.getLastCreateQueryInput();
+      const canUseTool = createInput?.options.canUseTool;
+      assert.equal(typeof canUseTool, "function");
+      if (!canUseTool) {
+        return;
+      }
+
+      const controller = new AbortController();
+      const permissionPromise = canUseTool(
+        "AskUserQuestion",
+        {
+          questions: [
+            {
+              question: "Continue?",
+              header: "Continue",
+              options: [{ label: "Yes", description: "Proceed" }],
+              multiSelect: false,
+            },
+          ],
+        },
+        {
+          signal: controller.signal,
+          toolUseID: "tool-ask-abort",
+        },
+      );
+
+      const requestedEvent = yield* Stream.runHead(adapter.streamEvents);
+      assert.equal(requestedEvent._tag, "Some");
+      if (requestedEvent._tag !== "Some" || requestedEvent.value.type !== "user-input.requested") {
+        assert.fail("Expected user-input.requested event");
+        return;
+      }
+      assert.equal(requestedEvent.value.threadId, session.threadId);
+
+      controller.abort();
+
+      const resolvedEvent = yield* Stream.runHead(adapter.streamEvents);
+      assert.equal(resolvedEvent._tag, "Some");
+      if (resolvedEvent._tag !== "Some" || resolvedEvent.value.type !== "user-input.resolved") {
+        assert.fail("Expected user-input.resolved event");
+        return;
+      }
+      assert.deepEqual(resolvedEvent.value.payload.answers, {});
+
+      const permissionResult = yield* Effect.promise(() => permissionPromise);
+      assert.deepEqual(permissionResult, {
+        behavior: "deny",
+        message: "User cancelled tool execution.",
+      } satisfies PermissionResult);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("writes provider-native observability records when enabled", () => {
     const nativeEvents: Array<{
       event?: {
