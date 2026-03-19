@@ -745,23 +745,24 @@ export const makeGitManager = Effect.gen(function* () {
             } as GitActionProgressEvent)
           : Effect.void;
 
-      const suggestion =
-        preResolvedSuggestion ??
-        (yield* emit({
-          kind: "phase_started",
-          phase: "commit",
-          label: commitMessage?.trim() ? "Committing..." : "Generating commit message...",
-        }).pipe(
-          Effect.flatMap(() =>
-            resolveCommitAndBranchSuggestion({
-              cwd,
-              branch,
-              ...(commitMessage ? { commitMessage } : {}),
-              ...(filePaths ? { filePaths } : {}),
-              ...(model ? { model } : {}),
-            }),
-          ),
-        ));
+      let suggestion: CommitAndBranchSuggestion | null | undefined = preResolvedSuggestion;
+      if (!suggestion) {
+        const needsGeneration = !commitMessage?.trim();
+        if (needsGeneration) {
+          yield* emit({
+            kind: "phase_started",
+            phase: "commit",
+            label: "Generating commit message...",
+          });
+        }
+        suggestion = yield* resolveCommitAndBranchSuggestion({
+          cwd,
+          branch,
+          ...(commitMessage ? { commitMessage } : {}),
+          ...(filePaths ? { filePaths } : {}),
+          ...(model ? { model } : {}),
+        });
+      }
       if (!suggestion) {
         return { status: "skipped_no_changes" as const };
       }
