@@ -10,7 +10,12 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { ApprovalRequestId, ProviderItemId, ThreadId } from "@t3tools/contracts";
+import {
+  ApprovalRequestId,
+  ProviderItemId,
+  ProviderRuntimeEvent,
+  ThreadId,
+} from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Layer, Random, Stream } from "effect";
 
@@ -22,8 +27,12 @@ import { makeClaudeAdapterLive, type ClaudeAdapterLiveOptions } from "./ClaudeAd
 
 class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   private readonly queue: Array<SDKMessage> = [];
-  private readonly resolvers: Array<(value: IteratorResult<SDKMessage>) => void> = [];
+  private readonly waiters: Array<{
+    readonly resolve: (value: IteratorResult<SDKMessage>) => void;
+    readonly reject: (reason: unknown) => void;
+  }> = [];
   private done = false;
+  private failure: unknown | undefined;
 
   public readonly interruptCalls: Array<void> = [];
   public readonly setModelCalls: Array<string | undefined> = [];
@@ -35,12 +44,23 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
     if (this.done) {
       return;
     }
-    const resolver = this.resolvers.shift();
-    if (resolver) {
-      resolver({ done: false, value: message });
+    const waiter = this.waiters.shift();
+    if (waiter) {
+      waiter.resolve({ done: false, value: message });
       return;
     }
     this.queue.push(message);
+  }
+
+  fail(cause: unknown): void {
+    if (this.done) {
+      return;
+    }
+    this.done = true;
+    this.failure = cause;
+    for (const waiter of this.waiters.splice(0)) {
+      waiter.reject(cause);
+    }
   }
 
   finish(): void {
@@ -48,8 +68,9 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
       return;
     }
     this.done = true;
-    for (const resolver of this.resolvers.splice(0)) {
-      resolver({ done: true, value: undefined });
+    this.failure = undefined;
+    for (const waiter of this.waiters.splice(0)) {
+      waiter.resolve({ done: true, value: undefined });
     }
   }
 
@@ -86,14 +107,22 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
             });
           }
         }
+        if (this.failure !== undefined) {
+          const failure = this.failure;
+          this.failure = undefined;
+          return Promise.reject(failure);
+        }
         if (this.done) {
           return Promise.resolve({
             done: true,
             value: undefined,
           });
         }
-        return new Promise((resolve) => {
-          this.resolvers.push(resolve);
+        return new Promise((resolve, reject) => {
+          this.waiters.push({
+            resolve,
+            reject,
+          });
         });
       },
     };
@@ -1031,6 +1060,71 @@ describe("ClaudeAdapterLive", () => {
         assert.equal(turnCompleted.payload.errorMessage, "Error: Request was aborted.");
         assert.equal(turnCompleted.payload.stopReason, "tool_use");
       }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("closes the session when the Claude stream aborts after a turn starts", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+
+      const runtimeEventsFiber = Effect.runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      const turn = yield* adapter.sendTurn({
+        threadId: THREAD_ID,
+        input: "hello",
+        attachments: [],
+      });
+
+      harness.query.fail(new Error("All fibers interrupted without error"));
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      runtimeEventsFiber.interruptUnsafe();
+      assert.deepEqual(
+        runtimeEvents.map((event) => event.type),
+        [
+          "session.started",
+          "session.configured",
+          "session.state.changed",
+          "turn.started",
+          "turn.completed",
+          "session.exited",
+        ],
+      );
+
+      const turnCompleted = runtimeEvents[4];
+      assert.equal(turnCompleted?.type, "turn.completed");
+      if (turnCompleted?.type === "turn.completed") {
+        assert.equal(String(turnCompleted.turnId), String(turn.turnId));
+        assert.equal(turnCompleted.payload.state, "interrupted");
+        assert.equal(turnCompleted.payload.errorMessage, "Claude runtime interrupted.");
+      }
+
+      const sessionExited = runtimeEvents[5];
+      assert.equal(sessionExited?.type, "session.exited");
+
+      assert.equal(yield* adapter.hasSession(THREAD_ID), false);
+      const sessions = yield* adapter.listSessions();
+      assert.equal(sessions.length, 0);
+      assert.equal(harness.query.closeCalls, 1);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

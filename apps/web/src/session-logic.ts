@@ -45,6 +45,11 @@ export interface WorkLogEntry {
   requestKind?: PendingApproval["requestKind"];
 }
 
+interface DerivedWorkLogEntry extends WorkLogEntry {
+  activityKind: OrchestrationThreadActivity["kind"];
+  collapseKey?: string;
+}
+
 export interface PendingApproval {
   requestId: ApprovalRequestId;
   requestKind: "command" | "file-read" | "file-change";
@@ -454,51 +459,16 @@ export function deriveWorkLogEntries(
   latestTurnId: TurnId | undefined,
 ): WorkLogEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
-  return ordered
+  const entries = ordered
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
     .filter((activity) => activity.kind !== "tool.started")
     .filter((activity) => activity.kind !== "task.started" && activity.kind !== "task.completed")
     .filter((activity) => activity.summary !== "Checkpoint captured")
     .filter((activity) => !isPlanBoundaryToolActivity(activity))
-    .map((activity) => {
-      const payload =
-        activity.payload && typeof activity.payload === "object"
-          ? (activity.payload as Record<string, unknown>)
-          : null;
-      const command = extractToolCommand(payload);
-      const changedFiles = extractChangedFiles(payload);
-      const title = extractToolTitle(payload);
-      const entry: WorkLogEntry = {
-        id: activity.id,
-        createdAt: activity.createdAt,
-        label: activity.summary,
-        tone: activity.tone === "approval" ? "info" : activity.tone,
-      };
-      const itemType = extractWorkLogItemType(payload);
-      const requestKind = extractWorkLogRequestKind(payload);
-      if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
-        const detail = stripTrailingExitCode(payload.detail).output;
-        if (detail) {
-          entry.detail = detail;
-        }
-      }
-      if (command) {
-        entry.command = command;
-      }
-      if (changedFiles.length > 0) {
-        entry.changedFiles = changedFiles;
-      }
-      if (title) {
-        entry.toolTitle = title;
-      }
-      if (itemType) {
-        entry.itemType = itemType;
-      }
-      if (requestKind) {
-        entry.requestKind = requestKind;
-      }
-      return entry;
-    });
+    .map(toDerivedWorkLogEntry);
+  return collapseDerivedWorkLogEntries(entries).map(
+    ({ activityKind: _activityKind, collapseKey: _collapseKey, ...entry }) => entry,
+  );
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
@@ -511,6 +481,134 @@ function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): bool
       ? (activity.payload as Record<string, unknown>)
       : null;
   return typeof payload?.detail === "string" && payload.detail.startsWith("ExitPlanMode:");
+}
+
+function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  const command = extractToolCommand(payload);
+  const changedFiles = extractChangedFiles(payload);
+  const title = extractToolTitle(payload);
+  const entry: DerivedWorkLogEntry = {
+    id: activity.id,
+    createdAt: activity.createdAt,
+    label: activity.summary,
+    tone: activity.tone === "approval" ? "info" : activity.tone,
+    activityKind: activity.kind,
+  };
+  const itemType = extractWorkLogItemType(payload);
+  const requestKind = extractWorkLogRequestKind(payload);
+  if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
+    const detail = stripTrailingExitCode(payload.detail).output;
+    if (detail) {
+      entry.detail = detail;
+    }
+  }
+  if (command) {
+    entry.command = command;
+  }
+  if (changedFiles.length > 0) {
+    entry.changedFiles = changedFiles;
+  }
+  if (title) {
+    entry.toolTitle = title;
+  }
+  if (itemType) {
+    entry.itemType = itemType;
+  }
+  if (requestKind) {
+    entry.requestKind = requestKind;
+  }
+  const collapseKey = deriveToolLifecycleCollapseKey(entry);
+  if (collapseKey) {
+    entry.collapseKey = collapseKey;
+  }
+  return entry;
+}
+
+function collapseDerivedWorkLogEntries(
+  entries: ReadonlyArray<DerivedWorkLogEntry>,
+): DerivedWorkLogEntry[] {
+  const collapsed: DerivedWorkLogEntry[] = [];
+  for (const entry of entries) {
+    const previous = collapsed.at(-1);
+    if (previous && shouldCollapseToolLifecycleEntries(previous, entry)) {
+      collapsed[collapsed.length - 1] = mergeDerivedWorkLogEntries(previous, entry);
+      continue;
+    }
+    collapsed.push(entry);
+  }
+  return collapsed;
+}
+
+function shouldCollapseToolLifecycleEntries(
+  previous: DerivedWorkLogEntry,
+  next: DerivedWorkLogEntry,
+): boolean {
+  if (previous.activityKind !== "tool.updated" && previous.activityKind !== "tool.completed") {
+    return false;
+  }
+  if (next.activityKind !== "tool.updated" && next.activityKind !== "tool.completed") {
+    return false;
+  }
+  if (previous.activityKind === "tool.completed") {
+    return false;
+  }
+  return previous.collapseKey !== undefined && previous.collapseKey === next.collapseKey;
+}
+
+function mergeDerivedWorkLogEntries(
+  previous: DerivedWorkLogEntry,
+  next: DerivedWorkLogEntry,
+): DerivedWorkLogEntry {
+  const changedFiles = mergeChangedFiles(previous.changedFiles, next.changedFiles);
+  const detail = next.detail ?? previous.detail;
+  const command = next.command ?? previous.command;
+  const toolTitle = next.toolTitle ?? previous.toolTitle;
+  const itemType = next.itemType ?? previous.itemType;
+  const requestKind = next.requestKind ?? previous.requestKind;
+  const collapseKey = next.collapseKey ?? previous.collapseKey;
+  return {
+    ...previous,
+    ...next,
+    ...(detail ? { detail } : {}),
+    ...(command ? { command } : {}),
+    ...(changedFiles.length > 0 ? { changedFiles } : {}),
+    ...(toolTitle ? { toolTitle } : {}),
+    ...(itemType ? { itemType } : {}),
+    ...(requestKind ? { requestKind } : {}),
+    ...(collapseKey ? { collapseKey } : {}),
+  };
+}
+
+function mergeChangedFiles(
+  previous: ReadonlyArray<string> | undefined,
+  next: ReadonlyArray<string> | undefined,
+): string[] {
+  const merged = [...(previous ?? []), ...(next ?? [])];
+  if (merged.length === 0) {
+    return [];
+  }
+  return [...new Set(merged)];
+}
+
+function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | undefined {
+  if (entry.activityKind !== "tool.updated" && entry.activityKind !== "tool.completed") {
+    return undefined;
+  }
+  const normalizedLabel = normalizeCompactToolLabel(entry.toolTitle ?? entry.label);
+  const detail = entry.detail?.trim() ?? "";
+  const itemType = entry.itemType ?? "";
+  if (normalizedLabel.length === 0 && detail.length === 0 && itemType.length === 0) {
+    return undefined;
+  }
+  return [itemType, normalizedLabel, detail].join("\u001f");
+}
+
+function normalizeCompactToolLabel(value: string): string {
+  return value.replace(/\s+(?:complete|completed)\s*$/i, "").trim();
 }
 
 function toLatestProposedPlanState(proposedPlan: ProposedPlan): LatestProposedPlanState {
@@ -690,7 +788,31 @@ function compareActivitiesByOrder(
     return -1;
   }
 
-  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+  const createdAtComparison = left.createdAt.localeCompare(right.createdAt);
+  if (createdAtComparison !== 0) {
+    return createdAtComparison;
+  }
+
+  const lifecycleRankComparison =
+    compareActivityLifecycleRank(left.kind) - compareActivityLifecycleRank(right.kind);
+  if (lifecycleRankComparison !== 0) {
+    return lifecycleRankComparison;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+function compareActivityLifecycleRank(kind: string): number {
+  if (kind.endsWith(".started") || kind === "tool.started") {
+    return 0;
+  }
+  if (kind.endsWith(".progress") || kind.endsWith(".updated")) {
+    return 1;
+  }
+  if (kind.endsWith(".completed") || kind.endsWith(".resolved")) {
+    return 2;
+  }
+  return 1;
 }
 
 export function hasToolActivityForTurn(
