@@ -1,6 +1,6 @@
 import { cn } from "~/lib/utils";
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 
 function formatPercentage(value: number | null): string | null {
   if (value === null || !Number.isFinite(value)) {
@@ -21,8 +21,11 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
   const dashOffset = circumference - (normalizedPercentage / 100) * circumference;
 
   return (
-    <Tooltip>
-      <TooltipTrigger
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        delay={150}
+        closeDelay={0}
         render={
           <button
             type="button"
@@ -74,7 +77,7 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
           </button>
         }
       />
-      <TooltipPopup side="top" align="end" className="w-max max-w-none px-3 py-2">
+      <PopoverPopup tooltipStyle side="top" align="end" className="w-max max-w-none px-3 py-2">
         <div className="space-y-1.5 leading-tight">
           <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
             Context window
@@ -105,7 +108,7 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
             </div>
           ) : null}
         </div>
-      </TooltipPopup>
-    </Tooltip>
+      </PopoverPopup>
+    </Popover>
   );
 }
