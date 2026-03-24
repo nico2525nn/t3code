@@ -90,7 +90,11 @@ export interface RunMigrationsOptions {
  */
 export const runMigrations = ({ toMigrationInclusive }: RunMigrationsOptions = {}) =>
   Effect.gen(function* () {
-    yield* Effect.log(`Running migrations 1 through ${toMigrationInclusive}...`);
+    yield* Effect.log(
+      toMigrationInclusive !== undefined
+        ? `Running migrations 1 through ${toMigrationInclusive}...`
+        : "Running migrations...",
+    );
     const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
     yield* Effect.log("Migrations ran successfully");
     return executedMigrations;
