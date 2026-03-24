@@ -368,12 +368,20 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           allowRecovery: true,
         });
         const turn = yield* routed.adapter.sendTurn(input);
+        const existingBinding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
+        const existingPayload =
+          existingBinding?.runtimePayload &&
+          typeof existingBinding.runtimePayload === "object" &&
+          !Array.isArray(existingBinding.runtimePayload)
+            ? existingBinding.runtimePayload
+            : {};
         yield* directory.upsert({
           threadId: input.threadId,
           provider: routed.adapter.provider,
           status: "running",
           ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
           runtimePayload: {
+            ...existingPayload,
             ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
             activeTurnId: turn.turnId,
             lastRuntimeEvent: "provider.sendTurn",
