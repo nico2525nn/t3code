@@ -107,10 +107,9 @@ function toCanonicalJsonValue(value: unknown): CanonicalJsonValue | undefined {
   if (value === undefined) {
     return undefined;
   }
-  const normalized = JSON.parse(
+  return JSON.parse(
     JSON.stringify(value, (_key, nestedValue) => (nestedValue === undefined ? null : nestedValue)),
-  ) as CanonicalJsonValue | null;
-  return normalized ?? undefined;
+  ) as CanonicalJsonValue;
 }
 
 function buildContextWindowActivityPayload(

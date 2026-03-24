@@ -33,6 +33,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import { normalizeCommandValue, pushChangedFile } from "../toolDataUtils.ts";
 import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
@@ -109,32 +110,6 @@ function asArray(value: unknown): unknown[] | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function normalizeCommandValue(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const parts = value
-    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-    .filter((entry) => entry.length > 0);
-  return parts.length > 0 ? parts.join(" ") : undefined;
-}
-
-function pushChangedFile(target: string[], seen: Set<string>, value: unknown) {
-  if (typeof value !== "string") {
-    return;
-  }
-  const normalized = value.trim();
-  if (normalized.length === 0 || seen.has(normalized)) {
-    return;
-  }
-  seen.add(normalized);
-  target.push(normalized);
 }
 
 function collectChangedFiles(value: unknown, target: string[], seen: Set<string>, depth: number) {
@@ -670,9 +645,10 @@ function mapItemLifecycle(
       ...(status ? { status } : {}),
       ...(itemTitle(itemType) ? { title: itemTitle(itemType) } : {}),
       ...(detail ? { detail } : {}),
-      ...(buildCanonicalToolLifecycleData(itemType, source, payload ?? {})
-        ? { data: buildCanonicalToolLifecycleData(itemType, source, payload ?? {}) }
-        : {}),
+      ...(() => {
+        const toolData = buildCanonicalToolLifecycleData(itemType, source, payload ?? {});
+        return toolData ? { data: toolData } : {};
+      })(),
     },
   };
 }

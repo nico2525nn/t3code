@@ -75,6 +75,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
+import { normalizeCommandValue, pushChangedFile } from "../toolDataUtils.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "claudeAgent" as const;
@@ -745,32 +746,6 @@ function tryParseJsonRecord(value: string): Record<string, unknown> | undefined 
   } catch {
     return undefined;
   }
-}
-
-function normalizeCommandValue(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const parts = value
-    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-    .filter((entry) => entry.length > 0);
-  return parts.length > 0 ? parts.join(" ") : undefined;
-}
-
-function pushChangedFile(target: string[], seen: Set<string>, value: unknown) {
-  if (typeof value !== "string") {
-    return;
-  }
-  const normalized = value.trim();
-  if (normalized.length === 0 || seen.has(normalized)) {
-    return;
-  }
-  seen.add(normalized);
-  target.push(normalized);
 }
 
 function collectChangedFiles(value: unknown, target: string[], seen: Set<string>, depth: number) {
@@ -1540,19 +1515,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               status: status === "completed" ? "completed" : "failed",
               title: tool.title,
               ...(tool.detail ? { detail: tool.detail } : {}),
-              ...(canonicalToolLifecycleData({
-                itemType: tool.itemType,
-                toolName: tool.toolName,
-                input: tool.input,
-              })
-                ? {
-                    data: canonicalToolLifecycleData({
-                      itemType: tool.itemType,
-                      toolName: tool.toolName,
-                      input: tool.input,
-                    }),
-                  }
-                : {}),
+              ...(() => {
+                const toolData = canonicalToolLifecycleData({
+                  itemType: tool.itemType,
+                  toolName: tool.toolName,
+                  input: tool.input,
+                });
+                return toolData ? { data: toolData } : {};
+              })(),
             },
             providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
             raw: {
@@ -1744,19 +1714,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 status: "inProgress",
                 title: nextTool.title,
                 ...(nextTool.detail ? { detail: nextTool.detail } : {}),
-                ...(canonicalToolLifecycleData({
-                  itemType: nextTool.itemType,
-                  toolName: nextTool.toolName,
-                  input: nextTool.input,
-                })
-                  ? {
-                      data: canonicalToolLifecycleData({
-                        itemType: nextTool.itemType,
-                        toolName: nextTool.toolName,
-                        input: nextTool.input,
-                      }),
-                    }
-                  : {}),
+                ...(() => {
+                  const toolData = canonicalToolLifecycleData({
+                    itemType: nextTool.itemType,
+                    toolName: nextTool.toolName,
+                    input: nextTool.input,
+                  });
+                  return toolData ? { data: toolData } : {};
+                })(),
               },
               providerRefs: nativeProviderRefs(context, { providerItemId: nextTool.itemId }),
               raw: {
@@ -1822,19 +1787,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               status: "inProgress",
               title: tool.title,
               ...(tool.detail ? { detail: tool.detail } : {}),
-              ...(canonicalToolLifecycleData({
-                itemType: tool.itemType,
-                toolName: tool.toolName,
-                input: toolInput,
-              })
-                ? {
-                    data: canonicalToolLifecycleData({
-                      itemType: tool.itemType,
-                      toolName: tool.toolName,
-                      input: toolInput,
-                    }),
-                  }
-                : {}),
+              ...(() => {
+                const toolData = canonicalToolLifecycleData({
+                  itemType: tool.itemType,
+                  toolName: tool.toolName,
+                  input: toolInput,
+                });
+                return toolData ? { data: toolData } : {};
+              })(),
             },
             providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
             raw: {
