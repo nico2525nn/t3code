@@ -133,7 +133,7 @@ function normalizeLegacyThreadModelSelection(
     return Effect.succeed(input.modelSelection);
   }
   if (input.model === undefined) {
-    return Effect.succeed(undefined);
+    return Effect.succeed<ModelSelection | undefined>(undefined);
   }
   return Effect.try({
     try: () =>

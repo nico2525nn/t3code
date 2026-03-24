@@ -23,10 +23,8 @@ describe("getComposerProviderState", () => {
       model: "gpt-5.4",
       prompt: "",
       modelOptions: {
-        codex: {
-          reasoningEffort: "low",
-          fastMode: true,
-        },
+        reasoningEffort: "low",
+        fastMode: true,
       },
     });
 
@@ -34,10 +32,8 @@ describe("getComposerProviderState", () => {
       provider: "codex",
       promptEffort: "low",
       modelOptionsForDispatch: {
-        codex: {
-          reasoningEffort: "low",
-          fastMode: true,
-        },
+        reasoningEffort: "low",
+        fastMode: true,
       },
     });
   });
@@ -63,9 +59,7 @@ describe("getComposerProviderState", () => {
       model: "claude-sonnet-4-6",
       prompt: "Ultrathink:\nInvestigate this failure",
       modelOptions: {
-        claudeAgent: {
-          effort: "medium",
-        },
+        effort: "medium",
       },
     });
 
@@ -73,9 +67,7 @@ describe("getComposerProviderState", () => {
       provider: "claudeAgent",
       promptEffort: "medium",
       modelOptionsForDispatch: {
-        claudeAgent: {
-          effort: "medium",
-        },
+        effort: "medium",
       },
       composerFrameClassName: "ultrathink-frame",
       composerSurfaceClassName: "shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset]",
@@ -89,10 +81,8 @@ describe("getComposerProviderState", () => {
       model: "claude-haiku-4-5",
       prompt: "",
       modelOptions: {
-        claudeAgent: {
-          effort: "max",
-          thinking: false,
-        },
+        effort: "max",
+        thinking: false,
       },
     });
 
@@ -100,50 +90,8 @@ describe("getComposerProviderState", () => {
       provider: "claudeAgent",
       promptEffort: null,
       modelOptionsForDispatch: {
-        claudeAgent: {
-          thinking: false,
-        },
+        thinking: false,
       },
-    });
-  });
-
-  it("ignores codex options while resolving Claude state", () => {
-    const state = getComposerProviderState({
-      provider: "claudeAgent",
-      model: "claude-opus-4-6",
-      prompt: "",
-      modelOptions: {
-        codex: {
-          reasoningEffort: "low",
-          fastMode: true,
-        },
-      },
-    });
-
-    expect(state).toEqual({
-      provider: "claudeAgent",
-      promptEffort: "high",
-      modelOptionsForDispatch: undefined,
-    });
-  });
-
-  it("ignores Claude options while resolving codex state", () => {
-    const state = getComposerProviderState({
-      provider: "codex",
-      model: "gpt-5.4",
-      prompt: "Ultrathink:\nThis should not matter",
-      modelOptions: {
-        claudeAgent: {
-          effort: "max",
-          fastMode: true,
-        },
-      },
-    });
-
-    expect(state).toEqual({
-      provider: "codex",
-      promptEffort: "high",
-      modelOptionsForDispatch: undefined,
     });
   });
 });

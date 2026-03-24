@@ -436,11 +436,17 @@ const CLAUDE_SETTING_SOURCES = [
 function buildPromptText(input: ProviderSendTurnInput): string {
   const requestedEffort = resolveReasoningEffortForProvider(
     "claudeAgent",
-    input.modelOptions?.claudeAgent?.effort ?? null,
+    input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.options?.effort : null,
   );
-  const supportedEffortOptions = getReasoningEffortOptions("claudeAgent", input.model);
+  const supportedEffortOptions = getReasoningEffortOptions(
+    "claudeAgent",
+    input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.model : undefined,
+  );
   const promptEffort =
-    requestedEffort === "ultrathink" && supportsClaudeUltrathinkKeyword(input.model)
+    requestedEffort === "ultrathink" &&
+    supportsClaudeUltrathinkKeyword(
+      input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.model : undefined,
+    )
       ? "ultrathink"
       : requestedEffort && supportedEffortOptions.includes(requestedEffort)
         ? requestedEffort
@@ -2542,21 +2548,27 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           );
 
         const providerOptions = input.providerOptions?.claudeAgent;
+        const modelSelection =
+          input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
         const requestedEffort = resolveReasoningEffortForProvider(
           "claudeAgent",
-          input.modelOptions?.claudeAgent?.effort ?? null,
+          modelSelection?.options?.effort ?? null,
         );
-        const supportedEffortOptions = getReasoningEffortOptions("claudeAgent", input.model);
+        const supportedEffortOptions = getReasoningEffortOptions(
+          "claudeAgent",
+          modelSelection?.model,
+        );
         const effort =
           requestedEffort && supportedEffortOptions.includes(requestedEffort)
             ? requestedEffort
             : null;
         const fastMode =
-          input.modelOptions?.claudeAgent?.fastMode === true && supportsClaudeFastMode(input.model);
+          modelSelection?.options?.fastMode === true &&
+          supportsClaudeFastMode(modelSelection?.model);
         const thinking =
-          typeof input.modelOptions?.claudeAgent?.thinking === "boolean" &&
-          supportsClaudeThinkingToggle(input.model)
-            ? input.modelOptions.claudeAgent.thinking
+          typeof modelSelection?.options?.thinking === "boolean" &&
+          supportsClaudeThinkingToggle(modelSelection?.model)
+            ? modelSelection.options.thinking
             : undefined;
         const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
         const permissionMode =
@@ -2569,7 +2581,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
         const queryOptions: ClaudeQueryOptions = {
           ...(input.cwd ? { cwd: input.cwd } : {}),
-          ...(input.model ? { model: input.model } : {}),
+          ...(modelSelection?.model ? { model: modelSelection.model } : {}),
           pathToClaudeCodeExecutable: providerOptions?.binaryPath ?? "claude",
           settingSources: [...CLAUDE_SETTING_SOURCES],
           ...(effectiveEffort ? { effort: effectiveEffort } : {}),
@@ -2610,7 +2622,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           status: "ready",
           runtimeMode: input.runtimeMode,
           ...(input.cwd ? { cwd: input.cwd } : {}),
-          ...(input.model ? { model: input.model } : {}),
+          ...(modelSelection?.model ? { model: modelSelection.model } : {}),
           ...(threadId ? { threadId } : {}),
           resumeCursor: {
             ...(threadId ? { threadId } : {}),
@@ -2664,7 +2676,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           threadId,
           payload: {
             config: {
-              ...(input.model ? { model: input.model } : {}),
+              ...(modelSelection?.model ? { model: modelSelection.model } : {}),
               ...(input.cwd ? { cwd: input.cwd } : {}),
               ...(effectiveEffort ? { effort: effectiveEffort } : {}),
               ...(permissionMode ? { permissionMode } : {}),
@@ -2710,6 +2722,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const sendTurn: ClaudeAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
         const context = yield* requireSession(input.threadId);
+        const modelSelection =
+          input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
 
         if (context.turnState) {
           // Auto-close a stale synthetic turn (from background agent responses
@@ -2717,9 +2731,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           yield* completeTurn(context, "completed");
         }
 
-        if (input.model) {
+        if (modelSelection?.model) {
           yield* Effect.tryPromise({
-            try: () => context.query.setModel(input.model),
+            try: () => context.query.setModel(modelSelection.model),
             catch: (cause) => toRequestError(input.threadId, "turn/setModel", cause),
           });
         }
@@ -2769,7 +2783,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           createdAt: turnStartedStamp.createdAt,
           threadId: context.session.threadId,
           turnId,
-          payload: input.model ? { model: input.model } : {},
+          payload: modelSelection?.model ? { model: modelSelection.model } : {},
           providerRefs: {},
         });
 

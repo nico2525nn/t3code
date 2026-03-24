@@ -313,7 +313,10 @@ describe("ProviderCommandReactor", () => {
     expect(harness.startSession.mock.calls[0]?.[0]).toEqual(ThreadId.makeUnsafe("thread-1"));
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
       cwd: "/tmp/provider-project",
-      model: "gpt-5-codex",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
       runtimeMode: "approval-required",
     });
 
@@ -355,9 +358,10 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      model: "gpt-5.3-codex",
-      modelOptions: {
-        codex: {
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.3-codex",
+        options: {
           reasoningEffort: "high",
           fastMode: true,
         },
@@ -365,9 +369,10 @@ describe("ProviderCommandReactor", () => {
     });
     expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
-      model: "gpt-5.3-codex",
-      modelOptions: {
-        codex: {
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.3-codex",
+        options: {
           reasoningEffort: "high",
           fastMode: true,
         },
@@ -406,19 +411,20 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      provider: "claudeAgent",
-      model: "claude-sonnet-4-6",
-      modelOptions: {
-        claudeAgent: {
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-sonnet-4-6",
+        options: {
           effort: "max",
         },
       },
     });
     expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
-      model: "claude-sonnet-4-6",
-      modelOptions: {
-        claudeAgent: {
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-sonnet-4-6",
+        options: {
           effort: "max",
         },
       },
@@ -456,19 +462,20 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      provider: "claudeAgent",
-      model: "claude-opus-4-6",
-      modelOptions: {
-        claudeAgent: {
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+        options: {
           fastMode: true,
         },
       },
     });
     expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
-      model: "claude-opus-4-6",
-      modelOptions: {
-        claudeAgent: {
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+        options: {
           fastMode: true,
         },
       },
@@ -594,12 +601,17 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
 
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      provider: "codex",
-      model: "claude-sonnet-4-6",
+      modelSelection: {
+        provider: "codex",
+        model: "claude-sonnet-4-6",
+      },
     });
     expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
-      model: "claude-sonnet-4-6",
+      modelSelection: {
+        provider: "codex",
+        model: "claude-sonnet-4-6",
+      },
     });
   });
 
@@ -707,10 +719,11 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.startSession.mock.calls.length === 2);
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
     expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
-      provider: "claudeAgent",
       resumeCursor: { opaque: "resume-1" },
-      modelOptions: {
-        claudeAgent: {
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-sonnet-4-6",
+        options: {
           effort: "max",
         },
       },
@@ -841,11 +854,12 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.startSession.mock.calls.length === 1);
 
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      provider: "claudeAgent",
-      model: "claude-opus-4-6",
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+      },
       runtimeMode: "approval-required",
     });
-    expect(harness.startSession.mock.calls[0]?.[1]).not.toHaveProperty("modelOptions");
   });
 
   it("rejects provider changes after a thread is already bound to a session provider", async () => {

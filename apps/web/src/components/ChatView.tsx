@@ -7,7 +7,6 @@ import {
   type ProjectScript,
   type ModelSlug,
   type ProviderKind,
-  type ProviderModelOptions,
   type ProjectEntry,
   type ProjectId,
   type ProviderApprovalDecision,
@@ -28,7 +27,6 @@ import {
   getDefaultModel,
   normalizeModelSlug,
   resolveModelSlugForProvider,
-  toProviderModelOptions,
 } from "@t3tools/shared/model";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -204,12 +202,6 @@ function formatOutgoingPrompt(params: {
     return applyClaudePromptEffortPrefix(params.text, params.effort as ClaudeCodeEffort | null);
   }
   return params.text;
-}
-function extractModelSelectionOptions(
-  provider: ProviderKind,
-  modelOptions: ProviderModelOptions | undefined,
-): ModelSelection["options"] | undefined {
-  return provider === "codex" ? modelOptions?.codex : modelOptions?.claudeAgent;
 }
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
@@ -630,16 +622,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
     customModelsByProvider,
     selectedProvider,
   ]);
-  const draftModelOptions = toProviderModelOptions(composerDraft.modelSelection);
   const composerProviderState = useMemo(
     () =>
       getComposerProviderState({
         provider: selectedProvider,
         model: selectedModel,
         prompt,
-        modelOptions: draftModelOptions,
+        modelOptions: composerDraft.modelSelection?.options,
       }),
-    [draftModelOptions, prompt, selectedModel, selectedProvider],
+    [composerDraft.modelSelection?.options, prompt, selectedModel, selectedProvider],
   );
   const selectedPromptEffort = composerProviderState.promptEffort;
   const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
@@ -647,14 +638,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => ({
       provider: selectedProvider,
       model: selectedModel,
-      ...(extractModelSelectionOptions(selectedProvider, selectedModelOptionsForDispatch)
-        ? {
-            options: extractModelSelectionOptions(
-              selectedProvider,
-              selectedModelOptionsForDispatch,
-            ),
-          }
-        : {}),
+      ...(selectedModelOptionsForDispatch ? { options: selectedModelOptionsForDispatch } : {}),
     }),
     [selectedModel, selectedModelOptionsForDispatch, selectedProvider],
   );
