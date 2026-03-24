@@ -105,17 +105,18 @@ const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const THREAD_PREVIEW_LIMIT = 6;
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
-  created_at: "Created",
+  created_at: "Created at",
   manual: "Manual",
 };
 const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
   updated_at: "Last user message",
-  created_at: "Created",
+  created_at: "Created at",
 };
 const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   duration: 180,
   easing: "ease-out",
 } as const;
+const loadedProjectFaviconSrcs = new Set<string>();
 
 function formatRelativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -226,9 +227,10 @@ function getServerHttpOrigin(): string {
 const serverHttpOrigin = getServerHttpOrigin();
 
 function ProjectFavicon({ cwd }: { cwd: string }) {
-  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
-
   const src = `${serverHttpOrigin}/api/project-favicon?cwd=${encodeURIComponent(cwd)}`;
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">(() =>
+    loadedProjectFaviconSrcs.has(src) ? "loaded" : "loading",
+  );
 
   if (status === "error") {
     return <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/50" />;
@@ -239,7 +241,10 @@ function ProjectFavicon({ cwd }: { cwd: string }) {
       src={src}
       alt=""
       className={`size-3.5 shrink-0 rounded-sm object-contain ${status === "loading" ? "hidden" : ""}`}
-      onLoad={() => setStatus("loaded")}
+      onLoad={() => {
+        loadedProjectFaviconSrcs.add(src);
+        setStatus("loaded");
+      }}
       onError={() => setStatus("error")}
     />
   );
@@ -275,7 +280,7 @@ function ProjectSortMenu({
       </Tooltip>
       <MenuPopup align="end" side="bottom" className="min-w-44">
         <MenuGroup>
-          <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+          <div className="px-2 py-1 sm:text-xs font-medium text-muted-foreground">
             Sort projects
           </div>
           <MenuRadioGroup
@@ -286,7 +291,7 @@ function ProjectSortMenu({
           >
             {(Object.entries(SIDEBAR_SORT_LABELS) as Array<[SidebarProjectSortOrder, string]>).map(
               ([value, label]) => (
-                <MenuRadioItem key={value} value={value} className="min-h-7 py-1 text-xs">
+                <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
                   {label}
                 </MenuRadioItem>
               ),
@@ -294,7 +299,7 @@ function ProjectSortMenu({
           </MenuRadioGroup>
         </MenuGroup>
         <MenuGroup>
-          <div className="px-2 pt-2 pb-1 text-[11px] font-medium text-muted-foreground">
+          <div className="px-2 pt-2 pb-1 sm:text-xs font-medium text-muted-foreground">
             Sort threads
           </div>
           <MenuRadioGroup
@@ -306,7 +311,7 @@ function ProjectSortMenu({
             {(
               Object.entries(SIDEBAR_THREAD_SORT_LABELS) as Array<[SidebarThreadSortOrder, string]>
             ).map(([value, label]) => (
-              <MenuRadioItem key={value} value={value} className="min-h-7 py-1 text-xs">
+              <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
                 {label}
               </MenuRadioItem>
             ))}

@@ -224,7 +224,7 @@ export function getThreadSortTimestamp(
 export function sortThreadsForSidebar<
   T extends Pick<Thread, "id" | "createdAt" | "updatedAt" | "messages">,
 >(threads: readonly T[], sortOrder: SidebarThreadSortOrder): T[] {
-  return [...threads].toSorted((left, right) => {
+  return threads.toSorted((left, right) => {
     const byTimestamp =
       getThreadSortTimestamp(right, sortOrder) - getThreadSortTimestamp(left, sortOrder);
     if (byTimestamp !== 0) return byTimestamp;
