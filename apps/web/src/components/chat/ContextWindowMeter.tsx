@@ -1,5 +1,3 @@
-import type { CSSProperties } from "react";
-
 import { cn } from "~/lib/utils";
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -14,26 +12,13 @@ function formatPercentage(value: number | null): string | null {
   return `${Math.round(value)}%`;
 }
 
-function ringStyle(usage: ContextWindowSnapshot): CSSProperties {
-  const percentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
-  const tone =
-    percentage >= 90
-      ? "var(--color-rose-500)"
-      : percentage >= 75
-        ? "var(--color-amber-500)"
-        : "var(--color-foreground)";
-
-  return {
-    backgroundImage:
-      usage.usedPercentage === null
-        ? "linear-gradient(var(--color-muted), var(--color-muted))"
-        : `conic-gradient(${tone} ${percentage}%, color-mix(in oklab, var(--color-muted) 70%, transparent) 0)`,
-  };
-}
-
 export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
   const { usage } = props;
   const usedPercentage = formatPercentage(usage.usedPercentage);
+  const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
+  const radius = 10;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference - (normalizedPercentage / 100) * circumference;
 
   return (
     <Tooltip>
@@ -48,18 +33,37 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
                 : `Context window ${formatContextWindowTokens(usage.usedTokens)} tokens used`
             }
           >
-            <span
-              className="relative flex h-6 w-6 items-center justify-center rounded-full p-[2px]"
-              style={ringStyle(usage)}
-            >
+            <span className="relative flex h-6 w-6 items-center justify-center">
+              <svg
+                viewBox="0 0 24 24"
+                className="-rotate-90 absolute inset-0 h-full w-full transform-gpu"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r={radius}
+                  fill="none"
+                  stroke="color-mix(in oklab, var(--color-muted) 70%, transparent)"
+                  strokeWidth="2"
+                />
+                <circle
+                  cx="12"
+                  cy="12"
+                  r={radius}
+                  fill="none"
+                  stroke="var(--color-muted-foreground)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={dashOffset}
+                  className="transition-[stroke-dashoffset] duration-500 ease-out motion-reduce:transition-none"
+                />
+              </svg>
               <span
                 className={cn(
-                  "flex h-full w-full items-center justify-center rounded-full bg-background text-[8px] font-medium",
-                  usage.usedPercentage !== null && usage.usedPercentage >= 90
-                    ? "text-rose-500"
-                    : usage.usedPercentage !== null && usage.usedPercentage >= 75
-                      ? "text-amber-500"
-                      : "text-muted-foreground",
+                  "relative flex h-[20px] w-[20px] items-center justify-center rounded-full bg-background text-[8px] font-medium",
+                  "text-muted-foreground",
                 )}
               >
                 {usage.usedPercentage !== null
@@ -93,6 +97,11 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
             <div className="text-xs text-muted-foreground">
               Total processed: {formatContextWindowTokens(usage.totalProcessedTokens ?? null)}{" "}
               tokens
+            </div>
+          ) : null}
+          {usage.compactsAutomatically ? (
+            <div className="text-xs text-muted-foreground">
+              Automatically compacts its context when needed.
             </div>
           ) : null}
         </div>

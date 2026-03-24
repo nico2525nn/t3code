@@ -992,7 +992,7 @@ describe("deriveWorkLogEntries context window handling", () => {
     expect(entries[0]?.label).toBe("Ran command");
   });
 
-  it("marks context compaction activities as timeline markers", () => {
+  it("keeps context compaction activities as normal work log entries", () => {
     const entries = deriveWorkLogEntries(
       [
         makeActivity({
@@ -1008,7 +1008,6 @@ describe("deriveWorkLogEntries context window handling", () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.label).toBe("Context compacted");
-    expect(entries[0]?.display).toBe("timeline-marker");
   });
 });
 

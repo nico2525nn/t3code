@@ -97,7 +97,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("yoo what&#x27;s ");
   });
 
-  it("renders context compaction markers as centered chips", async () => {
+  it("renders context compaction entries in the normal work log", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -116,7 +116,6 @@ describe("MessagesTimeline", () => {
               createdAt: "2026-03-17T19:12:28.000Z",
               label: "Context compacted",
               tone: "info",
-              display: "timeline-marker",
             },
           },
         ]}
@@ -139,5 +138,6 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Context compacted");
+    expect(markup).toContain("Work log");
   });
 });
