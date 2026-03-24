@@ -38,9 +38,9 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       });
 
       const rows = yield* sql<{
-        readonly defaultModelOptions: string | null;
+        readonly defaultModelSelection: string | null;
       }>`
-        SELECT default_model_options_json AS "defaultModelOptions"
+        SELECT default_model_selection_json AS "defaultModelSelection"
         FROM projection_projects
         WHERE project_id = 'project-null-options'
       `;
@@ -49,7 +49,13 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         return yield* Effect.fail(new Error("Expected projection_projects row to exist."));
       }
 
-      assert.strictEqual(row.defaultModelOptions, null);
+      assert.strictEqual(
+        row.defaultModelSelection,
+        JSON.stringify({
+          provider: "codex",
+          model: "gpt-5.4",
+        }),
+      );
 
       const persisted = yield* projects.getById({
         projectId: ProjectId.makeUnsafe("project-null-options"),
@@ -85,9 +91,9 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       });
 
       const rows = yield* sql<{
-        readonly modelOptions: string | null;
+        readonly modelSelection: string | null;
       }>`
-        SELECT model_options_json AS "modelOptions"
+        SELECT model_selection_json AS "modelSelection"
         FROM projection_threads
         WHERE thread_id = 'thread-null-options'
       `;
@@ -96,7 +102,13 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         return yield* Effect.fail(new Error("Expected projection_threads row to exist."));
       }
 
-      assert.strictEqual(row.modelOptions, null);
+      assert.strictEqual(
+        row.modelSelection,
+        JSON.stringify({
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+        }),
+      );
 
       const persisted = yield* threads.getById({
         threadId: ThreadId.makeUnsafe("thread-null-options"),

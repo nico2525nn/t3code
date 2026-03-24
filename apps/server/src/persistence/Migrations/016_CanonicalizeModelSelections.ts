@@ -6,84 +6,61 @@ export default Effect.gen(function* () {
 
   yield* sql`
     ALTER TABLE projection_projects
-    ADD COLUMN default_provider TEXT
+    ADD COLUMN default_model_selection_json TEXT
   `;
 
   yield* sql`
     UPDATE projection_projects
-    SET default_provider = CASE
+    SET default_model_selection_json = CASE
       WHEN default_model IS NULL THEN NULL
-      WHEN lower(default_model) LIKE '%claude%' THEN 'claudeAgent'
-      ELSE 'codex'
+      ELSE json_object(
+        'provider',
+        CASE
+          WHEN lower(default_model) LIKE '%claude%' THEN 'claudeAgent'
+          ELSE 'codex'
+        END,
+        'model',
+        default_model
+      )
     END
-    WHERE default_provider IS NULL
+    WHERE default_model_selection_json IS NULL
   `;
 
   yield* sql`
     ALTER TABLE projection_threads
-    ADD COLUMN provider TEXT
+    ADD COLUMN model_selection_json TEXT
   `;
 
   yield* sql`
     UPDATE projection_threads
-    SET provider = COALESCE(
-      (
-        SELECT provider_name
-        FROM projection_thread_sessions
-        WHERE projection_thread_sessions.thread_id = projection_threads.thread_id
+    SET model_selection_json = json_object(
+      'provider',
+      COALESCE(
+        (
+          SELECT provider_name
+          FROM projection_thread_sessions
+          WHERE projection_thread_sessions.thread_id = projection_threads.thread_id
+        ),
+        CASE
+          WHEN lower(model) LIKE '%claude%' THEN 'claudeAgent'
+          ELSE 'codex'
+        END,
+        'codex'
       ),
-      CASE
-        WHEN lower(model) LIKE '%claude%' THEN 'claudeAgent'
-        ELSE 'codex'
-      END,
-      'codex'
+      'model',
+      model
     )
-    WHERE provider IS NULL
+    WHERE model_selection_json IS NULL
   `;
 
   yield* sql`
     ALTER TABLE projection_projects
-    ADD COLUMN default_model_options_json TEXT
+    DROP COLUMN default_model
   `;
 
   yield* sql`
     ALTER TABLE projection_threads
-    ADD COLUMN model_options_json TEXT
-  `;
-
-  yield* sql`
-    UPDATE projection_projects
-    SET
-      default_model_options_json = CASE
-        WHEN default_model_options_json IS NULL THEN NULL
-        WHEN json_valid(default_model_options_json) = 0 THEN default_model_options_json
-        WHEN json_type(default_model_options_json, '$.codex') IS NOT NULL
-          OR json_type(default_model_options_json, '$.claudeAgent') IS NOT NULL
-        THEN CASE
-          WHEN default_provider = 'claudeAgent'
-          THEN json_extract(default_model_options_json, '$.claudeAgent')
-          ELSE json_extract(default_model_options_json, '$.codex')
-        END
-        ELSE default_model_options_json
-      END
-    WHERE default_model IS NOT NULL
-  `;
-
-  yield* sql`
-    UPDATE projection_threads
-    SET
-      model_options_json = CASE
-        WHEN model_options_json IS NULL THEN NULL
-        WHEN json_valid(model_options_json) = 0 THEN model_options_json
-        WHEN json_type(model_options_json, '$.codex') IS NOT NULL
-          OR json_type(model_options_json, '$.claudeAgent') IS NOT NULL
-        THEN CASE
-          WHEN provider = 'claudeAgent'
-          THEN json_extract(model_options_json, '$.claudeAgent')
-          ELSE json_extract(model_options_json, '$.codex')
-        END
-        ELSE model_options_json
-      END
+    DROP COLUMN model
   `;
 
   yield* sql`

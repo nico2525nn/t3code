@@ -1933,11 +1933,11 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
 
       const projectRows = yield* sql<{
         readonly scriptsJson: string;
-        readonly defaultModel: string;
+        readonly defaultModelSelection: string;
       }>`
         SELECT
           scripts_json AS "scriptsJson",
-          default_model AS "defaultModel"
+          default_model_selection_json AS "defaultModelSelection"
         FROM projection_projects
         WHERE project_id = 'project-scripts'
       `;
@@ -1945,7 +1945,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         {
           scriptsJson:
             '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build","runOnWorktreeCreate":false}]',
-          defaultModel: "gpt-5",
+          defaultModelSelection: '{"provider":"codex","model":"gpt-5"}',
         },
       ]);
     }),

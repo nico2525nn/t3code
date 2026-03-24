@@ -1,7 +1,6 @@
 import {
   ChatAttachment,
   IsoDateTime,
-  ModelSelection,
   MessageId,
   NonNegativeInt,
   OrchestrationCheckpointFile,
@@ -44,18 +43,14 @@ import {
 } from "../Services/ProjectionSnapshotQuery.ts";
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
-const ProjectionProjectDbRowSchema = Schema.Struct({
-  projectId: ProjectionProject.fields.projectId,
-  title: ProjectionProject.fields.title,
-  workspaceRoot: ProjectionProject.fields.workspaceRoot,
-  defaultProvider: Schema.NullOr(Schema.Literals(["codex", "claudeAgent"])),
-  defaultModel: Schema.NullOr(Schema.String),
-  defaultModelOptions: Schema.NullOr(Schema.fromJsonString(Schema.Unknown)),
-  scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
-  createdAt: ProjectionProject.fields.createdAt,
-  updatedAt: ProjectionProject.fields.updatedAt,
-  deletedAt: ProjectionProject.fields.deletedAt,
-});
+const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
+  Struct.assign({
+    defaultModelSelection: Schema.NullOr(
+      Schema.fromJsonString(ProjectionProject.fields.defaultModelSelection),
+    ),
+    scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+  }),
+);
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
@@ -63,22 +58,11 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   }),
 );
 const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
-const ProjectionThreadDbRowSchema = Schema.Struct({
-  threadId: ProjectionThread.fields.threadId,
-  projectId: ProjectionThread.fields.projectId,
-  title: ProjectionThread.fields.title,
-  provider: Schema.Literals(["codex", "claudeAgent"]),
-  model: Schema.String,
-  modelOptions: Schema.NullOr(Schema.fromJsonString(Schema.Unknown)),
-  runtimeMode: ProjectionThread.fields.runtimeMode,
-  interactionMode: ProjectionThread.fields.interactionMode,
-  branch: ProjectionThread.fields.branch,
-  worktreePath: ProjectionThread.fields.worktreePath,
-  latestTurnId: ProjectionThread.fields.latestTurnId,
-  createdAt: ProjectionThread.fields.createdAt,
-  updatedAt: ProjectionThread.fields.updatedAt,
-  deletedAt: ProjectionThread.fields.deletedAt,
-});
+const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
+  Struct.assign({
+    modelSelection: Schema.fromJsonString(ProjectionThread.fields.modelSelection),
+  }),
+);
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
   Struct.assign({
     payload: Schema.fromJsonString(Schema.Unknown),
@@ -103,7 +87,6 @@ const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   sourceProposedPlanId: Schema.NullOr(OrchestrationProposedPlanId),
 });
 const ProjectionStateDbRowSchema = ProjectionState;
-const decodeModelSelectionSchema = Schema.decodeUnknownEffect(ModelSelection);
 
 const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.projects,
@@ -153,19 +136,6 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
       : toPersistenceSqlError(sqlOperation)(cause);
 }
 
-const decodeModelSelection = (input: {
-  readonly provider: "codex" | "claudeAgent";
-  readonly model: string;
-  readonly options: unknown;
-}) =>
-  decodeModelSelectionSchema({
-    provider: input.provider,
-    model: input.model,
-    ...(input.options !== null && input.options !== undefined ? { options: input.options } : {}),
-  }).pipe(
-    Effect.mapError(toPersistenceDecodeError("ProjectionSnapshotQuery.decodeModelSelection")),
-  );
-
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
@@ -178,9 +148,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           project_id AS "projectId",
           title,
           workspace_root AS "workspaceRoot",
-          default_provider AS "defaultProvider",
-          default_model AS "defaultModel",
-          default_model_options_json AS "defaultModelOptions",
+          default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -199,9 +167,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           title,
-          provider,
-          model,
-          model_options_json AS "modelOptions",
+          model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
           branch,
@@ -574,62 +540,41 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
           const projects: ReadonlyArray<OrchestrationProject> = yield* Effect.forEach(
             projectRows,
-            (row) => {
-              const defaultModelSelectionEffect: Effect.Effect<
-                OrchestrationProject["defaultModelSelection"],
-                ProjectionRepositoryError
-              > =
-                row.defaultProvider === null || row.defaultModel === null
-                  ? Effect.succeed(null)
-                  : decodeModelSelection({
-                      provider: row.defaultProvider,
-                      model: row.defaultModel,
-                      options: row.defaultModelOptions,
-                    });
-
-              return defaultModelSelectionEffect.pipe(
-                Effect.map((defaultModelSelection) => ({
-                  id: row.projectId,
-                  title: row.title,
-                  workspaceRoot: row.workspaceRoot,
-                  defaultModelSelection,
-                  scripts: row.scripts,
-                  createdAt: row.createdAt,
-                  updatedAt: row.updatedAt,
-                  deletedAt: row.deletedAt,
-                })),
-              );
-            },
+            (row) =>
+              Effect.succeed({
+                id: row.projectId,
+                title: row.title,
+                workspaceRoot: row.workspaceRoot,
+                defaultModelSelection: row.defaultModelSelection,
+                scripts: row.scripts,
+                createdAt: row.createdAt,
+                updatedAt: row.updatedAt,
+                deletedAt: row.deletedAt,
+              }),
           );
 
           const threads: ReadonlyArray<OrchestrationThread> = yield* Effect.forEach(
             threadRows,
             (row) =>
-              decodeModelSelection({
-                provider: row.provider,
-                model: row.model,
-                options: row.modelOptions,
-              }).pipe(
-                Effect.map((modelSelection) => ({
-                  id: row.threadId,
-                  projectId: row.projectId,
-                  title: row.title,
-                  modelSelection,
-                  runtimeMode: row.runtimeMode,
-                  interactionMode: row.interactionMode,
-                  branch: row.branch,
-                  worktreePath: row.worktreePath,
-                  latestTurn: latestTurnByThread.get(row.threadId) ?? null,
-                  createdAt: row.createdAt,
-                  updatedAt: row.updatedAt,
-                  deletedAt: row.deletedAt,
-                  messages: messagesByThread.get(row.threadId) ?? [],
-                  proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
-                  activities: activitiesByThread.get(row.threadId) ?? [],
-                  checkpoints: checkpointsByThread.get(row.threadId) ?? [],
-                  session: sessionsByThread.get(row.threadId) ?? null,
-                })),
-              ),
+              Effect.succeed({
+                id: row.threadId,
+                projectId: row.projectId,
+                title: row.title,
+                modelSelection: row.modelSelection,
+                runtimeMode: row.runtimeMode,
+                interactionMode: row.interactionMode,
+                branch: row.branch,
+                worktreePath: row.worktreePath,
+                latestTurn: latestTurnByThread.get(row.threadId) ?? null,
+                createdAt: row.createdAt,
+                updatedAt: row.updatedAt,
+                deletedAt: row.deletedAt,
+                messages: messagesByThread.get(row.threadId) ?? [],
+                proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
+                activities: activitiesByThread.get(row.threadId) ?? [],
+                checkpoints: checkpointsByThread.get(row.threadId) ?? [],
+                session: sessionsByThread.get(row.threadId) ?? null,
+              }),
           );
 
           const snapshot = {

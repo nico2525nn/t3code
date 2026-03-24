@@ -1,13 +1,9 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer, Option, Schema } from "effect";
+import { Effect, Layer, Option, Schema, Struct } from "effect";
 
 import { ModelSelection, ProjectScript } from "@t3tools/contracts";
-import {
-  PersistenceDecodeError,
-  toPersistenceDecodeError,
-  toPersistenceSqlError,
-} from "../Errors.ts";
+import { toPersistenceSqlError } from "../Errors.ts";
 import {
   DeleteProjectionProjectInput,
   GetProjectionProjectInput,
@@ -16,41 +12,13 @@ import {
   type ProjectionProjectRepositoryShape,
 } from "../Services/ProjectionProjects.ts";
 
-const ProjectionProjectDbRow = Schema.Struct({
-  projectId: ProjectionProject.fields.projectId,
-  title: ProjectionProject.fields.title,
-  workspaceRoot: ProjectionProject.fields.workspaceRoot,
-  defaultProvider: Schema.NullOr(Schema.Literals(["codex", "claudeAgent"])),
-  defaultModel: Schema.NullOr(Schema.String),
-  defaultModelOptions: Schema.NullOr(Schema.fromJsonString(Schema.Unknown)),
-  scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
-  createdAt: ProjectionProject.fields.createdAt,
-  updatedAt: ProjectionProject.fields.updatedAt,
-  deletedAt: ProjectionProject.fields.deletedAt,
-});
+const ProjectionProjectDbRow = ProjectionProject.mapFields(
+  Struct.assign({
+    defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
+    scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+  }),
+);
 type ProjectionProjectDbRow = typeof ProjectionProjectDbRow.Type;
-
-const decodeModelSelectionSync = Schema.decodeUnknownSync(ModelSelection);
-
-function decodeDefaultModelSelection(
-  row: ProjectionProjectDbRow,
-): Effect.Effect<ProjectionProject["defaultModelSelection"], PersistenceDecodeError> {
-  if (row.defaultProvider === null || row.defaultModel === null) {
-    return Effect.succeed(null);
-  }
-  return Effect.try({
-    try: () =>
-      decodeModelSelectionSync({
-        provider: row.defaultProvider,
-        model: row.defaultModel,
-        ...(row.defaultModelOptions !== null ? { options: row.defaultModelOptions } : {}),
-      }),
-    catch: (error) =>
-      toPersistenceDecodeError("ProjectionProjectRepository.decodeDefaultModelSelection")(
-        error as Schema.SchemaError,
-      ),
-  });
-}
 
 const makeProjectionProjectRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -63,9 +31,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           project_id,
           title,
           workspace_root,
-          default_provider,
-          default_model,
-          default_model_options_json,
+          default_model_selection_json,
           scripts_json,
           created_at,
           updated_at,
@@ -75,13 +41,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           ${row.projectId},
           ${row.title},
           ${row.workspaceRoot},
-          ${row.defaultModelSelection?.provider ?? null},
-          ${row.defaultModelSelection?.model ?? null},
-          ${
-            row.defaultModelSelection?.options != null
-              ? JSON.stringify(row.defaultModelSelection.options)
-              : null
-          },
+          ${row.defaultModelSelection !== null ? JSON.stringify(row.defaultModelSelection) : null},
           ${JSON.stringify(row.scripts)},
           ${row.createdAt},
           ${row.updatedAt},
@@ -91,9 +51,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
         DO UPDATE SET
           title = excluded.title,
           workspace_root = excluded.workspace_root,
-          default_provider = excluded.default_provider,
-          default_model = excluded.default_model,
-          default_model_options_json = excluded.default_model_options_json,
+          default_model_selection_json = excluded.default_model_selection_json,
           scripts_json = excluded.scripts_json,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
@@ -110,9 +68,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           project_id AS "projectId",
           title,
           workspace_root AS "workspaceRoot",
-          default_provider AS "defaultProvider",
-          default_model AS "defaultModel",
-          default_model_options_json AS "defaultModelOptions",
+          default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -131,9 +87,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           project_id AS "projectId",
           title,
           workspace_root AS "workspaceRoot",
-          default_provider AS "defaultProvider",
-          default_model AS "defaultModel",
-          default_model_options_json AS "defaultModelOptions",
+          default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -160,46 +114,34 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
   const getById: ProjectionProjectRepositoryShape["getById"] = (input) =>
     getProjectionProjectRow(input).pipe(
       Effect.mapError(toPersistenceSqlError("ProjectionProjectRepository.getById:query")),
-      Effect.flatMap(
-        Option.match({
-          onNone: () => Effect.succeed(Option.none()),
-          onSome: (row) =>
-            decodeDefaultModelSelection(row).pipe(
-              Effect.map((defaultModelSelection) =>
-                Option.some({
-                  projectId: row.projectId,
-                  title: row.title,
-                  workspaceRoot: row.workspaceRoot,
-                  defaultModelSelection,
-                  scripts: row.scripts,
-                  createdAt: row.createdAt,
-                  updatedAt: row.updatedAt,
-                  deletedAt: row.deletedAt,
-                }),
-              ),
-            ),
-        }),
+      Effect.map(
+        Option.map((row) => ({
+          projectId: row.projectId,
+          title: row.title,
+          workspaceRoot: row.workspaceRoot,
+          defaultModelSelection: row.defaultModelSelection,
+          scripts: row.scripts,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          deletedAt: row.deletedAt,
+        })),
       ),
     );
 
   const listAll: ProjectionProjectRepositoryShape["listAll"] = () =>
     listProjectionProjectRows().pipe(
       Effect.mapError(toPersistenceSqlError("ProjectionProjectRepository.listAll:query")),
-      Effect.flatMap((rows) =>
-        Effect.forEach(rows, (row) =>
-          decodeDefaultModelSelection(row).pipe(
-            Effect.map((defaultModelSelection) => ({
-              projectId: row.projectId,
-              title: row.title,
-              workspaceRoot: row.workspaceRoot,
-              defaultModelSelection,
-              scripts: row.scripts,
-              createdAt: row.createdAt,
-              updatedAt: row.updatedAt,
-              deletedAt: row.deletedAt,
-            })),
-          ),
-        ),
+      Effect.map((rows) =>
+        rows.map((row) => ({
+          projectId: row.projectId,
+          title: row.title,
+          workspaceRoot: row.workspaceRoot,
+          defaultModelSelection: row.defaultModelSelection,
+          scripts: row.scripts,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          deletedAt: row.deletedAt,
+        })),
       ),
     );
 

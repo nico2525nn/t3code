@@ -152,37 +152,53 @@ layer("016_CanonicalizeModelSelections", (it) => {
         {
           const projectRows = yield* sql<{
             readonly projectId: string;
-            readonly defaultProvider: string | null;
+            readonly defaultModelSelection: string | null;
           }>`
         SELECT
           project_id AS "projectId",
-          default_provider AS "defaultProvider"
+          default_model_selection_json AS "defaultModelSelection"
         FROM projection_projects
         ORDER BY project_id
       `;
           assert.deepStrictEqual(projectRows, [
-            { projectId: "project-claude", defaultProvider: "claudeAgent" },
-            { projectId: "project-codex", defaultProvider: "codex" },
-            { projectId: "project-null", defaultProvider: null },
+            {
+              projectId: "project-claude",
+              defaultModelSelection: '{"provider":"claudeAgent","model":"claude-opus-4-6"}',
+            },
+            {
+              projectId: "project-codex",
+              defaultModelSelection: '{"provider":"codex","model":"gpt-5.4"}',
+            },
+            { projectId: "project-null", defaultModelSelection: null },
           ]);
 
           const threadRows = yield* sql<{
             readonly threadId: string;
-            readonly provider: string | null;
-            readonly modelOptions: string | null;
+            readonly modelSelection: string | null;
           }>`
         SELECT
           thread_id AS "threadId",
-          provider,
-          model_options_json AS "modelOptions"
+          model_selection_json AS "modelSelection"
         FROM projection_threads
         ORDER BY thread_id
       `;
           assert.deepStrictEqual(threadRows, [
-            { threadId: "thread-claude", provider: "claudeAgent", modelOptions: null },
-            { threadId: "thread-codex", provider: "codex", modelOptions: null },
-            { threadId: "thread-legacy-options", provider: "claudeAgent", modelOptions: null },
-            { threadId: "thread-session", provider: "claudeAgent", modelOptions: null },
+            {
+              threadId: "thread-claude",
+              modelSelection: '{"provider":"claudeAgent","model":"claude-opus-4-6"}',
+            },
+            {
+              threadId: "thread-codex",
+              modelSelection: '{"provider":"codex","model":"gpt-5.4"}',
+            },
+            {
+              threadId: "thread-legacy-options",
+              modelSelection: '{"provider":"claudeAgent","model":"claude-opus-4-6"}',
+            },
+            {
+              threadId: "thread-session",
+              modelSelection: '{"provider":"claudeAgent","model":"gpt-5.4"}',
+            },
           ]);
 
           const eventRows = yield* sql<{
