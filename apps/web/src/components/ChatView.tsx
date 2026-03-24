@@ -28,6 +28,7 @@ import {
   getDefaultModel,
   normalizeModelSlug,
   resolveModelSlugForProvider,
+  toProviderModelOptions,
 } from "@t3tools/shared/model";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -211,16 +212,6 @@ function extractModelSelectionOptions(
   return provider === "codex" ? modelOptions?.codex : modelOptions?.claudeAgent;
 }
 
-function toProviderModelOptions(
-  modelSelection: ModelSelection | null | undefined,
-): ProviderModelOptions | undefined {
-  if (!modelSelection?.options) {
-    return undefined;
-  }
-  return modelSelection.provider === "codex"
-    ? { codex: modelSelection.options }
-    : { claudeAgent: modelSelection.options };
-}
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;

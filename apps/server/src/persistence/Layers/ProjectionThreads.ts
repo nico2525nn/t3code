@@ -89,7 +89,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.title},
           ${row.modelSelection.provider},
           ${row.modelSelection.model},
-          ${JSON.stringify(row.modelSelection.options ?? null)},
+          ${row.modelSelection.options != null ? JSON.stringify(row.modelSelection.options) : null},
           ${row.runtimeMode},
           ${row.interactionMode},
           ${row.branch},
