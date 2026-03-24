@@ -14,7 +14,10 @@ import {
   TrimmedNonEmptyString,
   TurnId,
 } from "./baseSchemas";
+import { CanonicalJsonValueSchema } from "./jsonValue";
+import { CanonicalToolLifecycleData } from "./toolLifecycle";
 import { ThreadTokenUsageSnapshot } from "./threadUsage";
+import { ProviderUserInputAnswers, UserInputQuestion } from "./userInput";
 
 export const ORCHESTRATION_WS_METHODS = {
   getSnapshot: "orchestration.getSnapshot",
@@ -96,9 +99,6 @@ export const ProviderApprovalDecision = Schema.Literals([
   "cancel",
 ]);
 export type ProviderApprovalDecision = typeof ProviderApprovalDecision.Type;
-export const ProviderUserInputAnswers = Schema.Record(Schema.String, Schema.Unknown);
-export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
-
 export const PROVIDER_SEND_TURN_MAX_INPUT_CHARS = 120_000;
 export const PROVIDER_SEND_TURN_MAX_ATTACHMENTS = 8;
 export const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -311,7 +311,7 @@ const RuntimeErrorActivityPayload = Schema.Struct({
 
 const RuntimeWarningActivityPayload = Schema.Struct({
   message: TrimmedNonEmptyString,
-  detail: Schema.optional(Schema.Unknown),
+  detail: Schema.optional(CanonicalJsonValueSchema),
 });
 
 const RuntimePlanStep = Schema.Struct({
@@ -326,12 +326,12 @@ const TurnPlanUpdatedActivityPayload = Schema.Struct({
 
 const UserInputRequestedActivityPayload = Schema.Struct({
   requestId: Schema.optional(TrimmedNonEmptyString),
-  questions: Schema.Array(Schema.Unknown),
+  questions: Schema.Array(UserInputQuestion),
 });
 
 const UserInputResolvedActivityPayload = Schema.Struct({
   requestId: Schema.optional(TrimmedNonEmptyString),
-  answers: Schema.Record(Schema.String, Schema.Unknown),
+  answers: ProviderUserInputAnswers,
 });
 
 const TaskStartedActivityPayload = Schema.Struct({
@@ -345,19 +345,19 @@ const TaskProgressActivityPayload = Schema.Struct({
   detail: TrimmedNonEmptyString,
   summary: Schema.optional(TrimmedNonEmptyString),
   lastToolName: Schema.optional(TrimmedNonEmptyString),
-  usage: Schema.optional(Schema.Unknown),
+  usage: Schema.optional(ThreadTokenUsageSnapshot),
 });
 
 const TaskCompletedActivityPayload = Schema.Struct({
   taskId: TrimmedNonEmptyString,
   status: TrimmedNonEmptyString,
   detail: Schema.optional(TrimmedNonEmptyString),
-  usage: Schema.optional(Schema.Unknown),
+  usage: Schema.optional(ThreadTokenUsageSnapshot),
 });
 
 const ContextCompactionActivityPayload = Schema.Struct({
   state: Schema.Literal("compacted"),
-  detail: Schema.optional(Schema.Unknown),
+  detail: Schema.optional(CanonicalJsonValueSchema),
 });
 
 const ToolStartedOrCompletedActivityPayload = Schema.Struct({
@@ -369,7 +369,7 @@ const ToolUpdatedActivityPayload = Schema.Struct({
   itemType: TrimmedNonEmptyString,
   status: Schema.optional(TrimmedNonEmptyString),
   detail: Schema.optional(TrimmedNonEmptyString),
-  data: Schema.optional(Schema.Unknown),
+  data: Schema.optional(CanonicalToolLifecycleData),
 });
 
 const CheckpointRevertFailedActivityPayload = Schema.Struct({

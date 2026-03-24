@@ -1,4 +1,4 @@
-import { Option, Schema } from "effect";
+import { Schema } from "effect";
 import {
   EventId,
   IsoDateTime,
@@ -11,11 +11,13 @@ import {
   TurnId,
 } from "./baseSchemas";
 import { ProviderKind } from "./orchestration";
+import { CanonicalToolLifecycleData } from "./toolLifecycle";
 export { ThreadTokenUsageSnapshot } from "./threadUsage";
-import { ThreadTokenUsageSnapshot as ThreadTokenUsageSnapshotSchema } from "./threadUsage";
+import { ThreadTokenUsageSnapshot } from "./threadUsage";
+export { ProviderUserInputAnswers, UserInputQuestion } from "./userInput";
+import { ProviderUserInputAnswers, UserInputQuestion } from "./userInput";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
-const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
 
 const RuntimeEventRawSource = Schema.Literals([
   "codex.app-server.notification",
@@ -244,12 +246,12 @@ export type ThreadStateChangedPayload = typeof ThreadStateChangedPayload.Type;
 
 const ThreadMetadataUpdatedPayload = Schema.Struct({
   name: Schema.optional(TrimmedNonEmptyStringSchema),
-  metadata: Schema.optional(UnknownRecordSchema),
+  metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 });
 export type ThreadMetadataUpdatedPayload = typeof ThreadMetadataUpdatedPayload.Type;
 
 const ThreadTokenUsageUpdatedPayload = Schema.Struct({
-  usage: ThreadTokenUsageSnapshotSchema,
+  usage: ThreadTokenUsageSnapshot,
 });
 export type ThreadTokenUsageUpdatedPayload = typeof ThreadTokenUsageUpdatedPayload.Type;
 
@@ -262,8 +264,7 @@ export type TurnStartedPayload = typeof TurnStartedPayload.Type;
 const TurnCompletedPayload = Schema.Struct({
   state: RuntimeTurnState,
   stopReason: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
-  usage: Schema.optional(Schema.Unknown),
-  modelUsage: Schema.optional(UnknownRecordSchema),
+  usage: Schema.optional(ThreadTokenUsageSnapshot),
   totalCostUsd: Schema.optional(Schema.Number),
   errorMessage: Schema.optional(TrimmedNonEmptyStringSchema),
 });
@@ -301,7 +302,7 @@ export const ItemLifecyclePayload = Schema.Struct({
   status: Schema.optional(RuntimeItemStatus),
   title: Schema.optional(TrimmedNonEmptyStringSchema),
   detail: Schema.optional(TrimmedNonEmptyStringSchema),
-  data: Schema.optional(Schema.Unknown),
+  data: Schema.optional(CanonicalToolLifecycleData),
 });
 export type ItemLifecyclePayload = typeof ItemLifecyclePayload.Type;
 
@@ -327,30 +328,13 @@ const RequestResolvedPayload = Schema.Struct({
 });
 export type RequestResolvedPayload = typeof RequestResolvedPayload.Type;
 
-const UserInputQuestionOption = Schema.Struct({
-  label: TrimmedNonEmptyStringSchema,
-  description: TrimmedNonEmptyStringSchema,
-});
-export type UserInputQuestionOption = typeof UserInputQuestionOption.Type;
-
-export const UserInputQuestion = Schema.Struct({
-  id: TrimmedNonEmptyStringSchema,
-  header: TrimmedNonEmptyStringSchema,
-  question: TrimmedNonEmptyStringSchema,
-  options: Schema.Array(UserInputQuestionOption),
-  multiSelect: Schema.optional(Schema.Boolean).pipe(
-    Schema.withConstructorDefault(() => Option.some(false)),
-  ),
-});
-export type UserInputQuestion = typeof UserInputQuestion.Type;
-
 const UserInputRequestedPayload = Schema.Struct({
   questions: Schema.Array(UserInputQuestion),
 });
 export type UserInputRequestedPayload = typeof UserInputRequestedPayload.Type;
 
 const UserInputResolvedPayload = Schema.Struct({
-  answers: UnknownRecordSchema,
+  answers: ProviderUserInputAnswers,
 });
 export type UserInputResolvedPayload = typeof UserInputResolvedPayload.Type;
 
@@ -365,7 +349,7 @@ const TaskProgressPayload = Schema.Struct({
   taskId: RuntimeTaskId,
   description: TrimmedNonEmptyStringSchema,
   summary: Schema.optional(TrimmedNonEmptyStringSchema),
-  usage: Schema.optional(Schema.Unknown),
+  usage: Schema.optional(ThreadTokenUsageSnapshot),
   lastToolName: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type TaskProgressPayload = typeof TaskProgressPayload.Type;
@@ -374,7 +358,7 @@ const TaskCompletedPayload = Schema.Struct({
   taskId: RuntimeTaskId,
   status: Schema.Literals(["completed", "failed", "stopped"]),
   summary: Schema.optional(TrimmedNonEmptyStringSchema),
-  usage: Schema.optional(Schema.Unknown),
+  usage: Schema.optional(ThreadTokenUsageSnapshot),
 });
 export type TaskCompletedPayload = typeof TaskCompletedPayload.Type;
 
