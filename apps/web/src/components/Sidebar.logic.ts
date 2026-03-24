@@ -211,7 +211,7 @@ function getLatestUserMessageTimestamp(thread: SidebarThreadSortInput): number {
   return toSortableTimestamp(thread.updatedAt ?? thread.createdAt);
 }
 
-export function getThreadSortTimestamp(
+function getThreadSortTimestamp(
   thread: SidebarThreadSortInput,
   sortOrder: SidebarThreadSortOrder | Exclude<SidebarProjectSortOrder, "manual">,
 ): number {
