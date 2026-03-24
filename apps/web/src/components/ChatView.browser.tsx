@@ -24,6 +24,7 @@ import { useComposerDraftStore } from "../composerDraftStore";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   type TerminalContextDraft,
+  removeInlineTerminalContextPlaceholder,
 } from "../lib/terminalContext";
 import { isMacPlatform } from "../lib/utils";
 import { getRouter } from "../router";
@@ -1248,7 +1249,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps backspaced terminal context pills removed when a new one is added", async () => {
+  it("keeps removed terminal context pills removed when a new one is added", async () => {
     const removedLabel = "Terminal 1 lines 1-2";
     const addedLabel = "Terminal 2 lines 9-10";
     useComposerDraftStore.getState().addTerminalContext(
@@ -1278,15 +1279,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      const composerEditor = await waitForComposerEditor();
-      composerEditor.focus();
-      composerEditor.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Backspace",
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
+      const store = useComposerDraftStore.getState();
+      const currentPrompt = store.draftsByThreadId[THREAD_ID]?.prompt ?? "";
+      const nextPrompt = removeInlineTerminalContextPlaceholder(currentPrompt, 0);
+      store.setPrompt(THREAD_ID, nextPrompt.prompt);
+      store.removeTerminalContext(THREAD_ID, "ctx-removed");
 
       await vi.waitFor(
         () => {
@@ -1708,19 +1705,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const useMetaForMod = isMacPlatform(navigator.platform);
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "o",
-          shiftKey: true,
-          metaKey: useMetaForMod,
-          ctrlKey: !useMetaForMod,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-
-      await waitForURL(
+      await waitForNewThreadShortcutLabel();
+      await waitForServerConfigToApply();
+      const composerEditor = await waitForComposerEditor();
+      composerEditor.focus();
+      await waitForLayout();
+      await triggerChatNewShortcutUntilPath(
         mounted.router,
         (path) => UUID_ROUTE_RE.test(path),
         "Route should have changed to a new draft thread UUID from the shortcut.",

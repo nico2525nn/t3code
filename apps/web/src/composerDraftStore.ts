@@ -1194,7 +1194,8 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           const hasProjectMapping = Object.values(state.projectDraftThreadIdByProjectId).includes(
             threadId,
           );
-          if (!hasDraftThread && !hasProjectMapping) {
+          const hasComposerDraft = state.draftsByThreadId[threadId] !== undefined;
+          if (!hasDraftThread && !hasProjectMapping && !hasComposerDraft) {
             return state;
           }
           const nextProjectDraftThreadIdByProjectId = Object.fromEntries(
@@ -1204,7 +1205,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           ) as Record<ProjectId, ThreadId>;
           const { [threadId]: _removedDraftThread, ...restDraftThreadsByThreadId } =
             state.draftThreadsByThreadId;
+          const { [threadId]: _removedComposerDraft, ...restDraftsByThreadId } =
+            state.draftsByThreadId;
           return {
+            draftsByThreadId: restDraftsByThreadId,
             draftThreadsByThreadId: restDraftThreadsByThreadId,
             projectDraftThreadIdByProjectId: nextProjectDraftThreadIdByProjectId,
           };
