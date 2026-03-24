@@ -504,7 +504,9 @@ describe("ProviderCommandReactor", () => {
   });
 
   it("rejects a first turn when requested provider conflicts with the thread model", async () => {
-    const harness = await createHarness();
+    const harness = await createHarness({
+      threadModelSelection: { provider: "codex", model: "gpt-5-codex" },
+    });
     const now = new Date().toISOString();
 
     await Effect.runPromise(
