@@ -719,7 +719,6 @@ describe("ClaudeAdapterLive", () => {
         runtimeEvents.map((event) => event.type),
         [
           "session.started",
-          "session.configured",
           "session.state.changed",
           "turn.started",
           "thread.started",
@@ -885,7 +884,6 @@ describe("ClaudeAdapterLive", () => {
         runtimeEvents.map((event) => event.type),
         [
           "session.started",
-          "session.configured",
           "session.state.changed",
           "turn.started",
           "thread.started",
@@ -1066,7 +1064,6 @@ describe("ClaudeAdapterLive", () => {
         runtimeEvents.map((event) => event.type),
         [
           "session.started",
-          "session.configured",
           "session.state.changed",
           "turn.started",
           "thread.started",
@@ -1124,7 +1121,6 @@ describe("ClaudeAdapterLive", () => {
         runtimeEvents.map((event) => event.type),
         [
           "session.started",
-          "session.configured",
           "session.state.changed",
           "turn.started",
           "turn.completed",
@@ -1132,7 +1128,7 @@ describe("ClaudeAdapterLive", () => {
         ],
       );
 
-      const turnCompleted = runtimeEvents[4];
+      const turnCompleted = runtimeEvents.find((event) => event.type === "turn.completed");
       assert.equal(turnCompleted?.type, "turn.completed");
       if (turnCompleted?.type === "turn.completed") {
         assert.equal(String(turnCompleted.turnId), String(turn.turnId));
@@ -1140,7 +1136,7 @@ describe("ClaudeAdapterLive", () => {
         assert.equal(turnCompleted.payload.errorMessage, "Claude runtime interrupted.");
       }
 
-      const sessionExited = runtimeEvents[5];
+      const sessionExited = runtimeEvents.find((event) => event.type === "session.exited");
       assert.equal(sessionExited?.type, "session.exited");
 
       assert.equal(yield* adapter.hasSession(THREAD_ID), false);
@@ -1387,7 +1383,6 @@ describe("ClaudeAdapterLive", () => {
           runtimeEvents.map((event) => event.type),
           [
             "session.started",
-            "session.configured",
             "session.state.changed",
             "turn.started",
             "thread.started",
@@ -1532,7 +1527,6 @@ describe("ClaudeAdapterLive", () => {
         runtimeEvents.map((event) => event.type),
         [
           "session.started",
-          "session.configured",
           "session.state.changed",
           "turn.started",
           "thread.started",
@@ -1540,6 +1534,7 @@ describe("ClaudeAdapterLive", () => {
           "item.completed",
           "content.delta",
           "item.completed",
+          "turn.completed",
         ],
       );
 
@@ -1627,7 +1622,6 @@ describe("ClaudeAdapterLive", () => {
         runtimeEvents.map((event) => event.type),
         [
           "session.started",
-          "session.configured",
           "session.state.changed",
           "turn.started",
           "thread.started",
@@ -1815,7 +1809,6 @@ describe("ClaudeAdapterLive", () => {
         runtimeEvents.map((event) => event.type),
         [
           "session.started",
-          "session.configured",
           "session.state.changed",
           "turn.started",
           "thread.started",
@@ -1922,10 +1915,10 @@ describe("ClaudeAdapterLive", () => {
         runtimeEvents.map((event) => event.type),
         [
           "session.started",
-          "session.configured",
           "session.state.changed",
           "turn.started",
           "thread.started",
+          "turn.completed",
         ],
       );
 
@@ -1935,7 +1928,7 @@ describe("ClaudeAdapterLive", () => {
         assert.equal(sessionStarted.threadId, THREAD_ID);
       }
 
-      const threadStarted = runtimeEvents[4];
+      const threadStarted = runtimeEvents.find((event) => event.type === "thread.started");
       assert.equal(threadStarted?.type, "thread.started");
       if (threadStarted?.type === "thread.started") {
         assert.equal(threadStarted.threadId, THREAD_ID);
