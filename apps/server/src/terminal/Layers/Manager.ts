@@ -321,6 +321,22 @@ function sanitizeTerminalHistoryChunk(
         continue;
       }
 
+      if (nextCodePoint >= 0x20 && nextCodePoint <= 0x2f) {
+        let cursor = index + 2;
+        while (
+          cursor < input.length &&
+          input.charCodeAt(cursor) >= 0x20 &&
+          input.charCodeAt(cursor) <= 0x2f
+        ) {
+          cursor++;
+        }
+        if (cursor >= input.length) {
+          return { visibleText, pendingControlSequence: input.slice(index) };
+        }
+        index = cursor + 1;
+        continue;
+      }
+
       index += 2;
       continue;
     }
