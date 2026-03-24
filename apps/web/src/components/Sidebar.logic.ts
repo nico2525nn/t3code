@@ -270,7 +270,7 @@ export function sortProjectsForSidebar<TProject extends SidebarProject, TThread 
     const byTimestamp =
       getProjectSortTimestamp(right, threadsByProjectId.get(right.id) ?? [], sortOrder) -
       getProjectSortTimestamp(left, threadsByProjectId.get(left.id) ?? [], sortOrder);
-    if (byTimestamp !== 0) return byTimestamp;
+    if (byTimestamp !== 0 && !Number.isNaN(byTimestamp)) return byTimestamp;
     return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
   });
 }
