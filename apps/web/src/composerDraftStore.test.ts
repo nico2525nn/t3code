@@ -631,11 +631,13 @@ describe("composerDraftStore modelSelection", () => {
     );
   });
 
-  it("drops default-only model selections from the draft", () => {
+  it("keeps default-only model selections on the draft", () => {
     const store = useComposerDraftStore.getState();
     store.setModelSelection(threadId, modelSelection("codex", "gpt-5.4"));
 
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelection).toEqual(
+      modelSelection("codex", "gpt-5.4"),
+    );
   });
 
   it("replaces only the targeted provider options on the current model selection", () => {
@@ -690,7 +692,9 @@ describe("composerDraftStore modelSelection", () => {
       thinking: true,
     });
 
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelection).toEqual(
+      modelSelection("claudeAgent", "claude-opus-4-6"),
+    );
     expect(useComposerDraftStore.getState().stickyModelSelection).toBeNull();
   });
 
@@ -704,7 +708,9 @@ describe("composerDraftStore modelSelection", () => {
       fastMode: false,
     });
 
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelection).toEqual(
+      modelSelection("codex", "gpt-5.4"),
+    );
   });
 
   it("updates only the draft when sticky persistence is omitted", () => {
