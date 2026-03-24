@@ -12,6 +12,7 @@ import {
   Result,
   Schema,
   Scope,
+  Semaphore,
   Stream,
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -361,30 +362,36 @@ const createTrace2Monitor = Effect.fn(function* (
       }
     });
 
-  const readTraceDelta = fs.readFileString(traceFilePath).pipe(
-    Effect.catch(() => Effect.succeed("")),
-    Effect.flatMap((delta) =>
-      Effect.gen(function* () {
-        if (delta.length <= processedChars) {
-          return;
-        }
-        const appended = delta.slice(processedChars);
-        processedChars = delta.length;
-        lineBuffer += appended;
-        let newlineIndex = lineBuffer.indexOf("\n");
-        while (newlineIndex >= 0) {
-          const line = lineBuffer.slice(0, newlineIndex);
-          lineBuffer = lineBuffer.slice(newlineIndex + 1);
-          yield* handleTraceLine(line);
-          newlineIndex = lineBuffer.indexOf("\n");
-        }
-      }),
+  const deltaMutex = Semaphore.makeUnsafe(1);
+  const readTraceDelta = deltaMutex.withPermit(
+    fs.readFileString(traceFilePath).pipe(
+      Effect.catch(() => Effect.succeed("")),
+      Effect.flatMap((delta) =>
+        Effect.gen(function* () {
+          if (delta.length <= processedChars) {
+            return;
+          }
+          const appended = delta.slice(processedChars);
+          processedChars = delta.length;
+          lineBuffer += appended;
+          let newlineIndex = lineBuffer.indexOf("\n");
+          while (newlineIndex >= 0) {
+            const line = lineBuffer.slice(0, newlineIndex);
+            lineBuffer = lineBuffer.slice(newlineIndex + 1);
+            yield* handleTraceLine(line);
+            newlineIndex = lineBuffer.indexOf("\n");
+          }
+        }),
+      ),
     ),
   );
+  const traceFileName = path.basename(traceFilePath);
   const watchTraceFile = Stream.runForEach(fs.watch(traceFilePath), (event) => {
     const eventPath = event.path;
     const isTargetTraceEvent =
-      eventPath === traceFilePath || path.resolve(eventPath) === traceFilePath;
+      eventPath === traceFilePath ||
+      eventPath === traceFileName ||
+      path.basename(eventPath) === traceFileName;
     if (!isTargetTraceEvent) return Effect.void;
     return readTraceDelta;
   }).pipe(Effect.ignoreCause({ log: true }));
