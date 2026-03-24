@@ -552,6 +552,32 @@ describe("sortProjectsForSidebar", () => {
     ]);
   });
 
+  it("falls back to name and id ordering when projects have no sortable timestamps", () => {
+    const sorted = sortProjectsForSidebar(
+      [
+        makeProject({
+          id: ProjectId.makeUnsafe("project-2"),
+          name: "Beta",
+          createdAt: undefined,
+          updatedAt: undefined,
+        }),
+        makeProject({
+          id: ProjectId.makeUnsafe("project-1"),
+          name: "Alpha",
+          createdAt: undefined,
+          updatedAt: undefined,
+        }),
+      ],
+      [],
+      "updated_at",
+    );
+
+    expect(sorted.map((project) => project.id)).toEqual([
+      ProjectId.makeUnsafe("project-1"),
+      ProjectId.makeUnsafe("project-2"),
+    ]);
+  });
+
   it("preserves manual project ordering", () => {
     const projects = [
       makeProject({ id: ProjectId.makeUnsafe("project-2"), name: "Second" }),
