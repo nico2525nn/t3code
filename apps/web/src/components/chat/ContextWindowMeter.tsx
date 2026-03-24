@@ -70,13 +70,13 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
           </button>
         }
       />
-      <TooltipPopup side="top" align="end" className="max-w-72 whitespace-normal px-3 py-2">
+      <TooltipPopup side="top" align="end" className="w-max max-w-none px-3 py-2">
         <div className="space-y-1.5 leading-tight">
           <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
             Context window
           </div>
           {usage.maxTokens !== null && usedPercentage ? (
-            <div className="text-xs font-medium text-foreground">
+            <div className="whitespace-nowrap text-xs font-medium text-foreground">
               <span>{usedPercentage}</span>
               <span className="mx-1">⋅</span>
               <span>{formatContextWindowTokens(usage.usedTokens)}</span>
