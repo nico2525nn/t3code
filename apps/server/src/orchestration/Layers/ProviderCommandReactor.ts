@@ -705,9 +705,7 @@ const make = Effect.gen(function* () {
             return;
           }
           const cachedProviderOptions = threadProviderOptions.get(event.payload.threadId);
-          const cachedModelOptions =
-            threadModelOptions.get(event.payload.threadId) ??
-            toProviderModelOptions(thread.modelSelection);
+          const cachedModelOptions = threadModelOptions.get(event.payload.threadId);
           yield* ensureSessionForThread(event.payload.threadId, event.occurredAt, {
             ...(cachedProviderOptions !== undefined
               ? { providerOptions: cachedProviderOptions }

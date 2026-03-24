@@ -3035,12 +3035,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       text: implementationPrompt,
     });
     const nextThreadTitle = truncateTitle(buildPlanImplementationThreadTitle(planMarkdown));
-    const nextThreadModelSelection: ModelSelection = selectedModelSelection ??
-      activeThread.modelSelection ??
-      activeProject.defaultModelSelection ?? {
-        provider: "codex",
-        model: DEFAULT_MODEL_BY_PROVIDER.codex,
-      };
+    const nextThreadModelSelection: ModelSelection = selectedModelSelection;
 
     sendInFlightRef.current = true;
     beginSendPhase("sending-turn");
