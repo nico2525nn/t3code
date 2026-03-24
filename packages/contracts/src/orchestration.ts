@@ -397,6 +397,7 @@ export const OrchestrationThreadActivity = Schema.Union([
   makeThreadActivitySchema("task.started", "info", TaskStartedActivityPayload),
   makeThreadActivitySchema("task.progress", "info", TaskProgressActivityPayload),
   makeThreadActivitySchema("task.completed", "info", TaskCompletedActivityPayload),
+  makeThreadActivitySchema("task.completed", "error", TaskCompletedActivityPayload),
   makeThreadActivitySchema("context-compaction", "info", ContextCompactionActivityPayload),
   makeThreadActivitySchema("context-window.updated", "info", ThreadTokenUsageSnapshot),
   makeThreadActivitySchema("tool.updated", "tool", ToolUpdatedActivityPayload),
