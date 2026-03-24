@@ -2059,6 +2059,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               },
             });
             return;
+          case "init":
+          case "hook_started":
+          case "hook_progress":
+          case "hook_response":
+          case "files_persisted":
+            return;
           default:
             yield* emitRuntimeWarning(
               context,
