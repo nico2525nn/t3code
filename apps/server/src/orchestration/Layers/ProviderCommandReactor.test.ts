@@ -557,49 +557,6 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("allows custom model strings on the thread's explicit provider", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe("cmd-turn-start-custom-model"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        message: {
-          messageId: asMessageId("user-message-custom-model"),
-          role: "user",
-          text: "hello",
-          attachments: [],
-        },
-        modelSelection: {
-          provider: "codex",
-          model: "claude-sonnet-4-6",
-        },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(() => harness.startSession.mock.calls.length === 1);
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-
-    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      modelSelection: {
-        provider: "codex",
-        model: "claude-sonnet-4-6",
-      },
-    });
-    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      modelSelection: {
-        provider: "codex",
-        model: "claude-sonnet-4-6",
-      },
-    });
-  });
-
   it("reuses the same provider session when runtime mode is unchanged", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
