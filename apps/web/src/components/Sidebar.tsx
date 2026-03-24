@@ -2,6 +2,8 @@ import {
   ArrowLeftIcon,
   ChevronRightIcon,
   FolderIcon,
+  FolderOpenIcon,
+  FolderPlusIcon,
   GitPullRequestIcon,
   PlusIcon,
   RocketIcon,
@@ -64,6 +66,17 @@ import {
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Collapsible, CollapsibleContent } from "./ui/collapsible";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   SidebarContent,
@@ -272,7 +285,7 @@ export default function Sidebar() {
   );
   const navigate = useNavigate();
   const isOnSettings = useLocation({ select: (loc) => loc.pathname === "/settings" });
-  const { settings: appSettings } = useAppSettings();
+  const { settings: appSettings, updateSettings } = useAppSettings();
   const { handleNewThread } = useHandleNewThread();
   const routeThreadId = useParams({
     strict: false,
@@ -285,11 +298,22 @@ export default function Sidebar() {
   const queryClient = useQueryClient();
   const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
   const [addingProject, setAddingProject] = useState(false);
+  const [isAddProjectMenuOpen, setIsAddProjectMenuOpen] = useState(false);
   const [newCwd, setNewCwd] = useState("");
   const [isPickingFolder, setIsPickingFolder] = useState(false);
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
+  const addProjectMenuCloseTimerRef = useRef<number | null>(null);
+  const [isCreateProjectDialogOpen, setIsCreateProjectDialogOpen] = useState(false);
+  const [createProjectDirectoryPath, setCreateProjectDirectoryPath] = useState("");
+  const [newProjectDirectoryName, setNewProjectDirectoryName] = useState("");
+  const [isCreatingProjectDirectory, setIsCreatingProjectDirectory] = useState(false);
+  const [isPickingCreateProjectDirectoryPath, setIsPickingCreateProjectDirectoryPath] =
+    useState(false);
+  const [createProjectDirectoryError, setCreateProjectDirectoryError] = useState<string | null>(
+    null,
+  );
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
@@ -403,11 +427,11 @@ export default function Sidebar() {
   );
 
   const addProjectFromPath = useCallback(
-    async (rawCwd: string) => {
+    async (rawCwd: string): Promise<{ ok: boolean; error?: string }> => {
       const cwd = rawCwd.trim();
-      if (!cwd || isAddingProject) return;
+      if (!cwd || isAddingProject) return { ok: false };
       const api = readNativeApi();
-      if (!api) return;
+      if (!api) return { ok: false, error: "Native API not available." };
 
       setIsAddingProject(true);
       const finishAddingProject = () => {
@@ -421,7 +445,7 @@ export default function Sidebar() {
       if (existing) {
         focusMostRecentThreadForProject(existing.id);
         finishAddingProject();
-        return;
+        return { ok: true };
       }
 
       const projectId = newProjectId();
@@ -453,9 +477,10 @@ export default function Sidebar() {
         } else {
           setAddProjectError(description);
         }
-        return;
+        return { ok: false, error: description };
       }
       finishAddingProject();
+      return { ok: true };
     },
     [
       focusMostRecentThreadForProject,
@@ -472,6 +497,26 @@ export default function Sidebar() {
   };
 
   const canAddProject = newCwd.trim().length > 0 && !isAddingProject;
+  const newProjectBasePath = appSettings.newProjectBasePath.trim();
+
+  const cancelAddProjectMenuClose = useCallback(() => {
+    if (addProjectMenuCloseTimerRef.current === null) return;
+    window.clearTimeout(addProjectMenuCloseTimerRef.current);
+    addProjectMenuCloseTimerRef.current = null;
+  }, []);
+
+  const openAddProjectMenu = useCallback(() => {
+    cancelAddProjectMenuClose();
+    setIsAddProjectMenuOpen(true);
+  }, [cancelAddProjectMenuClose]);
+
+  const scheduleAddProjectMenuClose = useCallback(() => {
+    cancelAddProjectMenuClose();
+    addProjectMenuCloseTimerRef.current = window.setTimeout(() => {
+      setIsAddProjectMenuOpen(false);
+      addProjectMenuCloseTimerRef.current = null;
+    }, 120);
+  }, [cancelAddProjectMenuClose]);
 
   const handlePickFolder = async () => {
     const api = readNativeApi();
@@ -492,6 +537,7 @@ export default function Sidebar() {
   };
 
   const handleStartAddProject = () => {
+    setIsAddProjectMenuOpen(false);
     setAddProjectError(null);
     if (shouldBrowseForProjectImmediately) {
       void handlePickFolder();
@@ -499,6 +545,110 @@ export default function Sidebar() {
     }
     setAddingProject((prev) => !prev);
   };
+
+  const closeCreateProjectDialog = useCallback((open: boolean) => {
+    setIsCreateProjectDialogOpen(open);
+    if (!open) {
+      setCreateProjectDirectoryPath("");
+      setNewProjectDirectoryName("");
+      setCreateProjectDirectoryError(null);
+      setIsCreatingProjectDirectory(false);
+      setIsPickingCreateProjectDirectoryPath(false);
+    }
+  }, []);
+
+  const handleStartCreateProjectDirectory = useCallback(() => {
+    setIsAddProjectMenuOpen(false);
+    setAddProjectError(null);
+    setCreateProjectDirectoryPath(newProjectBasePath);
+    setNewProjectDirectoryName("");
+    setCreateProjectDirectoryError(null);
+    setIsCreateProjectDialogOpen(true);
+
+    if (newProjectBasePath) {
+      return;
+    }
+
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+
+    void api.dialogs.getDocumentsPath().then((documentsPath) => {
+      if (!documentsPath) return;
+      setCreateProjectDirectoryPath((current) =>
+        current.trim().length > 0 ? current : documentsPath,
+      );
+    });
+  }, [newProjectBasePath]);
+
+  const handlePickCreateProjectDirectoryPath = useCallback(async () => {
+    const api = readNativeApi();
+    if (!api || isPickingCreateProjectDirectoryPath) return;
+
+    setIsPickingCreateProjectDirectoryPath(true);
+    try {
+      const pickedPath = await api.dialogs.pickFolder();
+      if (pickedPath) {
+        setCreateProjectDirectoryPath(pickedPath);
+        setCreateProjectDirectoryError(null);
+      }
+    } finally {
+      setIsPickingCreateProjectDirectoryPath(false);
+    }
+  }, [isPickingCreateProjectDirectoryPath]);
+
+  const handleCreateProjectDirectory = useCallback(async () => {
+    const basePath = createProjectDirectoryPath.trim();
+    const relativePath = newProjectDirectoryName.trim();
+    if (!basePath || !relativePath || isCreatingProjectDirectory || isAddingProject) {
+      if (!basePath) {
+        setCreateProjectDirectoryError("Enter a directory path.");
+      }
+      if (!relativePath) {
+        setCreateProjectDirectoryError("Enter a directory name.");
+      }
+      return;
+    }
+
+    const api = readNativeApi();
+    if (!api) return;
+
+    setIsCreatingProjectDirectory(true);
+    setCreateProjectDirectoryError(null);
+
+    try {
+      const result = await api.projects.createDirectory({
+        cwd: basePath,
+        relativePath,
+      });
+      const addedProject = await addProjectFromPath(result.absolutePath);
+      if (!addedProject.ok) {
+        setCreateProjectDirectoryError(addedProject.error ?? "Unable to open the new project.");
+        setIsCreatingProjectDirectory(false);
+        return;
+      }
+      closeCreateProjectDialog(false);
+    } catch (error) {
+      setCreateProjectDirectoryError(
+        error instanceof Error ? error.message : "Unable to create the directory.",
+      );
+      setIsCreatingProjectDirectory(false);
+    }
+  }, [
+    addProjectFromPath,
+    closeCreateProjectDialog,
+    createProjectDirectoryPath,
+    isAddingProject,
+    isCreatingProjectDirectory,
+    newProjectDirectoryName,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      cancelAddProjectMenuClose();
+    };
+  }, [cancelAddProjectMenuClose]);
 
   const cancelRename = useCallback(() => {
     setRenamingThreadId(null);
@@ -1232,28 +1382,59 @@ export default function Sidebar() {
             <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
               Projects
             </span>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={shouldShowProjectPathEntry ? "Cancel add project" : "Add project"}
-                    aria-pressed={shouldShowProjectPathEntry}
-                    className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
-                    onClick={handleStartAddProject}
+            <div onMouseEnter={openAddProjectMenu} onMouseLeave={scheduleAddProjectMenuClose}>
+              <Menu open={isAddProjectMenuOpen} onOpenChange={setIsAddProjectMenuOpen}>
+                <MenuTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label="Add project"
+                      aria-expanded={isAddProjectMenuOpen}
+                      className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                      onClick={() => setIsAddProjectMenuOpen((open) => !open)}
+                    />
+                  }
+                >
+                  <PlusIcon
+                    className={`size-3.5 transition-transform duration-150 ${
+                      isAddProjectMenuOpen || shouldShowProjectPathEntry ? "rotate-90" : "rotate-0"
+                    }`}
                   />
-                }
-              >
-                <PlusIcon
-                  className={`size-3.5 transition-transform duration-150 ${
-                    shouldShowProjectPathEntry ? "rotate-45" : "rotate-0"
-                  }`}
-                />
-              </TooltipTrigger>
-              <TooltipPopup side="right">
-                {shouldShowProjectPathEntry ? "Cancel add project" : "Add project"}
-              </TooltipPopup>
-            </Tooltip>
+                </MenuTrigger>
+                <MenuPopup
+                  align="end"
+                  className="w-64"
+                  onMouseEnter={openAddProjectMenu}
+                  onMouseLeave={scheduleAddProjectMenuClose}
+                >
+                  <MenuItem className="items-start py-2.5" onClick={handleStartAddProject}>
+                    <FolderOpenIcon className="mt-0.5 size-4" />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium text-foreground">
+                        Open existing directory
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        Add a project from a folder you already have.
+                      </span>
+                    </span>
+                  </MenuItem>
+                  <MenuItem
+                    className="items-start py-2.5"
+                    onClick={handleStartCreateProjectDirectory}
+                  >
+                    <FolderPlusIcon className="mt-0.5 size-4" />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium text-foreground">
+                        Create new empty directory
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        Make a fresh folder inside your default project path.
+                      </span>
+                    </span>
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
+            </div>
           </div>
 
           {shouldShowProjectPathEntry && (
@@ -1702,6 +1883,102 @@ export default function Sidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+      <Dialog open={isCreateProjectDialogOpen} onOpenChange={closeCreateProjectDialog}>
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>Create new empty directory</DialogTitle>
+            <DialogDescription>
+              Choose where the new folder should live, then name the project and T3 Code will open
+              it right away.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-5 pt-0" scrollFade={false}>
+            <div className="space-y-2">
+              <span className="text-xs font-medium text-foreground">Directory path</span>
+              <div className="flex gap-2">
+                <Input
+                  value={createProjectDirectoryPath}
+                  onChange={(event) => {
+                    setCreateProjectDirectoryPath(event.target.value);
+                    if (createProjectDirectoryError) {
+                      setCreateProjectDirectoryError(null);
+                    }
+                  }}
+                  placeholder="/Users/you/Documents"
+                  spellCheck={false}
+                  autoFocus
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handlePickCreateProjectDirectoryPath()}
+                  disabled={isPickingCreateProjectDirectoryPath}
+                >
+                  {isPickingCreateProjectDirectoryPath ? "Selecting..." : "Select"}
+                </Button>
+              </div>
+              {!newProjectBasePath && createProjectDirectoryPath.trim() ? (
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    onClick={() =>
+                      updateSettings({
+                        newProjectBasePath: createProjectDirectoryPath.trim(),
+                      })
+                    }
+                  >
+                    Set as default
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+
+            <label htmlFor="new-project-directory-name" className="block space-y-2">
+              <span className="text-xs font-medium text-foreground">Project name</span>
+              <Input
+                id="new-project-directory-name"
+                value={newProjectDirectoryName}
+                onChange={(event) => {
+                  setNewProjectDirectoryName(event.target.value);
+                  if (createProjectDirectoryError) {
+                    setCreateProjectDirectoryError(null);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  void handleCreateProjectDirectory();
+                }}
+                placeholder="my-new-project"
+                spellCheck={false}
+              />
+            </label>
+
+            {createProjectDirectoryError ? (
+              <p className="text-xs text-destructive">{createProjectDirectoryError}</p>
+            ) : null}
+          </DialogPanel>
+          <DialogFooter variant="bare" className="pt-0">
+            <Button type="button" variant="outline" onClick={() => closeCreateProjectDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleCreateProjectDirectory()}
+              disabled={
+                !createProjectDirectoryPath.trim() ||
+                !newProjectDirectoryName.trim() ||
+                isCreatingProjectDirectory ||
+                isAddingProject
+              }
+            >
+              {isCreatingProjectDirectory || isAddingProject ? "Creating..." : "OK"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </>
   );
 }

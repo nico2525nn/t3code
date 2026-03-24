@@ -94,6 +94,10 @@ export function createWsNativeApi(): NativeApi {
         if (!window.desktopBridge) return null;
         return window.desktopBridge.pickFolder();
       },
+      getDocumentsPath: async () => {
+        if (!window.desktopBridge) return null;
+        return window.desktopBridge.getDocumentsPath();
+      },
       confirm: async (message) => {
         if (window.desktopBridge) {
           return window.desktopBridge.confirm(message);
@@ -114,6 +118,7 @@ export function createWsNativeApi(): NativeApi {
     projects: {
       searchEntries: (input) => transport.request(WS_METHODS.projectsSearchEntries, input),
       writeFile: (input) => transport.request(WS_METHODS.projectsWriteFile, input),
+      createDirectory: (input) => transport.request(WS_METHODS.projectsCreateDirectory, input),
     },
     shell: {
       openInEditor: (cwd, editor) =>

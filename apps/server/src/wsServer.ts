@@ -776,6 +776,47 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return { relativePath: target.relativePath };
       }
 
+      case WS_METHODS.projectsCreateDirectory: {
+        const body = stripRequestTag(request.body);
+        const target = yield* resolveWorkspaceWritePath({
+          workspaceRoot: body.cwd,
+          relativePath: body.relativePath,
+          path,
+        });
+
+        const existingEntry = yield* Effect.result(fileSystem.stat(target.absolutePath));
+        if (Result.isSuccess(existingEntry)) {
+          return yield* new RouteRequestError({
+            message: `Workspace directory already exists: ${target.relativePath}`,
+          });
+        }
+
+        yield* fileSystem
+          .makeDirectory(path.dirname(target.absolutePath), { recursive: true })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new RouteRequestError({
+                  message: `Failed to prepare workspace directory path: ${String(cause)}`,
+                }),
+            ),
+          );
+
+        yield* fileSystem.makeDirectory(target.absolutePath, { recursive: false }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new RouteRequestError({
+                message: `Failed to create workspace directory: ${String(cause)}`,
+              }),
+          ),
+        );
+
+        return {
+          relativePath: target.relativePath,
+          absolutePath: target.absolutePath,
+        };
+      }
+
       case WS_METHODS.shellOpenInEditor: {
         const body = stripRequestTag(request.body);
         return yield* openInEditor(body);

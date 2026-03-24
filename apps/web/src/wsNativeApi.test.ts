@@ -320,6 +320,42 @@ describe("wsNativeApi", () => {
     });
   });
 
+  it("forwards workspace directory creation to the websocket project method", async () => {
+    requestMock.mockResolvedValue({
+      relativePath: "sandbox",
+      absolutePath: "/tmp/project/sandbox",
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.projects.createDirectory({
+      cwd: "/tmp/project",
+      relativePath: "sandbox",
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.projectsCreateDirectory, {
+      cwd: "/tmp/project",
+      relativePath: "sandbox",
+    });
+  });
+
+  it("reads the desktop documents path when the bridge is available", async () => {
+    const getDocumentsPath = vi.fn().mockResolvedValue("/Users/davis/Documents");
+    Object.defineProperty(getWindowForTest(), "desktopBridge", {
+      configurable: true,
+      writable: true,
+      value: {
+        getDocumentsPath,
+      },
+    });
+
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+
+    await expect(api.dialogs.getDocumentsPath()).resolves.toBe("/Users/davis/Documents");
+    expect(getDocumentsPath).toHaveBeenCalledTimes(1);
+  });
+
   it("forwards full-thread diff requests to the orchestration websocket method", async () => {
     requestMock.mockResolvedValue({ diff: "patch" });
     const { createWsNativeApi } = await import("./wsNativeApi");

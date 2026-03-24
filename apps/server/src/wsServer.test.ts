@@ -1641,6 +1641,49 @@ describe("WebSocket Server", () => {
     expect(fs.existsSync(path.join(workspace, "..", "escape.md"))).toBe(false);
   });
 
+  it("supports projects.createDirectory within the workspace root", async () => {
+    const workspace = makeTempDir("t3code-ws-create-directory-");
+
+    server = await createTestServer({ cwd: "/test" });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const response = await sendRequest(ws, WS_METHODS.projectsCreateDirectory, {
+      cwd: workspace,
+      relativePath: "sandboxes/fresh-room",
+    });
+
+    expect(response.error).toBeUndefined();
+    expect(response.result).toEqual({
+      relativePath: "sandboxes/fresh-room",
+      absolutePath: path.join(workspace, "sandboxes", "fresh-room"),
+    });
+    expect(fs.existsSync(path.join(workspace, "sandboxes", "fresh-room"))).toBe(true);
+  });
+
+  it("rejects projects.createDirectory when the target already exists", async () => {
+    const workspace = makeTempDir("t3code-ws-create-directory-existing-");
+    fs.mkdirSync(path.join(workspace, "existing"), { recursive: true });
+
+    server = await createTestServer({ cwd: "/test" });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const [ws] = await connectAndAwaitWelcome(port);
+    connections.push(ws);
+
+    const response = await sendRequest(ws, WS_METHODS.projectsCreateDirectory, {
+      cwd: workspace,
+      relativePath: "existing",
+    });
+
+    expect(response.result).toBeUndefined();
+    expect(response.error?.message).toContain("Workspace directory already exists");
+  });
+
   it("routes git core methods over websocket", async () => {
     const listBranches = vi.fn(() =>
       Effect.succeed({

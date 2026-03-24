@@ -47,6 +47,7 @@ import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runti
 syncShellEnvironment();
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
+const GET_DOCUMENTS_PATH_CHANNEL = "desktop:get-documents-path";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
@@ -1084,6 +1085,16 @@ function registerIpcHandlers(): void {
         });
     if (result.canceled) return null;
     return result.filePaths[0] ?? null;
+  });
+
+  ipcMain.removeHandler(GET_DOCUMENTS_PATH_CHANNEL);
+  ipcMain.handle(GET_DOCUMENTS_PATH_CHANNEL, async () => {
+    try {
+      const documentsPath = app.getPath("documents");
+      return typeof documentsPath === "string" && documentsPath.length > 0 ? documentsPath : null;
+    } catch {
+      return null;
+    }
   });
 
   ipcMain.removeHandler(CONFIRM_CHANNEL);

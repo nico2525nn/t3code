@@ -211,6 +211,7 @@ describe("AppSettingsSchema", () => {
     ).toMatchObject({
       codexBinaryPath: "/usr/local/bin/codex",
       codexHomePath: "",
+      newProjectBasePath: "",
       defaultThreadEnvMode: "local",
       confirmThreadDelete: false,
       enableAssistantStreaming: false,
