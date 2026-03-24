@@ -914,12 +914,13 @@ describe("ClaudeAdapterLive", () => {
       const toolInputUpdated = runtimeEvents.find(
         (event) =>
           event.type === "item.updated" &&
-          (event.payload.data as { input?: { pattern?: string; path?: string } } | undefined)?.input
-            ?.pattern === "foo",
+          event.payload.data?.kind === "generic" &&
+          event.payload.data.input?.pattern === "foo",
       );
       assert.equal(toolInputUpdated?.type, "item.updated");
       if (toolInputUpdated?.type === "item.updated") {
         assert.deepEqual(toolInputUpdated.payload.data, {
+          kind: "generic",
           toolName: "Grep",
           input: {
             pattern: "foo",
@@ -931,17 +932,25 @@ describe("ClaudeAdapterLive", () => {
       const toolResultUpdated = runtimeEvents.find(
         (event) =>
           event.type === "item.updated" &&
-          (event.payload.data as { result?: { tool_use_id?: string } } | undefined)?.result
-            ?.tool_use_id === "tool-grep-1",
+          event.payload.data?.kind === "generic" &&
+          event.payload.data.result !== undefined &&
+          event.payload.data.result !== null &&
+          typeof event.payload.data.result === "object" &&
+          !Array.isArray(event.payload.data.result) &&
+          "tool_use_id" in event.payload.data.result &&
+          event.payload.data.result.tool_use_id === "tool-grep-1",
       );
       assert.equal(toolResultUpdated?.type, "item.updated");
       if (toolResultUpdated?.type === "item.updated") {
         assert.equal(
-          (
-            toolResultUpdated.payload.data as {
-              result?: { content?: string };
-            }
-          ).result?.content,
+          toolResultUpdated.payload.data?.kind === "generic" &&
+            toolResultUpdated.payload.data.result !== undefined &&
+            toolResultUpdated.payload.data.result !== null &&
+            typeof toolResultUpdated.payload.data.result === "object" &&
+            !Array.isArray(toolResultUpdated.payload.data.result) &&
+            "content" in toolResultUpdated.payload.data.result
+            ? toolResultUpdated.payload.data.result.content
+            : undefined,
           "src/example.ts:1:foo",
         );
       }

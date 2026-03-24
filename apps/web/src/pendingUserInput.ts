@@ -1,4 +1,4 @@
-import type { UserInputQuestion } from "@t3tools/contracts";
+import type { ProviderUserInputAnswers, UserInputQuestion } from "@t3tools/contracts";
 
 export interface PendingUserInputDraftAnswer {
   selectedOptionLabel?: string;
@@ -55,7 +55,7 @@ export function setPendingUserInputCustomAnswer(
 export function buildPendingUserInputAnswers(
   questions: ReadonlyArray<UserInputQuestion>,
   draftAnswers: Record<string, PendingUserInputDraftAnswer>,
-): Record<string, string> | null {
+): ProviderUserInputAnswers | null {
   const answers: Record<string, string> = {};
 
   for (const question of questions) {

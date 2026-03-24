@@ -6,6 +6,7 @@ import {
   type ProjectScript,
   type ModelSlug,
   type ProviderKind,
+  type ProviderUserInputAnswers,
   type ProjectEntry,
   type ProjectId,
   type ProviderApprovalDecision,
@@ -2713,7 +2714,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
 
   const onRespondToUserInput = useCallback(
-    async (requestId: ApprovalRequestId, answers: Record<string, unknown>) => {
+    async (requestId: ApprovalRequestId, answers: ProviderUserInputAnswers) => {
       const api = readNativeApi();
       if (!api || !activeThreadId) return;
 

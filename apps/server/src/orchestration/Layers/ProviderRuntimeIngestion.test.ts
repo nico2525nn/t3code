@@ -1809,7 +1809,9 @@ describe("ProviderRuntimeIngestion", () => {
         status: "in_progress",
         title: "Run tests",
         detail: "bun test",
-        data: { pid: 123 },
+        data: {
+          kind: "generic",
+        },
       },
     });
 
