@@ -469,6 +469,46 @@ describe("TerminalManager", () => {
     manager.dispose();
   });
 
+  it("persists only displayable transcript content when PTY emits ANSI control sequences", async () => {
+    const { manager, ptyAdapter } = makeManager();
+    await manager.open(openInput());
+    const process = ptyAdapter.processes[0];
+    expect(process).toBeDefined();
+    if (!process) return;
+
+    process.emitData("prompt ");
+    process.emitData("\u001b]11;rgb:ffff/ffff/ffff\u0007");
+    process.emitData("\u001b[1;1R");
+    process.emitData("done\n");
+
+    await manager.close({ threadId: "thread-1" });
+
+    const reopened = await manager.open(openInput());
+    expect(reopened.history).toBe("prompt done\n");
+
+    manager.dispose();
+  });
+
+  it("drops chunk-split terminal control sequences from persisted history", async () => {
+    const { manager, ptyAdapter } = makeManager();
+    await manager.open(openInput());
+    const process = ptyAdapter.processes[0];
+    expect(process).toBeDefined();
+    if (!process) return;
+
+    process.emitData("prompt ");
+    process.emitData("\u001b]11;");
+    process.emitData("rgb:ffff/ffff/ffff\u0007\u001b[1;1");
+    process.emitData("Rdone\n");
+
+    await manager.close({ threadId: "thread-1" });
+
+    const reopened = await manager.open(openInput());
+    expect(reopened.history).toBe("prompt done\n");
+
+    manager.dispose();
+  });
+
   it("deletes history file when close(deleteHistory=true)", async () => {
     const { manager, ptyAdapter, logsDir } = makeManager();
     await manager.open(openInput());

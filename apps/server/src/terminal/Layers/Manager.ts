@@ -254,6 +254,116 @@ function capHistory(history: string, maxLines: number): string {
   return hasTrailingNewline ? `${capped}\n` : capped;
 }
 
+function isPrintableTerminalCharacter(codePoint: number): boolean {
+  return codePoint >= 0x20 && codePoint !== 0x7f;
+}
+
+function isCsiFinalByte(codePoint: number): boolean {
+  return codePoint >= 0x40 && codePoint <= 0x7e;
+}
+
+function findStringTerminatorIndex(input: string, start: number): number | null {
+  for (let index = start; index < input.length; index += 1) {
+    const codePoint = input.charCodeAt(index);
+    if (codePoint === 0x07 || codePoint === 0x9c) {
+      return index + 1;
+    }
+    if (codePoint === 0x1b && input.charCodeAt(index + 1) === 0x5c) {
+      return index + 2;
+    }
+  }
+  return null;
+}
+
+function sanitizeTerminalHistoryChunk(
+  pendingControlSequence: string,
+  data: string,
+): { visibleText: string; pendingControlSequence: string } {
+  const input = `${pendingControlSequence}${data}`;
+  let visibleText = "";
+  let index = 0;
+
+  while (index < input.length) {
+    const codePoint = input.charCodeAt(index);
+
+    if (codePoint === 0x1b) {
+      const nextCodePoint = input.charCodeAt(index + 1);
+      if (Number.isNaN(nextCodePoint)) {
+        return { visibleText, pendingControlSequence: input.slice(index) };
+      }
+
+      if (nextCodePoint === 0x5b) {
+        let cursor = index + 2;
+        while (cursor < input.length) {
+          if (isCsiFinalByte(input.charCodeAt(cursor))) {
+            index = cursor + 1;
+            break;
+          }
+          cursor += 1;
+        }
+        if (cursor >= input.length) {
+          return { visibleText, pendingControlSequence: input.slice(index) };
+        }
+        continue;
+      }
+
+      if (
+        nextCodePoint === 0x5d ||
+        nextCodePoint === 0x50 ||
+        nextCodePoint === 0x5e ||
+        nextCodePoint === 0x5f
+      ) {
+        const terminatorIndex = findStringTerminatorIndex(input, index + 2);
+        if (terminatorIndex === null) {
+          return { visibleText, pendingControlSequence: input.slice(index) };
+        }
+        index = terminatorIndex;
+        continue;
+      }
+
+      index += 2;
+      continue;
+    }
+
+    if (codePoint === 0x9b) {
+      let cursor = index + 1;
+      while (cursor < input.length) {
+        if (isCsiFinalByte(input.charCodeAt(cursor))) {
+          index = cursor + 1;
+          break;
+        }
+        cursor += 1;
+      }
+      if (cursor >= input.length) {
+        return { visibleText, pendingControlSequence: input.slice(index) };
+      }
+      continue;
+    }
+
+    if (codePoint === 0x9d || codePoint === 0x90 || codePoint === 0x9e || codePoint === 0x9f) {
+      const terminatorIndex = findStringTerminatorIndex(input, index + 1);
+      if (terminatorIndex === null) {
+        return { visibleText, pendingControlSequence: input.slice(index) };
+      }
+      index = terminatorIndex;
+      continue;
+    }
+
+    if (
+      codePoint === 0x0a ||
+      codePoint === 0x0d ||
+      codePoint === 0x09 ||
+      isPrintableTerminalCharacter(codePoint)
+    ) {
+      visibleText += input[index];
+    }
+
+    index += 1;
+  }
+
+  return { visibleText, pendingControlSequence: "" };
+}
+
 function legacySafeThreadId(threadId: string): string {
   return threadId.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
@@ -378,6 +488,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
           status: "starting",
           pid: null,
           history,
+          pendingHistoryControlSequence: "",
           exitCode: null,
           exitSignal: null,
           updatedAt: new Date().toISOString(),
@@ -407,10 +518,12 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
         existing.cwd = input.cwd;
         existing.runtimeEnv = nextRuntimeEnv;
         existing.history = "";
+        existing.pendingHistoryControlSequence = "";
         await this.persistHistory(existing.threadId, existing.terminalId, existing.history);
       } else if (existing.status === "exited" || existing.status === "error") {
         existing.runtimeEnv = nextRuntimeEnv;
         existing.history = "";
+        existing.pendingHistoryControlSequence = "";
         await this.persistHistory(existing.threadId, existing.terminalId, existing.history);
       } else if (currentRuntimeEnv !== nextRuntimeEnv) {
         existing.runtimeEnv = nextRuntimeEnv;
@@ -469,6 +582,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
     await this.runWithThreadLock(input.threadId, async () => {
       const session = this.requireSession(input.threadId, input.terminalId);
       session.history = "";
+      session.pendingHistoryControlSequence = "";
       session.updatedAt = new Date().toISOString();
       await this.persistHistory(input.threadId, input.terminalId, session.history);
       this.emitEvent({
@@ -497,6 +611,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
           status: "starting",
           pid: null,
           history: "",
+          pendingHistoryControlSequence: "",
           exitCode: null,
           exitSignal: null,
           updatedAt: new Date().toISOString(),
@@ -520,6 +635,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
       const rows = input.rows ?? session.rows;
 
       session.history = "";
+      session.pendingHistoryControlSequence = "";
       await this.persistHistory(input.threadId, input.terminalId, session.history);
       await this.startSession(session, { ...input, cols, rows }, "restarted");
       return this.snapshot(session);
@@ -694,9 +810,16 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
   }
 
   private onProcessData(session: TerminalSessionState, data: string): void {
-    session.history = capHistory(`${session.history}${data}`, this.historyLineLimit);
+    const sanitized = sanitizeTerminalHistoryChunk(session.pendingHistoryControlSequence, data);
+    session.pendingHistoryControlSequence = sanitized.pendingControlSequence;
+    if (sanitized.visibleText.length > 0) {
+      session.history = capHistory(
+        `${session.history}${sanitized.visibleText}`,
+        this.historyLineLimit,
+      );
+      this.queuePersist(session.threadId, session.terminalId, session.history);
+    }
     session.updatedAt = new Date().toISOString();
-    this.queuePersist(session.threadId, session.terminalId, session.history);
     this.emitEvent({
       type: "output",
       threadId: session.threadId,
@@ -713,6 +836,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
     session.pid = null;
     session.hasRunningSubprocess = false;
     session.status = "exited";
+    session.pendingHistoryControlSequence = "";
     session.exitCode = Number.isInteger(event.exitCode) ? event.exitCode : null;
     session.exitSignal = Number.isInteger(event.signal) ? event.signal : null;
     session.updatedAt = new Date().toISOString();
@@ -736,6 +860,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
     session.pid = null;
     session.hasRunningSubprocess = false;
     session.status = "exited";
+    session.pendingHistoryControlSequence = "";
     session.updatedAt = new Date().toISOString();
     this.killProcessWithEscalation(process, session.threadId, session.terminalId);
     this.evictInactiveSessionsIfNeeded();
