@@ -35,6 +35,7 @@ import {
   FileSystem,
   Layer,
   Path,
+  PlatformError,
   Ref,
   Result,
   Schema,
@@ -788,6 +789,17 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         if (Result.isSuccess(existingEntry)) {
           return yield* new RouteRequestError({
             message: `Workspace directory already exists: ${target.relativePath}`,
+          });
+        }
+        if (
+          !(
+            existingEntry.failure instanceof PlatformError.PlatformError &&
+            existingEntry.failure.reason instanceof PlatformError.SystemError &&
+            existingEntry.failure.reason._tag === "NotFound"
+          )
+        ) {
+          return yield* new RouteRequestError({
+            message: `Failed to inspect workspace directory: ${String(existingEntry.failure)}`,
           });
         }
 
