@@ -1,11 +1,5 @@
-import { Effect, Option, Schema, SchemaIssue, Struct } from "effect";
-import {
-  ClaudeModelOptions,
-  CodexModelOptions,
-  CursorModelOptions,
-  OpenCodeModelOptions,
-} from "./model.ts";
-import { RepositoryIdentity } from "./environment.ts";
+import { Option, Schema, SchemaIssue, Struct } from "effect";
+import { ClaudeModelOptions, CodexModelOptions, CursorModelOptions } from "./model";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -30,7 +24,11 @@ export const ORCHESTRATION_WS_METHODS = {
   subscribeThread: "orchestration.subscribeThread",
 } as const;
 
-export const ProviderKind = Schema.Literals(["codex", "claudeAgent", "cursor", "opencode"]);
+export const ORCHESTRATION_WS_CHANNELS = {
+  domainEvent: "orchestration.domainEvent",
+} as const;
+
+export const ProviderKind = Schema.Literals(["codex", "claudeAgent", "cursor"]);
 export type ProviderKind = typeof ProviderKind.Type;
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
@@ -68,18 +66,11 @@ export const CursorModelSelection = Schema.Struct({
   options: Schema.optionalKey(CursorModelOptions),
 });
 export type CursorModelSelection = typeof CursorModelSelection.Type;
-export const OpenCodeModelSelection = Schema.Struct({
-  provider: Schema.Literal("opencode"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(OpenCodeModelOptions),
-});
-export type OpenCodeModelSelection = typeof OpenCodeModelSelection.Type;
 
 export const ModelSelection = Schema.Union([
   CodexModelSelection,
   ClaudeModelSelection,
   CursorModelSelection,
-  OpenCodeModelSelection,
 ]);
 export type ModelSelection = typeof ModelSelection.Type;
 

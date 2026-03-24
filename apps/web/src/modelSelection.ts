@@ -54,14 +54,7 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
     title: "Cursor",
     description: "Save additional Cursor model slugs for the picker and `/model` command.",
     placeholder: "your-cursor-model-slug",
-    example: "claude-sonnet-4-6",
-  },
-  opencode: {
-    provider: "opencode",
-    title: "OpenCode",
-    description: "Save additional OpenCode model slugs in `provider/model` format.",
-    placeholder: "openai/gpt-5",
-    example: "anthropic/claude-sonnet-4-5-20250929",
+    example: "claude-4.6-sonnet-medium-thinking",
   },
 };
 
@@ -188,12 +181,6 @@ export function getCustomModelOptionsByProvider(
       providers,
       "cursor",
       selectedProvider === "cursor" ? selectedModel : undefined,
-    ),
-    opencode: getAppModelOptions(
-      settings,
-      providers,
-      "opencode",
-      selectedProvider === "opencode" ? selectedModel : undefined,
     ),
   };
 }

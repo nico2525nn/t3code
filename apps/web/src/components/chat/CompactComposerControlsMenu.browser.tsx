@@ -1,10 +1,4 @@
-import {
-  DEFAULT_MODEL_BY_PROVIDER,
-  EnvironmentId,
-  ModelSelection,
-  ThreadId,
-} from "@t3tools/contracts";
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
+import { DEFAULT_MODEL_BY_PROVIDER, type ModelSelection, ThreadId } from "@t3tools/contracts";
 import "../../index.css";
 
 import { page } from "vitest/browser";
@@ -12,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import { CursorTraitsMenuContent } from "./CursorTraitsPicker";
 import { TraitsMenuContent } from "./TraitsPicker";
 import { useComposerDraftStore } from "../../composerDraftStore";
 
@@ -102,23 +97,24 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
             },
           },
         ]
-      : [
-          {
-            slug: "gpt-5.4",
-            name: "GPT-5.4",
-            isCustom: false,
-            capabilities: {
-              reasoningEffortLevels: [
-                { value: "xhigh", label: "Extra High" },
-                { value: "high", label: "High", isDefault: true },
-              ],
-              supportsFastMode: true,
-              supportsThinkingToggle: false,
-              contextWindowOptions: [],
-              promptInjectedEffortLevels: [],
+      : provider === "codex"
+        ? [
+            {
+              slug: "gpt-5.4",
+              name: "GPT-5.4",
+              isCustom: false,
+              capabilities: {
+                reasoningEffortLevels: [
+                  { value: "xhigh", label: "Extra High" },
+                  { value: "high", label: "High", isDefault: true },
+                ],
+                supportsFastMode: true,
+                supportsThinkingToggle: false,
+                promptInjectedEffortLevels: [],
+              },
             },
-          },
-        ];
+          ]
+        : [];
   const screen = await render(
     <CompactComposerControlsMenu
       activePlan={false}
@@ -128,15 +124,19 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
       runtimeMode="approval-required"
       showInteractionModeToggle
       traitsMenuContent={
-        <TraitsMenuContent
-          provider={provider}
-          models={models}
-          threadRef={threadRef}
-          model={model}
-          prompt={props?.prompt ?? ""}
-          modelOptions={providerOptions}
-          onPromptChange={onPromptChange}
-        />
+        provider === "cursor" ? (
+          <CursorTraitsMenuContent threadId={threadId} model={model} cursorModelOptions={null} />
+        ) : (
+          <TraitsMenuContent
+            provider={provider}
+            models={models}
+            threadId={threadId}
+            model={model}
+            prompt={props?.prompt ?? ""}
+            modelOptions={providerOptions}
+            onPromptChange={onPromptChange}
+          />
+        )
       }
       onToggleInteractionMode={vi.fn()}
       onTogglePlanSidebar={vi.fn()}
@@ -230,7 +230,25 @@ describe("CompactComposerControlsMenu", () => {
     });
   });
 
-  it("shows prompt-controlled Ultrathink state with selectable effort controls", async () => {
+  it("shows Cursor reasoning controls for GPT-5.3 Codex family", async () => {
+    const mounted = await mountMenu({
+      modelSelection: { provider: "cursor", model: "gpt-5.3-codex-high" },
+    });
+
+    try {
+      await page.getByLabelText("More composer controls").click();
+
+      await vi.waitFor(() => {
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("Reasoning");
+        expect(text).toContain("Fast mode");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows prompt-controlled Ultrathink messaging with disabled effort controls", async () => {
     await using _ = await mountMenu({
       modelSelection: {
         provider: "claudeAgent",

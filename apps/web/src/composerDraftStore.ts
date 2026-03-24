@@ -1,11 +1,12 @@
 import {
+  CODEX_REASONING_EFFORT_OPTIONS,
   CURSOR_REASONING_OPTIONS,
-  DEFAULT_MODEL_BY_PROVIDER,
+  type ClaudeCodeEffort,
+  type CodexReasoningEffort,
   type CursorModelOptions,
   type CursorReasoningOption,
-  ClaudeAgentEffort,
-  CodexReasoningEffort,
-  type EnvironmentId,
+  DEFAULT_REASONING_EFFORT_BY_PROVIDER,
+  type ModelSlug,
   ModelSelection,
   ProjectId,
   ProviderInteractionMode,
@@ -531,9 +532,7 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
 }
 
 function normalizeProviderKind(value: unknown): ProviderKind | null {
-  return value === "codex" || value === "claudeAgent" || value === "cursor" || value === "opencode"
-    ? value
-    : null;
+  return value === "codex" || value === "claudeAgent" || value === "cursor" ? value : null;
 }
 
 function normalizeProviderModelOptions(
@@ -553,10 +552,6 @@ function normalizeProviderModelOptions(
   const cursorCandidate =
     candidate?.cursor && typeof candidate.cursor === "object"
       ? (candidate.cursor as Record<string, unknown>)
-      : null;
-  const openCodeCandidate =
-    candidate?.opencode && typeof candidate.opencode === "object"
-      ? (candidate.opencode as Record<string, unknown>)
       : null;
 
   const isCodexReasoningEffort = Schema.is(CodexReasoningEffort);
@@ -624,60 +619,35 @@ function normalizeProviderModelOptions(
     (CURSOR_REASONING_OPTIONS as readonly string[]).includes(cursorReasoningRaw)
       ? (cursorReasoningRaw as CursorReasoningOption)
       : undefined;
-  const cursorFastMode =
-    cursorCandidate?.fastMode === true
-      ? true
-      : cursorCandidate?.fastMode === false
-        ? false
-        : undefined;
-  const cursorThinking =
-    cursorCandidate?.thinking === true
-      ? true
-      : cursorCandidate?.thinking === false
-        ? false
-        : undefined;
-  const cursorContextWindow =
-    typeof cursorCandidate?.contextWindow === "string" && cursorCandidate.contextWindow.length > 0
-      ? cursorCandidate.contextWindow
+  const cursorFastMode = cursorCandidate?.fastMode === true;
+  const cursorThinkingFalse = cursorCandidate?.thinking === false;
+  const cursorClaudeOpusTierRaw = cursorCandidate?.claudeOpusTier;
+  const cursorClaudeOpusTier =
+    cursorClaudeOpusTierRaw === "max" || cursorClaudeOpusTierRaw === "high"
+      ? cursorClaudeOpusTierRaw
       : undefined;
+  const defaultCursorReasoning =
+    DEFAULT_REASONING_EFFORT_BY_PROVIDER.cursor as CursorReasoningOption;
 
   const cursor: CursorModelOptions | undefined =
     cursorCandidate !== null
-      ? (() => {
-          const nextCursor = {
-            ...(cursorReasoning ? { reasoning: cursorReasoning } : {}),
-            ...(cursorFastMode !== undefined ? { fastMode: cursorFastMode } : {}),
-            ...(cursorThinking !== undefined ? { thinking: cursorThinking } : {}),
-            ...(cursorContextWindow !== undefined ? { contextWindow: cursorContextWindow } : {}),
-          } satisfies CursorModelOptions;
-          return Object.keys(nextCursor).length > 0 ? nextCursor : undefined;
-        })()
-      : undefined;
-
-  const openCodeVariant =
-    typeof openCodeCandidate?.variant === "string" && openCodeCandidate.variant.length > 0
-      ? openCodeCandidate.variant
-      : undefined;
-  const openCodeAgent =
-    typeof openCodeCandidate?.agent === "string" && openCodeCandidate.agent.length > 0
-      ? openCodeCandidate.agent
-      : undefined;
-  const opencode =
-    openCodeVariant !== undefined || openCodeAgent !== undefined
       ? {
-          ...(openCodeVariant !== undefined ? { variant: openCodeVariant } : {}),
-          ...(openCodeAgent !== undefined ? { agent: openCodeAgent } : {}),
+          ...(cursorReasoning && cursorReasoning !== defaultCursorReasoning
+            ? { reasoning: cursorReasoning }
+            : {}),
+          ...(cursorFastMode ? { fastMode: true } : {}),
+          ...(cursorThinkingFalse ? { thinking: false } : {}),
+          ...(cursorClaudeOpusTier === "max" ? { claudeOpusTier: "max" } : {}),
         }
       : undefined;
 
-  if (!codex && !claude && cursor === undefined && !opencode) {
+  if (!codex && !claude && cursor === undefined) {
     return null;
   }
   return {
     ...(codex ? { codex } : {}),
     ...(claude ? { claudeAgent: claude } : {}),
     ...(cursor !== undefined ? { cursor } : {}),
-    ...(opencode ? { opencode } : {}),
   };
 }
 

@@ -1001,7 +1001,7 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (Schema.is(ProviderKind)(providerName)) {
+  if (providerName === "codex" || providerName === "claudeAgent" || providerName === "cursor") {
     return providerName;
   }
   return "codex";
