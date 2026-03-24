@@ -135,13 +135,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
   const getById: ProjectionThreadRepositoryShape["getById"] = (input) =>
     getProjectionThreadRow(input).pipe(
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.getById:query")),
-      Effect.map(Option.map((row) => row)),
     );
 
   const listByProjectId: ProjectionThreadRepositoryShape["listByProjectId"] = (input) =>
     listProjectionThreadRows(input).pipe(
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.listByProjectId:query")),
-      Effect.map((rows) => rows),
     );
 
   const deleteById: ProjectionThreadRepositoryShape["deleteById"] = (input) =>
