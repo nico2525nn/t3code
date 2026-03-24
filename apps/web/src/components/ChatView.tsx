@@ -3135,10 +3135,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
       const resolvedModel = resolveAppModelSelection(provider, customModelsByProvider, model);
+      const existingOptions = composerDraft.modelSelection?.options;
+      const preserveOptions =
+        existingOptions !== undefined && composerDraft.modelSelection?.provider === provider;
       const nextModelSelection: ModelSelection = {
         provider,
         model: resolvedModel,
-      };
+        ...(preserveOptions ? { options: existingOptions } : {}),
+      } as ModelSelection;
       setComposerDraftModelSelection(activeThread.id, nextModelSelection);
       setStickyComposerModelSelection(nextModelSelection);
       scheduleComposerFocus();
@@ -3150,6 +3154,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerDraftModelSelection,
       setStickyComposerModelSelection,
       customModelsByProvider,
+      composerDraft.modelSelection,
     ],
   );
   const setPromptFromTraits = useCallback(
