@@ -78,7 +78,7 @@ const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0
 const sameModelSelectionOptions = (
   left: ModelSelection | undefined,
   right: ModelSelection | undefined,
-): boolean => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+): boolean => JSON.stringify(left?.options ?? null) === JSON.stringify(right?.options ?? null);
 
 function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = Cause.squash(cause);
