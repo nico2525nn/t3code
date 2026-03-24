@@ -11,10 +11,11 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
+import { ModelSelection } from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
-    modelSelection: Schema.fromJsonString(ProjectionThread.fields.modelSelection),
+    modelSelection: Schema.fromJsonString(ModelSelection),
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
