@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { ProviderRuntimeEvent, ProviderSession } from "@t3tools/contracts";
+import type { ModelSelection, ProviderRuntimeEvent, ProviderSession } from "@t3tools/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -63,9 +63,6 @@ async function waitFor(
   return poll();
 }
 
-const inferTestProviderForModel = (model: string): "codex" | "claudeAgent" =>
-  model.startsWith("claude-") ? "claudeAgent" : "codex";
-
 describe("ProviderCommandReactor", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
     OrchestrationEngineService | ProviderCommandReactor,
@@ -96,37 +93,25 @@ describe("ProviderCommandReactor", () => {
 
   async function createHarness(input?: {
     readonly baseDir?: string;
-    readonly threadModel?: string;
+    readonly threadModelSelection?: ModelSelection;
   }) {
     const now = new Date().toISOString();
     const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "t3code-reactor-"));
     createdBaseDirs.add(baseDir);
     const { stateDir } = deriveServerPathsSync(baseDir, undefined);
     createdStateDirs.add(stateDir);
-    const threadModel = input?.threadModel ?? "gpt-5-codex";
-    const threadProvider = inferTestProviderForModel(threadModel);
     const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
     let nextSessionIndex = 1;
     const runtimeSessions: Array<ProviderSession> = [];
+    const modelSelection = input?.threadModelSelection ?? {
+      provider: "codex",
+      model: "gpt-5-codex",
+    };
     const startSession = vi.fn((_: unknown, input: unknown) => {
       const sessionIndex = nextSessionIndex++;
-      const provider =
-        typeof input === "object" &&
-        input !== null &&
-        "provider" in input &&
-        (input.provider === "codex" || input.provider === "claudeAgent")
-          ? input.provider
-          : "codex";
       const resumeCursor =
         typeof input === "object" && input !== null && "resumeCursor" in input
           ? input.resumeCursor
-          : undefined;
-      const model =
-        typeof input === "object" &&
-        input !== null &&
-        "model" in input &&
-        typeof input.model === "string"
-          ? input.model
           : undefined;
       const threadId =
         typeof input === "object" &&
@@ -136,7 +121,7 @@ describe("ProviderCommandReactor", () => {
           ? ThreadId.makeUnsafe(input.threadId)
           : ThreadId.makeUnsafe(`thread-${sessionIndex}`);
       const session: ProviderSession = {
-        provider,
+        provider: modelSelection.provider,
         status: "ready" as const,
         runtimeMode:
           typeof input === "object" &&
@@ -145,7 +130,7 @@ describe("ProviderCommandReactor", () => {
           (input.runtimeMode === "approval-required" || input.runtimeMode === "full-access")
             ? input.runtimeMode
             : "full-access",
-        ...(model !== undefined ? { model } : {}),
+        ...(modelSelection.model !== undefined ? { model: modelSelection.model } : {}),
         threadId,
         resumeCursor: resumeCursor ?? { opaque: `resume-${sessionIndex}` },
         createdAt: now,
@@ -246,10 +231,7 @@ describe("ProviderCommandReactor", () => {
         projectId: asProjectId("project-1"),
         title: "Provider Project",
         workspaceRoot: "/tmp/provider-project",
-        defaultModelSelection: {
-          provider: threadProvider,
-          model: threadModel,
-        },
+        defaultModelSelection: modelSelection,
         createdAt: now,
       }),
     );
@@ -260,10 +242,7 @@ describe("ProviderCommandReactor", () => {
         threadId: ThreadId.makeUnsafe("thread-1"),
         projectId: asProjectId("project-1"),
         title: "Thread",
-        modelSelection: {
-          provider: threadProvider,
-          model: threadModel,
-        },
+        modelSelection: modelSelection,
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         branch: null,
@@ -381,7 +360,9 @@ describe("ProviderCommandReactor", () => {
   });
 
   it("forwards claude effort options through session start and turn send", async () => {
-    const harness = await createHarness({ threadModel: "claude-sonnet-4-6" });
+    const harness = await createHarness({
+      threadModelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
+    });
     const now = new Date().toISOString();
 
     await Effect.runPromise(
@@ -432,7 +413,9 @@ describe("ProviderCommandReactor", () => {
   });
 
   it("forwards claude fast mode options through session start and turn send", async () => {
-    const harness = await createHarness({ threadModel: "claude-opus-4-6" });
+    const harness = await createHarness({
+      threadModelSelection: { provider: "claudeAgent", model: "claude-opus-4-6" },
+    });
     const now = new Date().toISOString();
 
     await Effect.runPromise(
@@ -662,7 +645,9 @@ describe("ProviderCommandReactor", () => {
   });
 
   it("restarts claude sessions when claude effort changes", async () => {
-    const harness = await createHarness({ threadModel: "claude-sonnet-4-6" });
+    const harness = await createHarness({
+      threadModelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
+    });
     const now = new Date().toISOString();
 
     await Effect.runPromise(
@@ -819,7 +804,7 @@ describe("ProviderCommandReactor", () => {
 
   it("does not inject derived model options when restarting claude on runtime mode changes", async () => {
     const harness = await createHarness({
-      threadModel: "claude-opus-4-6",
+      threadModelSelection: { provider: "claudeAgent", model: "claude-opus-4-6" },
     });
     const now = new Date().toISOString();
 
