@@ -43,7 +43,7 @@ import {
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
 
-const decodeReadModelSync = Schema.decodeUnknownSync(OrchestrationReadModel);
+const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const ProjectionProjectDbRowSchema = Schema.Struct({
   projectId: ProjectionProject.fields.projectId,
   title: ProjectionProject.fields.title,
@@ -103,7 +103,7 @@ const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   sourceProposedPlanId: Schema.NullOr(OrchestrationProposedPlanId),
 });
 const ProjectionStateDbRowSchema = ProjectionState;
-const decodeModelSelectionSync = Schema.decodeUnknownSync(ModelSelection);
+const decodeModelSelectionSchema = Schema.decodeUnknownEffect(ModelSelection);
 
 const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.projects,
@@ -158,20 +158,13 @@ const decodeModelSelection = (input: {
   readonly model: string;
   readonly options: unknown;
 }) =>
-  Effect.try({
-    try: () =>
-      decodeModelSelectionSync({
-        provider: input.provider,
-        model: input.model,
-        ...(input.options !== null && input.options !== undefined
-          ? { options: input.options }
-          : {}),
-      }),
-    catch: (error) =>
-      Schema.isSchemaError(error)
-        ? toPersistenceDecodeError("ProjectionSnapshotQuery.decodeModelSelection")(error)
-        : toPersistenceSqlError("ProjectionSnapshotQuery.decodeModelSelection")(error),
-  });
+  decodeModelSelectionSchema({
+    provider: input.provider,
+    model: input.model,
+    ...(input.options !== null && input.options !== undefined ? { options: input.options } : {}),
+  }).pipe(
+    Effect.mapError(toPersistenceDecodeError("ProjectionSnapshotQuery.decodeModelSelection")),
+  );
 
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -646,13 +639,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 
-          return yield* Effect.try({
-            try: () => decodeReadModelSync(snapshot),
-            catch: (error) =>
-              toPersistenceDecodeError("ProjectionSnapshotQuery.getSnapshot:decodeReadModel")(
-                error as Schema.SchemaError,
-              ),
-          });
+          return yield* decodeReadModel(snapshot).pipe(
+            Effect.mapError(
+              toPersistenceDecodeError("ProjectionSnapshotQuery.getSnapshot:decodeReadModel"),
+            ),
+          );
         }),
       )
       .pipe(

@@ -16,6 +16,7 @@ import {
 } from "@t3tools/contracts";
 import { Cache, Cause, Duration, Effect, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { toProviderModelOptions } from "@t3tools/shared/model";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
@@ -80,17 +81,6 @@ const sameModelOptions = (
   left: ProviderModelOptions | undefined,
   right: ProviderModelOptions | undefined,
 ): boolean => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
-
-function toProviderModelOptions(
-  modelSelection: ModelSelection | undefined,
-): ProviderModelOptions | undefined {
-  if (!modelSelection?.options) {
-    return undefined;
-  }
-  return modelSelection.provider === "codex"
-    ? { codex: modelSelection.options }
-    : { claudeAgent: modelSelection.options };
-}
 
 function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = Cause.squash(cause);
@@ -705,9 +695,7 @@ const make = Effect.gen(function* () {
             return;
           }
           const cachedProviderOptions = threadProviderOptions.get(event.payload.threadId);
-          const cachedModelOptions =
-            threadModelOptions.get(event.payload.threadId) ??
-            toProviderModelOptions(thread.modelSelection);
+          const cachedModelOptions = threadModelOptions.get(event.payload.threadId);
           yield* ensureSessionForThread(event.payload.threadId, event.occurredAt, {
             ...(cachedProviderOptions !== undefined
               ? { providerOptions: cachedProviderOptions }

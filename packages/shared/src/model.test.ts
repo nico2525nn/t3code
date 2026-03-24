@@ -27,6 +27,7 @@ import {
   supportsClaudeFastMode,
   supportsClaudeMaxEffort,
   supportsClaudeThinkingToggle,
+  toProviderModelOptions,
   supportsClaudeUltrathinkKeyword,
 } from "./model";
 
@@ -268,6 +269,45 @@ describe("normalizeClaudeModelOptions", () => {
       }),
     ).toEqual({
       thinking: false,
+    });
+  });
+});
+
+describe("toProviderModelOptions", () => {
+  it("returns undefined when no model options exist", () => {
+    expect(toProviderModelOptions({ provider: "codex", model: "gpt-5.4" })).toBeUndefined();
+    expect(toProviderModelOptions(null)).toBeUndefined();
+  });
+
+  it("scopes codex options under the codex provider key", () => {
+    expect(
+      toProviderModelOptions({
+        provider: "codex",
+        model: "gpt-5.4",
+        options: {
+          fastMode: true,
+        },
+      }),
+    ).toEqual({
+      codex: {
+        fastMode: true,
+      },
+    });
+  });
+
+  it("scopes claude options under the claudeAgent provider key", () => {
+    expect(
+      toProviderModelOptions({
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+        options: {
+          effort: "max",
+        },
+      }),
+    ).toEqual({
+      claudeAgent: {
+        effort: "max",
+      },
     });
   });
 });

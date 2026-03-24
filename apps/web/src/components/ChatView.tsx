@@ -28,6 +28,7 @@ import {
   getDefaultModel,
   normalizeModelSlug,
   resolveModelSlugForProvider,
+  toProviderModelOptions,
 } from "@t3tools/shared/model";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -209,17 +210,6 @@ function extractModelSelectionOptions(
   modelOptions: ProviderModelOptions | undefined,
 ): ModelSelection["options"] | undefined {
   return provider === "codex" ? modelOptions?.codex : modelOptions?.claudeAgent;
-}
-
-function toProviderModelOptions(
-  modelSelection: ModelSelection | null | undefined,
-): ProviderModelOptions | undefined {
-  if (!modelSelection?.options) {
-    return undefined;
-  }
-  return modelSelection.provider === "codex"
-    ? { codex: modelSelection.options }
-    : { claudeAgent: modelSelection.options };
 }
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
@@ -3035,12 +3025,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       text: implementationPrompt,
     });
     const nextThreadTitle = truncateTitle(buildPlanImplementationThreadTitle(planMarkdown));
-    const nextThreadModelSelection: ModelSelection = selectedModelSelection ??
-      activeThread.modelSelection ??
-      activeProject.defaultModelSelection ?? {
-        provider: "codex",
-        model: DEFAULT_MODEL_BY_PROVIDER.codex,
-      };
+    const nextThreadModelSelection: ModelSelection = selectedModelSelection;
 
     sendInFlightRef.current = true;
     beginSendPhase("sending-turn");

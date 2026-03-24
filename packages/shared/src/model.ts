@@ -10,7 +10,9 @@ import {
   type ClaudeCodeEffort,
   type CodexModelOptions,
   type CodexReasoningEffort,
+  type ModelSelection,
   type ModelSlug,
+  type ProviderModelOptions,
   type ProviderReasoningEffort,
   type ProviderKind,
 } from "@t3tools/contracts";
@@ -264,6 +266,17 @@ export function applyClaudePromptEffortPrefix(
     return trimmed;
   }
   return `Ultrathink:\n${trimmed}`;
+}
+
+export function toProviderModelOptions(
+  modelSelection: ModelSelection | null | undefined,
+): ProviderModelOptions | undefined {
+  if (!modelSelection?.options) {
+    return undefined;
+  }
+  return modelSelection.provider === "codex"
+    ? { codex: modelSelection.options }
+    : { claudeAgent: modelSelection.options };
 }
 
 export { CLAUDE_CODE_EFFORT_OPTIONS, CODEX_REASONING_EFFORT_OPTIONS };
