@@ -643,21 +643,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const selectedPromptEffort = composerProviderState.promptEffort;
   const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
-  const selectedModelSelection = useMemo<ModelSelection>(
-    () => ({
+  const selectedModelSelection = useMemo<ModelSelection>(() => {
+    const options = extractModelSelectionOptions(selectedProvider, selectedModelOptionsForDispatch);
+    return {
       provider: selectedProvider,
       model: selectedModel,
-      ...(extractModelSelectionOptions(selectedProvider, selectedModelOptionsForDispatch)
-        ? {
-            options: extractModelSelectionOptions(
-              selectedProvider,
-              selectedModelOptionsForDispatch,
-            ),
-          }
-        : {}),
-    }),
-    [selectedModel, selectedModelOptionsForDispatch, selectedProvider],
-  );
+      ...(options ? { options } : {}),
+    };
+  }, [selectedModel, selectedModelOptionsForDispatch, selectedProvider]);
   const providerOptionsForDispatch = useMemo(() => getProviderStartOptions(settings), [settings]);
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(

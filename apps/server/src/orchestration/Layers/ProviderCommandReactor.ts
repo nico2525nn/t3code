@@ -249,7 +249,10 @@ const make = Effect.gen(function* () {
     const desiredModelSelection = requestedModelSelection ?? thread.modelSelection;
     const desiredModel = desiredModelSelection.model;
     const desiredModelOptions =
-      options?.modelOptions ?? toProviderModelOptions(desiredModelSelection);
+      options?.modelOptions ??
+      (requestedModelSelection !== undefined
+        ? toProviderModelOptions(requestedModelSelection)
+        : undefined);
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
       projects: readModel.projects,
