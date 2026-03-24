@@ -219,7 +219,6 @@ interface ComposerDraftStoreState {
     attachments: PersistedComposerImageAttachment[],
   ) => void;
   clearComposerContent: (threadId: ThreadId) => void;
-  clearThreadDraft: (threadId: ThreadId) => void;
 }
 
 const EMPTY_PROVIDER_MODEL_OPTIONS = Object.freeze<ProviderModelOptions>({});
@@ -1746,41 +1745,6 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             nextDraftsByThreadId[threadId] = nextDraft;
           }
           return { draftsByThreadId: nextDraftsByThreadId };
-        });
-      },
-      clearThreadDraft: (threadId) => {
-        if (threadId.length === 0) {
-          return;
-        }
-        const existing = get().draftsByThreadId[threadId];
-        if (existing) {
-          for (const image of existing.images) {
-            revokeObjectPreviewUrl(image.previewUrl);
-          }
-        }
-        set((state) => {
-          const hasComposerDraft = state.draftsByThreadId[threadId] !== undefined;
-          const hasDraftThread = state.draftThreadsByThreadId[threadId] !== undefined;
-          const hasProjectMapping = Object.values(state.projectDraftThreadIdByProjectId).includes(
-            threadId,
-          );
-          if (!hasComposerDraft && !hasDraftThread && !hasProjectMapping) {
-            return state;
-          }
-          const { [threadId]: _removedComposerDraft, ...restComposerDraftsByThreadId } =
-            state.draftsByThreadId;
-          const { [threadId]: _removedDraftThread, ...restDraftThreadsByThreadId } =
-            state.draftThreadsByThreadId;
-          const nextProjectDraftThreadIdByProjectId = Object.fromEntries(
-            Object.entries(state.projectDraftThreadIdByProjectId).filter(
-              ([, draftThreadId]) => draftThreadId !== threadId,
-            ),
-          ) as Record<ProjectId, ThreadId>;
-          return {
-            draftsByThreadId: restComposerDraftsByThreadId,
-            draftThreadsByThreadId: restDraftThreadsByThreadId,
-            projectDraftThreadIdByProjectId: nextProjectDraftThreadIdByProjectId,
-          };
         });
       },
     }),
