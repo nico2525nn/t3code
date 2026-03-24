@@ -1327,9 +1327,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
                   ...(nextOptions ? { options: nextOptions } : {}),
                 };
           const nextStickyModelSelection =
-            options?.persistSticky === true &&
-            state.stickyModelSelection?.provider === normalizedProvider &&
-            nextModelSelection !== null
+            options?.persistSticky === true && nextModelSelection !== null
               ? nextModelSelection
               : state.stickyModelSelection;
 

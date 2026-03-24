@@ -738,6 +738,27 @@ describe("composerDraftStore modelSelection", () => {
     );
   });
 
+  it("creates the first sticky snapshot from provider option changes", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setModelSelection(threadId, modelSelection("codex", "gpt-5.4"));
+
+    store.setProviderModelOptions(
+      threadId,
+      "codex",
+      {
+        fastMode: true,
+      },
+      { persistSticky: true },
+    );
+
+    expect(useComposerDraftStore.getState().stickyModelSelection).toEqual(
+      modelSelection("codex", "gpt-5.4", {
+        fastMode: true,
+      }),
+    );
+  });
+
   it("updates only the draft when sticky persistence is disabled", () => {
     const store = useComposerDraftStore.getState();
 
