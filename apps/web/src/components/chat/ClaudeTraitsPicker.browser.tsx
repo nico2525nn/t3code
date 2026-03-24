@@ -25,10 +25,10 @@ async function mountPicker(props?: {
     nonPersistedImageIds: [],
     persistedAttachments: [],
     terminalContexts: [],
-    provider: "claudeAgent",
-    model: props?.model ?? "claude-opus-4-6",
-    modelOptions: {
-      claudeAgent: {
+    modelSelection: {
+      provider: "claudeAgent",
+      model: props?.model ?? "claude-opus-4-6",
+      options: {
         ...(props?.effort ? { effort: props.effort } : {}),
         ...(props?.thinkingEnabled === false ? { thinking: false } : {}),
         ...(props?.fastModeEnabled ? { fastMode: true } : {}),
@@ -185,8 +185,9 @@ describe("ClaudeTraitsPicker", () => {
       await page.getByRole("button").click();
       await page.getByRole("menuitemradio", { name: "Max" }).click();
 
-      expect(useComposerDraftStore.getState().stickyModelOptions).toMatchObject({
-        claudeAgent: {
+      expect(useComposerDraftStore.getState().stickyModelSelection).toMatchObject({
+        provider: "claudeAgent",
+        options: {
           effort: "max",
         },
       });

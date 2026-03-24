@@ -27,9 +27,16 @@ async function mountMenu(props?: {
     nonPersistedImageIds: [],
     persistedAttachments: [],
     terminalContexts: [],
-    provider,
-    model: props?.model ?? "claude-opus-4-6",
-    modelOptions: props?.modelOptions ?? null,
+    modelSelection: {
+      provider,
+      model: props?.model ?? "claude-opus-4-6",
+      ...(props?.modelOptions
+        ? {
+            options:
+              provider === "codex" ? props.modelOptions.codex : props.modelOptions.claudeAgent,
+          }
+        : {}),
+    },
     runtimeMode: null,
     interactionMode: null,
   };

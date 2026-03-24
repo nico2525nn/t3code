@@ -15,7 +15,6 @@ import {
   getDefaultReasoningEffort,
   getModelOptions,
   getReasoningEffortOptions,
-  inferProviderForModel,
   isClaudeUltrathinkPrompt,
   normalizeClaudeModelOptions,
   normalizeCodexModelOptions,
@@ -185,23 +184,6 @@ describe("getReasoningEffortOptions", () => {
 
   it("returns no claude effort options for Haiku 4.5", () => {
     expect(getReasoningEffortOptions("claudeAgent", "claude-haiku-4-5")).toEqual([]);
-  });
-});
-
-describe("inferProviderForModel", () => {
-  it("detects known provider model slugs", () => {
-    expect(inferProviderForModel("gpt-5.3-codex")).toBe("codex");
-    expect(inferProviderForModel("claude-sonnet-4-6")).toBe("claudeAgent");
-    expect(inferProviderForModel("sonnet")).toBe("claudeAgent");
-  });
-
-  it("falls back when the model is unknown", () => {
-    expect(inferProviderForModel("custom/internal-model")).toBe("codex");
-    expect(inferProviderForModel("custom/internal-model", "claudeAgent")).toBe("claudeAgent");
-  });
-
-  it("treats claude-prefixed custom slugs as claude", () => {
-    expect(inferProviderForModel("claude-custom-internal")).toBe("claudeAgent");
   });
 });
 

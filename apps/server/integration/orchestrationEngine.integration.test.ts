@@ -115,7 +115,10 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       projectId: PROJECT_ID,
       title: "Integration Project",
       workspaceRoot: harness.workspaceDir,
-      defaultModel,
+      defaultModelSelection: {
+        provider,
+        model: defaultModel,
+      },
       createdAt,
     });
 
@@ -125,7 +128,10 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       threadId: THREAD_ID,
       projectId: PROJECT_ID,
       title: "Integration Thread",
-      model: defaultModel,
+      modelSelection: {
+        provider,
+        model: defaultModel,
+      },
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       runtimeMode: "approval-required",
       branch: null,
@@ -151,7 +157,14 @@ const startTurn = (input: {
       text: input.text,
       attachments: [],
     },
-    ...(input.provider !== undefined ? { provider: input.provider } : {}),
+    ...(input.provider !== undefined
+      ? {
+          modelSelection: {
+            provider: input.provider,
+            model: DEFAULT_MODEL_BY_PROVIDER[input.provider],
+          },
+        }
+      : {}),
     interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
     runtimeMode: "approval-required",
     createdAt: nowIso(),
@@ -254,7 +267,10 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           projectId: PROJECT_ID,
           title: "Integration Project",
           workspaceRoot: harness.workspaceDir,
-          defaultModel: "gpt-5.3-codex",
+          defaultModelSelection: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+          },
           createdAt,
         });
 
@@ -264,7 +280,10 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           threadId: THREAD_ID,
           projectId: PROJECT_ID,
           title: "Integration Thread",
-          model: "gpt-5.3-codex",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+          },
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "full-access",
           branch: null,

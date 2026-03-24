@@ -48,7 +48,8 @@ function getSelectedCodexTraits(modelOptions: CodexModelOptions | null | undefin
 
 function CodexTraitsMenuContentImpl(props: { threadId: ThreadId }) {
   const draft = useComposerThreadDraft(props.threadId);
-  const modelOptions = draft.modelOptions?.[PROVIDER];
+  const modelOptions =
+    draft.modelSelection?.provider === PROVIDER ? draft.modelSelection.options : null;
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const options = getReasoningEffortOptions(PROVIDER);
   const defaultReasoningEffort = getDefaultReasoningEffort(PROVIDER);
@@ -112,7 +113,9 @@ export const CodexTraitsMenuContent = memo(CodexTraitsMenuContentImpl);
 
 export const CodexTraitsPicker = memo(function CodexTraitsPicker(props: { threadId: ThreadId }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const modelOptions = useComposerThreadDraft(props.threadId).modelOptions?.codex;
+  const draft = useComposerThreadDraft(props.threadId);
+  const modelOptions =
+    draft.modelSelection?.provider === PROVIDER ? draft.modelSelection.options : null;
   const { effort, fastModeEnabled } = getSelectedCodexTraits(modelOptions);
   const triggerLabel = [CODEX_REASONING_LABELS[effort], ...(fastModeEnabled ? ["Fast"] : [])]
     .filter(Boolean)

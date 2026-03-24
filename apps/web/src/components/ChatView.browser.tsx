@@ -220,7 +220,10 @@ function createSnapshotForTargetUser(options: {
         id: PROJECT_ID,
         title: "Project",
         workspaceRoot: "/repo/project",
-        defaultModel: "gpt-5",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5",
+        },
         scripts: [],
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -232,7 +235,10 @@ function createSnapshotForTargetUser(options: {
         id: THREAD_ID,
         projectId: PROJECT_ID,
         title: "Browser test thread",
-        model: "gpt-5",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5",
+        },
         interactionMode: "default",
         runtimeMode: "full-access",
         branch: "main",
@@ -286,7 +292,10 @@ function addThreadToSnapshot(
         id: threadId,
         projectId: PROJECT_ID,
         title: "New thread",
-        model: "gpt-5",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5",
+        },
         interactionMode: "default",
         runtimeMode: "full-access",
         branch: "main",
@@ -752,8 +761,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
-      stickyModel: null,
-      stickyModelOptions: {},
+      stickyModelSelection: null,
     });
     useStore.setState({
       projects: [],
@@ -1283,9 +1291,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("snapshots sticky codex settings into a new draft thread", async () => {
     useComposerDraftStore.setState({
-      stickyModel: "gpt-5.3-codex",
-      stickyModelOptions: {
-        codex: {
+      stickyModelSelection: {
+        provider: "codex",
+        model: "gpt-5.3-codex",
+        options: {
           reasoningEffort: "medium",
           fastMode: true,
         },
@@ -1314,10 +1323,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const newThreadId = newThreadPath.slice(1) as ThreadId;
 
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]).toMatchObject({
-        model: "gpt-5.3-codex",
-        provider: "codex",
-        modelOptions: {
-          codex: {
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.3-codex",
+          options: {
             fastMode: true,
           },
         },
@@ -1329,9 +1338,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("hydrates the provider alongside a sticky claude model", async () => {
     useComposerDraftStore.setState({
-      stickyModel: "claude-opus-4-6",
-      stickyModelOptions: {
-        claudeAgent: {
+      stickyModelSelection: {
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+        options: {
           effort: "max",
           fastMode: true,
         },
@@ -1360,10 +1370,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const newThreadId = newThreadPath.slice(1) as ThreadId;
 
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]).toMatchObject({
-        provider: "claudeAgent",
-        model: "claude-opus-4-6",
-        modelOptions: {
-          claudeAgent: {
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+          options: {
             effort: "max",
             fastMode: true,
           },
@@ -1405,9 +1415,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("prefers draft state over sticky composer settings and defaults", async () => {
     useComposerDraftStore.setState({
-      stickyModel: "gpt-5.3-codex",
-      stickyModelOptions: {
-        codex: {
+      stickyModelSelection: {
+        provider: "codex",
+        model: "gpt-5.3-codex",
+        options: {
           reasoningEffort: "medium",
           fastMode: true,
         },
@@ -1436,17 +1447,19 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const threadId = threadPath.slice(1) as ThreadId;
 
       expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toMatchObject({
-        model: "gpt-5.3-codex",
-        modelOptions: {
-          codex: {
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.3-codex",
+          options: {
             fastMode: true,
           },
         },
       });
 
-      useComposerDraftStore.getState().setModel(threadId, "gpt-5.4");
-      useComposerDraftStore.getState().setModelOptions(threadId, {
-        codex: {
+      useComposerDraftStore.getState().setModelSelection(threadId, {
+        provider: "codex",
+        model: "gpt-5.4",
+        options: {
           reasoningEffort: "low",
           fastMode: true,
         },
@@ -1460,9 +1473,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "New-thread should reuse the existing project draft thread.",
       );
       expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toMatchObject({
-        model: "gpt-5.4",
-        modelOptions: {
-          codex: {
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.4",
+          options: {
             reasoningEffort: "low",
             fastMode: true,
           },

@@ -22,10 +22,10 @@ async function mountPicker(props: {
     nonPersistedImageIds: [],
     persistedAttachments: [],
     terminalContexts: [],
-    provider: "codex",
-    model: null,
-    modelOptions: {
-      codex: {
+    modelSelection: {
+      provider: "codex",
+      model: "gpt-5.4",
+      options: {
         ...(props.reasoningEffort ? { reasoningEffort: props.reasoningEffort } : {}),
         ...(props.fastModeEnabled ? { fastMode: true } : {}),
       },
@@ -125,8 +125,9 @@ describe("CodexTraitsPicker", () => {
       await page.getByRole("button").click();
       await page.getByRole("menuitemradio", { name: "on" }).click();
 
-      expect(useComposerDraftStore.getState().stickyModelOptions).toMatchObject({
-        codex: {
+      expect(useComposerDraftStore.getState().stickyModelSelection).toMatchObject({
+        provider: "codex",
+        options: {
           fastMode: true,
         },
       });
@@ -145,6 +146,7 @@ describe("CodexTraitsPicker", () => {
             [threadId]: {
               prompt: "",
               attachments: [],
+              modelSelection: null,
               provider: "codex",
               model: "gpt-5.3-codex",
               effort: "xhigh",
@@ -173,12 +175,16 @@ describe("CodexTraitsPicker", () => {
 
       await vi.waitFor(() => {
         expect(document.body.textContent ?? "").toContain("Extra High · Fast");
-        expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelOptions).toEqual({
-          codex: {
-            reasoningEffort: "xhigh",
-            fastMode: true,
+        expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelection).toEqual(
+          {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+            options: {
+              reasoningEffort: "xhigh",
+              fastMode: true,
+            },
           },
-        });
+        );
       });
     } finally {
       await screen.unmount();
