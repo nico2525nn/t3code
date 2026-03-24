@@ -13,7 +13,7 @@ import {
   type RuntimeMode,
   type TurnId,
 } from "@t3tools/contracts";
-import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
+import { Cache, Cause, Duration, Effect, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
@@ -301,7 +301,7 @@ const make = Effect.gen(function* () {
       const shouldRestartForModelSelectionChange =
         currentProvider === "claudeAgent" &&
         requestedModelSelection !== undefined &&
-        !Equal.equals(previousModelSelection, requestedModelSelection);
+        JSON.stringify(previousModelSelection) !== JSON.stringify(requestedModelSelection);
 
       if (
         !runtimeModeChanged &&
