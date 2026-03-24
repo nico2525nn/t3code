@@ -1,6 +1,7 @@
 import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
+  type CanonicalJsonValue,
   CommandId,
   MessageId,
   type OrchestrationEvent,
@@ -100,6 +101,16 @@ function proposedPlanIdFromEvent(event: ProviderRuntimeEvent, threadId: ThreadId
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function toCanonicalJsonValue(value: unknown): CanonicalJsonValue | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = JSON.parse(
+    JSON.stringify(value, (_key, nestedValue) => (nestedValue === undefined ? null : nestedValue)),
+  ) as CanonicalJsonValue | null;
+  return normalized ?? undefined;
 }
 
 function buildContextWindowActivityPayload(
@@ -283,7 +294,9 @@ function runtimeEventToActivities(
           summary: "Runtime warning",
           payload: {
             message: truncateDetail(event.payload.message),
-            ...(event.payload.detail !== undefined ? { detail: event.payload.detail } : {}),
+            ...(event.payload.detail !== undefined
+              ? { detail: toCanonicalJsonValue(event.payload.detail) }
+              : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -433,7 +446,9 @@ function runtimeEventToActivities(
           summary: "Context compacted",
           payload: {
             state: event.payload.state,
-            ...(event.payload.detail !== undefined ? { detail: event.payload.detail } : {}),
+            ...(event.payload.detail !== undefined
+              ? { detail: toCanonicalJsonValue(event.payload.detail) }
+              : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
