@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import Migration0016 from "./016_CanonicalizeModelSelections.ts";
+import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
@@ -14,98 +14,163 @@ layer("016_CanonicalizeModelSelections", (it) => {
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
 
-        yield* sql`
-        CREATE TABLE projection_projects (
-          project_id TEXT PRIMARY KEY,
-          default_model TEXT
-        )
-      `;
-        yield* sql`
-        CREATE TABLE projection_threads (
-          thread_id TEXT PRIMARY KEY,
-          model TEXT NOT NULL
-        )
-      `;
-        yield* sql`
-        CREATE TABLE projection_thread_sessions (
-          thread_id TEXT PRIMARY KEY,
-          provider_name TEXT
-        )
-      `;
-        yield* sql`
-        CREATE TABLE orchestration_events (
-          event_type TEXT NOT NULL,
-          payload_json TEXT NOT NULL
-        )
-      `;
+        // Setup base state
+        {
+          yield* runMigrations({ toMigrationInclusive: 15 });
 
-        yield* sql`
-        INSERT INTO projection_projects (project_id, default_model)
+          yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
         VALUES
-          ('project-codex', 'gpt-5.4'),
-          ('project-claude', 'claude-sonnet-4-6'),
-          ('project-null', NULL)
+          ('project-codex', 'Codex project', '/tmp/project-codex', 'gpt-5.4', '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL),
+          ('project-claude', 'Claude project', '/tmp/project-claude', 'claude-sonnet-4-6', '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL),
+          ('project-null', 'Null project', '/tmp/project-null', NULL, '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL)
       `;
-        yield* sql`
+          yield* sql`
         UPDATE projection_projects
         SET default_model = 'claude-opus-4-6'
         WHERE project_id = 'project-claude'
       `;
-        yield* sql`
-        INSERT INTO projection_threads (thread_id, model)
+          yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          deleted_at,
+          runtime_mode,
+          interaction_mode
+        )
         VALUES
-          ('thread-session', 'gpt-5.4'),
-          ('thread-claude', 'claude-opus-4-6'),
-          ('thread-codex', 'gpt-5.4'),
-          ('thread-legacy-options', 'claude-opus-4-6')
+          ('thread-session', 'project-codex', 'Session thread', 'gpt-5.4', NULL, NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL, 'full-access', 'default'),
+          ('thread-claude', 'project-claude', 'Claude thread', 'claude-opus-4-6', NULL, NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL, 'full-access', 'default'),
+          ('thread-codex', 'project-codex', 'Codex thread', 'gpt-5.4', NULL, NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL, 'full-access', 'default'),
+          ('thread-legacy-options', 'project-claude', 'Legacy options thread', 'claude-opus-4-6', NULL, NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL, 'full-access', 'default')
       `;
-        yield* sql`
-        INSERT INTO projection_thread_sessions (thread_id, provider_name)
-        VALUES ('thread-session', 'claudeAgent')
+          yield* sql`
+        INSERT INTO projection_thread_sessions (
+          thread_id,
+          status,
+          provider_name,
+          provider_session_id,
+          provider_thread_id,
+          active_turn_id,
+          last_error,
+          updated_at,
+          runtime_mode
+        )
+        VALUES (
+          'thread-session',
+          'running',
+          'claudeAgent',
+          'provider-session-1',
+          'provider-thread-1',
+          NULL,
+          NULL,
+          '2026-01-01T00:00:00.000Z',
+          'full-access'
+        )
       `;
-        yield* sql`
+          yield* sql`
         INSERT INTO orchestration_events (
+          event_id,
+          aggregate_kind,
+          stream_id,
+          stream_version,
           event_type,
-          payload_json
+          occurred_at,
+          command_id,
+          causation_event_id,
+          correlation_id,
+          actor_kind,
+          payload_json,
+          metadata_json
         )
         VALUES
         (
+          'event-project-created',
+          'project',
+          'project-1',
+          1,
           'project.created',
-          '{"projectId":"project-1","title":"Project","workspaceRoot":"/tmp/project","defaultModel":"claude-opus-4-6","defaultModelOptions":{"codex":{"reasoningEffort":"high"},"claudeAgent":{"effort":"max"}},"scripts":[],"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}'
+          '2026-01-01T00:00:00.000Z',
+          'command-project-created',
+          NULL,
+          'correlation-project-created',
+          'user',
+          '{"projectId":"project-1","title":"Project","workspaceRoot":"/tmp/project","defaultModel":"claude-opus-4-6","defaultModelOptions":{"codex":{"reasoningEffort":"high"},"claudeAgent":{"effort":"max"}},"scripts":[],"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}',
+          '{}'
         ),
         (
+          'event-thread-created',
+          'thread',
+          'thread-1',
+          1,
           'thread.created',
-          '{"threadId":"thread-1","projectId":"project-1","title":"Thread","model":"claude-opus-4-6","modelOptions":{"codex":{"reasoningEffort":"high"},"claudeAgent":{"effort":"max","thinking":false}},"runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}'
+          '2026-01-01T00:00:00.000Z',
+          'command-thread-created',
+          NULL,
+          'correlation-thread-created',
+          'user',
+          '{"threadId":"thread-1","projectId":"project-1","title":"Thread","model":"claude-opus-4-6","modelOptions":{"codex":{"reasoningEffort":"high"},"claudeAgent":{"effort":"max","thinking":false}},"runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}',
+          '{}'
         ),
         (
+          'event-turn-start-requested',
+          'thread',
+          'thread-1',
+          2,
           'thread.turn-start-requested',
-          '{"threadId":"thread-1","turnId":"turn-1","input":"hi","model":"gpt-5.4","modelOptions":{"codex":{"fastMode":true},"claudeAgent":{"effort":"max"}},"deliveryMode":"buffered"}'
+          '2026-01-01T00:00:00.000Z',
+          'command-turn-start-requested',
+          NULL,
+          'correlation-turn-start-requested',
+          'user',
+          '{"threadId":"thread-1","turnId":"turn-1","input":"hi","model":"gpt-5.4","modelOptions":{"codex":{"fastMode":true},"claudeAgent":{"effort":"max"}},"deliveryMode":"buffered"}',
+          '{}'
         )
       `;
+        }
 
-        yield* Migration0016;
+        // Execute migration under test
+        yield* runMigrations({ toMigrationInclusive: 16 });
 
-        const projectRows = yield* sql<{
-          readonly projectId: string;
-          readonly defaultProvider: string | null;
-        }>`
+        // Assert expected state
+        {
+          const projectRows = yield* sql<{
+            readonly projectId: string;
+            readonly defaultProvider: string | null;
+          }>`
         SELECT
           project_id AS "projectId",
           default_provider AS "defaultProvider"
         FROM projection_projects
         ORDER BY project_id
       `;
-        assert.deepStrictEqual(projectRows, [
-          { projectId: "project-claude", defaultProvider: "claudeAgent" },
-          { projectId: "project-codex", defaultProvider: "codex" },
-          { projectId: "project-null", defaultProvider: null },
-        ]);
+          assert.deepStrictEqual(projectRows, [
+            { projectId: "project-claude", defaultProvider: "claudeAgent" },
+            { projectId: "project-codex", defaultProvider: "codex" },
+            { projectId: "project-null", defaultProvider: null },
+          ]);
 
-        const threadRows = yield* sql<{
-          readonly threadId: string;
-          readonly provider: string | null;
-          readonly modelOptions: string | null;
-        }>`
+          const threadRows = yield* sql<{
+            readonly threadId: string;
+            readonly provider: string | null;
+            readonly modelOptions: string | null;
+          }>`
         SELECT
           thread_id AS "threadId",
           provider,
@@ -113,70 +178,71 @@ layer("016_CanonicalizeModelSelections", (it) => {
         FROM projection_threads
         ORDER BY thread_id
       `;
-        assert.deepStrictEqual(threadRows, [
-          { threadId: "thread-claude", provider: "claudeAgent", modelOptions: null },
-          { threadId: "thread-codex", provider: "codex", modelOptions: null },
-          { threadId: "thread-legacy-options", provider: "claudeAgent", modelOptions: null },
-          { threadId: "thread-session", provider: "claudeAgent", modelOptions: null },
-        ]);
+          assert.deepStrictEqual(threadRows, [
+            { threadId: "thread-claude", provider: "claudeAgent", modelOptions: null },
+            { threadId: "thread-codex", provider: "codex", modelOptions: null },
+            { threadId: "thread-legacy-options", provider: "claudeAgent", modelOptions: null },
+            { threadId: "thread-session", provider: "claudeAgent", modelOptions: null },
+          ]);
 
-        const eventRows = yield* sql<{
-          readonly payloadJson: string;
-        }>`
+          const eventRows = yield* sql<{
+            readonly payloadJson: string;
+          }>`
         SELECT payload_json AS "payloadJson"
         FROM orchestration_events
         ORDER BY rowid ASC
       `;
 
-        assert.deepStrictEqual(JSON.parse(eventRows[0]!.payloadJson), {
-          projectId: "project-1",
-          title: "Project",
-          workspaceRoot: "/tmp/project",
-          defaultModelSelection: {
-            provider: "claudeAgent",
-            model: "claude-opus-4-6",
-            options: {
-              effort: "max",
+          assert.deepStrictEqual(JSON.parse(eventRows[0]!.payloadJson), {
+            projectId: "project-1",
+            title: "Project",
+            workspaceRoot: "/tmp/project",
+            defaultModelSelection: {
+              provider: "claudeAgent",
+              model: "claude-opus-4-6",
+              options: {
+                effort: "max",
+              },
             },
-          },
-          scripts: [],
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        });
+            scripts: [],
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          });
 
-        assert.deepStrictEqual(JSON.parse(eventRows[1]!.payloadJson), {
-          threadId: "thread-1",
-          projectId: "project-1",
-          title: "Thread",
-          modelSelection: {
-            provider: "claudeAgent",
-            model: "claude-opus-4-6",
-            options: {
-              effort: "max",
-              thinking: false,
+          assert.deepStrictEqual(JSON.parse(eventRows[1]!.payloadJson), {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "Thread",
+            modelSelection: {
+              provider: "claudeAgent",
+              model: "claude-opus-4-6",
+              options: {
+                effort: "max",
+                thinking: false,
+              },
             },
-          },
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        });
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          });
 
-        assert.deepStrictEqual(JSON.parse(eventRows[2]!.payloadJson), {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          input: "hi",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5.4",
-            options: {
-              fastMode: true,
+          assert.deepStrictEqual(JSON.parse(eventRows[2]!.payloadJson), {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            input: "hi",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.4",
+              options: {
+                fastMode: true,
+              },
             },
-          },
-          deliveryMode: "buffered",
-        });
+            deliveryMode: "buffered",
+          });
+        }
       }),
   );
 });
