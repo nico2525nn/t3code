@@ -2751,7 +2751,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const queryOptions: ClaudeQueryOptions = {
           ...(input.cwd ? { cwd: input.cwd } : {}),
           ...(modelSelection?.model ? { model: modelSelection.model } : {}),
-          pathToClaudeCodeExecutable: providerOptions?.binaryPath ?? "claude",
+          pathToClaudeCodeExecutable: providerOptions?.binaryPath || "claude",
           settingSources: [...CLAUDE_SETTING_SOURCES],
           ...(effectiveEffort ? { effort: effectiveEffort } : {}),
           ...(permissionMode ? { permissionMode } : {}),

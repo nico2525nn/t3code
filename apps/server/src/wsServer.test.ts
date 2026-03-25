@@ -13,11 +13,13 @@ import { makeServerProviderLayer, makeServerRuntimeServicesLayer } from "./serve
 
 import {
   DEFAULT_TERMINAL_ID,
+  DEFAULT_SERVER_SETTINGS,
   EDITORS,
   EventId,
   ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
   ProviderItemId,
+  type ServerSettings,
   ThreadId,
   TurnId,
   WS_CHANNELS,
@@ -78,6 +80,8 @@ const defaultProviderStatuses: ReadonlyArray<ServerProviderStatus> = [
 const defaultProviderHealthService: ProviderHealthShape = {
   getStatuses: Effect.succeed(defaultProviderStatuses),
 };
+
+const defaultServerSettings = DEFAULT_SERVER_SETTINGS;
 
 class MockTerminalManager implements TerminalManagerShape {
   private readonly sessions = new Map<string, TerminalSessionSnapshot>();
@@ -493,6 +497,7 @@ describe("WebSocket Server", () => {
       gitManager?: GitManagerShape;
       gitCore?: Pick<GitCoreShape, "listBranches" | "initRepo" | "pullCurrentBranch">;
       terminalManager?: TerminalManagerShape;
+      serverSettings?: Partial<ServerSettings>;
     } = {},
   ): Promise<Http.Server> {
     if (serverScope) {
@@ -546,7 +551,7 @@ describe("WebSocket Server", () => {
       Layer.provideMerge(runtimeLayer),
       Layer.provideMerge(providerHealthLayer),
       Layer.provideMerge(openLayer),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(ServerSettingsService.layerTest(options.serverSettings)),
       Layer.provideMerge(serverConfigLayer),
       Layer.provideMerge(AnalyticsService.layerTest),
       Layer.provideMerge(NodeServices.layer),
@@ -860,6 +865,7 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
+      settings: defaultServerSettings,
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
   });
@@ -885,6 +891,7 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
+      settings: defaultServerSettings,
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
 
@@ -921,6 +928,7 @@ describe("WebSocket Server", () => {
       ],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
+      settings: defaultServerSettings,
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
     expect(fs.readFileSync(keybindingsPath, "utf8")).toBe("{ not-json");
@@ -1071,6 +1079,7 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
+      settings: defaultServerSettings,
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
   });
@@ -1119,6 +1128,7 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
+      settings: defaultServerSettings,
     });
     expectAvailableEditors(
       (configResponse.result as { availableEditors: unknown }).availableEditors,
@@ -1275,6 +1285,7 @@ describe("WebSocket Server", () => {
     server = await createTestServer({
       cwd: "/test",
       providerLayer,
+      serverSettings: { enableAssistantStreaming: true },
     });
     const addr = server.address();
     const port = typeof addr === "object" && addr !== null ? addr.port : 0;
@@ -1325,7 +1336,6 @@ describe("WebSocket Server", () => {
         text: "hello",
         attachments: [],
       },
-      assistantDeliveryMode: "streaming",
       runtimeMode: "approval-required",
       interactionMode: "default",
       createdAt,
@@ -1852,10 +1862,6 @@ describe("WebSocket Server", () => {
         actionId: "client-action-1",
         cwd: "/test",
         action: "commit_push",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5.4-mini",
-        },
       },
       expect.objectContaining({
         actionId: "client-action-1",
