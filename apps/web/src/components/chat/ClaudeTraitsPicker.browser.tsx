@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { DEFAULT_MODEL_BY_PROVIDER, ThreadId } from "@t3tools/contracts";
+import { ThreadId } from "@t3tools/contracts";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -19,6 +19,7 @@ async function mountPicker(props?: {
   const draftsByThreadId = {} as ReturnType<
     typeof useComposerDraftStore.getState
   >["draftsByThreadId"];
+  const model = props?.model ?? "claude-opus-4-6";
   draftsByThreadId[threadId] = {
     prompt: props?.prompt ?? "",
     images: [],
@@ -27,7 +28,7 @@ async function mountPicker(props?: {
     terminalContexts: [],
     modelSelection: {
       provider: "claudeAgent",
-      model: props?.model ?? DEFAULT_MODEL_BY_PROVIDER["claudeAgent"],
+      model,
       options: {
         ...(props?.effort ? { effort: props.effort } : {}),
         ...(props?.thinkingEnabled === false ? { thinking: false } : {}),
@@ -53,11 +54,7 @@ async function mountPicker(props?: {
   document.body.append(host);
   const onPromptChange = vi.fn();
   const screen = await render(
-    <ClaudeTraitsPicker
-      threadId={threadId}
-      model={DEFAULT_MODEL_BY_PROVIDER["claudeAgent"]}
-      onPromptChange={onPromptChange}
-    />,
+    <ClaudeTraitsPicker threadId={threadId} model={model} onPromptChange={onPromptChange} />,
     { container: host },
   );
 
@@ -77,6 +74,7 @@ describe("ClaudeTraitsPicker", () => {
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
+      stickyModelSelection: null,
       stickyModelOptions: {},
     });
   });
