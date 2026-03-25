@@ -400,7 +400,7 @@ function AnchoredToasts() {
                         )}
 
                         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center justify-between gap-1">
                             <Toast.Title
                               className="min-w-0 break-words font-medium"
                               data-slot="toast-title"
