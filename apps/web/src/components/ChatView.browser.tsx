@@ -831,6 +831,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyActiveProvider: null,
     });
     useStore.setState({
       projects: [],
@@ -1505,6 +1506,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           },
         },
       },
+      stickyActiveProvider: "codex",
     });
 
     const mounted = await mountChatView({
@@ -1538,7 +1540,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             },
           },
         },
-        activeProvider: null,
+        activeProvider: "codex",
       });
     } finally {
       await mounted.cleanup();
@@ -1557,6 +1559,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           },
         },
       },
+      stickyActiveProvider: "claudeAgent",
     });
 
     const mounted = await mountChatView({
@@ -1591,7 +1594,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             },
           },
         },
-        activeProvider: null,
+        activeProvider: "claudeAgent",
       });
     } finally {
       await mounted.cleanup();
@@ -1638,6 +1641,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           },
         },
       },
+      stickyActiveProvider: "codex",
     });
 
     const mounted = await mountChatView({
@@ -1671,7 +1675,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             },
           },
         },
-        activeProvider: null,
+        activeProvider: "codex",
       });
 
       useComposerDraftStore.getState().setModelSelection(threadId, {

@@ -219,4 +219,17 @@ export default Effect.gen(function* () {
       AND json_type(payload_json, '$.modelSelection') IS NULL
       AND json_type(payload_json, '$.model') IS NOT NULL
   `;
+
+  // Backfill thread.created events that predate the model field entirely
+  yield* sql`
+    UPDATE orchestration_events
+    SET payload_json = json_set(
+      payload_json,
+      '$.modelSelection',
+      json(json_object('provider', 'codex', 'model', 'gpt-5.4'))
+    )
+    WHERE event_type = 'thread.created'
+      AND json_type(payload_json, '$.modelSelection') IS NULL
+      AND json_type(payload_json, '$.model') IS NULL
+  `;
 });

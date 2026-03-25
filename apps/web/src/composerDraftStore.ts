@@ -147,6 +147,7 @@ const PersistedComposerDraftStoreState = Schema.Struct({
   stickyModelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),
+  stickyActiveProvider: Schema.optionalKey(Schema.NullOr(ProviderKind)),
 });
 type PersistedComposerDraftStoreState = typeof PersistedComposerDraftStoreState.Type;
 
@@ -186,6 +187,7 @@ interface ComposerDraftStoreState {
   draftThreadsByThreadId: Record<ThreadId, DraftThreadState>;
   projectDraftThreadIdByProjectId: Record<ProjectId, ThreadId>;
   stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
+  stickyActiveProvider: ProviderKind | null;
   getDraftThreadByProjectId: (projectId: ProjectId) => ProjectDraftThread | null;
   getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
   setProjectDraftThreadId: (
@@ -296,6 +298,7 @@ const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftSt
   draftThreadsByThreadId: {},
   projectDraftThreadIdByProjectId: {},
   stickyModelSelectionByProvider: {},
+  stickyActiveProvider: null,
 });
 
 const EMPTY_IMAGES: ComposerImageAttachment[] = [];
@@ -969,6 +972,7 @@ function migratePersistedComposerDraftStoreState(
     stickyModelSelection,
     nextStickyModelOptions,
   );
+  const stickyActiveProvider = normalizeProviderKind(candidate.stickyProvider) ?? null;
 
   const { draftThreadsByThreadId, projectDraftThreadIdByProjectId } =
     normalizePersistedDraftThreads(rawDraftThreadsByThreadId, rawProjectDraftThreadIdByProjectId);
@@ -978,6 +982,7 @@ function migratePersistedComposerDraftStoreState(
     draftThreadsByThreadId,
     projectDraftThreadIdByProjectId,
     stickyModelSelectionByProvider,
+    stickyActiveProvider,
   };
 }
 
@@ -1035,6 +1040,7 @@ function partializeComposerDraftStoreState(
     draftThreadsByThreadId: state.draftThreadsByThreadId,
     projectDraftThreadIdByProjectId: state.projectDraftThreadIdByProjectId,
     stickyModelSelectionByProvider: state.stickyModelSelectionByProvider,
+    stickyActiveProvider: state.stickyActiveProvider,
   };
 }
 
@@ -1053,6 +1059,7 @@ function normalizeCurrentPersistedComposerDraftStoreState(
 
   // Handle both v3 (modelSelectionByProvider) and v2/legacy formats
   let stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>> = {};
+  let stickyActiveProvider: ProviderKind | null = null;
   if (
     normalizedPersistedState.stickyModelSelectionByProvider &&
     typeof normalizedPersistedState.stickyModelSelectionByProvider === "object"
@@ -1061,6 +1068,7 @@ function normalizeCurrentPersistedComposerDraftStoreState(
       normalizedPersistedState.stickyModelSelectionByProvider as Partial<
         Record<ProviderKind, ModelSelection>
       >;
+    stickyActiveProvider = normalizeProviderKind(normalizedPersistedState.stickyActiveProvider);
   } else {
     // Legacy migration path
     const stickyModelOptions =
@@ -1085,6 +1093,7 @@ function normalizeCurrentPersistedComposerDraftStoreState(
       stickyModelSelection,
       nextStickyModelOptions,
     );
+    stickyActiveProvider = normalizeProviderKind(normalizedPersistedState.stickyProvider);
   }
 
   return {
@@ -1092,6 +1101,7 @@ function normalizeCurrentPersistedComposerDraftStoreState(
     draftThreadsByThreadId,
     projectDraftThreadIdByProjectId,
     stickyModelSelectionByProvider,
+    stickyActiveProvider,
   };
 }
 
@@ -1247,6 +1257,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyActiveProvider: null,
       getDraftThreadByProjectId: (projectId) => {
         if (projectId.length === 0) {
           return null;
@@ -1503,9 +1514,14 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             [normalized.provider]: normalized,
           };
           if (Equal.equals(state.stickyModelSelectionByProvider, nextMap)) {
-            return state;
+            return state.stickyActiveProvider === normalized.provider
+              ? state
+              : { stickyActiveProvider: normalized.provider };
           }
-          return { stickyModelSelectionByProvider: nextMap };
+          return {
+            stickyModelSelectionByProvider: nextMap,
+            stickyActiveProvider: normalized.provider,
+          };
         });
       },
       applyStickyState: (threadId) => {
@@ -1514,7 +1530,8 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         }
         set((state) => {
           const stickyMap = state.stickyModelSelectionByProvider;
-          if (Object.keys(stickyMap).length === 0) {
+          const stickyActiveProvider = state.stickyActiveProvider;
+          if (Object.keys(stickyMap).length === 0 && stickyActiveProvider === null) {
             return state;
           }
           const existing = state.draftsByThreadId[threadId];
@@ -1529,12 +1546,16 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               };
             }
           }
-          if (Equal.equals(base.modelSelectionByProvider, nextMap)) {
+          if (
+            Equal.equals(base.modelSelectionByProvider, nextMap) &&
+            base.activeProvider === stickyActiveProvider
+          ) {
             return state;
           }
           const nextDraft: ComposerThreadDraftState = {
             ...base,
             modelSelectionByProvider: nextMap,
+            activeProvider: stickyActiveProvider,
           };
           const nextDraftsByThreadId = { ...state.draftsByThreadId };
           if (shouldRemoveDraft(nextDraft)) {
@@ -1715,6 +1736,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
 
           // Handle sticky persistence
           let nextStickyMap = state.stickyModelSelectionByProvider;
+          let nextStickyActiveProvider = state.stickyActiveProvider;
           if (options?.persistSticky === true) {
             nextStickyMap = { ...state.stickyModelSelectionByProvider };
             const stickyBase =
@@ -1734,11 +1756,13 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               const { options: _, ...rest } = stickyBase;
               nextStickyMap[normalizedProvider] = rest as ModelSelection;
             }
+            nextStickyActiveProvider = base.activeProvider ?? normalizedProvider;
           }
 
           if (
             Equal.equals(base.modelSelectionByProvider, nextMap) &&
-            Equal.equals(state.stickyModelSelectionByProvider, nextStickyMap)
+            Equal.equals(state.stickyModelSelectionByProvider, nextStickyMap) &&
+            state.stickyActiveProvider === nextStickyActiveProvider
           ) {
             return state;
           }
@@ -1757,7 +1781,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           return {
             draftsByThreadId: nextDraftsByThreadId,
             ...(options?.persistSticky === true
-              ? { stickyModelSelectionByProvider: nextStickyMap }
+              ? {
+                  stickyModelSelectionByProvider: nextStickyMap,
+                  stickyActiveProvider: nextStickyActiveProvider,
+                }
               : {}),
           };
         });
@@ -2117,6 +2144,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           draftThreadsByThreadId: normalizedPersisted.draftThreadsByThreadId,
           projectDraftThreadIdByProjectId: normalizedPersisted.projectDraftThreadIdByProjectId,
           stickyModelSelectionByProvider: normalizedPersisted.stickyModelSelectionByProvider ?? {},
+          stickyActiveProvider: normalizedPersisted.stickyActiveProvider ?? null,
         };
       },
     },

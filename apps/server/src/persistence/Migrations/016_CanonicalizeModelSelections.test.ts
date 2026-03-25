@@ -169,6 +169,20 @@ layer("016_CanonicalizeModelSelections", (it) => {
           'user',
           '{"threadId":"thread-1","turnId":"turn-1","input":"hi","model":"gpt-5.4","modelOptions":{"codex":{"fastMode":true},"claudeAgent":{"effort":"max"}},"deliveryMode":"buffered"}',
           '{}'
+        ),
+        (
+          'event-thread-created-no-model',
+          'thread',
+          'thread-3',
+          1,
+          'thread.created',
+          '2026-01-01T00:00:00.000Z',
+          'command-thread-created-no-model',
+          NULL,
+          'correlation-thread-created-no-model',
+          'user',
+          '{"threadId":"thread-3","projectId":"project-1","title":"Ancient Thread","runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}',
+          '{}'
         )
       `;
         }
@@ -320,6 +334,22 @@ layer("016_CanonicalizeModelSelections", (it) => {
               },
             },
             deliveryMode: "buffered",
+          });
+
+          assert.deepStrictEqual(JSON.parse(eventRows[5]!.payloadJson), {
+            threadId: "thread-3",
+            projectId: "project-1",
+            title: "Ancient Thread",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.4",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
           });
         }
       }),
