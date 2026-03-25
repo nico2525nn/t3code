@@ -27,7 +27,7 @@ async function mountPicker(props?: {
     terminalContexts: [],
     modelSelection: {
       provider: "claudeAgent",
-      model: DEFAULT_MODEL_BY_PROVIDER["claudeAgent"],
+      model: props?.model ?? DEFAULT_MODEL_BY_PROVIDER["claudeAgent"],
       options: {
         ...(props?.effort ? { effort: props.effort } : {}),
         ...(props?.thinkingEnabled === false ? { thinking: false } : {}),
