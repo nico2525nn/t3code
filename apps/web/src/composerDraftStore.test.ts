@@ -767,6 +767,26 @@ describe("composerDraftStore modelSelection", () => {
     );
   });
 
+  it("does not clear other provider options when setting options for a single provider", () => {
+    const store = useComposerDraftStore.getState();
+
+    // Set options for both providers
+    store.setModelOptions(
+      threadId,
+      providerModelOptions({
+        codex: { fastMode: true },
+        claudeAgent: { effort: "max" },
+      }),
+    );
+
+    // Now set options for only codex — claudeAgent should be untouched
+    store.setModelOptions(threadId, providerModelOptions({ codex: { reasoningEffort: "xhigh" } }));
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider.codex?.options).toEqual({ reasoningEffort: "xhigh" });
+    expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual({ effort: "max" });
+  });
+
   it("preserves other provider options when switching the active model selection", () => {
     const store = useComposerDraftStore.getState();
 

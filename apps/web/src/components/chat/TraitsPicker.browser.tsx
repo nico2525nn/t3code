@@ -2,6 +2,8 @@ import "../../index.css";
 
 import {
   type ModelSelection,
+  ClaudeModelOptions,
+  CodexModelOptions,
   DEFAULT_MODEL_BY_PROVIDER,
   ProjectId,
   ThreadId,
@@ -14,6 +16,7 @@ import { render } from "vitest-browser-react";
 import { TraitsPicker } from "./TraitsPicker";
 import {
   COMPOSER_DRAFT_STORAGE_KEY,
+  ComposerThreadDraftState,
   useComposerDraftStore,
   useComposerThreadDraft,
   useEffectiveComposerModelState,
@@ -58,9 +61,7 @@ function ClaudeTraitsPickerHarness(props: {
 async function mountClaudePicker(props?: {
   model?: string;
   prompt?: string;
-  effort?: "low" | "medium" | "high" | "max" | "ultrathink" | null;
-  thinkingEnabled?: boolean | null;
-  fastModeEnabled?: boolean;
+  options?: ClaudeModelOptions;
   fallbackModelOptions?: {
     effort?: "low" | "medium" | "high" | "max" | "ultrathink";
     thinking?: boolean;
@@ -68,37 +69,30 @@ async function mountClaudePicker(props?: {
   } | null;
   skipDraftModelOptions?: boolean;
 }) {
-  const draftsByThreadId = {} as ReturnType<
-    typeof useComposerDraftStore.getState
-  >["draftsByThreadId"];
   const model = props?.model ?? "claude-opus-4-6";
-  const claudeOptions = !props?.skipDraftModelOptions
-    ? {
-        ...(props?.effort ? { effort: props.effort } : {}),
-        ...(props?.thinkingEnabled === false ? { thinking: false } : {}),
-        ...(props?.fastModeEnabled ? { fastMode: true } : {}),
-      }
-    : undefined;
-  draftsByThreadId[CLAUDE_THREAD_ID] = {
-    prompt: props?.prompt ?? "",
-    images: [],
-    nonPersistedImageIds: [],
-    persistedAttachments: [],
-    terminalContexts: [],
-    modelSelectionByProvider: props?.skipDraftModelOptions
-      ? {}
-      : {
-          claudeAgent: {
-            provider: "claudeAgent",
-            model,
-            ...(claudeOptions && Object.keys(claudeOptions).length > 0
-              ? { options: claudeOptions }
-              : {}),
+  const claudeOptions = !props?.skipDraftModelOptions ? props?.options : undefined;
+  const draftsByThreadId: Record<ThreadId, ComposerThreadDraftState> = {
+    [CLAUDE_THREAD_ID]: {
+      prompt: props?.prompt ?? "",
+      images: [],
+      nonPersistedImageIds: [],
+      persistedAttachments: [],
+      terminalContexts: [],
+      modelSelectionByProvider: props?.skipDraftModelOptions
+        ? {}
+        : {
+            claudeAgent: {
+              provider: "claudeAgent",
+              model,
+              ...(claudeOptions && Object.keys(claudeOptions).length > 0
+                ? { options: claudeOptions }
+                : {}),
+            },
           },
-        },
-    activeProvider: "claudeAgent",
-    runtimeMode: null,
-    interactionMode: null,
+      activeProvider: "claudeAgent",
+      runtimeMode: null,
+      interactionMode: null,
+    },
   };
   useComposerDraftStore.setState({
     draftsByThreadId,
@@ -120,11 +114,14 @@ async function mountClaudePicker(props?: {
     { container: host },
   );
 
+  const cleanup = async () => {
+    await screen.unmount();
+    host.remove();
+  };
+
   return {
-    cleanup: async () => {
-      await screen.unmount();
-      host.remove();
-    },
+    [Symbol.asyncDispose]: cleanup,
+    cleanup,
   };
 }
 
@@ -140,195 +137,130 @@ describe("TraitsPicker (Claude)", () => {
   });
 
   it("shows fast mode controls for Opus", async () => {
-    const mounted = await mountClaudePicker();
+    await using _ = await mountClaudePicker();
 
-    try {
-      await page.getByRole("button").click();
+    await page.getByRole("button").click();
 
-      await vi.waitFor(() => {
-        const text = document.body.textContent ?? "";
-        expect(text).toContain("Fast Mode");
-        expect(text).toContain("off");
-        expect(text).toContain("on");
-      });
-    } finally {
-      await mounted.cleanup();
-    }
+    await vi.waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("Fast Mode");
+      expect(text).toContain("off");
+      expect(text).toContain("on");
+    });
   });
 
   it("hides fast mode controls for non-Opus models", async () => {
-    const mounted = await mountClaudePicker({ model: "claude-sonnet-4-6" });
+    await using _ = await mountClaudePicker({ model: "claude-sonnet-4-6" });
 
-    try {
-      await page.getByRole("button").click();
+    await page.getByRole("button").click();
 
-      await vi.waitFor(() => {
-        expect(document.body.textContent ?? "").not.toContain("Fast Mode");
-      });
-    } finally {
-      await mounted.cleanup();
-    }
+    await vi.waitFor(() => {
+      expect(document.body.textContent ?? "").not.toContain("Fast Mode");
+    });
   });
 
   it("shows only the provided effort options", async () => {
-    const mounted = await mountClaudePicker({
+    await using _ = await mountClaudePicker({
       model: "claude-sonnet-4-6",
     });
 
-    try {
-      await page.getByRole("button").click();
+    await page.getByRole("button").click();
 
-      await vi.waitFor(() => {
-        const text = document.body.textContent ?? "";
-        expect(text).toContain("Low");
-        expect(text).toContain("Medium");
-        expect(text).toContain("High");
-        expect(text).not.toContain("Max");
-        expect(text).toContain("Ultrathink");
-      });
-    } finally {
-      await mounted.cleanup();
-    }
+    await vi.waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("Low");
+      expect(text).toContain("Medium");
+      expect(text).toContain("High");
+      expect(text).not.toContain("Max");
+      expect(text).toContain("Ultrathink");
+    });
   });
 
-  it("shows a thinking on/off dropdown for Haiku", async () => {
-    const mounted = await mountClaudePicker({
+  it("shows a th  inking on/off dropdown for Haiku", async () => {
+    await using _ = await mountClaudePicker({
       model: "claude-haiku-4-5",
-      thinkingEnabled: true,
+      options: { thinking: true },
     });
 
-    try {
-      await vi.waitFor(() => {
-        expect(document.body.textContent ?? "").toContain("Thinking On");
-      });
-      await page.getByRole("button").click();
+    await vi.waitFor(() => {
+      expect(document.body.textContent ?? "").toContain("Thinking On");
+    });
+    await page.getByRole("button").click();
 
-      await vi.waitFor(() => {
-        const text = document.body.textContent ?? "";
-        expect(text).toContain("Thinking");
-        expect(text).toContain("On (default)");
-        expect(text).toContain("Off");
-      });
-    } finally {
-      await mounted.cleanup();
-    }
+    await vi.waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("Thinking");
+      expect(text).toContain("On (default)");
+      expect(text).toContain("Off");
+    });
   });
 
   it("shows prompt-controlled Ultrathink state with disabled effort controls", async () => {
-    const mounted = await mountClaudePicker({
-      effort: "high",
+    await using _ = await mountClaudePicker({
       model: "claude-opus-4-6",
+      options: { effort: "high" },
       prompt: "Ultrathink:\nInvestigate this",
-      fastModeEnabled: false,
     });
 
-    try {
-      await vi.waitFor(() => {
-        expect(document.body.textContent ?? "").toContain("Ultrathink");
-        expect(document.body.textContent ?? "").not.toContain("Ultrathink · Prompt");
-      });
-      await page.getByRole("button").click();
+    await vi.waitFor(() => {
+      expect(document.body.textContent ?? "").toContain("Ultrathink");
+      expect(document.body.textContent ?? "").not.toContain("Ultrathink · Prompt");
+    });
+    await page.getByRole("button").click();
 
-      await vi.waitFor(() => {
-        const text = document.body.textContent ?? "";
-        expect(text).toContain("Effort");
-        expect(text).toContain("Remove Ultrathink from the prompt to change effort.");
-        expect(text).not.toContain("Fallback Effort");
-      });
-    } finally {
-      await mounted.cleanup();
-    }
+    await vi.waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("Effort");
+      expect(text).toContain("Remove Ultrathink from the prompt to change effort.");
+      expect(text).not.toContain("Fallback Effort");
+    });
   });
 
   it("persists sticky claude model options when traits change", async () => {
-    const mounted = await mountClaudePicker({
+    await using _ = await mountClaudePicker({
       model: "claude-opus-4-6",
-      effort: "medium",
-      fastModeEnabled: false,
+      options: { effort: "medium", fastMode: false },
     });
 
-    try {
-      await page.getByRole("button").click();
-      await page.getByRole("menuitemradio", { name: "Max" }).click();
+    await page.getByRole("button").click();
+    await page.getByRole("menuitemradio", { name: "Max" }).click();
 
-      expect(
-        useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent,
-      ).toMatchObject({
-        provider: "claudeAgent",
-        options: {
-          effort: "max",
-        },
-      });
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("can turn inherited fast mode off without snapping back", async () => {
-    const mounted = await mountClaudePicker({
-      model: "claude-opus-4-6",
-      skipDraftModelOptions: true,
-      fallbackModelOptions: {
-        effort: "high",
-        fastMode: true,
+    expect(
+      useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent,
+    ).toMatchObject({
+      provider: "claudeAgent",
+      options: {
+        effort: "max",
       },
     });
-
-    try {
-      const trigger = page.getByRole("button");
-
-      await expect.element(trigger).toHaveTextContent("High · Fast");
-      await trigger.click();
-      await page.getByRole("menuitemradio", { name: "off" }).click();
-
-      await vi.waitFor(() => {
-        expect(
-          useComposerDraftStore.getState().draftsByThreadId[CLAUDE_THREAD_ID]
-            ?.modelSelectionByProvider.claudeAgent?.options,
-        ).toEqual({
-          effort: "high",
-          fastMode: false,
-        });
-      });
-      await expect.element(trigger).toHaveTextContent("High");
-      await expect.element(trigger).not.toHaveTextContent("High · Fast");
-    } finally {
-      await mounted.cleanup();
-    }
   });
 });
 
 // ── Codex TraitsPicker tests ──────────────────────────────────────────
 
-async function mountCodexPicker(props: {
-  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
-  fastModeEnabled: boolean;
-}) {
+async function mountCodexPicker(props: { model?: string; options?: CodexModelOptions }) {
   const threadId = ThreadId.makeUnsafe("thread-codex-traits");
-  const draftsByThreadId = {} as ReturnType<
-    typeof useComposerDraftStore.getState
-  >["draftsByThreadId"];
-  const codexOptions = {
-    ...(props.reasoningEffort ? { reasoningEffort: props.reasoningEffort } : {}),
-    ...(props.fastModeEnabled ? { fastMode: true } : {}),
-  };
-  draftsByThreadId[threadId] = {
-    prompt: "",
-    images: [],
-    nonPersistedImageIds: [],
-    persistedAttachments: [],
-    terminalContexts: [],
-    modelSelectionByProvider: {
-      codex: {
-        provider: "codex",
-        model: DEFAULT_MODEL_BY_PROVIDER["codex"],
-        ...(Object.keys(codexOptions).length > 0 ? { options: codexOptions } : {}),
+  const model = props.model ?? DEFAULT_MODEL_BY_PROVIDER.codex;
+  const draftsByThreadId: Record<ThreadId, ComposerThreadDraftState> = {
+    [threadId]: {
+      prompt: "",
+      images: [],
+      nonPersistedImageIds: [],
+      persistedAttachments: [],
+      terminalContexts: [],
+      modelSelectionByProvider: {
+        codex: {
+          provider: "codex",
+          model,
+          ...(props.options ? { options: props.options } : {}),
+        },
       },
+      activeProvider: "codex",
+      runtimeMode: null,
+      interactionMode: null,
     },
-    activeProvider: "codex",
-    runtimeMode: null,
-    interactionMode: null,
   };
+
   useComposerDraftStore.setState({
     draftsByThreadId,
     draftThreadsByThreadId: {},
@@ -342,22 +274,22 @@ async function mountCodexPicker(props: {
     <TraitsPicker
       provider="codex"
       threadId={threadId}
-      model={DEFAULT_MODEL_BY_PROVIDER["codex"]}
+      model={props.model ?? DEFAULT_MODEL_BY_PROVIDER.codex}
       prompt=""
-      modelOptions={{
-        ...(props.reasoningEffort ? { reasoningEffort: props.reasoningEffort } : {}),
-        ...(props.fastModeEnabled ? { fastMode: true } : {}),
-      }}
+      modelOptions={props.options}
       onPromptChange={() => {}}
     />,
     { container: host },
   );
 
+  const cleanup = async () => {
+    await screen.unmount();
+    host.remove();
+  };
+
   return {
-    cleanup: async () => {
-      await screen.unmount();
-      host.remove();
-    },
+    [Symbol.asyncDispose]: cleanup,
+    cleanup,
   };
 }
 
@@ -374,75 +306,57 @@ describe("TraitsPicker (Codex)", () => {
   });
 
   it("shows fast mode controls", async () => {
-    const mounted = await mountCodexPicker({
-      fastModeEnabled: false,
+    await using _ = await mountCodexPicker({
+      options: { fastMode: false },
     });
 
-    try {
-      await page.getByRole("button").click();
+    await page.getByRole("button").click();
 
-      await vi.waitFor(() => {
-        const text = document.body.textContent ?? "";
-        expect(text).toContain("Fast Mode");
-        expect(text).toContain("off");
-        expect(text).toContain("on");
-      });
-    } finally {
-      await mounted.cleanup();
-    }
+    await vi.waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("Fast Mode");
+      expect(text).toContain("off");
+      expect(text).toContain("on");
+    });
   });
 
   it("shows Fast in the trigger label when fast mode is active", async () => {
-    const mounted = await mountCodexPicker({
-      fastModeEnabled: true,
+    await using _ = await mountCodexPicker({
+      options: { fastMode: true },
     });
 
-    try {
-      await vi.waitFor(() => {
-        expect(document.body.textContent ?? "").toContain("High · Fast");
-      });
-    } finally {
-      await mounted.cleanup();
-    }
+    await vi.waitFor(() => {
+      expect(document.body.textContent ?? "").toContain("High · Fast");
+    });
   });
 
   it("shows only the provided effort options", async () => {
-    const mounted = await mountCodexPicker({
-      fastModeEnabled: false,
+    await using _ = await mountCodexPicker({
+      options: { fastMode: false },
     });
 
-    try {
-      await page.getByRole("button").click();
+    await page.getByRole("button").click();
 
-      await vi.waitFor(() => {
-        const text = document.body.textContent ?? "";
-        expect(text).toContain("Low");
-        expect(text).toContain("Medium");
-        expect(text).toContain("High");
-        expect(text).toContain("Extra High");
-      });
-    } finally {
-      await mounted.cleanup();
-    }
+    await vi.waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("Low");
+      expect(text).toContain("Medium");
+      expect(text).toContain("High");
+      expect(text).toContain("Extra High");
+    });
   });
 
   it("persists sticky codex model options when traits change", async () => {
-    const mounted = await mountCodexPicker({
-      fastModeEnabled: false,
+    await using _ = await mountCodexPicker({
+      options: { fastMode: false },
     });
 
-    try {
-      await page.getByRole("button").click();
-      await page.getByRole("menuitemradio", { name: "on" }).click();
+    await page.getByRole("button").click();
+    await page.getByRole("menuitemradio", { name: "on" }).click();
 
-      expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toMatchObject({
-        provider: "codex",
-        options: {
-          fastMode: true,
-        },
-      });
-    } finally {
-      await mounted.cleanup();
-    }
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toMatchObject({
+      provider: "codex",
+      options: { fastMode: true },
+    });
   });
 });

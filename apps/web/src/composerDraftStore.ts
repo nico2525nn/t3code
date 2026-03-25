@@ -155,7 +155,7 @@ const PersistedComposerDraftStoreStorage = Schema.Struct({
   state: PersistedComposerDraftStoreState,
 });
 
-interface ComposerThreadDraftState {
+export interface ComposerThreadDraftState {
   prompt: string;
   images: ComposerImageAttachment[];
   nonPersistedImageIds: string[];
@@ -1648,7 +1648,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           const base = existing ?? createEmptyThreadDraft();
           const nextMap = { ...base.modelSelectionByProvider };
           for (const provider of ["codex", "claudeAgent"] as const) {
-            const opts = normalizedOpts?.[provider];
+            // Only touch providers explicitly present in the input
+            if (!normalizedOpts || !(provider in normalizedOpts)) continue;
+            const opts = normalizedOpts[provider];
             const current = nextMap[provider];
             if (opts) {
               nextMap[provider] = {

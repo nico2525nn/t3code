@@ -115,6 +115,20 @@ layer("016_CanonicalizeModelSelections", (it) => {
           '{}'
         ),
         (
+          'event-project-created-fallback',
+          'project',
+          'project-2',
+          1,
+          'project.created',
+          '2026-01-01T00:00:00.000Z',
+          'command-project-created-fallback',
+          NULL,
+          'correlation-project-created-fallback',
+          'user',
+          '{"projectId":"project-2","title":"Fallback Project","workspaceRoot":"/tmp/project-2","defaultModel":"claude-opus-4-6","defaultModelOptions":{"codex":{"reasoningEffort":"low"}},"scripts":[],"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}',
+          '{}'
+        ),
+        (
           'event-thread-created',
           'thread',
           'thread-1',
@@ -126,6 +140,20 @@ layer("016_CanonicalizeModelSelections", (it) => {
           'correlation-thread-created',
           'user',
           '{"threadId":"thread-1","projectId":"project-1","title":"Thread","model":"claude-opus-4-6","modelOptions":{"codex":{"reasoningEffort":"high"},"claudeAgent":{"effort":"max","thinking":false}},"runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}',
+          '{}'
+        ),
+        (
+          'event-thread-created-fallback',
+          'thread',
+          'thread-2',
+          1,
+          'thread.created',
+          '2026-01-01T00:00:00.000Z',
+          'command-thread-created-fallback',
+          NULL,
+          'correlation-thread-created-fallback',
+          'user',
+          '{"threadId":"thread-2","projectId":"project-1","title":"Fallback Thread","model":"gpt-5.4","modelOptions":{"claudeAgent":{"effort":"max"}},"runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}',
           '{}'
         ),
         (
@@ -226,6 +254,22 @@ layer("016_CanonicalizeModelSelections", (it) => {
           });
 
           assert.deepStrictEqual(JSON.parse(eventRows[1]!.payloadJson), {
+            projectId: "project-2",
+            title: "Fallback Project",
+            workspaceRoot: "/tmp/project-2",
+            defaultModelSelection: {
+              provider: "claudeAgent",
+              model: "claude-opus-4-6",
+              options: {
+                reasoningEffort: "low",
+              },
+            },
+            scripts: [],
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          });
+
+          assert.deepStrictEqual(JSON.parse(eventRows[2]!.payloadJson), {
             threadId: "thread-1",
             projectId: "project-1",
             title: "Thread",
@@ -245,7 +289,26 @@ layer("016_CanonicalizeModelSelections", (it) => {
             updatedAt: "2026-01-01T00:00:00.000Z",
           });
 
-          assert.deepStrictEqual(JSON.parse(eventRows[2]!.payloadJson), {
+          assert.deepStrictEqual(JSON.parse(eventRows[3]!.payloadJson), {
+            threadId: "thread-2",
+            projectId: "project-1",
+            title: "Fallback Thread",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.4",
+              options: {
+                effort: "max",
+              },
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          });
+
+          assert.deepStrictEqual(JSON.parse(eventRows[4]!.payloadJson), {
             threadId: "thread-1",
             turnId: "turn-1",
             input: "hi",

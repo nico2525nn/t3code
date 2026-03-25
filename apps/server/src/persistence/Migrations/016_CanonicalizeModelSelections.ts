@@ -89,29 +89,47 @@ export default Effect.gen(function* () {
               'model',
               json_extract(payload_json, '$.defaultModel')
             ),
-            CASE
-              WHEN json_type(payload_json, '$.defaultModelOptions') IS NULL THEN '{}'
-              WHEN json_type(payload_json, '$.defaultModelOptions.codex') IS NOT NULL
-                OR json_type(payload_json, '$.defaultModelOptions.claudeAgent') IS NOT NULL
-              THEN CASE
-                WHEN (
+              CASE
+                WHEN json_type(payload_json, '$.defaultModelOptions') IS NULL THEN '{}'
+                WHEN json_type(payload_json, '$.defaultModelOptions.codex') IS NOT NULL
+                  OR json_type(payload_json, '$.defaultModelOptions.claudeAgent') IS NOT NULL
+                THEN CASE
+                  WHEN (
                   CASE
                     WHEN json_extract(payload_json, '$.defaultProvider') IS NOT NULL
                     THEN json_extract(payload_json, '$.defaultProvider')
                     WHEN lower(json_extract(payload_json, '$.defaultModel')) LIKE '%claude%'
                     THEN 'claudeAgent'
                     ELSE 'codex'
+                    END
+                  ) = 'claudeAgent'
+                  THEN CASE
+                    WHEN json_type(payload_json, '$.defaultModelOptions.claudeAgent') IS NOT NULL
+                    THEN json_object(
+                      'options',
+                      json(json_extract(payload_json, '$.defaultModelOptions.claudeAgent'))
+                    )
+                    WHEN json_type(payload_json, '$.defaultModelOptions.codex') IS NOT NULL
+                    THEN json_object(
+                      'options',
+                      json(json_extract(payload_json, '$.defaultModelOptions.codex'))
+                    )
+                    ELSE '{}'
                   END
-                ) = 'claudeAgent'
-                THEN json_object(
-                  'options',
-                  json(json_extract(payload_json, '$.defaultModelOptions.claudeAgent'))
-                )
-                ELSE json_object(
-                  'options',
-                  json(json_extract(payload_json, '$.defaultModelOptions.codex'))
-                )
-              END
+                  ELSE CASE
+                    WHEN json_type(payload_json, '$.defaultModelOptions.codex') IS NOT NULL
+                    THEN json_object(
+                      'options',
+                      json(json_extract(payload_json, '$.defaultModelOptions.codex'))
+                    )
+                    WHEN json_type(payload_json, '$.defaultModelOptions.claudeAgent') IS NOT NULL
+                    THEN json_object(
+                      'options',
+                      json(json_extract(payload_json, '$.defaultModelOptions.claudeAgent'))
+                    )
+                    ELSE '{}'
+                  END
+                END
               ELSE json_object(
                 'options',
                 json(json_extract(payload_json, '$.defaultModelOptions'))
@@ -160,16 +178,34 @@ export default Effect.gen(function* () {
                   WHEN lower(json_extract(payload_json, '$.model')) LIKE '%claude%'
                   THEN 'claudeAgent'
                   ELSE 'codex'
-                END
+                  END
               ) = 'claudeAgent'
-              THEN json_object(
-                'options',
-                json(json_extract(payload_json, '$.modelOptions.claudeAgent'))
-              )
-              ELSE json_object(
-                'options',
-                json(json_extract(payload_json, '$.modelOptions.codex'))
-              )
+              THEN CASE
+                WHEN json_type(payload_json, '$.modelOptions.claudeAgent') IS NOT NULL
+                THEN json_object(
+                  'options',
+                  json(json_extract(payload_json, '$.modelOptions.claudeAgent'))
+                )
+                WHEN json_type(payload_json, '$.modelOptions.codex') IS NOT NULL
+                THEN json_object(
+                  'options',
+                  json(json_extract(payload_json, '$.modelOptions.codex'))
+                )
+                ELSE '{}'
+              END
+              ELSE CASE
+                WHEN json_type(payload_json, '$.modelOptions.codex') IS NOT NULL
+                THEN json_object(
+                  'options',
+                  json(json_extract(payload_json, '$.modelOptions.codex'))
+                )
+                WHEN json_type(payload_json, '$.modelOptions.claudeAgent') IS NOT NULL
+                THEN json_object(
+                  'options',
+                  json(json_extract(payload_json, '$.modelOptions.claudeAgent'))
+                )
+                ELSE '{}'
+              END
             END
             ELSE json_object('options', json(json_extract(payload_json, '$.modelOptions')))
           END

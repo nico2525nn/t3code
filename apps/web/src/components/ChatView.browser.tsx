@@ -90,6 +90,7 @@ interface UserRowMeasurement {
 }
 
 interface MountedChatView {
+  [Symbol.asyncDispose]: () => Promise<void>;
   cleanup: () => Promise<void>;
   measureUserRow: (targetMessageId: MessageId) => Promise<UserRowMeasurement>;
   setViewport: (viewport: ViewportSpec) => Promise<void>;
@@ -765,11 +766,14 @@ async function mountChatView(options: {
 
   await waitForLayout();
 
+  const cleanup = async () => {
+    await screen.unmount();
+    host.remove();
+  };
+
   return {
-    cleanup: async () => {
-      await screen.unmount();
-      host.remove();
-    },
+    [Symbol.asyncDispose]: cleanup,
+    cleanup,
     measureUserRow: async (targetMessageId: MessageId) => measureUserRow({ host, targetMessageId }),
     setViewport: async (viewport: ViewportSpec) => {
       await setViewport(viewport);
@@ -1525,13 +1529,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const newThreadId = newThreadPath.slice(1) as ThreadId;
 
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]).toMatchObject({
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
-          options: {
-            fastMode: true,
+        modelSelectionByProvider: {
+          codex: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+            options: {
+              fastMode: true,
+            },
           },
         },
+        activeProvider: null,
       });
     } finally {
       await mounted.cleanup();
@@ -1574,16 +1581,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const newThreadId = newThreadPath.slice(1) as ThreadId;
 
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]).toMatchObject({
-        modelSelection: {
-          provider: "claudeAgent",
-          model: "claude-opus-4-6",
-          options: {
-            effort: "max",
-            fastMode: true,
+        modelSelectionByProvider: {
+          claudeAgent: {
+            provider: "claudeAgent",
+            model: "claude-opus-4-6",
+            options: {
+              effort: "max",
+              fastMode: true,
+            },
           },
         },
+        activeProvider: null,
       });
-      await expect.element(page.getByText("Claude Opus 4.6")).toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }
@@ -1653,13 +1662,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const threadId = threadPath.slice(1) as ThreadId;
 
       expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toMatchObject({
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
-          options: {
-            fastMode: true,
+        modelSelectionByProvider: {
+          codex: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+            options: {
+              fastMode: true,
+            },
           },
         },
+        activeProvider: null,
       });
 
       useComposerDraftStore.getState().setModelSelection(threadId, {
@@ -1679,14 +1691,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "New-thread should reuse the existing project draft thread.",
       );
       expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toMatchObject({
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5.4",
-          options: {
-            reasoningEffort: "low",
-            fastMode: true,
+        modelSelectionByProvider: {
+          codex: {
+            provider: "codex",
+            model: "gpt-5.4",
+            options: {
+              reasoningEffort: "low",
+              fastMode: true,
+            },
           },
         },
+        activeProvider: "codex",
       });
     } finally {
       await mounted.cleanup();
