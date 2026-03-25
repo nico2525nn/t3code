@@ -1,8 +1,38 @@
-import { Schema } from "effect";
+import { Schema, Struct } from "effect";
 import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas";
 import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
-import { ProviderKind } from "./orchestration";
+import { DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER } from "./model";
+import { ModelSelection, ProviderKind } from "./orchestration";
+
+// ── Server Settings (server-authoritative) ───────────────────────────
+
+export const ThreadEnvMode = Schema.Literals(["local", "worktree"]);
+export type ThreadEnvMode = typeof ThreadEnvMode.Type;
+
+export const ServerSettings = Schema.Struct({
+  claudeBinaryPath: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
+  codexBinaryPath: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
+  codexHomePath: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
+  enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  defaultThreadEnvMode: ThreadEnvMode.pipe(
+    Schema.withDecodingDefault(() => "local" as const satisfies ThreadEnvMode),
+  ),
+  customCodexModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  customClaudeModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  textGenerationModelSelection: ModelSelection.pipe(
+    Schema.withDecodingDefault(() => ({
+      provider: "codex" as const,
+      model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
+    })),
+  ),
+});
+export type ServerSettings = typeof ServerSettings.Type;
+
+export const DEFAULT_SERVER_SETTINGS: ServerSettings = Schema.decodeUnknownSync(ServerSettings)({});
+
+export const ServerSettingsPatch = ServerSettings.mapFields(Struct.map(Schema.optionalKey));
+export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
   kind: Schema.Literal("keybindings.malformed-config"),
@@ -52,6 +82,7 @@ export const ServerConfig = Schema.Struct({
   issues: ServerConfigIssues,
   providers: ServerProviderStatuses,
   availableEditors: Schema.Array(EditorId),
+  settings: ServerSettings,
 });
 export type ServerConfig = typeof ServerConfig.Type;
 
@@ -67,5 +98,6 @@ export type ServerUpsertKeybindingResult = typeof ServerUpsertKeybindingResult.T
 export const ServerConfigUpdatedPayload = Schema.Struct({
   issues: ServerConfigIssues,
   providers: ServerProviderStatuses,
+  settings: Schema.optional(ServerSettings),
 });
 export type ServerConfigUpdatedPayload = typeof ServerConfigUpdatedPayload.Type;

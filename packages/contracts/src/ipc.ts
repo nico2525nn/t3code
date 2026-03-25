@@ -25,7 +25,7 @@ import type {
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "./project";
-import type { ServerConfig } from "./server";
+import type { ServerConfig, ServerSettings, ServerSettingsPatch } from "./server";
 import type {
   TerminalClearInput,
   TerminalCloseInput,
@@ -161,6 +161,8 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
+    getSettings: () => Promise<ServerSettings>;
+    updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

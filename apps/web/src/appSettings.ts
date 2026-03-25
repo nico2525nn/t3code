@@ -1,121 +1,50 @@
-import { useCallback } from "react";
-import { Option, Schema } from "effect";
+/**
+ * App Settings - Backward-compatible shim.
+ *
+ * Re-exports the unified settings hook (`useSettings` / `useUpdateSettings`)
+ * as `useAppSettings()` so existing consumers continue to work without
+ * modification. New code should import from `~/hooks/useSettings` directly.
+ *
+ * Also re-exports type aliases and schema constants consumed by components
+ * that only need the type (e.g. `TimestampFormat`).
+ */
+import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@t3tools/contracts";
+import { useSettings, useUpdateSettings, type UnifiedSettings } from "./hooks/useSettings";
 import {
-  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
-  ModelSelection,
-  type ProviderStartOptions,
-} from "@t3tools/contracts";
-import { useLocalStorage } from "./hooks/useLocalStorage";
-import { EnvMode } from "./components/BranchToolbar.logic";
-import { normalizeCustomModelSlugs } from "./modelSelection";
+  DEFAULT_CLIENT_SETTINGS,
+  type ClientSettings,
+  type TimestampFormat,
+  type SidebarProjectSortOrder,
+  type SidebarThreadSortOrder,
+  DEFAULT_TIMESTAMP_FORMAT,
+  DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
+  DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
+} from "./clientSettings";
 
-const APP_SETTINGS_STORAGE_KEY = "t3code:app-settings:v1";
+// ── Re-exports for downstream type consumers ─────────────────────────
 
-export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
-export type TimestampFormat = typeof TimestampFormat.Type;
-export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
-export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
-export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
-export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
-export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
-export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
-export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
+export type { TimestampFormat, SidebarProjectSortOrder, SidebarThreadSortOrder };
+export {
+  DEFAULT_TIMESTAMP_FORMAT,
+  DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
+  DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
+};
+export type { UnifiedSettings };
 
-const withDefaults =
-  <
-    S extends Schema.Top & Schema.WithoutConstructorDefault,
-    D extends S["~type.make.in"] & S["Encoded"],
-  >(
-    fallback: () => D,
-  ) =>
-  (schema: S) =>
-    schema.pipe(
-      Schema.withConstructorDefault(() => Option.some(fallback())),
-      Schema.withDecodingDefault(() => fallback()),
-    );
+// ── Backward-compat type alias ───────────────────────────────────────
 
-export const AppSettingsSchema = Schema.Struct({
-  claudeBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
-  codexBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
-  codexHomePath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
-  defaultThreadEnvMode: EnvMode.pipe(withDefaults(() => "local" as const satisfies EnvMode)),
-  confirmThreadDelete: Schema.Boolean.pipe(withDefaults(() => true)),
-  diffWordWrap: Schema.Boolean.pipe(withDefaults(() => false)),
-  enableAssistantStreaming: Schema.Boolean.pipe(withDefaults(() => false)),
-  sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
-    withDefaults(() => DEFAULT_SIDEBAR_PROJECT_SORT_ORDER),
-  ),
-  sidebarThreadSortOrder: SidebarThreadSortOrder.pipe(
-    withDefaults(() => DEFAULT_SIDEBAR_THREAD_SORT_ORDER),
-  ),
-  timestampFormat: TimestampFormat.pipe(withDefaults(() => DEFAULT_TIMESTAMP_FORMAT)),
-  customCodexModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
-  customClaudeModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
-  textGenerationModelSelection: ModelSelection.pipe(
-    withDefaults(() => ({
-      provider: "codex" as const,
-      model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
-    })),
-  ),
-});
-export type AppSettings = typeof AppSettingsSchema.Type;
+export type AppSettings = UnifiedSettings;
 
-const DEFAULT_APP_SETTINGS = AppSettingsSchema.makeUnsafe({});
-
-function normalizeAppSettings(settings: AppSettings): AppSettings {
-  return {
-    ...settings,
-    customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),
-    customClaudeModels: normalizeCustomModelSlugs(settings.customClaudeModels, "claudeAgent"),
-  };
-}
-
-export function getProviderStartOptions(
-  settings: Pick<AppSettings, "claudeBinaryPath" | "codexBinaryPath" | "codexHomePath">,
-): ProviderStartOptions | undefined {
-  const providerOptions: ProviderStartOptions = {
-    ...(settings.codexBinaryPath || settings.codexHomePath
-      ? {
-          codex: {
-            ...(settings.codexBinaryPath ? { binaryPath: settings.codexBinaryPath } : {}),
-            ...(settings.codexHomePath ? { homePath: settings.codexHomePath } : {}),
-          },
-        }
-      : {}),
-    ...(settings.claudeBinaryPath
-      ? {
-          claudeAgent: {
-            binaryPath: settings.claudeBinaryPath,
-          },
-        }
-      : {}),
-  };
-
-  return Object.keys(providerOptions).length > 0 ? providerOptions : undefined;
-}
+// ── Backward-compat hook ─────────────────────────────────────────────
 
 export function useAppSettings() {
-  const [settings, setSettings] = useLocalStorage(
-    APP_SETTINGS_STORAGE_KEY,
-    DEFAULT_APP_SETTINGS,
-    AppSettingsSchema,
-  );
-
-  const updateSettings = useCallback(
-    (patch: Partial<AppSettings>) => {
-      setSettings((prev) => normalizeAppSettings({ ...prev, ...patch }));
-    },
-    [setSettings],
-  );
-
-  const resetSettings = useCallback(() => {
-    setSettings(DEFAULT_APP_SETTINGS);
-  }, [setSettings]);
+  const settings = useSettings();
+  const { updateSettings, resetSettings, defaults } = useUpdateSettings();
 
   return {
     settings,
-    updateSettings,
+    updateSettings: (patch: Partial<AppSettings>) => updateSettings(patch),
     resetSettings,
-    defaults: DEFAULT_APP_SETTINGS,
+    defaults,
   } as const;
 }

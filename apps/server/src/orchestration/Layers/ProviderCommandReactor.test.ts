@@ -17,6 +17,7 @@ import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effe
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
+import { ServerSettingsLive } from "../../serverSettings.ts";
 import { TextGenerationError } from "../../git/Errors.ts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
@@ -214,6 +215,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(
         Layer.succeed(TextGeneration, { generateBranchName } as unknown as TextGenerationShape),
       ),
+      Layer.provideMerge(ServerSettingsLive),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
       Layer.provideMerge(NodeServices.layer),
     );

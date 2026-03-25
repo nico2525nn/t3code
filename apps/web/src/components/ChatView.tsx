@@ -120,7 +120,7 @@ import {
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import { getProviderStartOptions, useAppSettings } from "../appSettings";
+import { useAppSettings } from "../appSettings";
 import {
   getCustomModelOptionsByProvider,
   getCustomModelsByProvider,
@@ -638,7 +638,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }),
     [selectedModel, selectedModelOptionsForDispatch, selectedProvider],
   );
-  const providerOptionsForDispatch = useMemo(() => getProviderStartOptions(settings), [settings]);
   const selectedModelForPicker = selectedModel;
   const modelOptionsByProvider = useMemo(
     () => getCustomModelOptionsByProvider(settings, selectedProvider, selectedModel),
@@ -2645,8 +2644,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
           attachments: turnAttachments,
         },
         modelSelection: selectedModelSelection,
-        ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
-        assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
         runtimeMode,
         interactionMode,
         createdAt: messageCreatedAt,
@@ -2927,8 +2924,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
             attachments: [],
           },
           modelSelection: selectedModelSelection,
-          ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
-          assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
           runtimeMode,
           interactionMode: nextInteractionMode,
           ...(nextInteractionMode === "default" && activeProposedPlan
@@ -2974,7 +2969,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       runtimeMode,
       selectedPromptEffort,
       selectedModelSelection,
-      providerOptionsForDispatch,
       selectedProvider,
       setComposerDraftInteractionMode,
       setThreadError,
@@ -3044,8 +3038,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
             attachments: [],
           },
           modelSelection: selectedModelSelection,
-          ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
-          assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
           runtimeMode,
           interactionMode: "default",
           createdAt,
@@ -3096,9 +3088,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     runtimeMode,
     selectedPromptEffort,
     selectedModelSelection,
-    providerOptionsForDispatch,
     selectedProvider,
-    settings.enableAssistantStreaming,
     syncServerReadModel,
     selectedModel,
   ]);

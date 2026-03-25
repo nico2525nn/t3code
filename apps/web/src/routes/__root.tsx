@@ -21,6 +21,7 @@ import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
 import { onServerConfigUpdated, onServerWelcome } from "../wsNativeApi";
+import { migrateLocalSettingsToServer } from "../hooks/useSettings";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
@@ -230,6 +231,8 @@ function EventRouter() {
         );
     });
     const unsubWelcome = onServerWelcome((payload) => {
+      // Migrate old localStorage settings to server on first connect
+      migrateLocalSettingsToServer();
       void (async () => {
         await syncSnapshot();
         if (disposed) {

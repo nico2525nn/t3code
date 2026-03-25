@@ -1,12 +1,9 @@
-import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
-  AppSettingsSchema,
   DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
   DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
   DEFAULT_TIMESTAMP_FORMAT,
-  getProviderStartOptions,
 } from "./appSettings";
 import {
   getAppModelOptions,
@@ -134,35 +131,6 @@ describe("provider-specific custom models", () => {
   });
 });
 
-describe("getProviderStartOptions", () => {
-  it("returns only populated provider overrides", () => {
-    expect(
-      getProviderStartOptions({
-        claudeBinaryPath: "/usr/local/bin/claude",
-        codexBinaryPath: "",
-        codexHomePath: "/Users/you/.codex",
-      }),
-    ).toEqual({
-      claudeAgent: {
-        binaryPath: "/usr/local/bin/claude",
-      },
-      codex: {
-        homePath: "/Users/you/.codex",
-      },
-    });
-  });
-
-  it("returns undefined when no provider overrides are configured", () => {
-    expect(
-      getProviderStartOptions({
-        claudeBinaryPath: "",
-        codexBinaryPath: "",
-        codexHomePath: "",
-      }),
-    ).toBeUndefined();
-  });
-});
-
 describe("provider-indexed custom model settings", () => {
   const settings = {
     customCodexModels: ["custom/codex-model"],
@@ -239,33 +207,6 @@ describe("provider-indexed custom model settings", () => {
     expect(
       modelOptionsByProvider.claudeAgent.some((option) => option.slug === "claude-sonnet-4-6"),
     ).toBe(true);
-  });
-});
-
-describe("AppSettingsSchema", () => {
-  it("fills decoding defaults for persisted settings that predate newer keys", () => {
-    const decode = Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema));
-
-    expect(
-      decode(
-        JSON.stringify({
-          codexBinaryPath: "/usr/local/bin/codex",
-          confirmThreadDelete: false,
-        }),
-      ),
-    ).toMatchObject({
-      claudeBinaryPath: "",
-      codexBinaryPath: "/usr/local/bin/codex",
-      codexHomePath: "",
-      defaultThreadEnvMode: "local",
-      confirmThreadDelete: false,
-      enableAssistantStreaming: false,
-      sidebarProjectSortOrder: DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
-      sidebarThreadSortOrder: DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
-      timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
-      customCodexModels: [],
-      customClaudeModels: [],
-    });
   });
 });
 
