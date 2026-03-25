@@ -1,7 +1,6 @@
 import {
   type ChatAttachment,
   CommandId,
-  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
@@ -362,9 +361,11 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
-    yield* ensureSessionForThread(input.threadId, input.createdAt, {
-      ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
-    });
+    yield* ensureSessionForThread(
+      input.threadId,
+      input.createdAt,
+      input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {},
+    );
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
@@ -433,10 +434,10 @@ const make = Effect.gen(function* () {
         cwd,
         message: input.messageText,
         ...(attachments.length > 0 ? { attachments } : {}),
-        modelSelection: {
-          provider: "codex",
-          model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
-        },
+        modelSelection: yield* Effect.map(
+          serverSettingsService.getSettings,
+          (settings) => settings.textGenerationModelSelection,
+        ),
       })
       .pipe(
         Effect.catch((error) =>
@@ -680,9 +681,11 @@ const make = Effect.gen(function* () {
             return;
           }
           const cachedModelSelection = threadModelSelections.get(event.payload.threadId);
-          yield* ensureSessionForThread(event.payload.threadId, event.occurredAt, {
-            ...(cachedModelSelection !== undefined ? { modelSelection: cachedModelSelection } : {}),
-          });
+          yield* ensureSessionForThread(
+            event.payload.threadId,
+            event.occurredAt,
+            cachedModelSelection !== undefined ? { modelSelection: cachedModelSelection } : {},
+          );
           return;
         }
         case "thread.turn-start-requested":

@@ -70,7 +70,16 @@ export interface ServerSettingsShape {
 export class ServerSettingsService extends ServiceMap.Service<
   ServerSettingsService,
   ServerSettingsShape
->()("t3/serverSettings/ServerSettingsService") {}
+>()("t3/serverSettings/ServerSettingsService") {
+  static readonly layerTest = (overrides: Partial<ServerSettings> = {}) =>
+    Layer.succeed(ServerSettingsService, {
+      start: Effect.void,
+      ready: Effect.void,
+      getSettings: Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, ...overrides }),
+      updateSettings: () => Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, ...overrides }),
+      streamChanges: Stream.empty,
+    } satisfies ServerSettingsShape);
+}
 
 /**
  * Derive `ProviderStartOptions` from server settings.
@@ -80,18 +89,18 @@ export function deriveProviderStartOptions(
   settings: ServerSettings,
 ): ProviderStartOptions | undefined {
   const providerOptions: ProviderStartOptions = {
-    ...(settings.codexBinaryPath || settings.codexHomePath
+    ...(settings.codex
       ? {
           codex: {
-            ...(settings.codexBinaryPath ? { binaryPath: settings.codexBinaryPath } : {}),
-            ...(settings.codexHomePath ? { homePath: settings.codexHomePath } : {}),
+            ...(settings.codex.binaryPath ? { binaryPath: settings.codex.binaryPath } : {}),
+            ...(settings.codex.homePath ? { homePath: settings.codex.homePath } : {}),
           },
         }
       : {}),
-    ...(settings.claudeBinaryPath
+    ...(settings.claude
       ? {
           claudeAgent: {
-            binaryPath: settings.claudeBinaryPath,
+            binaryPath: settings.claude.binaryPath,
           },
         }
       : {}),

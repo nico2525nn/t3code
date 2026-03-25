@@ -67,7 +67,7 @@ import {
   type TestProviderAdapterHarness,
 } from "./TestProviderAdapter.integration.ts";
 import { deriveServerPaths, ServerConfig } from "../src/config.ts";
-import { ServerSettingsLive } from "../src/serverSettings.ts";
+import { ServerSettingsService } from "../src/serverSettings.ts";
 
 function runGit(cwd: string, args: ReadonlyArray<string>) {
   return execFileSync("git", args, {
@@ -296,10 +296,7 @@ export const makeOrchestrationIntegrationHarness = (
       providerLayer,
       RuntimeReceiptBusLive,
     );
-    const serverSettingsLayer = ServerSettingsLive.pipe(
-      Layer.provide(ServerConfig.layerTest(workspaceDir, rootDir)),
-      Layer.provide(NodeServices.layer),
-    );
+    const serverSettingsLayer = ServerSettingsService.layerTest();
     const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(serverSettingsLayer),

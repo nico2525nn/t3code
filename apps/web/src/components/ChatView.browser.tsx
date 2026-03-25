@@ -118,9 +118,8 @@ function createBaseServerConfig(): ServerConfig {
     ],
     availableEditors: [],
     settings: {
-      claudeBinaryPath: "",
-      codexBinaryPath: "",
-      codexHomePath: "",
+      claude: { binaryPath: "" },
+      codex: { binaryPath: "", homePath: "" },
       enableAssistantStreaming: false,
       defaultThreadEnvMode: "local" as const,
       customCodexModels: [],

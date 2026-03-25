@@ -26,6 +26,7 @@ import {
   sanitizePrTitle,
   toJsonSchemaObject,
 } from "../Utils.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 
 const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "low";
 const CODEX_TIMEOUT_MS = 180_000;
@@ -35,6 +36,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
   const path = yield* Path.Path;
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const serverConfig = yield* Effect.service(ServerConfig);
+  const serverSettingsService = yield* Effect.service(ServerSettingsService);
 
   type MaterializedImageAttachments = {
     readonly imagePaths: ReadonlyArray<string>;
@@ -138,6 +140,11 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       );
       const outputPath = yield* writeTempFile(operation, "codex-output", "");
 
+      const codexSettings = yield* Effect.map(
+        serverSettingsService.getSettings,
+        (settings) => settings.codex,
+      ).pipe(Effect.catch(() => Effect.undefined));
+
       const runCodexCommand = Effect.gen(function* () {
         const normalizedOptions = normalizeCodexModelOptions(
           modelSelection.model,
@@ -146,7 +153,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         const reasoningEffort =
           modelSelection.options?.reasoningEffort ?? CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT;
         const command = ChildProcess.make(
-          "codex",
+          codexSettings?.binaryPath ?? "codex",
           [
             "exec",
             "--ephemeral",
@@ -165,6 +172,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             "-",
           ],
           {
+            env: codexSettings?.homePath ? { CODEX_HOME: codexSettings.homePath } : {},
             cwd,
             shell: process.platform === "win32",
             stdin: {

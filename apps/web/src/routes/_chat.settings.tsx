@@ -195,8 +195,8 @@ function SettingsRouteView() {
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
   const [openInstallProviders, setOpenInstallProviders] = useState<Record<ProviderKind, boolean>>({
-    codex: Boolean(settings.codexBinaryPath || settings.codexHomePath),
-    claudeAgent: Boolean(settings.claudeBinaryPath),
+    codex: Boolean(settings.codex?.binaryPath || settings.codex?.homePath),
+    claudeAgent: Boolean(settings.claude?.binaryPath),
   });
   const [selectedCustomModelProvider, setSelectedCustomModelProvider] =
     useState<ProviderKind>("codex");
@@ -211,9 +211,9 @@ function SettingsRouteView() {
   >({});
   const [showAllCustomModels, setShowAllCustomModels] = useState(false);
 
-  const codexBinaryPath = settings.codexBinaryPath;
-  const codexHomePath = settings.codexHomePath;
-  const claudeBinaryPath = settings.claudeBinaryPath;
+  const codexBinaryPath = settings.codex?.binaryPath ?? "";
+  const codexHomePath = settings.codex?.homePath ?? "";
+  const claudeBinaryPath = settings.claude?.binaryPath ?? "";
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const availableEditors = serverConfigQuery.data?.availableEditors;
 
@@ -244,9 +244,9 @@ function SettingsRouteView() {
     ? savedCustomModelRows
     : savedCustomModelRows.slice(0, 5);
   const isInstallSettingsDirty =
-    settings.claudeBinaryPath !== defaults.claudeBinaryPath ||
-    settings.codexBinaryPath !== defaults.codexBinaryPath ||
-    settings.codexHomePath !== defaults.codexHomePath;
+    settings.claude?.binaryPath !== defaults.claude?.binaryPath ||
+    settings.codex?.binaryPath !== defaults.codex?.binaryPath ||
+    settings.codex?.homePath !== defaults.codex?.homePath;
   const changedSettingLabels = [
     ...(theme !== "system" ? ["Theme"] : []),
     ...(settings.timestampFormat !== defaults.timestampFormat ? ["Time format"] : []),
@@ -831,9 +831,11 @@ function SettingsRouteView() {
                       label="provider installs"
                       onClick={() => {
                         updateSettings({
-                          claudeBinaryPath: defaults.claudeBinaryPath,
-                          codexBinaryPath: defaults.codexBinaryPath,
-                          codexHomePath: defaults.codexHomePath,
+                          claude: { binaryPath: defaults.claude?.binaryPath ?? "" },
+                          codex: {
+                            binaryPath: defaults.codex?.binaryPath ?? "",
+                            homePath: defaults.codex?.homePath ?? "",
+                          },
                         });
                         setOpenInstallProviders({
                           codex: false,
@@ -850,12 +852,12 @@ function SettingsRouteView() {
                       const isOpen = openInstallProviders[providerSettings.provider];
                       const isDirty =
                         providerSettings.provider === "codex"
-                          ? settings.codexBinaryPath !== defaults.codexBinaryPath ||
-                            settings.codexHomePath !== defaults.codexHomePath
-                          : settings.claudeBinaryPath !== defaults.claudeBinaryPath;
+                          ? settings.codex?.binaryPath !== defaults.codex?.binaryPath ||
+                            settings.codex?.homePath !== defaults.codex?.homePath
+                          : settings.claude?.binaryPath !== defaults.claude?.binaryPath;
                       const binaryPathValue =
                         providerSettings.binaryPathKey === "claudeBinaryPath"
-                          ? claudeBinaryPath
+                          ? (settings.claude?.binaryPath ?? "")
                           : codexBinaryPath;
 
                       return (
@@ -910,9 +912,19 @@ function SettingsRouteView() {
                                       value={binaryPathValue}
                                       onChange={(event) =>
                                         updateSettings(
-                                          providerSettings.binaryPathKey === "claudeBinaryPath"
-                                            ? { claudeBinaryPath: event.target.value }
-                                            : { codexBinaryPath: event.target.value },
+                                          providerSettings.provider === "claudeAgent"
+                                            ? {
+                                                claude: {
+                                                  ...settings.claude,
+                                                  binaryPath: event.target.value,
+                                                },
+                                              }
+                                            : {
+                                                codex: {
+                                                  ...settings.codex,
+                                                  binaryPath: event.target.value,
+                                                },
+                                              },
                                         )
                                       }
                                       placeholder={providerSettings.binaryPlaceholder}
@@ -937,7 +949,10 @@ function SettingsRouteView() {
                                         value={codexHomePath}
                                         onChange={(event) =>
                                           updateSettings({
-                                            codexHomePath: event.target.value,
+                                            codex: {
+                                              ...settings.codex,
+                                              homePath: event.target.value,
+                                            },
                                           })
                                         }
                                         placeholder={providerSettings.homePlaceholder}

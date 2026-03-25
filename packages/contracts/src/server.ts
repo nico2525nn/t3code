@@ -10,10 +10,21 @@ import { ModelSelection, ProviderKind } from "./orchestration";
 export const ThreadEnvMode = Schema.Literals(["local", "worktree"]);
 export type ThreadEnvMode = typeof ThreadEnvMode.Type;
 
+export const CodexSettings = Schema.Struct({
+  binaryPath: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
+  homePath: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
+});
+export type CodexSettings = typeof CodexSettings.Type;
+
+export const ClaudeSettings = Schema.Struct({
+  binaryPath: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
+});
+export type ClaudeSettings = typeof ClaudeSettings.Type;
+
 export const ServerSettings = Schema.Struct({
-  claudeBinaryPath: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
-  codexBinaryPath: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
-  codexHomePath: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
+  codex: CodexSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+  claude: ClaudeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
     Schema.withDecodingDefault(() => "local" as const satisfies ThreadEnvMode),

@@ -1045,10 +1045,10 @@ const make = Effect.gen(function* () {
           yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
         }
 
-        const serverSettings = yield* serverSettingsService.getSettings;
-        const assistantDeliveryMode: AssistantDeliveryMode = serverSettings.enableAssistantStreaming
-          ? "streaming"
-          : "buffered";
+        const assistantDeliveryMode: AssistantDeliveryMode = yield* Effect.map(
+          serverSettingsService.getSettings,
+          (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
+        );
         if (assistantDeliveryMode === "buffered") {
           const spillChunk = yield* appendBufferedAssistantText(assistantMessageId, assistantDelta);
           if (spillChunk.length > 0) {

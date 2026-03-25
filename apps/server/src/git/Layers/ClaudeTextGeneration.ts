@@ -27,6 +27,7 @@ import {
   sanitizePrTitle,
   toJsonSchemaObject,
 } from "../Utils.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 
 const CLAUDE_TIMEOUT_MS = 180_000;
 
@@ -40,6 +41,7 @@ const ClaudeOutputEnvelope = Schema.Struct({
 
 const makeClaudeTextGeneration = Effect.gen(function* () {
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const serverSettingsService = yield* Effect.service(ServerSettingsService);
 
   const readStreamAsString = <E>(
     operation: string,
@@ -86,9 +88,14 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
         ...(normalizedOptions?.fastMode ? { fastMode: true } : {}),
       };
 
+      const claudeSettings = yield* Effect.map(
+        serverSettingsService.getSettings,
+        (settings) => settings.claude,
+      ).pipe(Effect.catch(() => Effect.undefined));
+
       const runClaudeCommand = Effect.gen(function* () {
         const command = ChildProcess.make(
-          "claude",
+          claudeSettings?.binaryPath ?? "claude",
           [
             "-p",
             "--output-format",

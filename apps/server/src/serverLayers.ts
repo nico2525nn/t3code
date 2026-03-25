@@ -27,7 +27,6 @@ import { makeEventNdjsonLogger } from "./provider/Layers/EventNdjsonLogger";
 
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
 import { KeybindingsLive } from "./keybindings";
-import { ServerSettingsLive } from "./serverSettings";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { GitCoreLive } from "./git/Layers/GitCore";
 import { GitHubCliLive } from "./git/Layers/GitHubCli";
@@ -109,13 +108,11 @@ export function makeServerRuntimeServicesLayer() {
   );
   const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
-    Layer.provideMerge(ServerSettingsLive),
   );
   const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(GitCoreLive),
     Layer.provideMerge(textGenerationLayer),
-    Layer.provideMerge(ServerSettingsLive),
   );
   const checkpointReactorLayer = CheckpointReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
@@ -140,6 +137,5 @@ export function makeServerRuntimeServicesLayer() {
     gitManagerLayer,
     terminalLayer,
     KeybindingsLive,
-    ServerSettingsLive,
   ).pipe(Layer.provideMerge(NodeServices.layer));
 }

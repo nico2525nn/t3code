@@ -28,6 +28,7 @@ import { ServerLoggerLive } from "./serverLogger";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { readBootstrapEnvelope } from "./bootstrap";
+import { ServerSettingsLive } from "./serverSettings";
 
 export class StartupError extends Data.TaggedError("StartupError")<{
   readonly message: string;
@@ -297,6 +298,7 @@ const LayerLive = (input: CliInput) =>
     Layer.provideMerge(SqlitePersistence.layerConfig),
     Layer.provideMerge(ServerLoggerLive),
     Layer.provideMerge(AnalyticsServiceLayerLive),
+    Layer.provideMerge(ServerSettingsLive),
     Layer.provideMerge(ServerConfigLive(input)),
   );
 

@@ -7,6 +7,7 @@ import { ServerConfig } from "../../config.ts";
 import { CodexTextGenerationLive } from "./CodexTextGeneration.ts";
 import { TextGenerationError } from "../Errors.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 
 const DEFAULT_TEST_MODEL_SELECTION = {
   provider: "codex" as const,
@@ -14,6 +15,7 @@ const DEFAULT_TEST_MODEL_SELECTION = {
 };
 
 const CodexTextGenerationTestLayer = CodexTextGenerationLive.pipe(
+  Layer.provideMerge(ServerSettingsService.layerTest()),
   Layer.provideMerge(
     ServerConfig.layerTest(process.cwd(), {
       prefix: "t3code-codex-text-generation-test-",
