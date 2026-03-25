@@ -13,7 +13,7 @@ import {
 } from "../Services/ProjectionThreads.ts";
 import { ModelSelection } from "@t3tools/contracts";
 
-const ProjectionThreadDbRow = ProjectionThread.mapFields(
+export const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
   }),

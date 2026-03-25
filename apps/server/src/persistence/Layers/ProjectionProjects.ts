@@ -12,7 +12,7 @@ import {
   type ProjectionProjectRepositoryShape,
 } from "../Services/ProjectionProjects.ts";
 
-const ProjectionProjectDbRow = ProjectionProject.mapFields(
+export const ProjectionProjectDbRow = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
