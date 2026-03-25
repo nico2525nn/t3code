@@ -362,7 +362,9 @@ const ContextCompactionActivityPayload = Schema.Struct({
 
 const ToolStartedOrCompletedActivityPayload = Schema.Struct({
   itemType: TrimmedNonEmptyString,
+  status: Schema.optional(TrimmedNonEmptyString),
   detail: Schema.optional(TrimmedNonEmptyString),
+  data: Schema.optional(CanonicalToolLifecycleData),
 });
 
 const ToolUpdatedActivityPayload = Schema.Struct({
