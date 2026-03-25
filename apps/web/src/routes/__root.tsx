@@ -263,8 +263,14 @@ function EventRouter() {
     // don't produce duplicate toasts.
     let subscribed = false;
     const unsubServerConfigUpdated = onServerConfigUpdated((payload) => {
+      // Invalidate the config query so active observers refetch fresh data.
       void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
+
       if (!subscribed) return;
+
+      // Only show keybindings toasts for keybindings changes (no settings in payload)
+      if (payload.settings) return;
+
       const issue = payload.issues.find((entry) => entry.kind.startsWith("keybindings."));
       if (!issue) {
         toastManager.add({

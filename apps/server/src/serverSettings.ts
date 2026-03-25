@@ -19,6 +19,7 @@ import {
 import {
   Cache,
   Deferred,
+  Duration,
   Effect,
   Exit,
   FileSystem,
@@ -34,6 +35,7 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
+import { fromLenientJson } from "@t3tools/shared/schemaJson";
 
 export class ServerSettingsError extends Schema.TaggedErrorClass<ServerSettingsError>()(
   "ServerSettingsError",
@@ -113,7 +115,7 @@ export function deriveProviderStartOptions(
   return Object.keys(providerOptions).length > 0 ? providerOptions : undefined;
 }
 
-const ServerSettingsJson = Schema.fromJsonString(ServerSettings);
+const ServerSettingsJson = fromLenientJson(ServerSettings);
 const PrettyJsonString = SchemaGetter.parseJson<string>().compose(
   SchemaGetter.stringifyJson({ space: 2 }),
 );
@@ -229,16 +231,25 @@ const makeServerSettings = Effect.gen(function* () {
 
     const revalidateAndEmitSafely = revalidateAndEmit.pipe(Effect.ignoreCause({ log: true }));
 
-    yield* Stream.runForEach(fs.watch(settingsDir), (event) => {
-      const isTargetEvent =
-        event.path === settingsFile ||
-        event.path === settingsPath ||
-        pathService.resolve(settingsDir, event.path) === settingsPathResolved;
-      if (!isTargetEvent) {
-        return Effect.void;
-      }
-      return revalidateAndEmitSafely;
-    }).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(watcherScope), Effect.asVoid);
+    // Debounce watch events so the file is fully written before we read it.
+    // Editors emit multiple events per save (truncate, write, rename) and
+    // `fs.watch` can fire before the content has been flushed to disk.
+    const debouncedSettingsEvents = fs.watch(settingsDir).pipe(
+      Stream.filter((event) => {
+        return (
+          event.path === settingsFile ||
+          event.path === settingsPath ||
+          pathService.resolve(settingsDir, event.path) === settingsPathResolved
+        );
+      }),
+      Stream.debounce(Duration.millis(100)),
+    );
+
+    yield* Stream.runForEach(debouncedSettingsEvents, () => revalidateAndEmitSafely).pipe(
+      Effect.ignoreCause({ log: true }),
+      Effect.forkIn(watcherScope),
+      Effect.asVoid,
+    );
   });
 
   const start = Effect.gen(function* () {
