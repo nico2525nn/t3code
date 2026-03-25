@@ -1,6 +1,11 @@
 import "../../index.css";
 
-import { type ModelSelection, DEFAULT_MODEL_BY_PROVIDER, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  type ModelSelection,
+  DEFAULT_MODEL_BY_PROVIDER,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { page } from "vitest/browser";
 import { useCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -430,9 +435,7 @@ describe("TraitsPicker (Codex)", () => {
       await page.getByRole("button").click();
       await page.getByRole("menuitemradio", { name: "on" }).click();
 
-      expect(
-        useComposerDraftStore.getState().stickyModelSelectionByProvider.codex,
-      ).toMatchObject({
+      expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toMatchObject({
         provider: "codex",
         options: {
           fastMode: true,
