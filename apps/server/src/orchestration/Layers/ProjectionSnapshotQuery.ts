@@ -17,7 +17,6 @@ import {
   type OrchestrationProject,
   type OrchestrationSession,
   type OrchestrationThread,
-  type OrchestrationThreadActivity,
   ModelSelection,
 } from "@t3tools/contracts";
 import { Effect, Layer, Schema, Struct } from "effect";
