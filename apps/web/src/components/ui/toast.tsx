@@ -311,7 +311,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                         className="min-w-0 break-words font-medium"
                         data-slot="toast-title"
                       />
-                      {toast.type === "error" && toast.description && (
+                      {toast.type === "error" && typeof toast.description === "string" && (
                         <CopyErrorButton text={toast.description} />
                       )}
                     </div>
