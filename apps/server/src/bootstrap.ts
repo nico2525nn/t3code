@@ -35,7 +35,11 @@ export const readBootstrapEnvelope = Effect.fn("readBootstrapEnvelope")(function
   if (!fdReady) return Option.none();
 
   const streamFd = yield* Effect.try({
-    try: () => NFS.openSync(resolveFdPath(fd), "r"),
+    try: () => {
+      const fdPath = resolveFdPath(fd);
+      if (fdPath === undefined) return fd;
+      return NFS.openSync(fdPath, "r");
+    },
     catch: (error) =>
       new BootstrapError({
         message: "Failed to duplicate bootstrap fd.",
@@ -113,9 +117,12 @@ function isUnavailableBootstrapFdError(error: unknown): boolean {
   );
 }
 
-function resolveFdPath(fd: number): string {
+function resolveFdPath(fd: number): string | undefined {
   if (process.platform === "linux") {
     return `/proc/self/fd/${fd}`;
+  }
+  if (process.platform === "win32") {
+    return undefined;
   }
   return `/dev/fd/${fd}`;
 }

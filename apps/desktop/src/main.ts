@@ -949,6 +949,13 @@ function startBackend(): void {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
+      // Clear env vars that the bootstrap pipe now delivers, so stray
+      // values inherited from the user's shell cannot override them.
+      T3CODE_MODE: undefined,
+      T3CODE_PORT: undefined,
+      T3CODE_HOME: undefined,
+      T3CODE_NO_BROWSER: undefined,
+      T3CODE_AUTH_TOKEN: undefined,
     },
     stdio: captureBackendLogs
       ? ["ignore", "pipe", "pipe", "pipe"]
