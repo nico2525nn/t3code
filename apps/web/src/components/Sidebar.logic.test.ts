@@ -343,6 +343,7 @@ describe("getVisibleThreadsForProject", () => {
 });
 
 function makeProject(overrides: Partial<Project> = {}): Project {
+  const { defaultModelSelection, ...rest } = overrides;
   return {
     id: ProjectId.makeUnsafe("project-1"),
     name: "Project",
@@ -350,13 +351,13 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     defaultModelSelection: {
       provider: "codex",
       model: "gpt-5.4",
-      ...overrides?.defaultModelSelection,
+      ...defaultModelSelection,
     },
     expanded: true,
     createdAt: "2026-03-09T10:00:00.000Z",
     updatedAt: "2026-03-09T10:00:00.000Z",
     scripts: [],
-    ...overrides,
+    ...rest,
   };
 }
 
