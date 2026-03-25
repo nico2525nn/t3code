@@ -4,7 +4,7 @@ import { ChevronDownIcon, PlusIcon, RotateCcwIcon, Undo2Icon, XIcon } from "luci
 import { type ReactNode, useCallback, useState } from "react";
 import { type ProviderKind } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
-import { useAppSettings } from "../appSettings";
+import { useSettings, useUpdateSettings } from "../hooks/useSettings";
 import {
   getCustomModelOptionsByProvider,
   MAX_CUSTOM_MODEL_LENGTH,
@@ -184,7 +184,8 @@ function SettingResetButton({ label, onClick }: { label: string; onClick: () => 
 
 function SettingsRouteView() {
   const { theme, setTheme } = useTheme();
-  const { settings, defaults, updateSettings, resetSettings } = useAppSettings();
+  const settings = useSettings();
+  const { updateSettings, resetSettings, defaults } = useUpdateSettings();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
