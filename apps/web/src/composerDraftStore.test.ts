@@ -697,7 +697,7 @@ describe("composerDraftStore modelSelection", () => {
     );
   });
 
-  it("removes selection options when the patched provider options normalize empty", () => {
+  it("keeps explicit default-state overrides on the selection", () => {
     const store = useComposerDraftStore.getState();
 
     store.setModelSelection(
@@ -712,13 +712,21 @@ describe("composerDraftStore modelSelection", () => {
     });
 
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelection).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6"),
+      modelSelection("claudeAgent", "claude-opus-4-6", {
+        thinking: true,
+      }),
     );
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelOptions).toBeNull();
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelOptions).toEqual(
+      providerModelOptions({
+        claudeAgent: {
+          thinking: true,
+        },
+      }),
+    );
     expect(useComposerDraftStore.getState().stickyModelSelection).toBeNull();
   });
 
-  it("removes model options entirely when the last provider entry normalizes empty", () => {
+  it("keeps explicit off/default codex overrides on the selection", () => {
     const store = useComposerDraftStore.getState();
 
     store.setModelSelection(threadId, modelSelection("codex", "gpt-5.4", { fastMode: true }));
@@ -729,9 +737,19 @@ describe("composerDraftStore modelSelection", () => {
     });
 
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelection).toEqual(
-      modelSelection("codex", "gpt-5.4"),
+      modelSelection("codex", "gpt-5.4", {
+        reasoningEffort: "high",
+        fastMode: false,
+      }),
     );
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelOptions).toBeNull();
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelOptions).toEqual(
+      providerModelOptions({
+        codex: {
+          reasoningEffort: "high",
+          fastMode: false,
+        },
+      }),
+    );
   });
 
   it("updates only the draft when sticky persistence is omitted", () => {
