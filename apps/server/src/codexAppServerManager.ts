@@ -542,7 +542,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       };
 
       const codexOptions = readCodexProviderOptions(input);
-      const codexBinaryPath = codexOptions.binaryPath ?? "codex";
+      const codexBinaryPath = codexOptions.binaryPath || "codex";
       const codexHomePath = codexOptions.homePath;
       this.assertSupportedCodexCliVersion({
         binaryPath: codexBinaryPath,
