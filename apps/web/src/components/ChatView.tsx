@@ -2967,7 +2967,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       selectedProvider,
       setComposerDraftInteractionMode,
       setThreadError,
-      settings.enableAssistantStreaming,
       selectedModel,
     ],
   );

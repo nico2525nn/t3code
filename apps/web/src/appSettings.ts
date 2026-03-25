@@ -8,11 +8,8 @@
  * Also re-exports type aliases and schema constants consumed by components
  * that only need the type (e.g. `TimestampFormat`).
  */
-import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@t3tools/contracts";
 import { useSettings, useUpdateSettings, type UnifiedSettings } from "./hooks/useSettings";
 import {
-  DEFAULT_CLIENT_SETTINGS,
-  type ClientSettings,
   type TimestampFormat,
   type SidebarProjectSortOrder,
   type SidebarThreadSortOrder,
