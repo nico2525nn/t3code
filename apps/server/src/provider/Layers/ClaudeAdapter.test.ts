@@ -614,7 +614,7 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 10).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 9).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -742,7 +742,7 @@ describe("ClaudeAdapterLive", () => {
         ],
       );
 
-      const turnStarted = runtimeEvents[3];
+      const turnStarted = runtimeEvents[2];
       assert.equal(turnStarted?.type, "turn.started");
       if (turnStarted?.type === "turn.started") {
         assert.equal(String(turnStarted.turnId), String(turn.turnId));
@@ -790,7 +790,7 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 11).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 10).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -977,7 +977,7 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 8).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 7).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -1053,7 +1053,7 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 6).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 5).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -1242,7 +1242,7 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 6).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 5).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -1289,7 +1289,7 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 6).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 5).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -1343,7 +1343,7 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 7).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 6).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -1412,7 +1412,7 @@ describe("ClaudeAdapterLive", () => {
       return Effect.gen(function* () {
         const adapter = yield* ClaudeAdapter;
 
-        const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 8).pipe(
+        const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 7).pipe(
           Stream.runCollect,
           Effect.forkChild,
         );
@@ -1668,7 +1668,7 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 8).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 7).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -1736,7 +1736,7 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 13).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 12).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -2041,7 +2041,7 @@ describe("ClaudeAdapterLive", () => {
         runtimeMode: "approval-required",
       });
 
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      yield* Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain);
 
       yield* adapter.sendTurn({
         threadId: session.threadId,
@@ -2150,7 +2150,7 @@ describe("ClaudeAdapterLive", () => {
         runtimeMode: "approval-required",
       });
 
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      yield* Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain);
 
       const createInput = harness.getLastCreateQueryInput();
       const canUseTool = createInput?.options.canUseTool;
@@ -2498,7 +2498,7 @@ describe("ClaudeAdapterLive", () => {
         runtimeMode: "full-access",
       });
 
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      yield* Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain);
 
       yield* adapter.sendTurn({
         threadId: session.threadId,
@@ -2564,7 +2564,7 @@ describe("ClaudeAdapterLive", () => {
         runtimeMode: "full-access",
       });
 
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      yield* Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain);
 
       yield* adapter.sendTurn({
         threadId: session.threadId,
@@ -2636,8 +2636,8 @@ describe("ClaudeAdapterLive", () => {
         runtimeMode: "approval-required",
       });
 
-      // Drain the session startup events (started, configured, state.changed).
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      // Drain the session startup events (started, state.changed).
+      yield* Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain);
 
       yield* adapter.sendTurn({
         threadId: session.threadId,
@@ -2761,7 +2761,7 @@ describe("ClaudeAdapterLive", () => {
         runtimeMode: "full-access",
       });
 
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      yield* Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain);
 
       const createInput = harness.getLastCreateQueryInput();
       const canUseTool = createInput?.options.canUseTool;
@@ -2829,7 +2829,7 @@ describe("ClaudeAdapterLive", () => {
         runtimeMode: "approval-required",
       });
 
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      yield* Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain);
 
       const createInput = harness.getLastCreateQueryInput();
       const canUseTool = createInput?.options.canUseTool;
