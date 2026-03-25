@@ -97,7 +97,7 @@ export function deriveProviderStartOptions(
           },
         }
       : {}),
-    ...(settings.claude
+    ...(settings.claude?.binaryPath
       ? {
           claudeAgent: {
             binaryPath: settings.claude.binaryPath,

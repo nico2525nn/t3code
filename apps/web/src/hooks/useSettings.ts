@@ -159,6 +159,33 @@ export function migrateLocalSettingsToServer(): void {
       }
     }
 
+    // Migrate old flat binary-path keys into their new nested shape
+    const codexBinaryPath = old["codexBinaryPath"];
+    const codexHomePath = old["codexHomePath"];
+    const claudeBinaryPath = old["claudeBinaryPath"];
+
+    if (
+      (typeof codexBinaryPath === "string" && codexBinaryPath) ||
+      (typeof codexHomePath === "string" && codexHomePath)
+    ) {
+      const existing = (serverPatch["codex"] as Record<string, unknown> | undefined) ?? {};
+      serverPatch["codex"] = {
+        ...existing,
+        ...(typeof codexBinaryPath === "string" && codexBinaryPath
+          ? { binaryPath: codexBinaryPath }
+          : {}),
+        ...(typeof codexHomePath === "string" && codexHomePath ? { homePath: codexHomePath } : {}),
+      };
+    }
+
+    if (typeof claudeBinaryPath === "string" && claudeBinaryPath) {
+      const existing = (serverPatch["claude"] as Record<string, unknown> | undefined) ?? {};
+      serverPatch["claude"] = {
+        ...existing,
+        binaryPath: claudeBinaryPath,
+      };
+    }
+
     if (Object.keys(serverPatch).length > 0) {
       void ensureNativeApi()
         .server.updateSettings(serverPatch as ServerSettingsPatch)
