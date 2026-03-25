@@ -6,8 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
-import { ClaudeTraitsMenuContent } from "./ClaudeTraitsPicker";
-import { CodexTraitsMenuContent } from "./CodexTraitsPicker";
+import { TraitsMenuContent } from "./TraitsPicker";
 import { useComposerDraftStore } from "../../composerDraftStore";
 
 async function mountMenu(props?: {
@@ -21,23 +20,23 @@ async function mountMenu(props?: {
   const draftsByThreadId = {} as ReturnType<
     typeof useComposerDraftStore.getState
   >["draftsByThreadId"];
+  const model = DEFAULT_MODEL_BY_PROVIDER["claudeAgent"];
+  const providerOpts =
+    provider === "codex" ? props?.modelOptions?.codex : props?.modelOptions?.claudeAgent;
   draftsByThreadId[threadId] = {
     prompt: props?.prompt ?? "",
     images: [],
     nonPersistedImageIds: [],
     persistedAttachments: [],
     terminalContexts: [],
-    modelSelection: {
-      provider,
-      model: DEFAULT_MODEL_BY_PROVIDER["claudeAgent"],
-      ...(props?.modelOptions
-        ? {
-            options:
-              provider === "codex" ? props.modelOptions.codex : props.modelOptions.claudeAgent,
-          }
-        : {}),
+    modelSelectionByProvider: {
+      [provider]: {
+        provider,
+        model,
+        ...(providerOpts ? { options: providerOpts } : {}),
+      },
     },
-    modelOptions: props?.modelOptions ?? null,
+    activeProvider: provider,
     runtimeMode: null,
     interactionMode: null,
   };
@@ -49,6 +48,8 @@ async function mountMenu(props?: {
   const host = document.createElement("div");
   document.body.append(host);
   const onPromptChange = vi.fn();
+  const providerOptions =
+    provider === "codex" ? props?.modelOptions?.codex : props?.modelOptions?.claudeAgent;
   const screen = await render(
     <CompactComposerControlsMenu
       activePlan={false}
@@ -56,17 +57,14 @@ async function mountMenu(props?: {
       planSidebarOpen={false}
       runtimeMode="approval-required"
       traitsMenuContent={
-        provider === "codex" ? (
-          <CodexTraitsMenuContent threadId={threadId} modelOptions={props?.modelOptions?.codex} />
-        ) : (
-          <ClaudeTraitsMenuContent
-            threadId={threadId}
-            model={props?.model ?? "claude-opus-4-6"}
-            prompt={props?.prompt ?? ""}
-            modelOptions={props?.modelOptions?.claudeAgent}
-            onPromptChange={onPromptChange}
-          />
-        )
+        <TraitsMenuContent
+          provider={provider}
+          threadId={threadId}
+          model={props?.model ?? "claude-opus-4-6"}
+          prompt={props?.prompt ?? ""}
+          modelOptions={providerOptions}
+          onPromptChange={onPromptChange}
+        />
       }
       onToggleInteractionMode={vi.fn()}
       onTogglePlanSidebar={vi.fn()}
@@ -90,7 +88,7 @@ describe("CompactComposerControlsMenu", () => {
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
-      stickyModelOptions: {},
+      stickyModelSelectionByProvider: {},
     });
   });
 

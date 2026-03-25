@@ -826,8 +826,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
-      stickyModelSelection: null,
-      stickyModelOptions: {},
+      stickyModelSelectionByProvider: {},
     });
     useStore.setState({
       projects: [],
@@ -1492,18 +1491,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("snapshots sticky codex settings into a new draft thread", async () => {
     useComposerDraftStore.setState({
-      stickyModelSelection: {
-        provider: "codex",
-        model: "gpt-5.3-codex",
-        options: {
-          reasoningEffort: "medium",
-          fastMode: true,
-        },
-      },
-      stickyModelOptions: {
+      stickyModelSelectionByProvider: {
         codex: {
-          reasoningEffort: "medium",
-          fastMode: true,
+          provider: "codex",
+          model: "gpt-5.3-codex",
+          options: {
+            reasoningEffort: "medium",
+            fastMode: true,
+          },
         },
       },
     });
@@ -1545,18 +1540,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("hydrates the provider alongside a sticky claude model", async () => {
     useComposerDraftStore.setState({
-      stickyModelSelection: {
-        provider: "claudeAgent",
-        model: "claude-opus-4-6",
-        options: {
-          effort: "max",
-          fastMode: true,
-        },
-      },
-      stickyModelOptions: {
+      stickyModelSelectionByProvider: {
         claudeAgent: {
-          effort: "max",
-          fastMode: true,
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+          options: {
+            effort: "max",
+            fastMode: true,
+          },
         },
       },
     });
@@ -1628,18 +1619,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("prefers draft state over sticky composer settings and defaults", async () => {
     useComposerDraftStore.setState({
-      stickyModelSelection: {
-        provider: "codex",
-        model: "gpt-5.3-codex",
-        options: {
-          reasoningEffort: "medium",
-          fastMode: true,
-        },
-      },
-      stickyModelOptions: {
+      stickyModelSelectionByProvider: {
         codex: {
-          reasoningEffort: "medium",
-          fastMode: true,
+          provider: "codex",
+          model: "gpt-5.3-codex",
+          options: {
+            reasoningEffort: "medium",
+            fastMode: true,
+          },
         },
       },
     });

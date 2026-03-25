@@ -38,15 +38,13 @@ import {
   ThreadId,
   TurnId,
   type UserInputQuestion,
+  ClaudeCodeEffort,
 } from "@t3tools/contracts";
 import {
+  hasEffortLevel,
   applyClaudePromptEffortPrefix,
-  getEffectiveClaudeCodeEffort,
-  getReasoningEffortOptions,
-  resolveReasoningEffortForProvider,
-  supportsClaudeFastMode,
-  supportsClaudeThinkingToggle,
-  supportsClaudeUltrathinkKeyword,
+  getModelCapabilities,
+  trimOrNull,
 } from "@t3tools/shared/model";
 import {
   Cause,
@@ -158,6 +156,7 @@ interface ClaudeSessionContext {
   readonly inFlightTools: Map<number, ToolInFlight>;
   turnState: ClaudeTurnState | undefined;
   lastKnownContextWindow: number | undefined;
+  lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
   lastAssistantUuid: string | undefined;
   lastThreadStartedId: string | undefined;
   stopped: boolean;
@@ -209,6 +208,15 @@ function normalizeClaudeStreamMessages(cause: Cause.Cause<Error>): ReadonlyArray
 
   const squashed = toMessage(Cause.squash(cause), "").trim();
   return squashed.length > 0 ? [squashed] : [];
+}
+
+function getEffectiveClaudeCodeEffort(
+  effort: ClaudeCodeEffort | null | undefined,
+): Exclude<ClaudeCodeEffort, "ultrathink"> | null {
+  if (!effort) {
+    return null;
+  }
+  return effort === "ultrathink" ? null : effort;
 }
 
 function isClaudeInterruptedMessage(message: string): boolean {
@@ -512,21 +520,16 @@ const CLAUDE_SETTING_SOURCES = [
 ] as const satisfies ReadonlyArray<SettingSource>;
 
 function buildPromptText(input: ProviderSendTurnInput): string {
-  const requestedEffort = resolveReasoningEffortForProvider(
-    "claudeAgent",
-    input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.options?.effort : null,
-  );
-  const supportedEffortOptions = getReasoningEffortOptions(
-    "claudeAgent",
-    input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.model : undefined,
-  );
+  const rawEffort =
+    input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.options?.effort : null;
+  const requestedEffort = trimOrNull(rawEffort);
+  const claudeModel =
+    input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.model : undefined;
+  const caps = getModelCapabilities("claudeAgent", claudeModel);
   const promptEffort =
-    requestedEffort === "ultrathink" &&
-    supportsClaudeUltrathinkKeyword(
-      input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.model : undefined,
-    )
+    requestedEffort === "ultrathink" && caps.reasoningEffortLevels.length > 0
       ? "ultrathink"
-      : requestedEffort && supportedEffortOptions.includes(requestedEffort)
+      : requestedEffort && hasEffortLevel(caps, requestedEffort)
         ? requestedEffort
         : null;
   return applyClaudePromptEffortPrefix(input.input?.trim() ?? "", promptEffort);
@@ -1374,13 +1377,32 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const resultUsage =
           result?.usage && typeof result.usage === "object" ? { ...result.usage } : undefined;
         const resultContextWindow = maxClaudeContextWindowFromModelUsage(result?.modelUsage);
-        const usageSnapshot = normalizeClaudeTokenUsage(
-          resultUsage,
-          resultContextWindow ?? context.lastKnownContextWindow,
-        );
         if (resultContextWindow !== undefined) {
           context.lastKnownContextWindow = resultContextWindow;
         }
+
+        // The SDK result.usage contains *accumulated* totals across all API calls
+        // (input_tokens, cache_read_input_tokens, etc. summed over every request).
+        // This does NOT represent the current context window size.
+        // Instead, use the last known context-window-accurate usage from task_progress
+        // events and treat the accumulated total as totalProcessedTokens.
+        const accumulatedSnapshot = normalizeClaudeTokenUsage(
+          resultUsage,
+          resultContextWindow ?? context.lastKnownContextWindow,
+        );
+        const lastGoodUsage = context.lastKnownTokenUsage;
+        const maxTokens = resultContextWindow ?? context.lastKnownContextWindow;
+        const usageSnapshot: ThreadTokenUsageSnapshot | undefined = lastGoodUsage
+          ? {
+              ...lastGoodUsage,
+              ...(typeof maxTokens === "number" && Number.isFinite(maxTokens) && maxTokens > 0
+                ? { maxTokens }
+                : {}),
+              ...(accumulatedSnapshot && accumulatedSnapshot.usedTokens > lastGoodUsage.usedTokens
+                ? { totalProcessedTokens: accumulatedSnapshot.usedTokens }
+                : {}),
+            }
+          : accumulatedSnapshot;
 
         const turnState = context.turnState;
         if (!turnState) {
@@ -2057,6 +2079,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 context.lastKnownContextWindow,
               );
               if (normalizedUsage) {
+                context.lastKnownTokenUsage = normalizedUsage;
                 const usageStamp = yield* makeEventStamp();
                 yield* offerRuntimeEvent({
                   ...base,
@@ -2088,6 +2111,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 context.lastKnownContextWindow,
               );
               if (normalizedUsage) {
+                context.lastKnownTokenUsage = normalizedUsage;
                 const usageStamp = yield* makeEventStamp();
                 yield* offerRuntimeEvent({
                   ...base,
@@ -2706,24 +2730,13 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const providerOptions = input.providerOptions?.claudeAgent;
         const modelSelection =
           input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
-        const requestedEffort = resolveReasoningEffortForProvider(
-          "claudeAgent",
-          modelSelection?.options?.effort ?? null,
-        );
-        const supportedEffortOptions = getReasoningEffortOptions(
-          "claudeAgent",
-          modelSelection?.model,
-        );
+        const requestedEffort = trimOrNull(modelSelection?.options?.effort ?? null);
+        const caps = getModelCapabilities("claudeAgent", modelSelection?.model);
         const effort =
-          requestedEffort && supportedEffortOptions.includes(requestedEffort)
-            ? requestedEffort
-            : null;
-        const fastMode =
-          modelSelection?.options?.fastMode === true &&
-          supportsClaudeFastMode(modelSelection?.model);
+          requestedEffort && hasEffortLevel(caps, requestedEffort) ? requestedEffort : null;
+        const fastMode = modelSelection?.options?.fastMode === true && caps.supportsFastMode;
         const thinking =
-          typeof modelSelection?.options?.thinking === "boolean" &&
-          supportsClaudeThinkingToggle(modelSelection?.model)
+          typeof modelSelection?.options?.thinking === "boolean" && caps.supportsThinkingToggle
             ? modelSelection.options.thinking
             : undefined;
         const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
@@ -2806,6 +2819,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           inFlightTools,
           turnState: undefined,
           lastKnownContextWindow: undefined,
+          lastKnownTokenUsage: undefined,
           lastAssistantUuid: resumeState?.resumeSessionAt,
           lastThreadStartedId: undefined,
           stopped: false,

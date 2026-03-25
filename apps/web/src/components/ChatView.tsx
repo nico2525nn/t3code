@@ -22,7 +22,11 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
 } from "@t3tools/contracts";
-import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@t3tools/shared/model";
+import {
+  applyClaudePromptEffortPrefix,
+  getModelCapabilities,
+  normalizeModelSlug,
+} from "@t3tools/shared/model";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
@@ -193,10 +197,12 @@ const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnsw
 
 function formatOutgoingPrompt(params: {
   provider: ProviderKind;
+  model: string | null;
   effort: string | null;
   text: string;
 }): string {
-  if (params.provider === "claudeAgent" && params.effort === "ultrathink") {
+  const caps = getModelCapabilities(params.provider, params.model);
+  if (params.effort && caps.promptInjectedEffortLevels.includes(params.effort)) {
     return applyClaudePromptEffortPrefix(params.text, params.effort as ClaudeCodeEffort | null);
   }
   return params.text;
@@ -591,7 +597,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   ]);
 
   const sessionProvider = activeThread?.session?.provider ?? null;
-  const selectedProviderByThreadId = composerDraft.modelSelection?.provider ?? null;
+  const selectedProviderByThreadId = composerDraft.activeProvider ?? null;
   const threadProvider =
     activeThread?.modelSelection.provider ?? activeProject?.defaultModelSelection?.provider ?? null;
   const hasThreadStarted = Boolean(
@@ -2454,6 +2460,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const messageCreatedAt = new Date().toISOString();
     const outgoingMessageText = formatOutgoingPrompt({
       provider: selectedProvider,
+      model: selectedModel,
       effort: selectedPromptEffort,
       text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
     });
@@ -2876,6 +2883,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       const messageCreatedAt = new Date().toISOString();
       const outgoingMessageText = formatOutgoingPrompt({
         provider: selectedProvider,
+        model: selectedModel,
         effort: selectedPromptEffort,
         text: trimmed,
       });
@@ -2972,6 +2980,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerDraftInteractionMode,
       setThreadError,
       settings.enableAssistantStreaming,
+      selectedModel,
     ],
   );
 
@@ -2996,6 +3005,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const implementationPrompt = buildPlanImplementationPrompt(planMarkdown);
     const outgoingImplementationPrompt = formatOutgoingPrompt({
       provider: selectedProvider,
+      model: selectedModel,
       effort: selectedPromptEffort,
       text: implementationPrompt,
     });
@@ -3091,6 +3101,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     selectedProvider,
     settings.enableAssistantStreaming,
     syncServerReadModel,
+    selectedModel,
   ]);
 
   const onProviderModelSelect = useCallback(

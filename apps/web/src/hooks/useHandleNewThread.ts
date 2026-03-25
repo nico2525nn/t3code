@@ -12,8 +12,6 @@ import { useStore } from "../store";
 export function useHandleNewThread() {
   const projects = useStore((store) => store.projects);
   const threads = useStore((store) => store.threads);
-  const stickyModelSelection = useComposerDraftStore((store) => store.stickyModelSelection);
-  const stickyModelOptions = useComposerDraftStore((store) => store.stickyModelOptions);
   const navigate = useNavigate();
   const routeThreadId = useParams({
     strict: false,
@@ -40,8 +38,7 @@ export function useHandleNewThread() {
         clearProjectDraftThreadId,
         getDraftThread,
         getDraftThreadByProjectId,
-        setModelSelection,
-        setModelOptions,
+        applyStickyState,
         setDraftThreadContext,
         setProjectDraftThreadId,
       } = useComposerDraftStore.getState();
@@ -100,12 +97,7 @@ export function useHandleNewThread() {
           envMode: options?.envMode ?? "local",
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });
-        if (stickyModelSelection) {
-          setModelSelection(threadId, stickyModelSelection);
-        }
-        if (Object.keys(stickyModelOptions).length > 0) {
-          setModelOptions(threadId, stickyModelOptions);
-        }
+        applyStickyState(threadId);
 
         await navigate({
           to: "/$threadId",
@@ -113,7 +105,7 @@ export function useHandleNewThread() {
         });
       })();
     },
-    [navigate, routeThreadId, stickyModelOptions, stickyModelSelection],
+    [navigate, routeThreadId],
   );
 
   return {
