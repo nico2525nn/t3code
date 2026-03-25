@@ -271,7 +271,19 @@ const makeServerSettings = Effect.gen(function* () {
       writeSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const current = yield* getSettingsFromCache;
-          const next: ServerSettings = { ...current, ...patch };
+          const next: ServerSettings = {
+            ...current,
+            ...patch,
+            providers: patch.providers
+              ? {
+                  codex: { ...current.providers.codex, ...patch.providers.codex },
+                  claudeAgent: {
+                    ...current.providers.claudeAgent,
+                    ...patch.providers.claudeAgent,
+                  },
+                }
+              : current.providers,
+          };
           yield* writeSettingsAtomically(next);
           yield* Cache.set(settingsCache, cacheKey, next);
           yield* emitChange(next);
