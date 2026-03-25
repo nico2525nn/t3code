@@ -2,7 +2,7 @@ import {
   CODEX_REASONING_EFFORT_OPTIONS,
   type ClaudeCodeEffort,
   type CodexReasoningEffort,
-  DEFAULT_REASONING_EFFORT_BY_PROVIDER,
+  type ModelSlug,
   ModelSelection,
   ProjectId,
   ProviderInteractionMode,
@@ -14,8 +14,14 @@ import {
 import * as Schema from "effect/Schema";
 import * as Equal from "effect/Equal";
 import { DeepMutable } from "effect/Types";
-import { normalizeModelSlug } from "@t3tools/shared/model";
+import {
+  getDefaultModel,
+  normalizeModelSlug,
+  resolveModelSlugForProvider,
+} from "@t3tools/shared/model";
+import { useMemo } from "react";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
+import { resolveAppModelSelection } from "./appSettings";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type ChatImageAttachment } from "./types";
 import {
   type TerminalContextDraft,
@@ -241,6 +247,23 @@ interface ComposerDraftStoreState {
   clearComposerContent: (threadId: ThreadId) => void;
 }
 
+export interface EffectiveComposerModelState {
+  selectedModel: ModelSlug;
+  modelOptions: ProviderModelOptions | null;
+}
+
+function providerModelOptionsFromSelection(
+  modelSelection: ModelSelection | null | undefined,
+): ProviderModelOptions | null {
+  if (!modelSelection?.options) {
+    return null;
+  }
+
+  return {
+    [modelSelection.provider]: modelSelection.options,
+  };
+}
+
 const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftStoreState>({
   draftsByThreadId: {},
   draftThreadsByThreadId: {},
@@ -385,20 +408,28 @@ function normalizeProviderModelOptions(
         ? legacy.effort
         : undefined;
   const codexFastMode =
-    codexCandidate?.fastMode === true ||
-    (provider === "codex" && legacy?.codexFastMode === true) ||
-    (typeof legacy?.serviceTier === "string" && legacy.serviceTier === "fast");
+    codexCandidate?.fastMode === true
+      ? true
+      : codexCandidate?.fastMode === false
+        ? false
+        : (provider === "codex" && legacy?.codexFastMode === true) ||
+            (typeof legacy?.serviceTier === "string" && legacy.serviceTier === "fast")
+          ? true
+          : undefined;
   const codex =
-    codexReasoningEffort && codexReasoningEffort !== DEFAULT_REASONING_EFFORT_BY_PROVIDER.codex
+    codexReasoningEffort !== undefined || codexFastMode !== undefined
       ? {
-          reasoningEffort: codexReasoningEffort,
-          ...(codexFastMode ? { fastMode: true } : {}),
+          ...(codexReasoningEffort !== undefined ? { reasoningEffort: codexReasoningEffort } : {}),
+          ...(codexFastMode !== undefined ? { fastMode: codexFastMode } : {}),
         }
-      : codexFastMode
-        ? { fastMode: true }
-        : undefined;
+      : undefined;
 
-  const claudeThinking = claudeCandidate?.thinking === false ? false : undefined;
+  const claudeThinking =
+    claudeCandidate?.thinking === true
+      ? true
+      : claudeCandidate?.thinking === false
+        ? false
+        : undefined;
   const claudeEffort: ClaudeCodeEffort | undefined =
     claudeCandidate?.effort === "low" ||
     claudeCandidate?.effort === "medium" ||
@@ -407,17 +438,18 @@ function normalizeProviderModelOptions(
     claudeCandidate?.effort === "ultrathink"
       ? claudeCandidate.effort
       : undefined;
-  const claudeFastMode = claudeCandidate?.fastMode === true;
+  const claudeFastMode =
+    claudeCandidate?.fastMode === true
+      ? true
+      : claudeCandidate?.fastMode === false
+        ? false
+        : undefined;
   const claude =
-    claudeThinking === false ||
-    (claudeEffort && claudeEffort !== DEFAULT_REASONING_EFFORT_BY_PROVIDER.claudeAgent) ||
-    claudeFastMode
+    claudeThinking !== undefined || claudeEffort !== undefined || claudeFastMode !== undefined
       ? {
-          ...(claudeThinking === false ? { thinking: false } : {}),
-          ...(claudeEffort && claudeEffort !== DEFAULT_REASONING_EFFORT_BY_PROVIDER.claudeAgent
-            ? { effort: claudeEffort }
-            : {}),
-          ...(claudeFastMode ? { fastMode: true } : {}),
+          ...(claudeThinking !== undefined ? { thinking: claudeThinking } : {}),
+          ...(claudeEffort !== undefined ? { effort: claudeEffort } : {}),
+          ...(claudeFastMode !== undefined ? { fastMode: claudeFastMode } : {}),
         }
       : undefined;
 
@@ -510,6 +542,38 @@ function replaceProviderModelOptions(
     ...otherProviderModelOptions,
     ...(normalizedNextProviderOptions ? normalizedNextProviderOptions : {}),
   });
+}
+
+export function deriveEffectiveComposerModelState(input: {
+  draft: Pick<ComposerThreadDraftState, "modelSelection" | "modelOptions"> | null | undefined;
+  selectedProvider: ProviderKind;
+  threadModelSelection: ModelSelection | null | undefined;
+  projectModelSelection: ModelSelection | null | undefined;
+  customModelsByProvider: Record<ProviderKind, readonly string[]>;
+}): EffectiveComposerModelState {
+  const baseModel = resolveModelSlugForProvider(
+    input.selectedProvider,
+    input.threadModelSelection?.model ??
+      input.projectModelSelection?.model ??
+      getDefaultModel(input.selectedProvider),
+  );
+  const selectedModel = input.draft?.modelSelection?.model
+    ? resolveAppModelSelection(
+        input.selectedProvider,
+        input.customModelsByProvider,
+        input.draft.modelSelection.model,
+      )
+    : baseModel;
+  const modelOptions =
+    input.draft?.modelOptions ??
+    providerModelOptionsFromSelection(input.threadModelSelection) ??
+    providerModelOptionsFromSelection(input.projectModelSelection) ??
+    null;
+
+  return {
+    selectedModel,
+    modelOptions,
+  };
 }
 
 function revokeObjectPreviewUrl(previewUrl: string): void {
@@ -1914,6 +1978,34 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
 
 export function useComposerThreadDraft(threadId: ThreadId): ComposerThreadDraftState {
   return useComposerDraftStore((state) => state.draftsByThreadId[threadId] ?? EMPTY_THREAD_DRAFT);
+}
+
+export function useEffectiveComposerModelState(input: {
+  threadId: ThreadId;
+  selectedProvider: ProviderKind;
+  threadModelSelection: ModelSelection | null | undefined;
+  projectModelSelection: ModelSelection | null | undefined;
+  customModelsByProvider: Record<ProviderKind, readonly string[]>;
+}): EffectiveComposerModelState {
+  const draft = useComposerThreadDraft(input.threadId);
+
+  return useMemo(
+    () =>
+      deriveEffectiveComposerModelState({
+        draft,
+        selectedProvider: input.selectedProvider,
+        threadModelSelection: input.threadModelSelection,
+        projectModelSelection: input.projectModelSelection,
+        customModelsByProvider: input.customModelsByProvider,
+      }),
+    [
+      draft,
+      input.customModelsByProvider,
+      input.projectModelSelection,
+      input.selectedProvider,
+      input.threadModelSelection,
+    ],
+  );
 }
 
 /**

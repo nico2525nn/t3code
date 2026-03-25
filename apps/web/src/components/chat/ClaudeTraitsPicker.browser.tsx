@@ -1,12 +1,50 @@
 import "../../index.css";
 
-import { ThreadId } from "@t3tools/contracts";
+import { type ModelSelection, ThreadId } from "@t3tools/contracts";
 import { page } from "vitest/browser";
+import { useCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { ClaudeTraitsPicker } from "./ClaudeTraitsPicker";
-import { useComposerDraftStore } from "../../composerDraftStore";
+import {
+  useComposerDraftStore,
+  useComposerThreadDraft,
+  useEffectiveComposerModelState,
+} from "../../composerDraftStore";
+
+const THREAD_ID = ThreadId.makeUnsafe("thread-claude-traits");
+
+function ClaudeTraitsPickerHarness(props: {
+  model: string;
+  fallbackModelSelection: ModelSelection | null;
+}) {
+  const prompt = useComposerThreadDraft(THREAD_ID).prompt;
+  const setPrompt = useComposerDraftStore((store) => store.setPrompt);
+  const { modelOptions, selectedModel } = useEffectiveComposerModelState({
+    threadId: THREAD_ID,
+    selectedProvider: "claudeAgent",
+    threadModelSelection: props.fallbackModelSelection,
+    projectModelSelection: null,
+    customModelsByProvider: { codex: [], claudeAgent: [] },
+  });
+  const handlePromptChange = useCallback(
+    (nextPrompt: string) => {
+      setPrompt(THREAD_ID, nextPrompt);
+    },
+    [setPrompt],
+  );
+
+  return (
+    <ClaudeTraitsPicker
+      threadId={THREAD_ID}
+      model={selectedModel ?? props.model}
+      prompt={prompt}
+      modelOptions={modelOptions?.claudeAgent}
+      onPromptChange={handlePromptChange}
+    />
+  );
+}
 
 async function mountPicker(props?: {
   model?: string;
@@ -14,13 +52,18 @@ async function mountPicker(props?: {
   effort?: "low" | "medium" | "high" | "max" | "ultrathink" | null;
   thinkingEnabled?: boolean | null;
   fastModeEnabled?: boolean;
+  fallbackModelOptions?: {
+    effort?: "low" | "medium" | "high" | "max" | "ultrathink";
+    thinking?: boolean;
+    fastMode?: boolean;
+  } | null;
+  skipDraftModelOptions?: boolean;
 }) {
-  const threadId = ThreadId.makeUnsafe("thread-claude-traits");
   const draftsByThreadId = {} as ReturnType<
     typeof useComposerDraftStore.getState
   >["draftsByThreadId"];
   const model = props?.model ?? "claude-opus-4-6";
-  draftsByThreadId[threadId] = {
+  draftsByThreadId[THREAD_ID] = {
     prompt: props?.prompt ?? "",
     images: [],
     nonPersistedImageIds: [],
@@ -29,19 +72,25 @@ async function mountPicker(props?: {
     modelSelection: {
       provider: "claudeAgent",
       model,
-      options: {
-        ...(props?.effort ? { effort: props.effort } : {}),
-        ...(props?.thinkingEnabled === false ? { thinking: false } : {}),
-        ...(props?.fastModeEnabled ? { fastMode: true } : {}),
-      },
+      ...(!props?.skipDraftModelOptions
+        ? {
+            options: {
+              ...(props?.effort ? { effort: props.effort } : {}),
+              ...(props?.thinkingEnabled === false ? { thinking: false } : {}),
+              ...(props?.fastModeEnabled ? { fastMode: true } : {}),
+            },
+          }
+        : {}),
     },
-    modelOptions: {
-      claudeAgent: {
-        ...(props?.effort ? { effort: props.effort } : {}),
-        ...(props?.thinkingEnabled === false ? { thinking: false } : {}),
-        ...(props?.fastModeEnabled ? { fastMode: true } : {}),
-      },
-    },
+    modelOptions: props?.skipDraftModelOptions
+      ? null
+      : {
+          claudeAgent: {
+            ...(props?.effort ? { effort: props.effort } : {}),
+            ...(props?.thinkingEnabled === false ? { thinking: false } : {}),
+            ...(props?.fastModeEnabled ? { fastMode: true } : {}),
+          },
+        },
     runtimeMode: null,
     interactionMode: null,
   };
@@ -52,14 +101,20 @@ async function mountPicker(props?: {
   });
   const host = document.createElement("div");
   document.body.append(host);
-  const onPromptChange = vi.fn();
+  const fallbackModelSelection =
+    props?.fallbackModelOptions !== undefined
+      ? ({
+          provider: "claudeAgent",
+          model,
+          options: props.fallbackModelOptions ?? undefined,
+        } satisfies ModelSelection)
+      : null;
   const screen = await render(
-    <ClaudeTraitsPicker threadId={threadId} model={model} onPromptChange={onPromptChange} />,
+    <ClaudeTraitsPickerHarness model={model} fallbackModelSelection={fallbackModelSelection} />,
     { container: host },
   );
 
   return {
-    onPromptChange,
     cleanup: async () => {
       await screen.unmount();
       host.remove();
@@ -197,6 +252,38 @@ describe("ClaudeTraitsPicker", () => {
           effort: "max",
         },
       });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("can turn inherited fast mode off without snapping back", async () => {
+    const mounted = await mountPicker({
+      model: "claude-opus-4-6",
+      skipDraftModelOptions: true,
+      fallbackModelOptions: {
+        effort: "high",
+        fastMode: true,
+      },
+    });
+
+    try {
+      const trigger = page.getByRole("button");
+
+      await expect.element(trigger).toHaveTextContent("High · Fast");
+      await trigger.click();
+      await page.getByRole("menuitemradio", { name: "off" }).click();
+
+      await vi.waitFor(() => {
+        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.modelOptions).toEqual({
+          claudeAgent: {
+            effort: "high",
+            fastMode: false,
+          },
+        });
+      });
+      await expect.element(trigger).toHaveTextContent("High");
+      await expect.element(trigger).not.toHaveTextContent("High · Fast");
     } finally {
       await mounted.cleanup();
     }

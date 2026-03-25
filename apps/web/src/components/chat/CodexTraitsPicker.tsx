@@ -7,12 +7,11 @@ import type {
 import {
   getDefaultReasoningEffort,
   getReasoningEffortOptions,
-  normalizeCodexModelOptions,
   resolveReasoningEffortForProvider,
 } from "@t3tools/shared/model";
 import { memo, useState } from "react";
 import { ChevronDownIcon } from "lucide-react";
-import { useComposerDraftStore, useComposerThreadDraft } from "../../composerDraftStore";
+import { useComposerDraftStore } from "../../composerDraftStore";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -46,9 +45,11 @@ function getSelectedCodexTraits(modelOptions: CodexModelOptions | null | undefin
   };
 }
 
-function CodexTraitsMenuContentImpl(props: { threadId: ThreadId }) {
-  const draft = useComposerThreadDraft(props.threadId);
-  const modelOptions = draft.modelOptions?.[PROVIDER];
+function CodexTraitsMenuContentImpl(props: {
+  threadId: ThreadId;
+  modelOptions?: CodexModelOptions | null | undefined;
+}) {
+  const modelOptions = props.modelOptions;
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const options = getReasoningEffortOptions(PROVIDER);
   const defaultReasoningEffort = getDefaultReasoningEffort(PROVIDER);
@@ -67,10 +68,10 @@ function CodexTraitsMenuContentImpl(props: { threadId: ThreadId }) {
             setProviderModelOptions(
               props.threadId,
               PROVIDER,
-              normalizeCodexModelOptions({
+              {
                 ...modelOptions,
                 reasoningEffort: nextEffort,
-              }),
+              },
               { persistSticky: true },
             );
           }}
@@ -92,10 +93,10 @@ function CodexTraitsMenuContentImpl(props: { threadId: ThreadId }) {
             setProviderModelOptions(
               props.threadId,
               PROVIDER,
-              normalizeCodexModelOptions({
+              {
                 ...modelOptions,
                 fastMode: value === "on",
-              }),
+              },
               { persistSticky: true },
             );
           }}
@@ -110,9 +111,12 @@ function CodexTraitsMenuContentImpl(props: { threadId: ThreadId }) {
 
 export const CodexTraitsMenuContent = memo(CodexTraitsMenuContentImpl);
 
-export const CodexTraitsPicker = memo(function CodexTraitsPicker(props: { threadId: ThreadId }) {
+export const CodexTraitsPicker = memo(function CodexTraitsPicker(props: {
+  threadId: ThreadId;
+  modelOptions?: CodexModelOptions | null | undefined;
+}) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const modelOptions = useComposerThreadDraft(props.threadId).modelOptions?.[PROVIDER];
+  const modelOptions = props.modelOptions;
   const { effort, fastModeEnabled } = getSelectedCodexTraits(modelOptions);
   const triggerLabel = [CODEX_REASONING_LABELS[effort], ...(fastModeEnabled ? ["Fast"] : [])]
     .filter(Boolean)
@@ -140,7 +144,7 @@ export const CodexTraitsPicker = memo(function CodexTraitsPicker(props: { thread
         </span>
       </MenuTrigger>
       <MenuPopup align="start">
-        <CodexTraitsMenuContent threadId={props.threadId} />
+        <CodexTraitsMenuContent threadId={props.threadId} modelOptions={props.modelOptions} />
       </MenuPopup>
     </Menu>
   );

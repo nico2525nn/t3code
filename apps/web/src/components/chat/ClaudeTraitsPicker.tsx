@@ -8,7 +8,6 @@ import {
   applyClaudePromptEffortPrefix,
   getDefaultReasoningEffort,
   getReasoningEffortOptions,
-  normalizeClaudeModelOptions,
   resolveReasoningEffortForProvider,
   supportsClaudeFastMode,
   supportsClaudeThinkingToggle,
@@ -27,7 +26,7 @@ import {
   MenuSeparator as MenuDivider,
   MenuTrigger,
 } from "../ui/menu";
-import { useComposerDraftStore, useComposerThreadDraft } from "../../composerDraftStore";
+import { useComposerDraftStore } from "../../composerDraftStore";
 
 const PROVIDER = "claudeAgent" as const satisfies ProviderKind;
 
@@ -83,17 +82,18 @@ function getSelectedClaudeTraits(
 interface ClaudeTraitsMenuContentProps {
   threadId: ThreadId;
   model: string | null | undefined;
+  prompt: string;
   onPromptChange: (prompt: string) => void;
+  modelOptions?: ClaudeModelOptions | null | undefined;
 }
 
 export const ClaudeTraitsMenuContent = memo(function ClaudeTraitsMenuContentImpl({
   threadId,
   model,
+  prompt,
   onPromptChange,
+  modelOptions,
 }: ClaudeTraitsMenuContentProps) {
-  const draft = useComposerThreadDraft(threadId);
-  const prompt = draft.prompt;
-  const modelOptions = draft.modelOptions?.[PROVIDER];
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const {
     effort,
@@ -122,16 +122,15 @@ export const ClaudeTraitsMenuContent = memo(function ClaudeTraitsMenuContentImpl
       setProviderModelOptions(
         threadId,
         PROVIDER,
-        normalizeClaudeModelOptions(model, {
+        {
           ...modelOptions,
           effort: nextEffort,
-        }),
+        },
         { persistSticky: true },
       );
     },
     [
       ultrathinkPromptControlled,
-      model,
       modelOptions,
       onPromptChange,
       threadId,
@@ -175,10 +174,10 @@ export const ClaudeTraitsMenuContent = memo(function ClaudeTraitsMenuContentImpl
               setProviderModelOptions(
                 threadId,
                 PROVIDER,
-                normalizeClaudeModelOptions(model, {
+                {
                   ...modelOptions,
                   thinking: value === "on",
-                }),
+                },
                 { persistSticky: true },
               );
             }}
@@ -199,10 +198,10 @@ export const ClaudeTraitsMenuContent = memo(function ClaudeTraitsMenuContentImpl
                 setProviderModelOptions(
                   threadId,
                   PROVIDER,
-                  normalizeClaudeModelOptions(model, {
+                  {
                     ...modelOptions,
                     fastMode: value === "on",
-                  }),
+                  },
                   { persistSticky: true },
                 );
               }}
@@ -220,12 +219,11 @@ export const ClaudeTraitsMenuContent = memo(function ClaudeTraitsMenuContentImpl
 export const ClaudeTraitsPicker = memo(function ClaudeTraitsPicker({
   threadId,
   model,
+  prompt,
   onPromptChange,
+  modelOptions,
 }: ClaudeTraitsMenuContentProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const draft = useComposerThreadDraft(threadId);
-  const prompt = draft.prompt;
-  const modelOptions = draft.modelOptions?.[PROVIDER];
   const { effort, thinkingEnabled, fastModeEnabled, ultrathinkPromptControlled, supportsFastMode } =
     getSelectedClaudeTraits(model, prompt, modelOptions);
   const triggerLabel = [
@@ -264,7 +262,9 @@ export const ClaudeTraitsPicker = memo(function ClaudeTraitsPicker({
         <ClaudeTraitsMenuContent
           threadId={threadId}
           model={model}
+          prompt={prompt}
           onPromptChange={onPromptChange}
+          modelOptions={modelOptions}
         />
       </MenuPopup>
     </Menu>

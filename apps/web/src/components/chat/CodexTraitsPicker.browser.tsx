@@ -48,7 +48,16 @@ async function mountPicker(props: {
   });
   const host = document.createElement("div");
   document.body.append(host);
-  const screen = await render(<CodexTraitsPicker threadId={threadId} />, { container: host });
+  const screen = await render(
+    <CodexTraitsPicker
+      threadId={threadId}
+      modelOptions={{
+        ...(props.reasoningEffort ? { reasoningEffort: props.reasoningEffort } : {}),
+        ...(props.fastModeEnabled ? { fastMode: true } : {}),
+      }}
+    />,
+    { container: host },
+  );
 
   return {
     cleanup: async () => {
@@ -140,62 +149,6 @@ describe("CodexTraitsPicker", () => {
       });
     } finally {
       await mounted.cleanup();
-    }
-  });
-
-  it("hydrates legacy codex persisted state into modelOptions through the picker", async () => {
-    const threadId = ThreadId.makeUnsafe("thread-codex-legacy");
-    localStorage.setItem(
-      COMPOSER_DRAFT_STORAGE_KEY,
-      JSON.stringify({
-        state: {
-          draftsByThreadId: {
-            [threadId]: {
-              prompt: "",
-              attachments: [],
-              modelSelection: null,
-              provider: "codex",
-              model: "gpt-5.3-codex",
-              effort: "xhigh",
-              codexFastMode: true,
-              serviceTier: "fast",
-            },
-          },
-          draftThreadsByThreadId: {},
-          projectDraftThreadIdByProjectId: {},
-        },
-        version: 1,
-      }),
-    );
-    useComposerDraftStore.setState({
-      draftsByThreadId: {},
-      draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
-    });
-
-    const host = document.createElement("div");
-    document.body.append(host);
-    const screen = await render(<CodexTraitsPicker threadId={threadId} />, { container: host });
-
-    try {
-      await useComposerDraftStore.persist.rehydrate();
-
-      await vi.waitFor(() => {
-        expect(document.body.textContent ?? "").toContain("Extra High · Fast");
-        expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelection).toEqual(
-          {
-            provider: "codex",
-            model: "gpt-5.3-codex",
-            options: {
-              reasoningEffort: "xhigh",
-              fastMode: true,
-            },
-          },
-        );
-      });
-    } finally {
-      await screen.unmount();
-      host.remove();
     }
   });
 });

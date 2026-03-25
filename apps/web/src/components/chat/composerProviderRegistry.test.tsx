@@ -61,6 +61,26 @@ describe("getComposerProviderState", () => {
     });
   });
 
+  it("drops explicit codex default/off overrides from dispatch while keeping the selected effort label", () => {
+    const state = getComposerProviderState({
+      provider: "codex",
+      model: "gpt-5.4",
+      prompt: "",
+      modelOptions: {
+        codex: {
+          reasoningEffort: "high",
+          fastMode: false,
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "codex",
+      promptEffort: "high",
+      modelOptionsForDispatch: undefined,
+    });
+  });
+
   it("returns Claude defaults for effort-capable models", () => {
     const state = getComposerProviderState({
       provider: "claudeAgent",
@@ -140,6 +160,26 @@ describe("getComposerProviderState", () => {
       modelOptionsForDispatch: {
         fastMode: true,
       },
+    });
+  });
+
+  it("drops explicit Claude default/off overrides from dispatch while keeping the selected effort label", () => {
+    const state = getComposerProviderState({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      prompt: "",
+      modelOptions: {
+        claudeAgent: {
+          effort: "high",
+          fastMode: false,
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "claudeAgent",
+      promptEffort: "high",
+      modelOptionsForDispatch: undefined,
     });
   });
 });

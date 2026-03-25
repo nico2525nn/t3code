@@ -1,5 +1,7 @@
 import {
   type ModelSlug,
+  type ClaudeModelOptions,
+  type CodexModelOptions,
   type ProviderKind,
   type ProviderModelOptions,
   type ThreadId,
@@ -38,11 +40,15 @@ type ProviderRegistryEntry = {
   renderTraitsMenuContent: (input: {
     threadId: ThreadId;
     model: ModelSlug;
+    modelOptions: ProviderModelOptions[ProviderKind] | undefined;
+    prompt: string;
     onPromptChange: (prompt: string) => void;
   }) => ReactNode;
   renderTraitsPicker: (input: {
     threadId: ThreadId;
     model: ModelSlug;
+    modelOptions: ProviderModelOptions[ProviderKind] | undefined;
+    prompt: string;
     onPromptChange: (prompt: string) => void;
   }) => ReactNode;
 };
@@ -61,8 +67,18 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptionsForDispatch: normalizedCodexOptions,
       };
     },
-    renderTraitsMenuContent: ({ threadId }) => <CodexTraitsMenuContent threadId={threadId} />,
-    renderTraitsPicker: ({ threadId }) => <CodexTraitsPicker threadId={threadId} />,
+    renderTraitsMenuContent: ({ threadId, modelOptions }) => (
+      <CodexTraitsMenuContent
+        threadId={threadId}
+        modelOptions={modelOptions as CodexModelOptions | undefined}
+      />
+    ),
+    renderTraitsPicker: ({ threadId, modelOptions }) => (
+      <CodexTraitsPicker
+        threadId={threadId}
+        modelOptions={modelOptions as CodexModelOptions | undefined}
+      />
+    ),
   },
   claudeAgent: {
     getState: ({ model, prompt, modelOptions }) => {
@@ -93,11 +109,23 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         ...(ultrathinkActive ? { modelPickerIconClassName: "ultrathink-chroma" } : {}),
       };
     },
-    renderTraitsMenuContent: ({ threadId, model, onPromptChange }) => (
-      <ClaudeTraitsMenuContent threadId={threadId} model={model} onPromptChange={onPromptChange} />
+    renderTraitsMenuContent: ({ threadId, model, modelOptions, prompt, onPromptChange }) => (
+      <ClaudeTraitsMenuContent
+        threadId={threadId}
+        model={model}
+        modelOptions={modelOptions as ClaudeModelOptions | undefined}
+        prompt={prompt}
+        onPromptChange={onPromptChange}
+      />
     ),
-    renderTraitsPicker: ({ threadId, model, onPromptChange }) => (
-      <ClaudeTraitsPicker threadId={threadId} model={model} onPromptChange={onPromptChange} />
+    renderTraitsPicker: ({ threadId, model, modelOptions, prompt, onPromptChange }) => (
+      <ClaudeTraitsPicker
+        threadId={threadId}
+        model={model}
+        modelOptions={modelOptions as ClaudeModelOptions | undefined}
+        prompt={prompt}
+        onPromptChange={onPromptChange}
+      />
     ),
   },
 };
@@ -110,11 +138,15 @@ export function renderProviderTraitsMenuContent(input: {
   provider: ProviderKind;
   threadId: ThreadId;
   model: ModelSlug;
+  modelOptions: ProviderModelOptions[ProviderKind] | undefined;
+  prompt: string;
   onPromptChange: (prompt: string) => void;
 }): ReactNode {
   return composerProviderRegistry[input.provider].renderTraitsMenuContent({
     threadId: input.threadId,
     model: input.model,
+    modelOptions: input.modelOptions,
+    prompt: input.prompt,
     onPromptChange: input.onPromptChange,
   });
 }
@@ -123,11 +155,15 @@ export function renderProviderTraitsPicker(input: {
   provider: ProviderKind;
   threadId: ThreadId;
   model: ModelSlug;
+  modelOptions: ProviderModelOptions[ProviderKind] | undefined;
+  prompt: string;
   onPromptChange: (prompt: string) => void;
 }): ReactNode {
   return composerProviderRegistry[input.provider].renderTraitsPicker({
     threadId: input.threadId,
     model: input.model,
+    modelOptions: input.modelOptions,
+    prompt: input.prompt,
     onPromptChange: input.onPromptChange,
   });
 }

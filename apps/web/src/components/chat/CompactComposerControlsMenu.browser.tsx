@@ -57,11 +57,13 @@ async function mountMenu(props?: {
       runtimeMode="approval-required"
       traitsMenuContent={
         provider === "codex" ? (
-          <CodexTraitsMenuContent threadId={threadId} />
+          <CodexTraitsMenuContent threadId={threadId} modelOptions={props?.modelOptions?.codex} />
         ) : (
           <ClaudeTraitsMenuContent
             threadId={threadId}
             model={props?.model ?? "claude-opus-4-6"}
+            prompt={props?.prompt ?? ""}
+            modelOptions={props?.modelOptions?.claudeAgent}
             onPromptChange={onPromptChange}
           />
         )
