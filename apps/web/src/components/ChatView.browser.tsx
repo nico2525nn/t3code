@@ -827,6 +827,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelection: null,
+      stickyModelOptions: {},
     });
     useStore.setState({
       projects: [],
@@ -1499,6 +1500,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
           fastMode: true,
         },
       },
+      stickyModelOptions: {
+        codex: {
+          reasoningEffort: "medium",
+          fastMode: true,
+        },
+      },
     });
 
     const mounted = await mountChatView({
@@ -1542,6 +1549,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
         provider: "claudeAgent",
         model: "claude-opus-4-6",
         options: {
+          effort: "max",
+          fastMode: true,
+        },
+      },
+      stickyModelOptions: {
+        claudeAgent: {
           effort: "max",
           fastMode: true,
         },
@@ -1619,6 +1632,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
         provider: "codex",
         model: "gpt-5.3-codex",
         options: {
+          reasoningEffort: "medium",
+          fastMode: true,
+        },
+      },
+      stickyModelOptions: {
+        codex: {
           reasoningEffort: "medium",
           fastMode: true,
         },

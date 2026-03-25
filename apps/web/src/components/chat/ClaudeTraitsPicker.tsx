@@ -93,8 +93,7 @@ export const ClaudeTraitsMenuContent = memo(function ClaudeTraitsMenuContentImpl
 }: ClaudeTraitsMenuContentProps) {
   const draft = useComposerThreadDraft(threadId);
   const prompt = draft.prompt;
-  const modelOptions =
-    draft.modelSelection?.provider === PROVIDER ? draft.modelSelection.options : null;
+  const modelOptions = draft.modelOptions?.claudeAgent;
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const {
     effort,
@@ -226,8 +225,7 @@ export const ClaudeTraitsPicker = memo(function ClaudeTraitsPicker({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const draft = useComposerThreadDraft(threadId);
   const prompt = draft.prompt;
-  const modelOptions =
-    draft.modelSelection?.provider === PROVIDER ? draft.modelSelection.options : null;
+  const modelOptions = draft.modelOptions?.claudeAgent;
   const { effort, thinkingEnabled, fastModeEnabled, ultrathinkPromptControlled, supportsFastMode } =
     getSelectedClaudeTraits(model, prompt, modelOptions);
   const triggerLabel = [

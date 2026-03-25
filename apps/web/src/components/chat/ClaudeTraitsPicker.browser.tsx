@@ -34,6 +34,13 @@ async function mountPicker(props?: {
         ...(props?.fastModeEnabled ? { fastMode: true } : {}),
       },
     },
+    modelOptions: {
+      claudeAgent: {
+        ...(props?.effort ? { effort: props.effort } : {}),
+        ...(props?.thinkingEnabled === false ? { thinking: false } : {}),
+        ...(props?.fastModeEnabled ? { fastMode: true } : {}),
+      },
+    },
     runtimeMode: null,
     interactionMode: null,
   };
@@ -70,6 +77,7 @@ describe("ClaudeTraitsPicker", () => {
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
+      stickyModelOptions: {},
     });
   });
 

@@ -23,8 +23,10 @@ describe("getComposerProviderState", () => {
       model: "gpt-5.4",
       prompt: "",
       modelOptions: {
-        reasoningEffort: "low",
-        fastMode: true,
+        codex: {
+          reasoningEffort: "low",
+          fastMode: true,
+        },
       },
     });
 
@@ -33,6 +35,27 @@ describe("getComposerProviderState", () => {
       promptEffort: "low",
       modelOptionsForDispatch: {
         reasoningEffort: "low",
+        fastMode: true,
+      },
+    });
+  });
+
+  it("preserves codex fast mode when it is the only active option", () => {
+    const state = getComposerProviderState({
+      provider: "codex",
+      model: "gpt-5.4",
+      prompt: "",
+      modelOptions: {
+        codex: {
+          fastMode: true,
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "codex",
+      promptEffort: "high",
+      modelOptionsForDispatch: {
         fastMode: true,
       },
     });
@@ -59,7 +82,9 @@ describe("getComposerProviderState", () => {
       model: "claude-sonnet-4-6",
       prompt: "Ultrathink:\nInvestigate this failure",
       modelOptions: {
-        effort: "medium",
+        claudeAgent: {
+          effort: "medium",
+        },
       },
     });
 
@@ -81,8 +106,10 @@ describe("getComposerProviderState", () => {
       model: "claude-haiku-4-5",
       prompt: "",
       modelOptions: {
-        effort: "max",
-        thinking: false,
+        claudeAgent: {
+          effort: "max",
+          thinking: false,
+        },
       },
     });
 
@@ -91,6 +118,27 @@ describe("getComposerProviderState", () => {
       promptEffort: null,
       modelOptionsForDispatch: {
         thinking: false,
+      },
+    });
+  });
+
+  it("preserves Claude fast mode when it is the only active option", () => {
+    const state = getComposerProviderState({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      prompt: "",
+      modelOptions: {
+        claudeAgent: {
+          fastMode: true,
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "claudeAgent",
+      promptEffort: "high",
+      modelOptionsForDispatch: {
+        fastMode: true,
       },
     });
   });

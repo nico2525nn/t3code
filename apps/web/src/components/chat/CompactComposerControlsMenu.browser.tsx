@@ -37,6 +37,7 @@ async function mountMenu(props?: {
           }
         : {}),
     },
+    modelOptions: props?.modelOptions ?? null,
     runtimeMode: null,
     interactionMode: null,
   };
@@ -87,6 +88,7 @@ describe("CompactComposerControlsMenu", () => {
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
+      stickyModelOptions: {},
     });
   });
 

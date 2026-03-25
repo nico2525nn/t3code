@@ -3,7 +3,7 @@ import {
   type ClaudeCodeEffort,
   type CodexReasoningEffort,
   DEFAULT_REASONING_EFFORT_BY_PROVIDER,
-  type ModelSelection,
+  ModelSelection,
   ProjectId,
   ProviderInteractionMode,
   ProviderKind,
@@ -74,7 +74,8 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   prompt: Schema.String,
   attachments: Schema.Array(PersistedComposerImageAttachment),
   terminalContexts: Schema.optionalKey(Schema.Array(PersistedTerminalContextDraft)),
-  modelSelection: Schema.optionalKey(Schema.NullOr(Schema.Unknown)),
+  modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  modelOptions: Schema.optionalKey(Schema.NullOr(ProviderModelOptions)),
   runtimeMode: Schema.optionalKey(RuntimeMode),
   interactionMode: Schema.optionalKey(ProviderInteractionMode),
 });
@@ -109,7 +110,8 @@ const PersistedComposerDraftStoreState = Schema.Struct({
   draftsByThreadId: Schema.Record(ThreadId, PersistedComposerThreadDraftState),
   draftThreadsByThreadId: Schema.Record(ThreadId, PersistedDraftThreadState),
   projectDraftThreadIdByProjectId: Schema.Record(ProjectId, ThreadId),
-  stickyModelSelection: Schema.NullOr(Schema.Unknown),
+  stickyModelSelection: Schema.NullOr(ModelSelection),
+  stickyModelOptions: Schema.optionalKey(Schema.NullOr(ProviderModelOptions)),
 });
 type PersistedComposerDraftStoreState = typeof PersistedComposerDraftStoreState.Type;
 
@@ -125,6 +127,7 @@ interface ComposerThreadDraftState {
   persistedAttachments: PersistedComposerImageAttachment[];
   terminalContexts: TerminalContextDraft[];
   modelSelection: ModelSelection | null;
+  modelOptions: ProviderModelOptions | null;
   runtimeMode: RuntimeMode | null;
   interactionMode: ProviderInteractionMode | null;
 }
@@ -148,6 +151,7 @@ interface ComposerDraftStoreState {
   draftThreadsByThreadId: Record<ThreadId, DraftThreadState>;
   projectDraftThreadIdByProjectId: Record<ProjectId, ThreadId>;
   stickyModelSelection: ModelSelection | null;
+  stickyModelOptions: ProviderModelOptions;
   getDraftThreadByProjectId: (projectId: ProjectId) => ProjectDraftThread | null;
   getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
   setProjectDraftThreadId: (
@@ -178,11 +182,16 @@ interface ComposerDraftStoreState {
   clearProjectDraftThreadById: (projectId: ProjectId, threadId: ThreadId) => void;
   clearDraftThread: (threadId: ThreadId) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
+  setStickyModelOptions: (modelOptions: ProviderModelOptions | null | undefined) => void;
   setPrompt: (threadId: ThreadId, prompt: string) => void;
   setTerminalContexts: (threadId: ThreadId, contexts: TerminalContextDraft[]) => void;
   setModelSelection: (
     threadId: ThreadId,
     modelSelection: ModelSelection | null | undefined,
+  ) => void;
+  setModelOptions: (
+    threadId: ThreadId,
+    modelOptions: ProviderModelOptions | null | undefined,
   ) => void;
   setProviderModelOptions: (
     threadId: ThreadId,
@@ -223,6 +232,7 @@ const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftSt
   draftThreadsByThreadId: {},
   projectDraftThreadIdByProjectId: {},
   stickyModelSelection: null,
+  stickyModelOptions: {},
 });
 
 const EMPTY_IMAGES: ComposerImageAttachment[] = [];
@@ -239,6 +249,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   persistedAttachments: EMPTY_PERSISTED_ATTACHMENTS,
   terminalContexts: EMPTY_TERMINAL_CONTEXTS,
   modelSelection: null,
+  modelOptions: null,
   runtimeMode: null,
   interactionMode: null,
 });
@@ -251,6 +262,7 @@ function createEmptyThreadDraft(): ComposerThreadDraftState {
     persistedAttachments: [],
     terminalContexts: [],
     modelSelection: null,
+    modelOptions: null,
     runtimeMode: null,
     interactionMode: null,
   };
@@ -320,6 +332,7 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.persistedAttachments.length === 0 &&
     draft.terminalContexts.length === 0 &&
     draft.modelSelection === null &&
+    draft.modelOptions === null &&
     draft.runtimeMode === null &&
     draft.interactionMode === null
   );
@@ -436,6 +449,35 @@ function normalizeModelSelection(
     model,
     ...(options ? { options } : {}),
   };
+}
+
+function syncModelSelectionOptions(
+  modelSelection: ModelSelection | null,
+  modelOptions: ProviderModelOptions | null | undefined,
+): ModelSelection | null {
+  if (modelSelection === null) {
+    return null;
+  }
+  const options = modelOptions?.[modelSelection.provider];
+  return {
+    provider: modelSelection.provider,
+    model: modelSelection.model,
+    ...(options ? { options } : {}),
+  };
+}
+
+function mergeModelSelectionIntoProviderModelOptions(
+  modelSelection: ModelSelection | null,
+  currentModelOptions: ProviderModelOptions | null | undefined,
+): ProviderModelOptions | null {
+  if (modelSelection?.options === undefined) {
+    return normalizeProviderModelOptions(currentModelOptions);
+  }
+  return replaceProviderModelOptions(
+    normalizeProviderModelOptions(currentModelOptions),
+    modelSelection.provider,
+    modelSelection.options,
+  );
 }
 
 function replaceProviderModelOptions(
@@ -686,17 +728,29 @@ function normalizePersistedDraftsByThreadId(
       terminalContexts.length,
     );
     const legacyDraftCandidate = draftCandidate as LegacyPersistedComposerThreadDraftState;
-    const modelSelection = normalizeModelSelection(draftCandidate.modelSelection, {
+    const normalizedModelOptions =
+      normalizeProviderModelOptions(
+        draftCandidate.modelOptions ?? legacyDraftCandidate.modelOptions,
+        undefined,
+        legacyDraftCandidate,
+      ) ?? null;
+    const normalizedModelSelection = normalizeModelSelection(draftCandidate.modelSelection, {
       provider: legacyDraftCandidate.provider,
       model: legacyDraftCandidate.model,
-      modelOptions: legacyDraftCandidate.modelOptions,
+      modelOptions: normalizedModelOptions ?? legacyDraftCandidate.modelOptions,
       legacyCodex: legacyDraftCandidate,
     });
+    const modelOptions = mergeModelSelectionIntoProviderModelOptions(
+      normalizedModelSelection,
+      normalizedModelOptions,
+    );
+    const modelSelection = syncModelSelectionOptions(normalizedModelSelection, modelOptions);
     if (
       promptCandidate.length === 0 &&
       attachments.length === 0 &&
       terminalContexts.length === 0 &&
       modelSelection === null &&
+      modelOptions === null &&
       !runtimeMode &&
       !interactionMode
     ) {
@@ -707,6 +761,7 @@ function normalizePersistedDraftsByThreadId(
       attachments,
       ...(terminalContexts.length > 0 ? { terminalContexts } : {}),
       ...(modelSelection ? { modelSelection } : {}),
+      ...(modelOptions ? { modelOptions } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
       ...(interactionMode ? { interactionMode } : {}),
     };
@@ -725,11 +780,20 @@ function migratePersistedComposerDraftStoreState(
   const rawDraftMap = candidate.draftsByThreadId;
   const rawDraftThreadsByThreadId = candidate.draftThreadsByThreadId;
   const rawProjectDraftThreadIdByProjectId = candidate.projectDraftThreadIdByProjectId;
-  const stickyModelSelection = normalizeModelSelection(candidate.stickyModelSelection, {
+  const stickyModelOptions = normalizeProviderModelOptions(candidate.stickyModelOptions) ?? {};
+  const normalizedStickyModelSelection = normalizeModelSelection(candidate.stickyModelSelection, {
     provider: candidate.stickyProvider ?? "codex",
     model: candidate.stickyModel,
-    modelOptions: candidate.stickyModelOptions,
+    modelOptions: stickyModelOptions,
   });
+  const nextStickyModelOptions = mergeModelSelectionIntoProviderModelOptions(
+    normalizedStickyModelSelection,
+    stickyModelOptions,
+  );
+  const stickyModelSelection = syncModelSelectionOptions(
+    normalizedStickyModelSelection,
+    nextStickyModelOptions,
+  );
   const { draftThreadsByThreadId, projectDraftThreadIdByProjectId } =
     normalizePersistedDraftThreads(rawDraftThreadsByThreadId, rawProjectDraftThreadIdByProjectId);
   const draftsByThreadId = normalizePersistedDraftsByThreadId(rawDraftMap);
@@ -738,6 +802,7 @@ function migratePersistedComposerDraftStoreState(
     draftThreadsByThreadId,
     projectDraftThreadIdByProjectId,
     stickyModelSelection,
+    stickyModelOptions: nextStickyModelOptions ?? {},
   };
 }
 
@@ -756,6 +821,7 @@ function partializeComposerDraftStoreState(
       draft.persistedAttachments.length === 0 &&
       draft.terminalContexts.length === 0 &&
       draft.modelSelection === null &&
+      draft.modelOptions === null &&
       draft.runtimeMode === null &&
       draft.interactionMode === null
     ) {
@@ -778,6 +844,7 @@ function partializeComposerDraftStoreState(
           }
         : {}),
       ...(draft.modelSelection ? { modelSelection: draft.modelSelection } : {}),
+      ...(draft.modelOptions ? { modelOptions: draft.modelOptions } : {}),
       ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
       ...(draft.interactionMode ? { interactionMode: draft.interactionMode } : {}),
     };
@@ -788,6 +855,7 @@ function partializeComposerDraftStoreState(
     draftThreadsByThreadId: state.draftThreadsByThreadId,
     projectDraftThreadIdByProjectId: state.projectDraftThreadIdByProjectId,
     stickyModelSelection: state.stickyModelSelection,
+    stickyModelOptions: state.stickyModelOptions,
   };
 }
 
@@ -803,19 +871,30 @@ function normalizeCurrentPersistedComposerDraftStoreState(
       normalizedPersistedState.draftThreadsByThreadId,
       normalizedPersistedState.projectDraftThreadIdByProjectId,
     );
-  const stickyModelSelection = normalizeModelSelection(
+  const stickyModelOptions =
+    normalizeProviderModelOptions(normalizedPersistedState.stickyModelOptions) ?? {};
+  const normalizedStickyModelSelection = normalizeModelSelection(
     normalizedPersistedState.stickyModelSelection,
     {
       provider: normalizedPersistedState.stickyProvider,
       model: normalizedPersistedState.stickyModel,
-      modelOptions: normalizedPersistedState.stickyModelOptions,
+      modelOptions: stickyModelOptions,
     },
+  );
+  const nextStickyModelOptions = mergeModelSelectionIntoProviderModelOptions(
+    normalizedStickyModelSelection,
+    stickyModelOptions,
+  );
+  const stickyModelSelection = syncModelSelectionOptions(
+    normalizedStickyModelSelection,
+    nextStickyModelOptions,
   );
   return {
     draftsByThreadId: normalizePersistedDraftsByThreadId(normalizedPersistedState.draftsByThreadId),
     draftThreadsByThreadId,
     projectDraftThreadIdByProjectId,
     stickyModelSelection,
+    stickyModelOptions: nextStickyModelOptions ?? {},
   };
 }
 
@@ -942,6 +1021,19 @@ function hydrateImagesFromPersisted(
 function toHydratedThreadDraft(
   persistedDraft: PersistedComposerThreadDraftState,
 ): ComposerThreadDraftState {
+  const legacyPersistedDraft = persistedDraft as LegacyPersistedComposerThreadDraftState;
+  const normalizedModelSelection = normalizeModelSelection(persistedDraft.modelSelection, {
+    provider: legacyPersistedDraft.provider,
+    model: legacyPersistedDraft.model,
+    modelOptions: legacyPersistedDraft.modelOptions,
+    legacyCodex: legacyPersistedDraft,
+  });
+  const normalizedModelOptions = normalizeProviderModelOptions(
+    persistedDraft.modelOptions ?? legacyPersistedDraft.modelOptions,
+  );
+  const modelOptions =
+    mergeModelSelectionIntoProviderModelOptions(normalizedModelSelection, normalizedModelOptions) ??
+    null;
   return {
     prompt: persistedDraft.prompt,
     images: hydrateImagesFromPersisted(persistedDraft.attachments),
@@ -952,12 +1044,8 @@ function toHydratedThreadDraft(
         ...context,
         text: "",
       })) ?? [],
-    modelSelection: normalizeModelSelection(persistedDraft.modelSelection, {
-      provider: (persistedDraft as LegacyPersistedComposerThreadDraftState).provider,
-      model: (persistedDraft as LegacyPersistedComposerThreadDraftState).model,
-      modelOptions: (persistedDraft as LegacyPersistedComposerThreadDraftState).modelOptions,
-      legacyCodex: persistedDraft as LegacyPersistedComposerThreadDraftState,
-    }),
+    modelSelection: syncModelSelectionOptions(normalizedModelSelection, modelOptions),
+    modelOptions,
     runtimeMode: persistedDraft.runtimeMode ?? null,
     interactionMode: persistedDraft.interactionMode ?? null,
   };
@@ -970,6 +1058,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelection: null,
+      stickyModelOptions: {},
       getDraftThreadByProjectId: (projectId) => {
         if (projectId.length === 0) {
           return null;
@@ -1218,10 +1307,51 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
       setStickyModelSelection: (modelSelection) => {
         const normalizedModelSelection = normalizeModelSelection(modelSelection);
         set((state) =>
-          Equal.equals(state.stickyModelSelection, normalizedModelSelection)
+          Equal.equals(
+            state.stickyModelSelection,
+            syncModelSelectionOptions(
+              normalizedModelSelection,
+              mergeModelSelectionIntoProviderModelOptions(
+                normalizedModelSelection,
+                state.stickyModelOptions,
+              ),
+            ),
+          )
             ? state
-            : { stickyModelSelection: normalizedModelSelection },
+            : {
+                stickyModelSelection: syncModelSelectionOptions(
+                  normalizedModelSelection,
+                  mergeModelSelectionIntoProviderModelOptions(
+                    normalizedModelSelection,
+                    state.stickyModelOptions,
+                  ),
+                ),
+                stickyModelOptions:
+                  mergeModelSelectionIntoProviderModelOptions(
+                    normalizedModelSelection,
+                    state.stickyModelOptions,
+                  ) ?? {},
+              },
         );
+      },
+      setStickyModelOptions: (modelOptions) => {
+        const normalizedModelOptions = normalizeProviderModelOptions(modelOptions) ?? {};
+        set((state) => {
+          const nextStickyModelSelection = syncModelSelectionOptions(
+            state.stickyModelSelection,
+            normalizedModelOptions,
+          );
+          if (
+            Equal.equals(state.stickyModelOptions, normalizedModelOptions) &&
+            Equal.equals(state.stickyModelSelection, nextStickyModelSelection)
+          ) {
+            return state;
+          }
+          return {
+            stickyModelSelection: nextStickyModelSelection,
+            stickyModelOptions: normalizedModelOptions,
+          };
+        });
       },
       setPrompt: (threadId, prompt) => {
         if (threadId.length === 0) {
@@ -1277,12 +1407,59 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             return state;
           }
           const base = existing ?? createEmptyThreadDraft();
-          if (Equal.equals(base.modelSelection, normalizedModelSelection)) {
+          const nextModelOptions = mergeModelSelectionIntoProviderModelOptions(
+            normalizedModelSelection,
+            base.modelOptions,
+          );
+          const nextModelSelection = syncModelSelectionOptions(
+            normalizedModelSelection,
+            nextModelOptions,
+          );
+          if (
+            Equal.equals(base.modelSelection, nextModelSelection) &&
+            Equal.equals(base.modelOptions, nextModelOptions)
+          ) {
             return state;
           }
           const nextDraft: ComposerThreadDraftState = {
             ...base,
-            modelSelection: normalizedModelSelection,
+            modelSelection: nextModelSelection,
+            modelOptions: nextModelOptions,
+          };
+          const nextDraftsByThreadId = { ...state.draftsByThreadId };
+          if (shouldRemoveDraft(nextDraft)) {
+            delete nextDraftsByThreadId[threadId];
+          } else {
+            nextDraftsByThreadId[threadId] = nextDraft;
+          }
+          return { draftsByThreadId: nextDraftsByThreadId };
+        });
+      },
+      setModelOptions: (threadId, modelOptions) => {
+        if (threadId.length === 0) {
+          return;
+        }
+        set((state) => {
+          const existing = state.draftsByThreadId[threadId];
+          const nextModelOptions = normalizeProviderModelOptions(modelOptions);
+          if (!existing && nextModelOptions === null) {
+            return state;
+          }
+          const base = existing ?? createEmptyThreadDraft();
+          const nextModelSelection = syncModelSelectionOptions(
+            base.modelSelection,
+            nextModelOptions,
+          );
+          if (
+            Equal.equals(base.modelOptions, nextModelOptions) &&
+            Equal.equals(base.modelSelection, nextModelSelection)
+          ) {
+            return state;
+          }
+          const nextDraft: ComposerThreadDraftState = {
+            ...base,
+            modelSelection: nextModelSelection,
+            modelOptions: nextModelOptions,
           };
           const nextDraftsByThreadId = { ...state.draftsByThreadId };
           if (shouldRemoveDraft(nextDraft)) {
@@ -1304,35 +1481,35 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         set((state) => {
           const existing = state.draftsByThreadId[threadId];
           const base = existing ?? createEmptyThreadDraft();
-          if (base.modelSelection?.provider !== normalizedProvider) {
-            return state;
-          }
-          const nextProviderModelOptions = replaceProviderModelOptions(
-            base.modelSelection?.options
-              ? { [normalizedProvider]: base.modelSelection.options }
-              : null,
+          const nextModelOptions = replaceProviderModelOptions(
+            base.modelOptions,
             normalizedProvider,
             nextProviderOptions,
           );
-          const nextOptions =
-            normalizedProvider === "codex"
-              ? nextProviderModelOptions?.codex
-              : nextProviderModelOptions?.claudeAgent;
-          const nextModelSelection =
-            base.modelSelection === null
-              ? null
-              : {
-                  provider: base.modelSelection.provider,
-                  model: base.modelSelection.model,
-                  ...(nextOptions ? { options: nextOptions } : {}),
-                };
+          const nextModelSelection = syncModelSelectionOptions(
+            base.modelSelection,
+            nextModelOptions,
+          );
+          const nextStickyModelOptions =
+            options?.persistSticky === true
+              ? (replaceProviderModelOptions(
+                  state.stickyModelOptions,
+                  normalizedProvider,
+                  nextProviderOptions,
+                ) ?? {})
+              : state.stickyModelOptions;
+          const stickySelectionBase =
+            state.stickyModelSelection ??
+            (options?.persistSticky === true ? base.modelSelection : null);
           const nextStickyModelSelection =
-            options?.persistSticky === true && nextModelSelection !== null
-              ? nextModelSelection
+            options?.persistSticky === true
+              ? syncModelSelectionOptions(stickySelectionBase, nextStickyModelOptions)
               : state.stickyModelSelection;
 
           if (
             Equal.equals(base.modelSelection, nextModelSelection) &&
+            Equal.equals(base.modelOptions, nextModelOptions) &&
+            Equal.equals(state.stickyModelOptions, nextStickyModelOptions) &&
             Equal.equals(state.stickyModelSelection, nextStickyModelSelection)
           ) {
             return state;
@@ -1341,6 +1518,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           const nextDraft: ComposerThreadDraftState = {
             ...base,
             modelSelection: nextModelSelection,
+            modelOptions: nextModelOptions,
           };
           const nextDraftsByThreadId = { ...state.draftsByThreadId };
           if (shouldRemoveDraft(nextDraft)) {
@@ -1352,7 +1530,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           return {
             draftsByThreadId: nextDraftsByThreadId,
             ...(options?.persistSticky === true
-              ? { stickyModelSelection: nextStickyModelSelection }
+              ? {
+                  stickyModelSelection: nextStickyModelSelection,
+                  stickyModelOptions: nextStickyModelOptions,
+                }
               : {}),
           };
         });
@@ -1712,6 +1893,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           draftThreadsByThreadId: normalizedPersisted.draftThreadsByThreadId,
           projectDraftThreadIdByProjectId: normalizedPersisted.projectDraftThreadIdByProjectId,
           stickyModelSelection: normalizedPersisted.stickyModelSelection as ModelSelection | null,
+          stickyModelOptions: normalizedPersisted.stickyModelOptions ?? {},
         };
       },
     },

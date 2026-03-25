@@ -30,6 +30,12 @@ async function mountPicker(props: {
         ...(props.fastModeEnabled ? { fastMode: true } : {}),
       },
     },
+    modelOptions: {
+      codex: {
+        ...(props.reasoningEffort ? { reasoningEffort: props.reasoningEffort } : {}),
+        ...(props.fastModeEnabled ? { fastMode: true } : {}),
+      },
+    },
     runtimeMode: null,
     interactionMode: null,
   };
@@ -60,6 +66,7 @@ describe("CodexTraitsPicker", () => {
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
+      stickyModelOptions: {},
     });
   });
 

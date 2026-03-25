@@ -634,9 +634,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
         provider: selectedProvider,
         model: selectedModel,
         prompt,
-        modelOptions: composerDraft.modelSelection?.options,
+        modelOptions: composerDraft.modelOptions,
       }),
-    [composerDraft.modelSelection?.options, prompt, selectedModel, selectedProvider],
+    [composerDraft.modelOptions, prompt, selectedModel, selectedProvider],
   );
   const selectedPromptEffort = composerProviderState.promptEffort;
   const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
@@ -3116,14 +3116,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
       const resolvedModel = resolveAppModelSelection(provider, customModelsByProvider, model);
-      const existingModelSelection = composerDraft.modelSelection;
-      const preserveOptions =
-        existingModelSelection?.provider === provider &&
-        existingModelSelection.options !== undefined;
       const nextModelSelection: ModelSelection = {
         provider,
         model: resolvedModel,
-        ...(preserveOptions ? { options: existingModelSelection.options } : {}),
       };
       setComposerDraftModelSelection(activeThread.id, nextModelSelection);
       setStickyComposerModelSelection(nextModelSelection);
@@ -3131,7 +3126,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [
       activeThread,
-      composerDraft.modelSelection,
       lockedProvider,
       scheduleComposerFocus,
       setComposerDraftModelSelection,

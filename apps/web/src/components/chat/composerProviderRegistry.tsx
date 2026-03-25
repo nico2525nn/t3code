@@ -1,9 +1,7 @@
 import {
-  type ClaudeModelOptions,
-  type CodexModelOptions,
   type ModelSlug,
-  type ModelSelection,
   type ProviderKind,
+  type ProviderModelOptions,
   type ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -23,13 +21,13 @@ export type ComposerProviderStateInput = {
   provider: ProviderKind;
   model: ModelSlug;
   prompt: string;
-  modelOptions: ModelSelection["options"] | null | undefined;
+  modelOptions: ProviderModelOptions | null | undefined;
 };
 
 export type ComposerProviderState = {
   provider: ProviderKind;
   promptEffort: string | null;
-  modelOptionsForDispatch: ModelSelection["options"] | undefined;
+  modelOptionsForDispatch: ProviderModelOptions[ProviderKind] | undefined;
   composerFrameClassName?: string;
   composerSurfaceClassName?: string;
   modelPickerIconClassName?: string;
@@ -49,28 +47,13 @@ type ProviderRegistryEntry = {
   }) => ReactNode;
 };
 
-function asCodexModelOptions(
-  modelOptions: ModelSelection["options"] | null | undefined,
-): CodexModelOptions | undefined {
-  return modelOptions && "reasoningEffort" in modelOptions ? modelOptions : undefined;
-}
-
-function asClaudeModelOptions(
-  modelOptions: ModelSelection["options"] | null | undefined,
-): ClaudeModelOptions | undefined {
-  return modelOptions && ("effort" in modelOptions || "thinking" in modelOptions)
-    ? modelOptions
-    : undefined;
-}
-
 const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
   codex: {
     getState: ({ modelOptions }) => {
-      const codexModelOptions = asCodexModelOptions(modelOptions);
       const promptEffort =
-        resolveReasoningEffortForProvider("codex", codexModelOptions?.reasoningEffort) ??
+        resolveReasoningEffortForProvider("codex", modelOptions?.codex?.reasoningEffort) ??
         getDefaultReasoningEffort("codex");
-      const normalizedCodexOptions = normalizeCodexModelOptions(codexModelOptions);
+      const normalizedCodexOptions = normalizeCodexModelOptions(modelOptions?.codex);
 
       return {
         provider: "codex",
@@ -83,11 +66,10 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
   },
   claudeAgent: {
     getState: ({ model, prompt, modelOptions }) => {
-      const claudeModelOptions = asClaudeModelOptions(modelOptions);
       const reasoningOptions = getReasoningEffortOptions("claudeAgent", model);
       const draftEffort = resolveReasoningEffortForProvider(
         "claudeAgent",
-        claudeModelOptions?.effort,
+        modelOptions?.claudeAgent?.effort,
       );
       const defaultEffort = getDefaultReasoningEffort("claudeAgent");
       const promptEffort =
@@ -96,7 +78,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
           : reasoningOptions.includes(defaultEffort)
             ? defaultEffort
             : null;
-      const normalizedClaudeOptions = normalizeClaudeModelOptions(model, claudeModelOptions);
+      const normalizedClaudeOptions = normalizeClaudeModelOptions(model, modelOptions?.claudeAgent);
       const ultrathinkActive =
         supportsClaudeUltrathinkKeyword(model) && isClaudeUltrathinkPrompt(prompt);
 
