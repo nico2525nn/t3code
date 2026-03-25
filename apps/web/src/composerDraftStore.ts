@@ -88,12 +88,26 @@ const LegacyCodexFields = Schema.Struct({
 });
 type LegacyCodexFields = typeof LegacyCodexFields.Type;
 
-type LegacyPersistedCodexThreadDraftState = PersistedComposerThreadDraftState & LegacyCodexFields;
-type LegacyPersistedComposerThreadDraftState = LegacyPersistedCodexThreadDraftState & {
-  provider?: ProviderKind;
-  model?: string;
-  modelOptions?: ProviderModelOptions | null;
-};
+const LegacyThreadModelFields = Schema.Struct({
+  provider: Schema.optionalKey(ProviderKind),
+  model: Schema.optionalKey(Schema.String),
+  modelOptions: Schema.optionalKey(Schema.NullOr(ProviderModelOptions)),
+});
+type LegacyThreadModelFields = typeof LegacyThreadModelFields.Type;
+
+type LegacyPersistedComposerThreadDraftState = PersistedComposerThreadDraftState &
+  LegacyCodexFields &
+  LegacyThreadModelFields;
+
+const LegacyStickyModelFields = Schema.Struct({
+  stickyProvider: Schema.optionalKey(ProviderKind),
+  stickyModel: Schema.optionalKey(Schema.String),
+  stickyModelOptions: Schema.optionalKey(Schema.NullOr(ProviderModelOptions)),
+});
+type LegacyStickyModelFields = typeof LegacyStickyModelFields.Type;
+
+type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
+  LegacyStickyModelFields;
 
 const PersistedDraftThreadState = Schema.Struct({
   projectId: ProjectId,
@@ -698,9 +712,7 @@ function normalizePersistedDraftsByThreadId(
     if (!draftValue || typeof draftValue !== "object") {
       continue;
     }
-    const draftCandidate = draftValue as
-      | PersistedComposerThreadDraftState
-      | LegacyPersistedCodexThreadDraftState;
+    const draftCandidate = draftValue as PersistedComposerThreadDraftState;
     const promptCandidate = typeof draftCandidate.prompt === "string" ? draftCandidate.prompt : "";
     const attachments = Array.isArray(draftCandidate.attachments)
       ? draftCandidate.attachments.flatMap((entry) => {
@@ -727,7 +739,7 @@ function normalizePersistedDraftsByThreadId(
       promptCandidate,
       terminalContexts.length,
     );
-    const legacyDraftCandidate = draftCandidate as LegacyPersistedComposerThreadDraftState;
+    const legacyDraftCandidate = draftValue as LegacyPersistedComposerThreadDraftState;
     const normalizedModelOptions =
       normalizeProviderModelOptions(
         draftCandidate.modelOptions ?? legacyDraftCandidate.modelOptions,
@@ -776,7 +788,7 @@ function migratePersistedComposerDraftStoreState(
   if (!persistedState || typeof persistedState !== "object") {
     return EMPTY_PERSISTED_DRAFT_STORE_STATE;
   }
-  const candidate = persistedState as Record<string, unknown>;
+  const candidate = persistedState as LegacyPersistedComposerDraftStoreState;
   const rawDraftMap = candidate.draftsByThreadId;
   const rawDraftThreadsByThreadId = candidate.draftThreadsByThreadId;
   const rawProjectDraftThreadIdByProjectId = candidate.projectDraftThreadIdByProjectId;
@@ -865,7 +877,7 @@ function normalizeCurrentPersistedComposerDraftStoreState(
   if (!persistedState || typeof persistedState !== "object") {
     return EMPTY_PERSISTED_DRAFT_STORE_STATE;
   }
-  const normalizedPersistedState = persistedState as Record<string, unknown>;
+  const normalizedPersistedState = persistedState as LegacyPersistedComposerDraftStoreState;
   const { draftThreadsByThreadId, projectDraftThreadIdByProjectId } =
     normalizePersistedDraftThreads(
       normalizedPersistedState.draftThreadsByThreadId,
