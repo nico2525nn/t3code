@@ -172,7 +172,10 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             "-",
           ],
           {
-            env: codexSettings?.homePath ? { CODEX_HOME: codexSettings.homePath } : {},
+            env: {
+              ...process.env,
+              ...(codexSettings?.homePath ? { CODEX_HOME: codexSettings.homePath } : {}),
+            },
             cwd,
             shell: process.platform === "win32",
             stdin: {
