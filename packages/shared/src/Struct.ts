@@ -6,7 +6,7 @@ export type DeepPartial<T> = T extends readonly (infer U)[]
     ? { [K in keyof T]?: DeepPartial<T[K]> }
     : T;
 
-export function deepMerge<T>(current: T, patch: DeepPartial<T>): T {
+export function deepMerge<T extends Record<string, unknown>>(current: T, patch: DeepPartial<T>): T {
   if (!P.isObject(current) || !P.isObject(patch)) {
     return patch as T;
   }
