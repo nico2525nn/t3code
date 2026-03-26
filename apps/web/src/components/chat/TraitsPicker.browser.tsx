@@ -450,10 +450,10 @@ describe("TraitsPicker (Codex)", () => {
 
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
-      expect(text).toContain("Low");
-      expect(text).toContain("Medium");
-      expect(text).toContain("High");
       expect(text).toContain("Extra High");
+      expect(text).toContain("High");
+      expect(text).not.toContain("Low");
+      expect(text).not.toContain("Medium");
     });
   });
 

@@ -266,6 +266,7 @@ describe("ProviderModelPicker", () => {
       disabledProviders[claudeIndex] = {
         ...claudeProvider,
         enabled: false,
+        status: "disabled",
       };
     }
     const mounted = await mountPicker({

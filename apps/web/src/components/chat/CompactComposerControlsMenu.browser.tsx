@@ -64,6 +64,17 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
             },
           },
           {
+            slug: "claude-haiku-4-5",
+            name: "Claude Haiku 4.5",
+            isCustom: false,
+            capabilities: {
+              reasoningEffortLevels: [],
+              supportsFastMode: false,
+              supportsThinkingToggle: true,
+              promptInjectedEffortLevels: [],
+            },
+          },
+          {
             slug: "claude-sonnet-4-6",
             name: "Claude Sonnet 4.6",
             isCustom: false,
