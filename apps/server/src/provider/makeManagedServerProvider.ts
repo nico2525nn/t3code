@@ -23,29 +23,31 @@ export function makeManagedServerProvider<Settings>(input: {
     const snapshotRef = yield* Ref.make(initialSnapshot);
     const settingsRef = yield* Ref.make(initialSettings);
 
-    const refreshSnapshot = refreshSemaphore.withPermits(1)(
-      Effect.gen(function* () {
-        const nextSettings = yield* input.getSettings;
-        const nextSnapshot = yield* input.checkProvider;
-        yield* Ref.set(settingsRef, nextSettings);
-        yield* Ref.set(snapshotRef, nextSnapshot);
-        yield* PubSub.publish(changesPubSub, nextSnapshot);
-        return nextSnapshot;
-      }),
-    );
+    const applySnapshot = (nextSettings: Settings, options?: { readonly forceRefresh?: boolean }) =>
+      refreshSemaphore.withPermits(1)(
+        Effect.gen(function* () {
+          const forceRefresh = options?.forceRefresh === true;
+          const previousSettings = yield* Ref.get(settingsRef);
+          if (!forceRefresh && !input.haveSettingsChanged(previousSettings, nextSettings)) {
+            yield* Ref.set(settingsRef, nextSettings);
+            return yield* Ref.get(snapshotRef);
+          }
 
-    const reconcileSnapshot = (nextSettings: Settings) =>
-      Effect.gen(function* () {
-        const previousSettings = yield* Ref.get(settingsRef);
-        if (!input.haveSettingsChanged(previousSettings, nextSettings)) {
+          const nextSnapshot = yield* input.checkProvider;
           yield* Ref.set(settingsRef, nextSettings);
-          return yield* Ref.get(snapshotRef);
-        }
-        return yield* refreshSnapshot;
-      });
+          yield* Ref.set(snapshotRef, nextSnapshot);
+          yield* PubSub.publish(changesPubSub, nextSnapshot);
+          return nextSnapshot;
+        }),
+      );
+
+    const refreshSnapshot = Effect.gen(function* () {
+      const nextSettings = yield* input.getSettings;
+      return yield* applySnapshot(nextSettings, { forceRefresh: true });
+    });
 
     yield* Stream.runForEach(input.streamSettings, (nextSettings) =>
-      Effect.asVoid(reconcileSnapshot(nextSettings)),
+      Effect.asVoid(applySnapshot(nextSettings)),
     ).pipe(Effect.forkScoped);
 
     yield* Effect.forever(
@@ -57,7 +59,7 @@ export function makeManagedServerProvider<Settings>(input: {
 
     return {
       getSnapshot: input.getSettings.pipe(
-        Effect.flatMap(reconcileSnapshot),
+        Effect.flatMap(applySnapshot),
         Effect.tapError(Effect.logError),
         Effect.orDie,
       ),
