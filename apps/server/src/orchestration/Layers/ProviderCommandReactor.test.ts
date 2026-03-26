@@ -1066,10 +1066,9 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("restarts cursor sessions on model changes while preserving resumeCursor", async () => {
+  it("switches cursor model in-session without restarting", async () => {
     const harness = await createHarness({
       threadModelSelection: { provider: "cursor", model: "composer-2" },
-      sessionModelSwitch: "unsupported",
     });
     const now = new Date().toISOString();
 
@@ -1112,12 +1111,11 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.startSession.mock.calls.length === 2);
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
 
-    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+    expect(harness.startSession.mock.calls.length).toBe(1);
+    expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
       modelSelection: { provider: "cursor", model: "composer-2-fast" },
-      resumeCursor: { opaque: "resume-1" },
     });
   });
 

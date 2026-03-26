@@ -11,7 +11,27 @@ const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
 const sessionId = "mock-session-1";
 let currentModeId = "ask";
+let currentModelId = "auto";
 let nextRequestId = 1;
+
+function configOptions() {
+  return [
+    {
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: currentModelId,
+      options: [
+        { value: "auto", name: "Auto" },
+        { value: "composer-2", name: "Composer 2" },
+        { value: "composer-2-fast", name: "Composer 2 Fast" },
+        { value: "gpt-5.3-codex", name: "Codex 5.3" },
+      ],
+    },
+  ];
+}
+
 const availableModes = [
   {
     id: "ask",
@@ -127,6 +147,7 @@ rl.on("line", (line) => {
       result: {
         sessionId,
         modes: modeState(),
+        configOptions: configOptions(),
       },
     });
     return;
@@ -146,7 +167,22 @@ rl.on("line", (line) => {
       id,
       result: {
         modes: modeState(),
+        configOptions: configOptions(),
       },
+    });
+    return;
+  }
+
+  if (method === "session/set_config_option" && id !== undefined) {
+    const configId = msg.params?.configId;
+    const value = msg.params?.value;
+    if (configId === "model" && typeof value === "string") {
+      currentModelId = value;
+    }
+    send({
+      jsonrpc: "2.0",
+      id,
+      result: { configOptions: configOptions() },
     });
     return;
   }

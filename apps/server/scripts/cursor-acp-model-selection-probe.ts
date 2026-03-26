@@ -94,9 +94,21 @@ const program = Effect.gen(function* () {
 
   yield* adapter.sendTurn({
     threadId,
-    input: "probe model selection",
+    input: "first turn with initial model",
     attachments: [],
   });
+
+  yield* adapter.sendTurn({
+    threadId,
+    input: "second turn after model switch",
+    attachments: [],
+    modelSelection: {
+      provider: "cursor",
+      model: "composer-2",
+      options: { fastMode: true },
+    },
+  });
+
   yield* adapter.stopSession(threadId);
 
   const argv = (yield* Effect.promise(() => readFile(argvLogPath, "utf8")))
@@ -104,30 +116,23 @@ const program = Effect.gen(function* () {
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
-  const promptRequest = requests.find((entry) => entry.method === "session/prompt");
-  const promptParams =
-    promptRequest?.params &&
-    typeof promptRequest.params === "object" &&
-    !Array.isArray(promptRequest.params)
-      ? promptRequest.params
-      : null;
+  const setConfigRequests = requests.filter(
+    (entry) => entry.method === "session/set_config_option",
+  );
+  const promptRequests = requests.filter((entry) => entry.method === "session/prompt");
 
   return {
-    input: {
-      model,
-      fastMode,
-    },
+    input: { model, fastMode },
     dispatchedModel,
     spawnedArgv: argv,
     acpMethods: requests
       .map((entry) => entry.method)
       .filter((method): method is string => typeof method === "string"),
-    promptParams,
-    promptCarriesModel: Boolean(
-      promptParams && Object.prototype.hasOwnProperty.call(promptParams, "model"),
-    ),
+    setConfigRequests: setConfigRequests.map((r) => r.params),
+    promptCount: promptRequests.length,
+    sessionRestartCount: requests.filter((entry) => entry.method === "session/new").length,
     conclusion:
-      "Cursor model selection is decided before ACP initialize via CLI argv. The ACP session/prompt payload does not carry a model field.",
+      "Model switching uses session/set_config_option (in-session). No session restart needed.",
   };
 }).pipe(Effect.provide(layer));
 

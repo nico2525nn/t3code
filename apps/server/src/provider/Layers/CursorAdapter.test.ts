@@ -428,11 +428,11 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     ),
   );
 
-  it.effect("restarts ACP with session/load when the Cursor model changes mid-thread", () =>
+  it.effect("switches model in-session via session/set_config_option", () =>
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const serverSettings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-model-restart");
+      const threadId = ThreadId.makeUnsafe("cursor-model-switch");
       const tempDir = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "cursor-acp-")));
       const requestLogPath = path.join(tempDir, "requests.ndjson");
       const argvLogPath = path.join(tempDir, "argv.txt");
@@ -464,19 +464,16 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       });
 
       const argvRuns = yield* Effect.promise(() => readArgvLog(argvLogPath));
-      assert.deepStrictEqual(argvRuns, [
-        ["--model", "composer-2", "acp"],
-        ["--model", "composer-2-fast", "acp"],
-      ]);
+      assert.lengthOf(argvRuns, 1, "session should not restart — only one spawn");
+      assert.deepStrictEqual(argvRuns[0], ["--model", "composer-2", "acp"]);
 
       const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
-      const loadRequests = requests.filter((entry) => entry.method === "session/load");
-      assert.lengthOf(loadRequests, 1);
-      assert.deepStrictEqual(loadRequests[0]?.params, {
-        sessionId: "mock-session-1",
-        cwd: process.cwd(),
-        mcpServers: [],
-      });
+      const setConfigRequests = requests.filter(
+        (entry) => entry.method === "session/set_config_option",
+      );
+      assert.isAbove(setConfigRequests.length, 0, "should call session/set_config_option");
+      const lastSetConfig = setConfigRequests[setConfigRequests.length - 1];
+      assert.equal((lastSetConfig?.params as Record<string, unknown>)?.value, "composer-2-fast");
 
       yield* adapter.stopSession(threadId);
     }),

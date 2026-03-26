@@ -88,6 +88,18 @@ function parseCursorResume(raw: unknown): { sessionId: string } | undefined {
   return { sessionId: raw.sessionId.trim() };
 }
 
+function extractModelConfigId(sessionResponse: unknown): string | undefined {
+  if (!isRecord(sessionResponse)) return undefined;
+  const configOptions = sessionResponse.configOptions;
+  if (!Array.isArray(configOptions)) return undefined;
+  for (const opt of configOptions) {
+    if (isRecord(opt) && opt.category === "model" && typeof opt.id === "string") {
+      return opt.id;
+    }
+  }
+  return undefined;
+}
+
 function buildCursorSpawnInput(cwd: string, opts?: CursorSpawnOptions, model?: string | undefined) {
   const command = opts?.binaryPath?.trim() || "agent";
   const hasCustomArgs = opts?.args && opts.args.length > 0;
@@ -670,6 +682,8 @@ interface CursorSessionContext {
   readonly child: ChildProcessWithoutNullStreams;
   readonly conn: AcpJsonRpcConnection;
   acpSessionId: string;
+  /** ACP configId for the model selector (discovered from session/new configOptions). */
+  modelConfigId: string | undefined;
   notificationFiber: Fiber.Fiber<void, never> | undefined;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
@@ -940,6 +954,7 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
           child,
           conn,
           acpSessionId: "",
+          modelConfigId: undefined,
           notificationFiber: undefined,
           pendingApprovals: new Map(),
           pendingUserInputs: new Map(),
@@ -1189,6 +1204,7 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
 
         ctx.session = session;
         ctx.acpSessionId = acpSessionId;
+        ctx.modelConfigId = extractModelConfigId(sessionSetupResult);
         ctx.modeState = parseSessionModeState(sessionSetupResult);
 
         const handleNotification = (msg: AcpInboundMessage) =>
@@ -1269,9 +1285,22 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         return session;
       });
 
+    const setSessionModel = (ctx: CursorSessionContext, model: string) =>
+      Effect.gen(function* () {
+        const configId = ctx.modelConfigId ?? "model";
+        yield* ctx.conn
+          .request("session/set_config_option", {
+            sessionId: ctx.acpSessionId,
+            configId,
+            value: model,
+          })
+          .pipe(Effect.ignore);
+        ctx.session = { ...ctx.session, model, updatedAt: yield* nowIso };
+      });
+
     const sendTurn: CursorAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
-        let ctx = yield* requireSession(input.threadId);
+        const ctx = yield* requireSession(input.threadId);
         const turnId = TurnId.makeUnsafe(crypto.randomUUID());
         const turnModelSelection =
           input.modelSelection?.provider === "cursor" ? input.modelSelection : undefined;
@@ -1279,21 +1308,8 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
           turnModelSelection?.model ?? ctx.session.model,
           turnModelSelection?.options,
         );
-        const activeModel = resolveCursorDispatchModel(ctx.session.model, undefined);
-        if (model !== activeModel) {
-          yield* stopSessionInternal(ctx);
-          yield* startSession({
-            threadId: input.threadId,
-            provider: PROVIDER,
-            cwd: ctx.session.cwd,
-            runtimeMode: ctx.session.runtimeMode,
-            modelSelection: turnModelSelection ?? { provider: PROVIDER, model },
-            ...(ctx.session.resumeCursor !== undefined
-              ? { resumeCursor: ctx.session.resumeCursor }
-              : {}),
-          });
-          ctx = yield* requireSession(input.threadId);
-        }
+
+        yield* setSessionModel(ctx, model);
         ctx.activeTurnId = turnId;
         ctx.lastPlanFingerprint = undefined;
         ctx.toolCalls.clear();
@@ -1494,7 +1510,7 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "unsupported" },
+      capabilities: { sessionModelSwitch: "in-session" },
       startSession,
       sendTurn,
       interruptTurn,
