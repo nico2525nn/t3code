@@ -12,7 +12,6 @@ import {
   ApprovalRequestId,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
-  DEFAULT_SERVER_SETTINGS,
   EventId,
   MessageId,
   ProjectId,
@@ -40,18 +39,11 @@ import {
 } from "../Services/OrchestrationEngine.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerConfig } from "../../config.ts";
-import { ServerSettingsService, type ServerSettingsShape } from "../../serverSettings.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 function makeTestServerSettingsLayer(overrides: Partial<ServerSettings> = {}) {
-  const settings: ServerSettings = { ...DEFAULT_SERVER_SETTINGS, ...overrides };
-  return Layer.succeed(ServerSettingsService, {
-    start: Effect.void,
-    ready: Effect.void,
-    getSettings: Effect.succeed(settings),
-    updateSettings: () => Effect.succeed(settings),
-    streamChanges: Stream.empty,
-  } satisfies ServerSettingsShape);
+  return ServerSettingsService.layerTest(overrides);
 }
 
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);

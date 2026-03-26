@@ -23,8 +23,8 @@ import {
   type CommandResult,
 } from "../providerSnapshot";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
-import { ClaudeProvider, type ClaudeProviderShape } from "../Services/ClaudeProvider";
-import { ServerSettingsService } from "../../serverSettings";
+import { ClaudeProvider } from "../Services/ClaudeProvider";
+import { ServerSettingsError, ServerSettingsService } from "../../serverSettings";
 
 const PROVIDER = "claudeAgent" as const;
 const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
@@ -196,8 +196,8 @@ export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
 const runClaudeCommand = (args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const settingsService = yield* ServerSettingsService;
-    const claudeSettings = yield* settingsService.getSettings.pipe(
+    const claudeSettings = yield* Effect.service(ServerSettingsService).pipe(
+      Effect.flatMap((service) => service.getSettings),
       Effect.map((settings) => settings.providers.claudeAgent),
     );
     const command = ChildProcess.make(claudeSettings.binaryPath, [...args], {
@@ -217,78 +217,144 @@ const runClaudeCommand = (args: ReadonlyArray<string>) =>
     return { stdout, stderr, code: exitCode } satisfies CommandResult;
   }).pipe(Effect.scoped);
 
-export const checkClaudeProviderStatus: Effect.Effect<
-  ServerProvider,
-  never,
-  ChildProcessSpawner.ChildProcessSpawner | ServerSettingsService
-> = Effect.gen(function* () {
-  const settingsService = yield* ServerSettingsService;
-  const settings = yield* settingsService.getSettings.pipe(Effect.orDie);
-  const claudeSettings = settings.providers.claudeAgent;
-  const checkedAt = new Date().toISOString();
-  const models = providerModelsFromSettings(BUILT_IN_MODELS, PROVIDER, claudeSettings.customModels);
+export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
+  function* (): Effect.fn.Return<
+    ServerProvider,
+    ServerSettingsError,
+    ChildProcessSpawner.ChildProcessSpawner | ServerSettingsService
+  > {
+    const claudeSettings = yield* Effect.service(ServerSettingsService).pipe(
+      Effect.flatMap((service) => service.getSettings),
+      Effect.map((settings) => settings.providers.claudeAgent),
+    );
+    const checkedAt = new Date().toISOString();
+    const models = providerModelsFromSettings(
+      BUILT_IN_MODELS,
+      PROVIDER,
+      claudeSettings.customModels,
+    );
 
-  if (!claudeSettings.enabled) {
-    return buildServerProvider({
-      provider: PROVIDER,
-      enabled: false,
-      checkedAt,
-      models,
-      probe: {
-        installed: false,
-        version: null,
-        status: "warning",
-        authStatus: "unknown",
-        message: "Claude is disabled in T3 Code settings.",
-      },
-    });
-  }
+    if (!claudeSettings.enabled) {
+      return buildServerProvider({
+        provider: PROVIDER,
+        enabled: false,
+        checkedAt,
+        models,
+        probe: {
+          installed: false,
+          version: null,
+          status: "warning",
+          authStatus: "unknown",
+          message: "Claude is disabled in T3 Code settings.",
+        },
+      });
+    }
 
-  const versionProbe = yield* runClaudeCommand(["--version"]).pipe(
-    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
-    Effect.result,
-  );
+    const versionProbe = yield* runClaudeCommand(["--version"]).pipe(
+      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+      Effect.result,
+    );
 
-  if (Result.isFailure(versionProbe)) {
-    const error = versionProbe.failure;
-    return buildServerProvider({
-      provider: PROVIDER,
-      enabled: claudeSettings.enabled,
-      checkedAt,
-      models,
-      probe: {
-        installed: !isCommandMissingCause(error),
-        version: null,
-        status: "error",
-        authStatus: "unknown",
-        message: isCommandMissingCause(error)
-          ? "Claude Agent CLI (`claude`) is not installed or not on PATH."
-          : `Failed to execute Claude Agent CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
-      },
-    });
-  }
+    if (Result.isFailure(versionProbe)) {
+      const error = versionProbe.failure;
+      return buildServerProvider({
+        provider: PROVIDER,
+        enabled: claudeSettings.enabled,
+        checkedAt,
+        models,
+        probe: {
+          installed: !isCommandMissingCause(error),
+          version: null,
+          status: "error",
+          authStatus: "unknown",
+          message: isCommandMissingCause(error)
+            ? "Claude Agent CLI (`claude`) is not installed or not on PATH."
+            : `Failed to execute Claude Agent CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
+        },
+      });
+    }
 
-  if (Option.isNone(versionProbe.success)) {
-    return buildServerProvider({
-      provider: PROVIDER,
-      enabled: claudeSettings.enabled,
-      checkedAt,
-      models,
-      probe: {
-        installed: true,
-        version: null,
-        status: "error",
-        authStatus: "unknown",
-        message:
-          "Claude Agent CLI is installed but failed to run. Timed out while running command.",
-      },
-    });
-  }
+    if (Option.isNone(versionProbe.success)) {
+      return buildServerProvider({
+        provider: PROVIDER,
+        enabled: claudeSettings.enabled,
+        checkedAt,
+        models,
+        probe: {
+          installed: true,
+          version: null,
+          status: "error",
+          authStatus: "unknown",
+          message:
+            "Claude Agent CLI is installed but failed to run. Timed out while running command.",
+        },
+      });
+    }
 
-  const version = versionProbe.success.value;
-  const parsedVersion = parseGenericCliVersion(`${version.stdout}\n${version.stderr}`);
-  if (version.code !== 0) {
-    const detail = detailFromResult(version);
+    const version = versionProbe.success.value;
+    const parsedVersion = parseGenericCliVersion(`${version.stdout}\n${version.stderr}`);
+    if (version.code !== 0) {
+      const detail = detailFromResult(version);
+      return buildServerProvider({
+        provider: PROVIDER,
+        enabled: claudeSettings.enabled,
+        checkedAt,
+        models,
+        probe: {
+          installed: true,
+          version: parsedVersion,
+          status: "error",
+          authStatus: "unknown",
+          message: detail
+            ? `Claude Agent CLI is installed but failed to run. ${detail}`
+            : "Claude Agent CLI is installed but failed to run.",
+        },
+      });
+    }
+
+    const authProbe = yield* runClaudeCommand(["auth", "status"]).pipe(
+      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+      Effect.result,
+    );
+
+    if (Result.isFailure(authProbe)) {
+      const error = authProbe.failure;
+      return buildServerProvider({
+        provider: PROVIDER,
+        enabled: claudeSettings.enabled,
+        checkedAt,
+        models,
+        probe: {
+          installed: true,
+          version: parsedVersion,
+          status: "warning",
+          authStatus: "unknown",
+          message:
+            error instanceof Error
+              ? `Could not verify Claude authentication status: ${error.message}.`
+              : "Could not verify Claude authentication status.",
+        },
+      });
+    }
+
+    if (Option.isNone(authProbe.success)) {
+      return buildServerProvider({
+        provider: PROVIDER,
+        enabled: claudeSettings.enabled,
+        checkedAt,
+        models,
+        probe: {
+          installed: true,
+          version: parsedVersion,
+          status: "warning",
+          authStatus: "unknown",
+          message:
+            "Could not verify Claude authentication status. Timed out while running command.",
+        },
+      });
+    }
+
+    const parsed = parseClaudeAuthStatusFromOutput(authProbe.success.value);
     return buildServerProvider({
       provider: PROVIDER,
       enabled: claudeSettings.enabled,
@@ -297,71 +363,13 @@ export const checkClaudeProviderStatus: Effect.Effect<
       probe: {
         installed: true,
         version: parsedVersion,
-        status: "error",
-        authStatus: "unknown",
-        message: detail
-          ? `Claude Agent CLI is installed but failed to run. ${detail}`
-          : "Claude Agent CLI is installed but failed to run.",
+        status: parsed.status,
+        authStatus: parsed.authStatus,
+        ...(parsed.message ? { message: parsed.message } : {}),
       },
     });
-  }
-
-  const authProbe = yield* runClaudeCommand(["auth", "status"]).pipe(
-    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
-    Effect.result,
-  );
-
-  if (Result.isFailure(authProbe)) {
-    const error = authProbe.failure;
-    return buildServerProvider({
-      provider: PROVIDER,
-      enabled: claudeSettings.enabled,
-      checkedAt,
-      models,
-      probe: {
-        installed: true,
-        version: parsedVersion,
-        status: "warning",
-        authStatus: "unknown",
-        message:
-          error instanceof Error
-            ? `Could not verify Claude authentication status: ${error.message}.`
-            : "Could not verify Claude authentication status.",
-      },
-    });
-  }
-
-  if (Option.isNone(authProbe.success)) {
-    return buildServerProvider({
-      provider: PROVIDER,
-      enabled: claudeSettings.enabled,
-      checkedAt,
-      models,
-      probe: {
-        installed: true,
-        version: parsedVersion,
-        status: "warning",
-        authStatus: "unknown",
-        message: "Could not verify Claude authentication status. Timed out while running command.",
-      },
-    });
-  }
-
-  const parsed = parseClaudeAuthStatusFromOutput(authProbe.success.value);
-  return buildServerProvider({
-    provider: PROVIDER,
-    enabled: claudeSettings.enabled,
-    checkedAt,
-    models,
-    probe: {
-      installed: true,
-      version: parsedVersion,
-      status: parsed.status,
-      authStatus: parsed.authStatus,
-      ...(parsed.message ? { message: parsed.message } : {}),
-    },
-  });
-});
+  },
+);
 
 export const ClaudeProviderLive = Layer.effect(
   ClaudeProvider,
@@ -369,7 +377,7 @@ export const ClaudeProviderLive = Layer.effect(
     const serverSettings = yield* ServerSettingsService;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
-    const checkProvider = checkClaudeProviderStatus.pipe(
+    const checkProvider = checkClaudeProviderStatus().pipe(
       Effect.provideService(ServerSettingsService, serverSettings),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );
@@ -385,5 +393,5 @@ export const ClaudeProviderLive = Layer.effect(
       haveSettingsChanged: (previous, next) => !Equal.equals(previous, next),
       checkProvider,
     });
-  }).pipe(Effect.map((service) => service satisfies ClaudeProviderShape)),
+  }),
 );

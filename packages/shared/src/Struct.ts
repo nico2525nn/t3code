@@ -1,6 +1,12 @@
 import * as P from "effect/Predicate";
 
-export function deepMerge<T>(current: T, patch: unknown): T {
+export type DeepPartial<T> = T extends readonly (infer U)[]
+  ? readonly DeepPartial<U>[]
+  : T extends object
+    ? { [K in keyof T]?: DeepPartial<T[K]> }
+    : T;
+
+export function deepMerge<T>(current: T, patch: DeepPartial<T>): T {
   if (!P.isObject(current) || !P.isObject(patch)) {
     return patch as T;
   }

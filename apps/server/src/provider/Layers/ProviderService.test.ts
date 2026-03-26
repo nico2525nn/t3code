@@ -36,23 +36,16 @@ import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.t
 import { makeProviderServiceLive } from "./ProviderService.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts/settings";
 import { ProviderSessionRuntimeRepositoryLive } from "../../persistence/Layers/ProviderSessionRuntime.ts";
 import { ProviderSessionRuntimeRepository } from "../../persistence/Services/ProviderSessionRuntime.ts";
 import {
   makeSqlitePersistenceLive,
   SqlitePersistenceMemory,
 } from "../../persistence/Layers/Sqlite.ts";
-import { ServerSettingsService, type ServerSettingsShape } from "../../serverSettings.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 
-const defaultServerSettingsLayer = Layer.succeed(ServerSettingsService, {
-  start: Effect.void,
-  ready: Effect.void,
-  getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-  updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
-  streamChanges: Stream.empty,
-} satisfies ServerSettingsShape);
+const defaultServerSettingsLayer = ServerSettingsService.layerTest();
 
 const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
@@ -292,22 +285,13 @@ it.effect("ProviderServiceLive rejects new sessions for disabled providers", () 
       listProviders: () => Effect.succeed(["codex", "claudeAgent"]),
     };
     const providerAdapterLayer = Layer.succeed(ProviderAdapterRegistry, registry);
-    const serverSettingsLayer = Layer.succeed(ServerSettingsService, {
-      start: Effect.void,
-      ready: Effect.void,
-      getSettings: Effect.succeed({
-        ...DEFAULT_SERVER_SETTINGS,
-        providers: {
-          ...DEFAULT_SERVER_SETTINGS.providers,
-          claudeAgent: {
-            ...DEFAULT_SERVER_SETTINGS.providers.claudeAgent,
-            enabled: false,
-          },
+    const serverSettingsLayer = ServerSettingsService.layerTest({
+      providers: {
+        claudeAgent: {
+          enabled: false,
         },
-      }),
-      updateSettings: () => Effect.die("not used"),
-      streamChanges: Stream.empty,
-    } satisfies ServerSettingsShape);
+      },
+    });
     const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
       Layer.provide(SqlitePersistenceMemory),
     );

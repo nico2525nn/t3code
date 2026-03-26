@@ -3,14 +3,15 @@ import { Duration, Effect, PubSub, Ref, Scope, Stream } from "effect";
 import * as Semaphore from "effect/Semaphore";
 
 import type { ServerProviderShape } from "./Services/ServerProvider";
+import { ServerSettingsError } from "../serverSettings";
 
 export function makeManagedServerProvider<Settings>(input: {
   readonly getSettings: Effect.Effect<Settings>;
   readonly streamSettings: Stream.Stream<Settings>;
   readonly haveSettingsChanged: (previous: Settings, next: Settings) => boolean;
-  readonly checkProvider: Effect.Effect<ServerProvider>;
+  readonly checkProvider: Effect.Effect<ServerProvider, ServerSettingsError>;
   readonly refreshInterval?: Duration.Input;
-}): Effect.Effect<ServerProviderShape, never, Scope.Scope> {
+}): Effect.Effect<ServerProviderShape, ServerSettingsError, Scope.Scope> {
   return Effect.gen(function* () {
     const refreshSemaphore = yield* Semaphore.make(1);
     const changesPubSub = yield* Effect.acquireRelease(

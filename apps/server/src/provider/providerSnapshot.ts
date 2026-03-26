@@ -125,8 +125,10 @@ export function buildServerProvider(input: {
 export const collectStreamAsString = <E>(
   stream: Stream.Stream<Uint8Array, E>,
 ): Effect.Effect<string, E> =>
-  Stream.runFold(
-    stream,
-    () => "",
-    (acc, chunk) => acc + new TextDecoder().decode(chunk),
+  stream.pipe(
+    Stream.decodeText(),
+    Stream.runFold(
+      () => "",
+      (acc, chunk) => acc + chunk,
+    ),
   );

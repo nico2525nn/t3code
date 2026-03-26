@@ -6,7 +6,6 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Stream from "effect/Stream";
 import * as Command from "effect/unstable/cli/Command";
 import { FetchHttpClient } from "effect/unstable/http";
 import { beforeEach } from "vitest";
@@ -17,9 +16,8 @@ import { ServerConfig, type ServerConfigShape } from "./config";
 import { Open, type OpenShape } from "./open";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
-import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { Server, type ServerShape } from "./wsServer";
-import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings";
+import { ServerSettingsService } from "./serverSettings";
 
 const start = vi.fn(() => undefined);
 const stop = vi.fn(() => undefined);
@@ -55,13 +53,7 @@ const testLayer = Layer.mergeAll(
     openBrowser: (_target: string) => Effect.void,
     openInEditor: () => Effect.void,
   } satisfies OpenShape),
-  Layer.succeed(ServerSettingsService, {
-    start: Effect.void,
-    ready: Effect.void,
-    getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-    updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
-    streamChanges: Stream.empty,
-  } satisfies ServerSettingsShape),
+  ServerSettingsService.layerTest(),
   AnalyticsService.layerTest,
   FetchHttpClient.layer,
   NodeServices.layer,

@@ -37,7 +37,7 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
-import { deepMerge } from "@t3tools/shared/Struct";
+import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 
 export class ServerSettingsError extends Schema.TaggedErrorClass<ServerSettingsError>()(
@@ -76,7 +76,7 @@ export class ServerSettingsService extends ServiceMap.Service<
   ServerSettingsService,
   ServerSettingsShape
 >()("t3/serverSettings/ServerSettingsService") {
-  static readonly layerTest = (overrides: Partial<ServerSettings> = {}) =>
+  static readonly layerTest = (overrides: DeepPartial<ServerSettings> = {}) =>
     Layer.effect(
       ServerSettingsService,
       Effect.gen(function* () {
