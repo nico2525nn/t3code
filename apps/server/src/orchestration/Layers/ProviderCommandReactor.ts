@@ -24,7 +24,7 @@ import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
-import { ServerSettingsService, deriveProviderStartOptions } from "../../serverSettings.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -251,20 +251,13 @@ const make = Effect.gen(function* () {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
     }) =>
-      Effect.gen(function* () {
-        const providerOptions = yield* Effect.map(
-          serverSettingsService.getSettings,
-          deriveProviderStartOptions,
-        );
-        return yield* providerService.startSession(threadId, {
-          threadId,
-          ...(preferredProvider ? { provider: preferredProvider } : {}),
-          ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-          modelSelection: desiredModelSelection,
-          ...(providerOptions !== undefined ? { providerOptions } : {}),
-          ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-          runtimeMode: desiredRuntimeMode,
-        });
+      providerService.startSession(threadId, {
+        threadId,
+        ...(preferredProvider ? { provider: preferredProvider } : {}),
+        ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+        modelSelection: desiredModelSelection,
+        ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        runtimeMode: desiredRuntimeMode,
       });
 
     const bindSessionToThread = (session: ProviderSession) =>

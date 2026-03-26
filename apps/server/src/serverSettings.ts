@@ -11,8 +11,10 @@
  * @module ServerSettings
  */
 import {
+  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
-  type ProviderStartOptions,
+  type ModelSelection,
+  type ProviderKind,
   ServerSettings,
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
@@ -28,7 +30,7 @@ import {
   PubSub,
   Ref,
   Schema,
-  SchemaGetter,
+  SchemaIssue,
   Scope,
   ServiceMap,
   Stream,
@@ -84,48 +86,64 @@ export class ServerSettingsService extends ServiceMap.Service<
     } satisfies ServerSettingsShape);
 }
 
-/**
- * Derive `ProviderStartOptions` from server settings.
- * Replaces the client-side `getProviderStartOptions()` function.
- */
-export function deriveProviderStartOptions(
-  settings: ServerSettings,
-): ProviderStartOptions | undefined {
-  const providerOptions: ProviderStartOptions = {
-    ...(settings.providers.codex
-      ? {
-          codex: {
-            ...(settings.providers.codex.binaryPath
-              ? { binaryPath: settings.providers.codex.binaryPath }
-              : {}),
-            ...(settings.providers.codex.homePath
-              ? { homePath: settings.providers.codex.homePath }
-              : {}),
-          },
-        }
-      : {}),
-    ...(settings.providers.claudeAgent
-      ? {
-          claudeAgent: {
-            binaryPath: settings.providers.claudeAgent.binaryPath,
-          },
-        }
-      : {}),
-  };
+const ServerSettingsJson = fromLenientJson(ServerSettings);
 
-  return Object.keys(providerOptions).length > 0 ? providerOptions : undefined;
+const PROVIDER_ORDER: readonly ProviderKind[] = ["codex", "claudeAgent"];
+
+/**
+ * Ensure the `textGenerationModelSelection` points to an enabled provider.
+ * If the selected provider is disabled, fall back to the first enabled
+ * provider with its default model.  This is applied at read-time so the
+ * persisted preference is preserved for when a provider is re-enabled.
+ */
+function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
+  const selection = settings.textGenerationModelSelection;
+  if (settings.providers[selection.provider].enabled) {
+    return settings;
+  }
+
+  const fallback = PROVIDER_ORDER.find((p) => settings.providers[p].enabled);
+  if (!fallback) {
+    // No providers enabled — return as-is; callers will report the error.
+    return settings;
+  }
+
+  return {
+    ...settings,
+    textGenerationModelSelection: {
+      provider: fallback,
+      model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[fallback],
+    } as ModelSelection,
+  };
 }
 
-const ServerSettingsJson = fromLenientJson(ServerSettings);
-const PrettyJsonString = SchemaGetter.parseJson<string>().compose(
-  SchemaGetter.stringifyJson({ space: 2 }),
-);
-const ServerSettingsPrettyJson = ServerSettingsJson.pipe(
-  Schema.encode({
-    decode: PrettyJsonString,
-    encode: PrettyJsonString,
-  }),
-);
+function stripDefaultServerSettings(current: unknown, defaults: unknown): unknown | undefined {
+  if (Array.isArray(current) || Array.isArray(defaults)) {
+    return JSON.stringify(current) === JSON.stringify(defaults) ? undefined : current;
+  }
+
+  if (
+    current !== null &&
+    defaults !== null &&
+    typeof current === "object" &&
+    typeof defaults === "object"
+  ) {
+    const currentRecord = current as Record<string, unknown>;
+    const defaultsRecord = defaults as Record<string, unknown>;
+    const next: Record<string, unknown> = {};
+
+    for (const key of Object.keys(currentRecord)) {
+      const stripped = stripDefaultServerSettings(currentRecord[key], defaultsRecord[key]);
+      if (stripped !== undefined) {
+        next[key] = stripped;
+      }
+    }
+
+    return Object.keys(next).length > 0 ? next : undefined;
+  }
+
+  return Object.is(current, defaults) ? undefined : current;
+}
 
 const makeServerSettings = Effect.gen(function* () {
   const { settingsPath } = yield* ServerConfig;
@@ -189,9 +207,9 @@ const makeServerSettings = Effect.gen(function* () {
 
   const writeSettingsAtomically = (settings: ServerSettings) => {
     const tempPath = `${settingsPath}.${process.pid}.${Date.now()}.tmp`;
+    const sparseSettings = stripDefaultServerSettings(settings, DEFAULT_SERVER_SETTINGS) ?? {};
 
-    return Schema.encodeEffect(ServerSettingsPrettyJson)(settings).pipe(
-      Effect.map((encoded) => `${encoded}\n`),
+    return Effect.succeed(`${JSON.stringify(sparseSettings, null, 2)}\n`).pipe(
       Effect.tap(() => fs.makeDirectory(pathService.dirname(settingsPath), { recursive: true })),
       Effect.tap((encoded) => fs.writeFileString(tempPath, encoded)),
       Effect.flatMap(() => fs.rename(tempPath, settingsPath)),
@@ -278,20 +296,29 @@ const makeServerSettings = Effect.gen(function* () {
   return {
     start,
     ready: Deferred.await(startedDeferred),
-    getSettings: getSettingsFromCache,
+    getSettings: getSettingsFromCache.pipe(Effect.map(resolveTextGenerationProvider)),
     updateSettings: (patch) =>
       writeSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const current = yield* getSettingsFromCache;
-          const next = deepMerge(current, patch);
+          const next = yield* Schema.decodeEffect(ServerSettings)(deepMerge(current, patch)).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ServerSettingsError({
+                  settingsPath: "<memory>",
+                  detail: `failed to normalize server settings: ${SchemaIssue.makeFormatterDefault()(cause.issue)}`,
+                  cause,
+                }),
+            ),
+          );
           yield* writeSettingsAtomically(next);
           yield* Cache.set(settingsCache, cacheKey, next);
           yield* emitChange(next);
-          return next;
+          return resolveTextGenerationProvider(next);
         }),
       ),
     get streamChanges() {
-      return Stream.fromPubSub(changesPubSub);
+      return Stream.fromPubSub(changesPubSub).pipe(Stream.map(resolveTextGenerationProvider));
     },
   } satisfies ServerSettingsShape;
 });

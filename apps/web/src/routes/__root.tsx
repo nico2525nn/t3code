@@ -20,7 +20,7 @@ import { clearPromotedDraftThreads, useComposerDraftStore } from "../composerDra
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
-import { onServerConfigUpdated, onServerWelcome } from "../wsNativeApi";
+import { onServerConfigUpdated, onServerProvidersUpdated, onServerWelcome } from "../wsNativeApi";
 import { migrateLocalSettingsToServer } from "../hooks/useSettings";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
@@ -309,6 +309,9 @@ function EventRouter() {
         },
       });
     });
+    const unsubProvidersUpdated = onServerProvidersUpdated(() => {
+      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
+    });
     subscribed = true;
     return () => {
       disposed = true;
@@ -318,6 +321,7 @@ function EventRouter() {
       unsubTerminalEvent();
       unsubWelcome();
       unsubServerConfigUpdated();
+      unsubProvidersUpdated();
     };
   }, [
     navigate,

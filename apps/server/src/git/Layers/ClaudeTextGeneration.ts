@@ -11,7 +11,6 @@ import { Effect, Layer, Option, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { ClaudeModelSelection } from "@t3tools/contracts";
-import { normalizeClaudeModelOptions } from "@t3tools/shared/model";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 
 import { TextGenerationError } from "../Errors.ts";
@@ -27,6 +26,7 @@ import {
   sanitizePrTitle,
   toJsonSchemaObject,
 } from "../Utils.ts";
+import { normalizeClaudeModelOptions } from "../../provider/Layers/ClaudeProvider.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
 const CLAUDE_TIMEOUT_MS = 180_000;

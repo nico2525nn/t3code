@@ -173,6 +173,7 @@ export function buildLegacyServerSettingsMigrationPatch(legacySettings: Record<s
     patch.providers.codex ??= {};
     patch.providers.codex.customModels = normalizeCustomModelSlugs(
       legacySettings.customCodexModels,
+      new Set<string>(),
       "codex",
     );
   }
@@ -188,6 +189,7 @@ export function buildLegacyServerSettingsMigrationPatch(legacySettings: Record<s
     patch.providers.claudeAgent ??= {};
     patch.providers.claudeAgent.customModels = normalizeCustomModelSlugs(
       legacySettings.customClaudeModels,
+      new Set<string>(),
       "claudeAgent",
     );
   }

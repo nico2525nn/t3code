@@ -4,7 +4,6 @@ import { Effect, FileSystem, Layer, Option, Path, Schema, Scope, Stream } from "
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { CodexModelSelection } from "@t3tools/contracts";
-import { normalizeCodexModelOptions } from "@t3tools/shared/model";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -26,6 +25,7 @@ import {
   sanitizePrTitle,
   toJsonSchemaObject,
 } from "../Utils.ts";
+import { normalizeCodexModelOptions } from "../../provider/Layers/CodexProvider.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
 const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "low";

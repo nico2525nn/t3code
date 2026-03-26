@@ -1,18 +1,37 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Path, Sink, Stream } from "effect";
+import {
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  Path,
+  PubSub,
+  Ref,
+  Schema,
+  Scope,
+  Sink,
+  Stream,
+} from "effect";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  ServerSettings,
+  type ServerSettings as ContractServerSettings,
+} from "@t3tools/contracts";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
+import { deepMerge } from "@t3tools/shared/Struct";
 
 import {
-  checkClaudeProviderStatus,
   checkCodexProviderStatus,
   hasCustomModelProvider,
   parseAuthStatusFromOutput,
-  parseClaudeAuthStatusFromOutput,
   readCodexConfigModelProvider,
-} from "./ProviderHealth";
-import { ServerSettingsService } from "../../serverSettings";
+} from "./CodexProvider";
+import { checkClaudeProviderStatus, parseClaudeAuthStatusFromOutput } from "./ClaudeProvider";
+import { ProviderRegistryLive } from "./ProviderRegistry";
+import { ServerSettingsService, type ServerSettingsShape } from "../../serverSettings";
+import { ProviderRegistry } from "../Services/ProviderRegistry";
 
 // ── Test helpers ────────────────────────────────────────────────────
 
@@ -45,6 +64,21 @@ function mockSpawnerLayer(
   );
 }
 
+function mockCommandSpawnerLayer(
+  handler: (
+    command: string,
+    args: ReadonlyArray<string>,
+  ) => { stdout: string; stderr: string; code: number },
+) {
+  return Layer.succeed(
+    ChildProcessSpawner.ChildProcessSpawner,
+    ChildProcessSpawner.make((command) => {
+      const cmd = command as unknown as { command: string; args: ReadonlyArray<string> };
+      return Effect.succeed(mockHandle(handler(cmd.command, cmd.args)));
+    }),
+  );
+}
+
 function failingSpawnerLayer(description: string) {
   return Layer.succeed(
     ChildProcessSpawner.ChildProcessSpawner,
@@ -59,6 +93,30 @@ function failingSpawnerLayer(description: string) {
       ),
     ),
   );
+}
+
+function makeMutableServerSettingsService(
+  initial: ContractServerSettings = DEFAULT_SERVER_SETTINGS,
+) {
+  return Effect.gen(function* () {
+    const settingsRef = yield* Ref.make(initial);
+    const changes = yield* PubSub.unbounded<ContractServerSettings>();
+
+    return {
+      start: Effect.void,
+      ready: Effect.void,
+      getSettings: Ref.get(settingsRef),
+      updateSettings: (patch) =>
+        Effect.gen(function* () {
+          const current = yield* Ref.get(settingsRef);
+          const next = Schema.decodeSync(ServerSettings)(deepMerge(current, patch));
+          yield* Ref.set(settingsRef, next);
+          yield* PubSub.publish(changes, next);
+          return next;
+        }),
+      streamChanges: Stream.fromPubSub(changes),
+    } satisfies ServerSettingsShape;
+  });
 }
 
 /**
@@ -96,7 +154,7 @@ function withTempCodexHome(configContent?: string) {
 }
 
 it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
-  "ProviderHealth",
+  "ProviderRegistry",
   (it) => {
     // ── checkCodexProviderStatus tests ────────────────────────────────
     //
@@ -113,7 +171,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           const status = yield* checkCodexProviderStatus;
           assert.strictEqual(status.provider, "codex");
           assert.strictEqual(status.status, "ready");
-          assert.strictEqual(status.available, true);
+          assert.strictEqual(status.installed, true);
           assert.strictEqual(status.authStatus, "authenticated");
         }).pipe(
           Effect.provide(
@@ -127,13 +185,76 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         ),
       );
 
+      it.effect("inherits PATH when launching the codex probe with a CODEX_HOME override", () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const binDir = yield* fileSystem.makeTempDirectoryScoped({
+            prefix: "t3-test-codex-bin-",
+          });
+          const codexPath = path.join(binDir, "codex");
+          yield* fileSystem.writeFileString(
+            codexPath,
+            [
+              "#!/bin/sh",
+              'if [ "$1" = "--version" ]; then',
+              '  echo "codex-cli 1.0.0"',
+              "  exit 0",
+              "fi",
+              'if [ "$1" = "login" ] && [ "$2" = "status" ]; then',
+              '  echo "Logged in using ChatGPT"',
+              "  exit 0",
+              "fi",
+              'echo "unexpected args: $*" >&2',
+              "exit 1",
+              "",
+            ].join("\n"),
+          );
+          yield* fileSystem.chmod(codexPath, 0o755);
+          const customCodexHome = yield* fileSystem.makeTempDirectoryScoped({
+            prefix: "t3-test-codex-home-",
+          });
+          const previousPath = process.env.PATH;
+          process.env.PATH = binDir;
+
+          try {
+            const serverSettingsLayer = Layer.succeed(ServerSettingsService, {
+              start: Effect.void,
+              ready: Effect.void,
+              getSettings: Effect.succeed({
+                ...DEFAULT_SERVER_SETTINGS,
+                providers: {
+                  ...DEFAULT_SERVER_SETTINGS.providers,
+                  codex: {
+                    ...DEFAULT_SERVER_SETTINGS.providers.codex,
+                    homePath: customCodexHome,
+                  },
+                },
+              }),
+              updateSettings: () => Effect.die("not used"),
+              streamChanges: Stream.empty,
+            } satisfies ServerSettingsShape);
+
+            const status = yield* checkCodexProviderStatus.pipe(
+              Effect.provide(serverSettingsLayer),
+            );
+            assert.strictEqual(status.provider, "codex");
+            assert.strictEqual(status.installed, true);
+            assert.strictEqual(status.status, "ready");
+            assert.strictEqual(status.authStatus, "authenticated");
+          } finally {
+            process.env.PATH = previousPath;
+          }
+        }),
+      );
+
       it.effect("returns unavailable when codex is missing", () =>
         Effect.gen(function* () {
           yield* withTempCodexHome();
           const status = yield* checkCodexProviderStatus;
           assert.strictEqual(status.provider, "codex");
           assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.available, false);
+          assert.strictEqual(status.installed, false);
           assert.strictEqual(status.authStatus, "unknown");
           assert.strictEqual(
             status.message,
@@ -148,7 +269,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           const status = yield* checkCodexProviderStatus;
           assert.strictEqual(status.provider, "codex");
           assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.available, false);
+          assert.strictEqual(status.installed, true);
           assert.strictEqual(status.authStatus, "unknown");
           assert.strictEqual(
             status.message,
@@ -171,7 +292,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           const status = yield* checkCodexProviderStatus;
           assert.strictEqual(status.provider, "codex");
           assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.available, true);
+          assert.strictEqual(status.installed, true);
           assert.strictEqual(status.authStatus, "unauthenticated");
           assert.strictEqual(
             status.message,
@@ -197,7 +318,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           const status = yield* checkCodexProviderStatus;
           assert.strictEqual(status.provider, "codex");
           assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.available, true);
+          assert.strictEqual(status.installed, true);
           assert.strictEqual(status.authStatus, "unauthenticated");
           assert.strictEqual(
             status.message,
@@ -222,7 +343,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           const status = yield* checkCodexProviderStatus;
           assert.strictEqual(status.provider, "codex");
           assert.strictEqual(status.status, "warning");
-          assert.strictEqual(status.available, true);
+          assert.strictEqual(status.installed, true);
           assert.strictEqual(status.authStatus, "unknown");
           assert.strictEqual(
             status.message,
@@ -240,6 +361,104 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             }),
           ),
         ),
+      );
+    });
+
+    describe("ProviderRegistryLive", () => {
+      it.effect("reruns codex health when codex provider settings change", () =>
+        Effect.gen(function* () {
+          const serverSettings = yield* makeMutableServerSettingsService();
+          const scope = yield* Scope.make();
+          yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+          const providerRegistryLayer = ProviderRegistryLive.pipe(
+            Layer.provideMerge(Layer.succeed(ServerSettingsService, serverSettings)),
+            Layer.provideMerge(
+              mockCommandSpawnerLayer((command, args) => {
+                const joined = args.join(" ");
+                if (joined === "--version") {
+                  if (command === "codex") {
+                    return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
+                  }
+                  return { stdout: "", stderr: "spawn ENOENT", code: 1 };
+                }
+                if (joined === "login status") {
+                  return { stdout: "Logged in\n", stderr: "", code: 0 };
+                }
+                throw new Error(`Unexpected args: ${joined}`);
+              }),
+            ),
+          );
+          const runtimeServices = yield* Layer.build(
+            Layer.mergeAll(
+              Layer.succeed(ServerSettingsService, serverSettings),
+              providerRegistryLayer,
+            ),
+          ).pipe(Scope.provide(scope));
+
+          yield* Effect.gen(function* () {
+            const registry = yield* ProviderRegistry;
+
+            const initial = yield* registry.getProviders;
+            assert.strictEqual(
+              initial.find((status) => status.provider === "codex")?.status,
+              "ready",
+            );
+
+            yield* serverSettings.updateSettings({
+              providers: {
+                codex: {
+                  binaryPath: "/custom/codex",
+                },
+              },
+            });
+
+            for (let attempt = 0; attempt < 20; attempt += 1) {
+              const updated = yield* registry.getProviders;
+              if (updated.find((status) => status.provider === "codex")?.status === "error") {
+                return;
+              }
+              yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)));
+            }
+
+            const updated = yield* registry.getProviders;
+            assert.strictEqual(
+              updated.find((status) => status.provider === "codex")?.status,
+              "error",
+            );
+          }).pipe(Effect.provide(runtimeServices));
+        }),
+      );
+
+      it.effect("skips codex probes entirely when the provider is disabled", () =>
+        Effect.gen(function* () {
+          const serverSettingsLayer = Layer.succeed(ServerSettingsService, {
+            start: Effect.void,
+            ready: Effect.void,
+            getSettings: Effect.succeed({
+              ...DEFAULT_SERVER_SETTINGS,
+              providers: {
+                ...DEFAULT_SERVER_SETTINGS.providers,
+                codex: {
+                  ...DEFAULT_SERVER_SETTINGS.providers.codex,
+                  enabled: false,
+                },
+              },
+            }),
+            updateSettings: () => Effect.die("not used"),
+            streamChanges: Stream.empty,
+          } satisfies ServerSettingsShape);
+
+          const status = yield* checkCodexProviderStatus.pipe(
+            Effect.provide(
+              Layer.mergeAll(serverSettingsLayer, failingSpawnerLayer("spawn codex ENOENT")),
+            ),
+          );
+          assert.strictEqual(status.provider, "codex");
+          assert.strictEqual(status.enabled, false);
+          assert.strictEqual(status.status, "disabled");
+          assert.strictEqual(status.installed, false);
+          assert.strictEqual(status.message, "Codex is disabled in T3 Code settings.");
+        }),
       );
     });
 
@@ -262,7 +481,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             const status = yield* checkCodexProviderStatus;
             assert.strictEqual(status.provider, "codex");
             assert.strictEqual(status.status, "ready");
-            assert.strictEqual(status.available, true);
+            assert.strictEqual(status.installed, true);
             assert.strictEqual(status.authStatus, "unknown");
             assert.strictEqual(
               status.message,
@@ -294,7 +513,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           );
           const status = yield* checkCodexProviderStatus;
           assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.available, false);
+          assert.strictEqual(status.installed, false);
         }).pipe(Effect.provide(failingSpawnerLayer("spawn codex ENOENT"))),
       );
     });
@@ -483,7 +702,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           const status = yield* checkClaudeProviderStatus;
           assert.strictEqual(status.provider, "claudeAgent");
           assert.strictEqual(status.status, "ready");
-          assert.strictEqual(status.available, true);
+          assert.strictEqual(status.installed, true);
           assert.strictEqual(status.authStatus, "authenticated");
         }).pipe(
           Effect.provide(
@@ -507,7 +726,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           const status = yield* checkClaudeProviderStatus;
           assert.strictEqual(status.provider, "claudeAgent");
           assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.available, false);
+          assert.strictEqual(status.installed, false);
           assert.strictEqual(status.authStatus, "unknown");
           assert.strictEqual(
             status.message,
@@ -521,7 +740,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           const status = yield* checkClaudeProviderStatus;
           assert.strictEqual(status.provider, "claudeAgent");
           assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.available, false);
+          assert.strictEqual(status.installed, true);
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
@@ -539,7 +758,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           const status = yield* checkClaudeProviderStatus;
           assert.strictEqual(status.provider, "claudeAgent");
           assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.available, true);
+          assert.strictEqual(status.installed, true);
           assert.strictEqual(status.authStatus, "unauthenticated");
           assert.strictEqual(
             status.message,
@@ -567,7 +786,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           const status = yield* checkClaudeProviderStatus;
           assert.strictEqual(status.provider, "claudeAgent");
           assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.available, true);
+          assert.strictEqual(status.installed, true);
           assert.strictEqual(status.authStatus, "unauthenticated");
         }).pipe(
           Effect.provide(
@@ -587,7 +806,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           const status = yield* checkClaudeProviderStatus;
           assert.strictEqual(status.provider, "claudeAgent");
           assert.strictEqual(status.status, "warning");
-          assert.strictEqual(status.available, true);
+          assert.strictEqual(status.installed, true);
           assert.strictEqual(status.authStatus, "unknown");
           assert.strictEqual(
             status.message,

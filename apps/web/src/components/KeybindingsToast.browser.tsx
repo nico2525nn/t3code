@@ -46,10 +46,13 @@ function createBaseServerConfig(): ServerConfig {
     providers: [
       {
         provider: "codex",
+        enabled: true,
+        installed: true,
+        version: "0.116.0",
         status: "ready",
-        available: true,
         authStatus: "authenticated",
         checkedAt: NOW_ISO,
+        models: [],
       },
     ],
     availableEditors: [],
@@ -58,8 +61,8 @@ function createBaseServerConfig(): ServerConfig {
       defaultThreadEnvMode: "local" as const,
       textGenerationModelSelection: { provider: "codex" as const, model: "gpt-5.4-mini" },
       providers: {
-        codex: { binaryPath: "", homePath: "", customModels: [] },
-        claudeAgent: { binaryPath: "", customModels: [] },
+        codex: { enabled: true, binaryPath: "", homePath: "", customModels: [] },
+        claudeAgent: { enabled: true, binaryPath: "", customModels: [] },
       },
     },
   };
