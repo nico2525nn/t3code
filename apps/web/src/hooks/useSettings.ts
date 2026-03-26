@@ -19,16 +19,19 @@ import {
   ThreadEnvMode,
 } from "@t3tools/contracts";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import {
+  type ClientSettings,
+  ClientSettingsSchema,
+  CLIENT_SETTINGS_STORAGE_KEY,
+  DEFAULT_CLIENT_SETTINGS,
+  SidebarProjectSortOrder,
+  SidebarThreadSortOrder,
+  TimestampFormat,
+} from "@t3tools/contracts/settings";
 import { serverConfigQueryOptions, serverQueryKeys } from "~/lib/serverReactQuery";
 import { ensureNativeApi } from "~/nativeApi";
 import { useLocalStorage } from "./useLocalStorage";
 import { normalizeCustomModelSlugs } from "~/modelSelection";
-import {
-  ClientSettingsSchema,
-  type ClientSettings,
-  DEFAULT_CLIENT_SETTINGS,
-  CLIENT_SETTINGS_STORAGE_KEY,
-} from "~/clientSettings";
 import { Predicate, Schema, Struct } from "effect";
 import { DeepMutable } from "effect/Types";
 import { deepMerge } from "@t3tools/shared/Struct";
@@ -199,9 +202,38 @@ export function buildLegacyServerSettingsMigrationPatch(legacySettings: Record<s
   return patch;
 }
 
+export function buildLegacyClientSettingsMigrationPatch(
+  legacySettings: Record<string, unknown>,
+): Partial<DeepMutable<ClientSettings>> {
+  const patch: Partial<DeepMutable<ClientSettings>> = {};
+
+  if (Predicate.isBoolean(legacySettings.confirmThreadDelete)) {
+    patch.confirmThreadDelete = legacySettings.confirmThreadDelete;
+  }
+
+  if (Predicate.isBoolean(legacySettings.diffWordWrap)) {
+    patch.diffWordWrap = legacySettings.diffWordWrap;
+  }
+
+  if (Schema.is(SidebarProjectSortOrder)(legacySettings.sidebarProjectSortOrder)) {
+    patch.sidebarProjectSortOrder = legacySettings.sidebarProjectSortOrder;
+  }
+
+  if (Schema.is(SidebarThreadSortOrder)(legacySettings.sidebarThreadSortOrder)) {
+    patch.sidebarThreadSortOrder = legacySettings.sidebarThreadSortOrder;
+  }
+
+  if (Schema.is(TimestampFormat)(legacySettings.timestampFormat)) {
+    patch.timestampFormat = legacySettings.timestampFormat;
+  }
+
+  return patch;
+}
+
 /**
- * Call once on app startup. Migrates server-relevant settings from the
- * old localStorage key to the server. Idempotent.
+ * Call once on app startup. Migrates settings from the old unified
+ * localStorage key to the server (server-relevant keys) and to the new
+ * client-settings localStorage key (client-only keys). Idempotent.
  */
 export function migrateLocalSettingsToServer(): void {
   if (typeof window === "undefined") return;
@@ -217,19 +249,27 @@ export function migrateLocalSettingsToServer(): void {
     const old = JSON.parse(raw);
     if (!Predicate.isObject(old)) return;
 
-    const api = ensureNativeApi();
-
+    // Migrate server-relevant keys via RPC
     const serverPatch = buildLegacyServerSettingsMigrationPatch(old);
-
-    if (Object.keys(serverPatch).length === 0) {
-      localStorage.setItem(MIGRATION_FLAG_KEY, "true");
-      return;
+    if (Object.keys(serverPatch).length > 0) {
+      const api = ensureNativeApi();
+      void api.server.updateSettings(serverPatch);
     }
 
-    void api.server.updateSettings(serverPatch);
+    // Migrate client-only keys to the new localStorage key
+    const clientPatch = buildLegacyClientSettingsMigrationPatch(old);
+    if (Object.keys(clientPatch).length > 0) {
+      const existing = localStorage.getItem(CLIENT_SETTINGS_STORAGE_KEY);
+      const current = existing ? (JSON.parse(existing) as Record<string, unknown>) : {};
+      localStorage.setItem(
+        CLIENT_SETTINGS_STORAGE_KEY,
+        JSON.stringify({ ...current, ...clientPatch }),
+      );
+    }
+
     localStorage.setItem(MIGRATION_FLAG_KEY, "true");
   } catch (error) {
-    console.error("[MIGRATION] Error migrating local settings to server:", error);
+    console.error("[MIGRATION] Error migrating local settings:", error);
   } finally {
     // Mark as migrated no matter what to avoid retrying
     localStorage.setItem(MIGRATION_FLAG_KEY, "true");

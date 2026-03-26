@@ -31,7 +31,7 @@ import { isMacPlatform } from "../lib/utils";
 import { getRouter } from "../router";
 import { useStore } from "../store";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
-import { DEFAULT_CLIENT_SETTINGS } from "~/clientSettings";
+import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
