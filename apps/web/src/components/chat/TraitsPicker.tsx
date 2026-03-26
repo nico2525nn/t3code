@@ -2,7 +2,6 @@ import {
   type ClaudeModelOptions,
   type CodexModelOptions,
   type CursorModelOptions,
-  type OpenCodeModelOptions,
   type ProviderKind,
   type ProviderModelOptions,
   type ScopedThreadRef,
@@ -64,44 +63,13 @@ function getRawEffort(
   if (provider === "cursor") {
     return trimOrNull((modelOptions as CursorModelOptions | undefined)?.reasoning);
   }
-  if (provider === "opencode") {
-    return trimOrNull((modelOptions as OpenCodeModelOptions | undefined)?.variant);
-  }
   return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.effort);
 }
 
 function getEffortKey(provider: ProviderKind): string {
   if (provider === "codex") return "reasoningEffort";
   if (provider === "cursor") return "reasoning";
-  if (provider === "opencode") return "variant";
   return "effort";
-}
-
-function getRawAgent(modelOptions: ProviderOptions | null | undefined): string | null {
-  return trimOrNull((modelOptions as OpenCodeModelOptions | undefined)?.agent);
-}
-
-function resolveNamedOption(
-  options: ReadonlyArray<NamedOption>,
-  raw: string | null,
-): NamedOption | null {
-  if (raw) {
-    const matchingOption = options.find((option) => option.value === raw);
-    if (matchingOption) {
-      return matchingOption;
-    }
-  }
-  return options.find((option) => option.isDefault) ?? null;
-}
-
-function getRawContextWindow(
-  provider: ProviderKind,
-  modelOptions: ProviderOptions | null | undefined,
-): string | null {
-  if (modelOptions && "contextWindow" in modelOptions) {
-    return trimOrNull(modelOptions.contextWindow);
-  }
-  return null;
 }
 
 function buildNextOptions(
@@ -318,11 +286,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
             : applyClaudePromptEffortPrefix(prompt, "ultrathink");
         onPromptChange(nextPrompt);
         return;
-      }
-      if (ultrathinkInBodyText) return;
-      if (ultrathinkPromptControlled) {
-        const stripped = prompt.replace(/^Ultrathink:\s*/i, "");
-        onPromptChange(stripped);
       }
       const effortKey = getEffortKey(provider);
       updateModelOptions(

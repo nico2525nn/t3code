@@ -1,5 +1,7 @@
 import {
   DEFAULT_MODEL_BY_PROVIDER,
+  type ClaudeModelOptions,
+  type CodexModelOptions,
   type CursorModelOptions,
   type ModelCapabilities,
   type ProviderKind,
@@ -79,16 +81,56 @@ export function getDefaultServerModel(
 
 export function normalizeCursorModelOptionsWithCapabilities(
   caps: ModelCapabilities,
+  modelOptions: CodexModelOptions | null | undefined,
+): CodexModelOptions | undefined {
+  const defaultReasoningEffort = getDefaultEffort(caps);
+  const reasoningEffort = trimOrNull(modelOptions?.reasoningEffort) ?? defaultReasoningEffort;
+  const fastModeEnabled = modelOptions?.fastMode === true;
+  const nextOptions: CodexModelOptions = {
+    ...(reasoningEffort && reasoningEffort !== defaultReasoningEffort
+      ? { reasoningEffort: reasoningEffort as CodexModelOptions["reasoningEffort"] }
+      : {}),
+    ...(fastModeEnabled ? { fastMode: true } : {}),
+  };
+  return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
+}
+
+export function normalizeCursorModelOptionsWithCapabilities(
+  caps: ModelCapabilities,
   modelOptions: CursorModelOptions | null | undefined,
 ): CursorModelOptions | undefined {
+  const defaultEffort = getDefaultEffort(caps);
   const reasoning = trimOrNull(modelOptions?.reasoning);
   const reasoningValue =
-    reasoning && hasEffortLevel(caps, reasoning)
+    reasoning && hasEffortLevel(caps, reasoning) && reasoning !== defaultEffort
       ? (reasoning as CursorModelOptions["reasoning"])
       : undefined;
-  const fastMode =
-    caps.supportsFastMode && typeof modelOptions?.fastMode === "boolean"
-      ? modelOptions.fastMode
+  const fastMode = caps.supportsFastMode && modelOptions?.fastMode === true ? true : undefined;
+  const thinking =
+    caps.supportsThinkingToggle && modelOptions?.thinking === false ? false : undefined;
+  const claudeOpusTier = modelOptions?.claudeOpusTier ?? undefined;
+  const nextOptions: CursorModelOptions = {
+    ...(reasoningValue ? { reasoning: reasoningValue } : {}),
+    ...(fastMode ? { fastMode: true } : {}),
+    ...(thinking === false ? { thinking: false } : {}),
+    ...(claudeOpusTier ? { claudeOpusTier } : {}),
+  };
+  return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
+}
+
+export function normalizeClaudeModelOptionsWithCapabilities(
+  caps: ModelCapabilities,
+  modelOptions: ClaudeModelOptions | null | undefined,
+): ClaudeModelOptions | undefined {
+  const defaultReasoningEffort = getDefaultEffort(caps);
+  const resolvedEffort = trimOrNull(modelOptions?.effort);
+  const isPromptInjected = caps.promptInjectedEffortLevels.includes(resolvedEffort ?? "");
+  const effort =
+    resolvedEffort &&
+    !isPromptInjected &&
+    hasEffortLevel(caps, resolvedEffort) &&
+    resolvedEffort !== defaultReasoningEffort
+      ? resolvedEffort
       : undefined;
   const thinking =
     caps.supportsThinkingToggle && typeof modelOptions?.thinking === "boolean"

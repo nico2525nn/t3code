@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
-import { CursorTraitsMenuContent } from "./CursorTraitsPicker";
 import { TraitsMenuContent } from "./TraitsPicker";
 import { useComposerDraftStore } from "../../composerDraftStore";
 
@@ -114,7 +113,26 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
               },
             },
           ]
-        : [];
+        : provider === "cursor"
+          ? [
+              {
+                slug: "gpt-5.3-codex",
+                name: "Codex 5.3",
+                isCustom: false,
+                capabilities: {
+                  reasoningEffortLevels: [
+                    { value: "low", label: "Low" },
+                    { value: "normal", label: "Normal", isDefault: true },
+                    { value: "high", label: "High" },
+                    { value: "xhigh", label: "Extra high" },
+                  ],
+                  supportsFastMode: true,
+                  supportsThinkingToggle: false,
+                  promptInjectedEffortLevels: [],
+                },
+              },
+            ]
+          : [];
   const screen = await render(
     <CompactComposerControlsMenu
       activePlan={false}
@@ -124,19 +142,15 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
       runtimeMode="approval-required"
       showInteractionModeToggle
       traitsMenuContent={
-        provider === "cursor" ? (
-          <CursorTraitsMenuContent threadId={threadId} model={model} cursorModelOptions={null} />
-        ) : (
-          <TraitsMenuContent
-            provider={provider}
-            models={models}
-            threadId={threadId}
-            model={model}
-            prompt={props?.prompt ?? ""}
-            modelOptions={providerOptions}
-            onPromptChange={onPromptChange}
-          />
-        )
+        <TraitsMenuContent
+          provider={provider}
+          models={models}
+          threadId={threadId}
+          model={model}
+          prompt={props?.prompt ?? ""}
+          modelOptions={providerOptions}
+          onPromptChange={onPromptChange}
+        />
       }
       onToggleInteractionMode={vi.fn()}
       onTogglePlanSidebar={vi.fn()}

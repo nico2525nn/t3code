@@ -27,6 +27,47 @@ const CODEX_MODELS: ReadonlyArray<ServerProviderModel> = [
   },
 ];
 
+const CURSOR_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "auto",
+    name: "Auto",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
+      promptInjectedEffortLevels: [],
+    },
+  },
+  {
+    slug: "composer-2",
+    name: "Composer 2",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [],
+      supportsFastMode: true,
+      supportsThinkingToggle: false,
+      promptInjectedEffortLevels: [],
+    },
+  },
+  {
+    slug: "gpt-5.3-codex",
+    name: "Codex 5.3",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [
+        { value: "low", label: "Low" },
+        { value: "normal", label: "Normal", isDefault: true },
+        { value: "high", label: "High" },
+        { value: "xhigh", label: "Extra high" },
+      ],
+      supportsFastMode: true,
+      supportsThinkingToggle: false,
+      promptInjectedEffortLevels: [],
+    },
+  },
+];
+
 const CLAUDE_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
     slug: "claude-opus-4-6",
@@ -317,7 +358,7 @@ describe("getComposerProviderState", () => {
     const state = getComposerProviderState({
       provider: "cursor",
       model: "auto",
-      models: [],
+      models: CURSOR_MODELS,
       prompt: "",
       modelOptions: undefined,
     });
@@ -333,7 +374,7 @@ describe("getComposerProviderState", () => {
     const state = getComposerProviderState({
       provider: "cursor",
       model: "composer-2",
-      models: [],
+      models: CURSOR_MODELS,
       prompt: "",
       modelOptions: {
         cursor: { fastMode: true },
@@ -344,6 +385,42 @@ describe("getComposerProviderState", () => {
       provider: "cursor",
       promptEffort: null,
       modelOptionsForDispatch: { fastMode: true },
+    });
+  });
+
+  it("resolves Cursor reasoning effort from server-driven capabilities", () => {
+    const state = getComposerProviderState({
+      provider: "cursor",
+      model: "gpt-5.3-codex",
+      models: CURSOR_MODELS,
+      prompt: "",
+      modelOptions: {
+        cursor: { reasoning: "high" },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "cursor",
+      promptEffort: "high",
+      modelOptionsForDispatch: { reasoning: "high" },
+    });
+  });
+
+  it("drops default Cursor reasoning from dispatch options", () => {
+    const state = getComposerProviderState({
+      provider: "cursor",
+      model: "gpt-5.3-codex",
+      models: CURSOR_MODELS,
+      prompt: "",
+      modelOptions: {
+        cursor: { reasoning: "normal" },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "cursor",
+      promptEffort: "normal",
+      modelOptionsForDispatch: undefined,
     });
   });
 

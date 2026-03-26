@@ -6,18 +6,16 @@ import {
 } from "@t3tools/contracts";
 import {
   isClaudeUltrathinkPrompt,
-  normalizeCursorModelOptions,
   trimOrNull,
 } from "@t3tools/shared/model";
-import type { CursorModelOptions } from "@t3tools/contracts";
 import type { ReactNode } from "react";
 import {
   getProviderModelCapabilities,
   normalizeClaudeModelOptionsWithCapabilities,
   normalizeCodexModelOptionsWithCapabilities,
+  normalizeCursorModelOptionsWithCapabilities,
 } from "../../providerModels";
 import { TraitsMenuContent, TraitsPicker } from "./TraitsPicker";
-import { CursorTraitsMenuContent, CursorTraitsPicker } from "./CursorTraitsPicker";
 
 export type ComposerProviderStateInput = {
   provider: ProviderKind;
@@ -110,9 +108,7 @@ function getProviderStateFromCapabilities(
         ? providerOptions.reasoningEffort
         : "reasoning" in providerOptions
           ? providerOptions.reasoning
-          : "variant" in providerOptions
-            ? providerOptions.variant
-            : null
+          : null
     : null;
   const normalizedOptions = normalizeProviderModelOptionsWithCapabilities(
     provider,
@@ -120,11 +116,21 @@ function getProviderStateFromCapabilities(
     providerOptions,
   );
   const promptEffort =
-    provider === "opencode"
-      ? (trimOrNull(
-          normalizedOptions && "variant" in normalizedOptions ? normalizedOptions.variant : null,
-        ) ?? null)
-      : (resolveEffort(caps, rawEffort) ?? null);
+    draftEffort && !isPromptInjected && hasEffortLevel(caps, draftEffort)
+      ? draftEffort
+      : defaultEffort && hasEffortLevel(caps, defaultEffort)
+        ? defaultEffort
+        : null;
+
+  // Normalize options for dispatch
+  const normalizedOptions =
+    provider === "codex"
+      ? normalizeCodexModelOptionsWithCapabilities(caps, providerOptions)
+      : provider === "cursor"
+        ? normalizeCursorModelOptionsWithCapabilities(caps, providerOptions)
+        : normalizeClaudeModelOptionsWithCapabilities(caps, providerOptions);
+
+  // Ultrathink styling (driven by capabilities data, not provider identity)
   const ultrathinkActive =
     caps.promptInjectedEffortLevels.length > 0 && isClaudeUltrathinkPrompt(prompt);
 
@@ -225,26 +231,34 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     ),
   },
   cursor: {
-    getState: ({ model, modelOptions }) => {
-      const normalized = normalizeCursorModelOptions(model, modelOptions?.cursor);
-      return {
-        provider: "cursor" as const,
-        promptEffort: null,
-        modelOptionsForDispatch: normalized ?? undefined,
-      };
-    },
-    renderTraitsMenuContent: ({ threadId, model, modelOptions }) => (
-      <CursorTraitsMenuContent
+    getState: (input) => getProviderStateFromCapabilities(input),
+    renderTraitsMenuContent: ({
+      threadId,
+      model,
+      models,
+      modelOptions,
+      prompt,
+      onPromptChange,
+    }) => (
+      <TraitsMenuContent
+        provider="cursor"
+        models={models}
         threadId={threadId}
         model={model}
-        cursorModelOptions={(modelOptions as CursorModelOptions | undefined) ?? null}
+        modelOptions={modelOptions}
+        prompt={prompt}
+        onPromptChange={onPromptChange}
       />
     ),
-    renderTraitsPicker: ({ threadId, model, modelOptions }) => (
-      <CursorTraitsPicker
+    renderTraitsPicker: ({ threadId, model, models, modelOptions, prompt, onPromptChange }) => (
+      <TraitsPicker
+        provider="cursor"
+        models={models}
         threadId={threadId}
         model={model}
-        cursorModelOptions={(modelOptions as CursorModelOptions | undefined) ?? null}
+        modelOptions={modelOptions}
+        prompt={prompt}
+        onPromptChange={onPromptChange}
       />
     ),
   },
