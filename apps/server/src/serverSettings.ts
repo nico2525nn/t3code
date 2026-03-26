@@ -77,13 +77,26 @@ export class ServerSettingsService extends ServiceMap.Service<
   ServerSettingsShape
 >()("t3/serverSettings/ServerSettingsService") {
   static readonly layerTest = (overrides: Partial<ServerSettings> = {}) =>
-    Layer.succeed(ServerSettingsService, {
-      start: Effect.void,
-      ready: Effect.void,
-      getSettings: Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, ...overrides }),
-      updateSettings: () => Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, ...overrides }),
-      streamChanges: Stream.empty,
-    } satisfies ServerSettingsShape);
+    Layer.effect(
+      ServerSettingsService,
+      Effect.gen(function* () {
+        const currentSettingsRef = yield* Ref.make<ServerSettings>(
+          deepMerge(DEFAULT_SERVER_SETTINGS, overrides),
+        );
+
+        return {
+          start: Effect.void,
+          ready: Effect.void,
+          getSettings: Ref.get(currentSettingsRef),
+          updateSettings: (patch) =>
+            Ref.get(currentSettingsRef).pipe(
+              Effect.map((currentSettings) => deepMerge(currentSettings, patch)),
+              Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
+            ),
+          streamChanges: Stream.empty,
+        } satisfies ServerSettingsShape;
+      }),
+    );
 }
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
