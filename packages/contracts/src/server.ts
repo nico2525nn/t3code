@@ -3,23 +3,7 @@ import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas";
 import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
 import { ProviderKind } from "./orchestration";
-import {
-  DEFAULT_SERVER_SETTINGS,
-  CodexSettings,
-  ClaudeSettings,
-  ServerSettings,
-  ServerSettingsPatch,
-  ThreadEnvMode,
-} from "./settings";
-
-export {
-  DEFAULT_SERVER_SETTINGS,
-  ServerSettings,
-  ServerSettingsPatch,
-  ThreadEnvMode,
-  CodexSettings,
-  ClaudeSettings,
-};
+import { ServerSettings } from "./settings";
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
   kind: Schema.Literal("keybindings.malformed-config"),
