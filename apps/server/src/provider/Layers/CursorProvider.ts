@@ -12,11 +12,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import {
   buildServerProvider,
   collectStreamAsString,
-  DEFAULT_TIMEOUT_MS,
-  detailFromResult,
-  extractAuthBoolean,
   isCommandMissingCause,
-  parseGenericCliVersion,
   providerModelsFromSettings,
   type CommandResult,
 } from "../providerSnapshot";
@@ -154,85 +150,105 @@ export function getCursorModelCapabilities(model: string | null | undefined): Mo
   );
 }
 
-export function parseCursorAuthStatusFromOutput(result: CommandResult): {
+/** Timeout for `agent about` — it's slower than a simple `--version` probe. */
+const ABOUT_TIMEOUT_MS = 8_000;
+
+/** Strip ANSI escape sequences so we can parse plain key-value lines. */
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07/g, "");
+}
+
+/**
+ * Extract a value from `agent about` key-value output.
+ * Lines look like: `CLI Version         2026.03.20-44cb435`
+ */
+function extractAboutField(plain: string, key: string): string | undefined {
+  const regex = new RegExp(`^${key}\\s{2,}(.+)$`, "mi");
+  const match = regex.exec(plain);
+  return match?.[1]?.trim();
+}
+
+export interface CursorAboutResult {
+  readonly version: string | null;
   readonly status: Exclude<ServerProviderState, "disabled">;
   readonly authStatus: ServerProviderAuthStatus;
   readonly message?: string;
-} {
-  const lowerOutput = `${result.stdout}\n${result.stderr}`.toLowerCase();
+}
 
+/**
+ * Parse the output of `agent about` to extract version and authentication
+ * status in a single probe.
+ *
+ * Example output (logged in):
+ * ```
+ * About Cursor CLI
+ *
+ * CLI Version         2026.03.20-44cb435
+ * User Email          user@example.com
+ * ```
+ *
+ * Example output (logged out):
+ * ```
+ * About Cursor CLI
+ *
+ * CLI Version         2026.03.20-44cb435
+ * User Email          Not logged in
+ * ```
+ */
+export function parseCursorAboutOutput(result: CommandResult): CursorAboutResult {
+  const combined = `${result.stdout}\n${result.stderr}`;
+  const lowerOutput = combined.toLowerCase();
+
+  // If the command itself isn't recognised, we're on an old CLI version.
   if (
     lowerOutput.includes("unknown command") ||
     lowerOutput.includes("unrecognized command") ||
     lowerOutput.includes("unexpected argument")
   ) {
     return {
+      version: null,
       status: "warning",
       authStatus: "unknown",
-      message:
-        "Cursor Agent authentication status command is unavailable in this version of the Agent CLI.",
+      message: "The `agent about` command is unavailable in this version of the Cursor Agent CLI.",
     };
   }
 
+  const plain = stripAnsi(combined);
+  console.log("plain:", plain);
+  const version = extractAboutField(plain, "CLI Version") ?? null;
+  const userEmail = extractAboutField(plain, "User Email");
+
+  // Determine auth from the User Email field.
+  if (userEmail === undefined) {
+    // Field missing entirely — can't determine auth.
+    if (result.code === 0) {
+      return { version, status: "ready", authStatus: "unknown" };
+    }
+    return {
+      version,
+      status: "warning",
+      authStatus: "unknown",
+      message: "Could not verify Cursor Agent authentication status.",
+    };
+  }
+
+  const lowerEmail = userEmail.toLowerCase();
   if (
-    lowerOutput.includes("not logged in") ||
-    lowerOutput.includes("login required") ||
-    lowerOutput.includes("authentication required") ||
-    lowerOutput.includes("run `agent login`") ||
-    lowerOutput.includes("run agent login")
+    lowerEmail === "not logged in" ||
+    lowerEmail.includes("login required") ||
+    lowerEmail.includes("authentication required")
   ) {
     return {
+      version,
       status: "error",
       authStatus: "unauthenticated",
       message: "Cursor Agent is not authenticated. Run `agent login` and try again.",
     };
   }
 
-  const parsedAuth = (() => {
-    const trimmed = result.stdout.trim();
-    if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
-      return { attemptedJsonParse: false as const, auth: undefined as boolean | undefined };
-    }
-    try {
-      return {
-        attemptedJsonParse: true as const,
-        auth: extractAuthBoolean(JSON.parse(trimmed)),
-      };
-    } catch {
-      return { attemptedJsonParse: false as const, auth: undefined as boolean | undefined };
-    }
-  })();
-
-  if (parsedAuth.auth === true) {
-    return { status: "ready", authStatus: "authenticated" };
-  }
-  if (parsedAuth.auth === false) {
-    return {
-      status: "error",
-      authStatus: "unauthenticated",
-      message: "Cursor Agent is not authenticated. Run `agent login` and try again.",
-    };
-  }
-  if (parsedAuth.attemptedJsonParse) {
-    return {
-      status: "warning",
-      authStatus: "unknown",
-      message:
-        "Could not verify Cursor Agent authentication status from JSON output (missing auth marker).",
-    };
-  }
-  if (result.code === 0) {
-    return { status: "ready", authStatus: "authenticated" };
-  }
-
-  const detail = detailFromResult(result);
-  return {
-    status: "warning",
-    authStatus: "unknown",
-    message: detail
-      ? `Could not verify Cursor Agent authentication status. ${detail}`
-      : "Could not verify Cursor Agent authentication status.",
-  };
+  // Any non-empty email value means authenticated.
+  return { version, status: "ready", authStatus: "authenticated" };
 }
 
 const runCursorCommand = (args: ReadonlyArray<string>) =>
@@ -292,13 +308,14 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       });
     }
 
-    const versionProbe = yield* runCursorCommand(["--version"]).pipe(
-      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    // Single `agent about` probe: returns version + auth status in one call.
+    const aboutProbe = yield* runCursorCommand(["about"]).pipe(
+      Effect.timeoutOption(ABOUT_TIMEOUT_MS),
       Effect.result,
     );
 
-    if (Result.isFailure(versionProbe)) {
-      const error = versionProbe.failure;
+    if (Result.isFailure(aboutProbe)) {
+      const error = aboutProbe.failure;
       return buildServerProvider({
         provider: PROVIDER,
         enabled: cursorSettings.enabled,
@@ -316,7 +333,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       });
     }
 
-    if (Option.isNone(versionProbe.success)) {
+    if (Option.isNone(aboutProbe.success)) {
       return buildServerProvider({
         provider: PROVIDER,
         enabled: cursorSettings.enabled,
@@ -327,76 +344,12 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
           version: null,
           status: "error",
           authStatus: "unknown",
-          message:
-            "Cursor Agent CLI is installed but failed to run. Timed out while running command.",
+          message: "Cursor Agent CLI is installed but timed out while running `agent about`.",
         },
       });
     }
 
-    const version = versionProbe.success.value;
-    const parsedVersion = parseGenericCliVersion(`${version.stdout}\n${version.stderr}`);
-    if (version.code !== 0) {
-      const detail = detailFromResult(version);
-      return buildServerProvider({
-        provider: PROVIDER,
-        enabled: cursorSettings.enabled,
-        checkedAt,
-        models,
-        probe: {
-          installed: true,
-          version: parsedVersion,
-          status: "error",
-          authStatus: "unknown",
-          message: detail
-            ? `Cursor Agent CLI is installed but failed to run. ${detail}`
-            : "Cursor Agent CLI is installed but failed to run.",
-        },
-      });
-    }
-
-    const authProbe = yield* runCursorCommand(["login", "status"]).pipe(
-      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
-      Effect.result,
-    );
-
-    if (Result.isFailure(authProbe)) {
-      const error = authProbe.failure;
-      return buildServerProvider({
-        provider: PROVIDER,
-        enabled: cursorSettings.enabled,
-        checkedAt,
-        models,
-        probe: {
-          installed: true,
-          version: parsedVersion,
-          status: "warning",
-          authStatus: "unknown",
-          message:
-            error instanceof Error
-              ? `Could not verify Cursor Agent authentication status: ${error.message}.`
-              : "Could not verify Cursor Agent authentication status.",
-        },
-      });
-    }
-
-    if (Option.isNone(authProbe.success)) {
-      return buildServerProvider({
-        provider: PROVIDER,
-        enabled: cursorSettings.enabled,
-        checkedAt,
-        models,
-        probe: {
-          installed: true,
-          version: parsedVersion,
-          status: "warning",
-          authStatus: "unknown",
-          message:
-            "Could not verify Cursor Agent authentication status. Timed out while running command.",
-        },
-      });
-    }
-
-    const parsed = parseCursorAuthStatusFromOutput(authProbe.success.value);
+    const parsed = parseCursorAboutOutput(aboutProbe.success.value);
     return buildServerProvider({
       provider: PROVIDER,
       enabled: cursorSettings.enabled,
@@ -404,7 +357,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       models,
       probe: {
         installed: true,
-        version: parsedVersion,
+        version: parsed.version,
         status: parsed.status,
         authStatus: parsed.authStatus,
         ...(parsed.message ? { message: parsed.message } : {}),

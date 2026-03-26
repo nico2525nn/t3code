@@ -55,6 +55,7 @@ describe.runIf(process.env.T3_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", 
         cwd: process.cwd(),
         mcpServers: [],
       });
+      console.log("session/new result:", JSON.stringify(result, null, 2));
 
       expect(isRecord(result)).toBe(true);
       const r = result as Record<string, unknown>;
