@@ -246,7 +246,7 @@ describe("CompactComposerControlsMenu", () => {
 
   it("shows Cursor reasoning controls for GPT-5.3 Codex family", async () => {
     const mounted = await mountMenu({
-      modelSelection: { provider: "cursor", model: "gpt-5.3-codex-high" },
+      modelSelection: { provider: "cursor", model: "gpt-5.3-codex" },
     });
 
     try {

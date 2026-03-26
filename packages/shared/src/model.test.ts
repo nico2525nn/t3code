@@ -99,6 +99,22 @@ describe("resolveSelectableModel", () => {
     expect(resolveSelectableModel("codex", "gpt-5.3 codex", options)).toBe("gpt-5.3-codex");
     expect(resolveSelectableModel("claudeAgent", "sonnet", options)).toBe("claude-sonnet-4-6");
   });
+
+  it("maps concrete slugs back to the closest selectable family option", () => {
+    const cursorOptions = [
+      { slug: "composer-2", name: "Composer 2" },
+      { slug: "gpt-5.3-codex", name: "Codex 5.3" },
+      { slug: "claude-4.6-opus", name: "Claude Opus 4.6" },
+    ];
+
+    expect(resolveSelectableModel("cursor", "composer-2-fast", cursorOptions)).toBe("composer-2");
+    expect(resolveSelectableModel("cursor", "gpt-5.3-codex-high-fast", cursorOptions)).toBe(
+      "gpt-5.3-codex",
+    );
+    expect(resolveSelectableModel("cursor", "claude-4.6-opus-high-thinking", cursorOptions)).toBe(
+      "claude-4.6-opus",
+    );
+  });
 });
 
 describe("capability helpers", () => {

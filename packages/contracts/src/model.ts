@@ -79,33 +79,6 @@ export type ModelOption = {
   readonly name: string;
 };
 
-type CursorModelFamilyOption = {
-  readonly slug: string;
-  readonly name: string;
-};
-
-/**
- * High-level families shown in the Cursor provider submenu (traits refine the concrete slug).
- * Slug ids are aligned with `agent models` where possible; synthetic keys (`gpt-5.4-1m`, `claude-4.6-opus`,
- * `claude-4.6-sonnet`) are not standalone CLI models — see `packages/shared` resolvers.
- *
- * Note: `agent models` had no `premium`, `composer-1`, or Claude Haiku 4.5 ids at snapshot time
- * (`packages/contracts/src/cursorCliModels.json`).
- */
-export const CURSOR_MODEL_FAMILY_OPTIONS = [
-  { slug: "auto", name: "Auto" },
-  { slug: "composer-2", name: "Composer 2" },
-  { slug: "composer-1.5", name: "Composer 1.5" },
-  { slug: "gpt-5.3-codex", name: "Codex 5.3" },
-  { slug: "gpt-5.3-codex-spark-preview", name: "Codex 5.3 Spark" },
-  { slug: "gpt-5.4-1m", name: "GPT 5.4" },
-  { slug: "claude-4.6-opus", name: "Claude Opus 4.6" },
-  { slug: "claude-4.6-sonnet", name: "Claude Sonnet 4.6" },
-  { slug: "gemini-3.1-pro", name: "Gemini 3.1 Pro" },
-] as const satisfies readonly CursorModelFamilyOption[];
-
-export type CursorModelFamily = (typeof CURSOR_MODEL_FAMILY_OPTIONS)[number]["slug"];
-
 export const MODEL_OPTIONS_BY_PROVIDER = {
   codex: [
     { slug: "gpt-5.4", name: "GPT-5.4" },

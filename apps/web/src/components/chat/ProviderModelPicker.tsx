@@ -1,17 +1,5 @@
-import {
-  CURSOR_MODEL_FAMILY_OPTIONS,
-  MODEL_OPTIONS_BY_PROVIDER,
-  type CursorModelOptions,
-  type ModelSlug,
-  type ProviderKind,
-  type ServerProvider,
-} from "@t3tools/contracts";
-import {
-  isCursorModelFamilySlug,
-  parseCursorModelSelection,
-  resolveModelSlugForProvider,
-  resolveSelectableModel,
-} from "@t3tools/shared/model";
+import { type ProviderKind, type ServerProvider } from "@t3tools/contracts";
+import { resolveModelSlugForProvider, resolveSelectableModel } from "@t3tools/shared/model";
 import { memo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
@@ -72,54 +60,27 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
   disabledReason?: string;
-  cursorModelOptions: CursorModelOptions | null;
-  onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
+  onProviderModelChange: (provider: ProviderKind, model: string) => void;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const activeProvider = props.lockedProvider ?? props.provider;
   const selectedProviderOptions = props.modelOptionsByProvider[activeProvider];
-  const cursorFamilyLabel = (() => {
-    if (activeProvider !== "cursor") return null;
-    const family = parseCursorModelSelection(props.model, props.cursorModelOptions).family;
-    const entry = CURSOR_MODEL_FAMILY_OPTIONS.find((o) => o.slug === family);
-    return entry?.name ?? null;
-  })();
+  const selectedModelValue =
+    resolveSelectableModel(activeProvider, props.model, selectedProviderOptions) ?? props.model;
   const selectedModelLabel =
-    activeProvider === "cursor"
-      ? (cursorFamilyLabel ??
-        MODEL_OPTIONS_BY_PROVIDER.cursor.find((option) => option.slug === props.model)?.name ??
-        props.model)
-      : (selectedProviderOptions.find((option) => option.slug === props.model)?.name ??
-        props.model);
+    selectedProviderOptions.find((option) => option.slug === selectedModelValue)?.name ??
+    props.model;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[activeProvider];
   const handleModelChange = (provider: ProviderKind, value: string) => {
     if (props.disabled) return;
     if (!value) return;
-    let resolvedModel: ModelSlug | null = null;
-    if (provider === "cursor") {
-      if (isCursorModelFamilySlug(value)) {
-        resolvedModel = value as ModelSlug;
-      } else {
-        resolvedModel =
-          resolveSelectableModel(provider, value, props.modelOptionsByProvider[provider]) ??
-          resolveModelSlugForProvider(provider, value);
-      }
-    } else {
-      resolvedModel = resolveSelectableModel(
-        provider,
-        value,
-        props.modelOptionsByProvider[provider],
-      );
-    }
+    const resolvedModel =
+      resolveSelectableModel(provider, value, props.modelOptionsByProvider[provider]) ??
+      resolveModelSlugForProvider(provider, value);
     if (!resolvedModel) return;
     props.onProviderModelChange(provider, resolvedModel);
     setIsMenuOpen(false);
   };
-
-  const cursorRadioValue =
-    activeProvider === "cursor"
-      ? parseCursorModelSelection(props.model, props.cursorModelOptions).family
-      : "";
 
   return (
     <Menu
@@ -170,7 +131,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         {props.lockedProvider !== null ? (
           <MenuGroup>
             <MenuRadioGroup
-              value={props.lockedProvider === "cursor" ? cursorRadioValue : props.model}
+              value={selectedModelValue}
               onValueChange={(value) => handleModelChange(props.lockedProvider!, value)}
             >
               {props.modelOptionsByProvider[props.lockedProvider].map((modelOption) => (
@@ -230,9 +191,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                       <MenuRadioGroup
                         value={
                           props.provider === option.value
-                            ? option.value === "cursor"
-                              ? cursorRadioValue
-                              : props.model
+                            ? (resolveSelectableModel(
+                                option.value,
+                                props.model,
+                                props.modelOptionsByProvider[option.value],
+                              ) ?? props.model)
                             : ""
                         }
                         onValueChange={(value) => handleModelChange(option.value, value)}

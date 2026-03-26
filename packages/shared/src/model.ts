@@ -1,5 +1,4 @@
 import {
-  CURSOR_MODEL_FAMILY_OPTIONS,
   CURSOR_REASONING_OPTIONS,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_REASONING_EFFORT_BY_PROVIDER,
@@ -11,7 +10,6 @@ import {
   type CodexModelOptions,
   type CodexReasoningEffort,
   type CursorClaudeOpusTier,
-  type CursorModelFamily,
   type CursorModelOptions,
   type CursorModelSlug,
   type CursorReasoningOption,
@@ -27,6 +25,20 @@ const MODEL_SLUG_SET_BY_PROVIDER: Record<ProviderKind, ReadonlySet<ModelSlug>> =
   codex: new Set(MODEL_OPTIONS_BY_PROVIDER.codex.map((option) => option.slug)),
   cursor: new Set(MODEL_OPTIONS_BY_PROVIDER.cursor.map((option) => option.slug)),
 };
+
+const CURSOR_MODEL_FAMILY_OPTIONS = [
+  { slug: "auto", name: "Auto" },
+  { slug: "composer-2", name: "Composer 2" },
+  { slug: "composer-1.5", name: "Composer 1.5" },
+  { slug: "gpt-5.3-codex", name: "Codex 5.3" },
+  { slug: "gpt-5.3-codex-spark-preview", name: "Codex 5.3 Spark" },
+  { slug: "gpt-5.4-1m", name: "GPT 5.4" },
+  { slug: "claude-4.6-opus", name: "Claude Opus 4.6" },
+  { slug: "claude-4.6-sonnet", name: "Claude Sonnet 4.6" },
+  { slug: "gemini-3.1-pro", name: "Gemini 3.1 Pro" },
+] as const;
+
+export type CursorModelFamily = (typeof CURSOR_MODEL_FAMILY_OPTIONS)[number]["slug"];
 
 type CursorModelCapability = {
   readonly supportsReasoning: boolean;
@@ -132,10 +144,6 @@ export interface CursorModelSelection {
   readonly fast: boolean;
   readonly thinking: boolean;
   readonly claudeOpusTier: CursorClaudeOpusTier;
-}
-
-export function getCursorModelFamilyOptions() {
-  return CURSOR_MODEL_FAMILY_OPTIONS;
 }
 
 export function getCursorModelCapabilities(family: CursorModelFamily) {
@@ -693,7 +701,20 @@ export function resolveSelectableModel(
   }
 
   const resolved = options.find((option) => option.slug === normalized);
-  return resolved ? resolved.slug : null;
+  if (resolved) {
+    return resolved.slug;
+  }
+
+  const familyMatch = options
+    .toSorted((left, right) => right.slug.length - left.slug.length)
+    .find((option) => {
+      if (!normalized.startsWith(option.slug)) {
+        return false;
+      }
+      const nextChar = normalized.charAt(option.slug.length);
+      return nextChar === "-" || nextChar === "[" || nextChar === "";
+    });
+  return familyMatch?.slug ?? null;
 }
 
 function resolveModelSlug(model: string | null | undefined, provider: ProviderKind): string {
