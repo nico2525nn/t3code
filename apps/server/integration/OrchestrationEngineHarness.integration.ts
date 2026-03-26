@@ -324,7 +324,7 @@ export const makeOrchestrationIntegrationHarness = (
     );
     const layer = orchestrationReactorLayer.pipe(
       Layer.provide(persistenceLayer),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(serverSettingsLayer),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
     );
