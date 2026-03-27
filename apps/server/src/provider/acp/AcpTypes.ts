@@ -64,29 +64,32 @@ const jsonRpcWireToInbound = SchemaTransformation.transformOrFail({
               ...(err.data !== undefined ? { data: err.data } : {}),
             }
           : undefined;
-      return Effect.succeed({
-        _tag: "response" as const,
-        id,
-        ...(parsed.result !== undefined ? { result: parsed.result } : {}),
-        ...(rpcError ? { error: rpcError } : {}),
-      });
+      return Effect.succeed(
+        AcpInboundResponse.makeUnsafe({
+          id,
+          ...(parsed.result !== undefined ? { result: parsed.result } : {}),
+          ...(rpcError ? { error: rpcError } : {}),
+        }),
+      );
     }
 
     if (hasMethod && hasId) {
-      return Effect.succeed({
-        _tag: "request" as const,
-        id,
-        method,
-        ...(parsed.params !== undefined ? { params: parsed.params } : {}),
-      });
+      return Effect.succeed(
+        AcpInboundRequest.makeUnsafe({
+          id,
+          method,
+          ...(parsed.params !== undefined ? { params: parsed.params } : {}),
+        }),
+      );
     }
 
     if (hasMethod && !hasId) {
-      return Effect.succeed({
-        _tag: "notification" as const,
-        method,
-        ...(parsed.params !== undefined ? { params: parsed.params } : {}),
-      });
+      return Effect.succeed(
+        AcpInboundNotification.makeUnsafe({
+          method,
+          ...(parsed.params !== undefined ? { params: parsed.params } : {}),
+        }),
+      );
     }
 
     return Effect.fail(
