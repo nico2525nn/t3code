@@ -978,7 +978,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               </p>
             </TooltipTrigger>
             <TooltipPopup className="max-w-[min(720px,calc(100vw-2rem))]">
-              <p className="whitespace-pre-wrap break-words text-xs leading-5">{displayText}</p>
+              <p className="whitespace-pre-wrap wrap-break-word text-xs leading-5">{displayText}</p>
             </TooltipPopup>
           </Tooltip>
         </div>
