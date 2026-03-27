@@ -112,58 +112,6 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
       },
     ],
   },
-  {
-    provider: "cursor",
-    enabled: true,
-    installed: true,
-    version: "1.0.0",
-    status: "ready",
-    authStatus: "authenticated",
-    checkedAt: new Date().toISOString(),
-    models: [
-      {
-        slug: "composer-2",
-        name: "Composer 2",
-        isCustom: false,
-        capabilities: {
-          reasoningEffortLevels: [],
-          supportsFastMode: true,
-          supportsThinkingToggle: false,
-          contextWindowOptions: [],
-          promptInjectedEffortLevels: [],
-        },
-      },
-      {
-        slug: "gpt-5.3-codex",
-        name: "Codex 5.3",
-        isCustom: false,
-        capabilities: {
-          reasoningEffortLevels: [
-            effort("low"),
-            effort("medium", true),
-            effort("high"),
-            effort("xhigh"),
-          ],
-          supportsFastMode: true,
-          supportsThinkingToggle: false,
-          contextWindowOptions: [],
-          promptInjectedEffortLevels: [],
-        },
-      },
-      {
-        slug: "claude-opus-4-6",
-        name: "Claude Opus 4.6",
-        isCustom: false,
-        capabilities: {
-          reasoningEffortLevels: [],
-          supportsFastMode: false,
-          supportsThinkingToggle: true,
-          contextWindowOptions: [],
-          promptInjectedEffortLevels: [],
-        },
-      },
-    ],
-  },
 ];
 
 function buildCodexProvider(models: ServerProvider["models"]): ServerProvider {
@@ -192,14 +140,12 @@ async function mountPicker(props: {
   document.body.append(host);
   const onProviderModelChange = vi.fn();
   const providers = props.providers ?? TEST_PROVIDERS;
-  const modelOptionsByProvider = {
-    ...getCustomModelOptionsByProvider(
-      DEFAULT_UNIFIED_SETTINGS,
-      providers,
-      props.provider,
-      props.model,
-    ),
-  };
+  const modelOptionsByProvider = getCustomModelOptionsByProvider(
+    DEFAULT_UNIFIED_SETTINGS,
+    providers,
+    props.provider,
+    props.model,
+  );
   const screen = await render(
     <ProviderModelPicker
       provider={props.provider}
@@ -309,23 +255,6 @@ describe("ProviderModelPicker", () => {
         expect(text).toContain("Claude Haiku 4.5");
         expect(text).not.toContain("Codex");
       });
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("uses canonical Cursor slugs from the server-provided model options", async () => {
-    const mounted = await mountPicker({
-      provider: "cursor",
-      model: "claude-opus-4-6",
-      lockedProvider: "cursor",
-    });
-
-    try {
-      await page.getByRole("button").click();
-      await page.getByRole("menuitemradio", { name: "Codex 5.3" }).click();
-
-      expect(mounted.onProviderModelChange).toHaveBeenCalledWith("cursor", "gpt-5.3-codex");
     } finally {
       await mounted.cleanup();
     }

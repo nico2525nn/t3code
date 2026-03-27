@@ -24,14 +24,15 @@ function decodeProviderKind(
   providerName: string,
   operation: string,
 ): Effect.Effect<ProviderKind, ProviderSessionDirectoryPersistenceError> {
-  if (providerName === "codex" || providerName === "claudeAgent" || providerName === "cursor") {
-    return Effect.succeed(providerName);
-  }
-  return Effect.fail(
-    new ProviderSessionDirectoryPersistenceError({
-      operation,
-      detail: `Unknown persisted provider '${providerName}'.`,
-    }),
+  return Schema.decodeUnknownEffect(ProviderKind)(providerName).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ProviderSessionDirectoryPersistenceError({
+          operation,
+          detail: `Unknown persisted provider '${providerName}'.`,
+          cause,
+        }),
+    ),
   );
 }
 
