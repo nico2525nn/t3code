@@ -622,6 +622,10 @@ function normalizeProviderModelOptions(
       : undefined;
   const cursorFastMode = cursorCandidate?.fastMode === true;
   const cursorThinkingFalse = cursorCandidate?.thinking === false;
+  const cursorContextWindow =
+    typeof cursorCandidate?.contextWindow === "string" && cursorCandidate.contextWindow.length > 0
+      ? cursorCandidate.contextWindow
+      : undefined;
 
   const cursor: CursorModelOptions | undefined =
     cursorCandidate !== null
@@ -629,6 +633,7 @@ function normalizeProviderModelOptions(
           ...(cursorReasoning ? { reasoning: cursorReasoning } : {}),
           ...(cursorFastMode ? { fastMode: true } : {}),
           ...(cursorThinkingFalse ? { thinking: false } : {}),
+          ...(cursorContextWindow !== undefined ? { contextWindow: cursorContextWindow } : {}),
         }
       : undefined;
 

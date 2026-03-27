@@ -628,48 +628,84 @@ describe("TraitsPicker (Codex)", () => {
   });
 });
 
-// ── OpenCode TraitsPicker tests ───────────────────────────────────────
+// ── Cursor TraitsPicker tests ─────────────────────────────────────────
 
-async function mountOpenCodePicker(props: { model?: string; options?: OpenCodeModelOptions }) {
-  const threadId = ThreadId.make("thread-opencode-traits");
-  const threadRef = scopeThreadRef(LOCAL_ENVIRONMENT_ID, threadId);
-  const threadKey = scopedThreadKey(threadRef);
-  const model = props.model ?? DEFAULT_MODEL_BY_PROVIDER.opencode;
-  const draftsByThreadKey: Record<string, ComposerThreadDraftState> = {
-    [threadKey]: {
+async function mountCursorPicker(props?: {
+  model?: string;
+  options?: CursorModelOptions;
+  models?: ServerProvider["models"];
+}) {
+  const threadId = ThreadId.makeUnsafe("thread-cursor-traits");
+  const model = props?.model ?? "gpt-5.4";
+  const cursorProvider = {
+    provider: "cursor",
+    enabled: true,
+    installed: true,
+    version: "0.1.0",
+    status: "ready",
+    authStatus: "authenticated",
+    checkedAt: "2026-01-01T00:00:00.000Z",
+    models: props?.models ?? [
+      {
+        slug: "gpt-5.4",
+        name: "GPT-5.4",
+        isCustom: false,
+        capabilities: {
+          reasoningEffortLevels: [
+            { value: "low", label: "Low" },
+            { value: "medium", label: "Medium", isDefault: true },
+            { value: "high", label: "High" },
+            { value: "xhigh", label: "Extra High" },
+          ],
+          supportsFastMode: true,
+          supportsThinkingToggle: false,
+          contextWindowOptions: [
+            { value: "272k", label: "272k", isDefault: true },
+            { value: "1m", label: "1M" },
+          ],
+          promptInjectedEffortLevels: [],
+        },
+      },
+    ],
+  } satisfies ServerProvider;
+
+  const draftsByThreadId: Record<ThreadId, ComposerThreadDraftState> = {
+    [threadId]: {
       prompt: "",
       images: [],
       nonPersistedImageIds: [],
       persistedAttachments: [],
       terminalContexts: [],
       modelSelectionByProvider: {
-        opencode: {
-          provider: "opencode",
+        cursor: {
+          provider: "cursor",
           model,
-          ...(props.options ? { options: props.options } : {}),
+          ...(props?.options ? { options: props.options } : {}),
         },
       },
-      activeProvider: "opencode",
+      activeProvider: "cursor",
       runtimeMode: null,
       interactionMode: null,
     },
   };
 
   useComposerDraftStore.setState({
-    draftsByThreadKey,
-    draftThreadsByThreadKey: {},
-    logicalProjectDraftThreadKeyByLogicalProjectKey: {},
+    draftsByThreadId,
+    draftThreadsByThreadId: {},
+    projectDraftThreadIdByProjectId: {
+      [ProjectId.makeUnsafe("project-cursor-traits")]: threadId,
+    },
   });
   const host = document.createElement("div");
   document.body.append(host);
   const screen = await render(
     <TraitsPicker
-      provider="opencode"
-      models={findTestProvider("opencode").models}
-      threadRef={threadRef}
+      provider="cursor"
+      models={cursorProvider.models}
+      threadId={threadId}
       model={model}
       prompt=""
-      modelOptions={props.options}
+      modelOptions={props?.options}
       onPromptChange={() => {}}
     />,
     { container: host },
@@ -686,97 +722,117 @@ async function mountOpenCodePicker(props: { model?: string; options?: OpenCodeMo
   };
 }
 
-describe("TraitsPicker (OpenCode)", () => {
-  afterEach(() => {
-    document.body.innerHTML = "";
-    localStorage.removeItem(COMPOSER_DRAFT_STORAGE_KEY);
-    useComposerDraftStore.setState({
-      draftsByThreadKey: {},
-      draftThreadsByThreadKey: {},
-      logicalProjectDraftThreadKeyByLogicalProjectKey: {},
-      stickyModelSelectionByProvider: {},
-    });
-  });
-
-  it("shows the selected agent label with capitalization in the trigger", async () => {
-    await using _ = await mountOpenCodePicker({
-      options: {
-        variant: "medium",
-        agent: "plan",
-      },
-    });
-
-    await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain("Medium · Plan");
-      expect(text).not.toContain("Medium · plan");
-    });
-  });
-});
-
 describe("TraitsPicker (Cursor)", () => {
   afterEach(() => {
     document.body.innerHTML = "";
     localStorage.removeItem(COMPOSER_DRAFT_STORAGE_KEY);
     useComposerDraftStore.setState({
-      draftsByThreadKey: {},
-      draftThreadsByThreadKey: {},
-      logicalProjectDraftThreadKeyByLogicalProjectKey: {},
+      draftsByThreadId: {},
+      draftThreadsByThreadId: {},
+      projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
     });
   });
 
-  it("uses the selected fast mode menu label for the trigger in fast-only state", async () => {
+  it("shows the selected Cursor context window in the trigger label", async () => {
+    await using _ = await mountCursorPicker({
+      options: { contextWindow: "1m" },
+    });
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent ?? "").toContain("Medium · 1M");
+    });
+  });
+
+  it("persists Cursor context window changes", async () => {
+    await using _ = await mountCursorPicker();
+
+    await page.getByRole("button").click();
+    await page.getByRole("menuitemradio", { name: "1M" }).click();
+
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.cursor).toMatchObject({
+      provider: "cursor",
+      model: "gpt-5.4",
+      options: {
+        contextWindow: "1m",
+      },
+    });
+  });
+
+  it("does not render for models with no trait capabilities", async () => {
+    await using _ = await mountCursorPicker({
+      model: "default",
+      models: [
+        {
+          slug: "default",
+          name: "Auto",
+          isCustom: false,
+          capabilities: {
+            reasoningEffortLevels: [],
+            supportsFastMode: false,
+            supportsThinkingToggle: false,
+            contextWindowOptions: [],
+            promptInjectedEffortLevels: [],
+          },
+        },
+      ],
+    });
+
+    expect(document.querySelector("button")).toBeNull();
+  });
+
+  it("renders for fast-only Cursor models with a usable label", async () => {
     await using _ = await mountCursorPicker({
       model: "composer-2",
-      options: { fastMode: false },
+      models: [
+        {
+          slug: "composer-2",
+          name: "Composer 2",
+          isCustom: false,
+          capabilities: {
+            reasoningEffortLevels: [],
+            supportsFastMode: true,
+            supportsThinkingToggle: false,
+            contextWindowOptions: [],
+            promptInjectedEffortLevels: [],
+          },
+        },
+      ],
     });
 
     await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain("Normal");
-    });
-
-    await page.getByRole("button").click();
-
-    await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain("Fast Mode");
-      expect(text).toContain("off");
-      expect(text).toContain("on");
+      expect(document.body.textContent ?? "").toContain("Normal");
     });
   });
 
-  it("shows Normal for Cursor Opus 4.6 when fast mode and context window are both at defaults", async () => {
+  it("persists fast-mode changes for fast-only Cursor models", async () => {
     await using _ = await mountCursorPicker({
-      model: "claude-opus-4-6",
-      options: { fastMode: false },
-    });
-
-    await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain("Normal");
+      model: "composer-2",
+      models: [
+        {
+          slug: "composer-2",
+          name: "Composer 2",
+          isCustom: false,
+          capabilities: {
+            reasoningEffortLevels: [],
+            supportsFastMode: true,
+            supportsThinkingToggle: false,
+            contextWindowOptions: [],
+            promptInjectedEffortLevels: [],
+          },
+        },
+      ],
     });
 
     await page.getByRole("button").click();
+    await page.getByRole("menuitemradio", { name: "on" }).click();
 
-    await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain("Fast Mode");
-      expect(text).toContain("Context Window");
-      expect(text).toContain("200K (default)");
-      expect(text).toContain("1M");
-    });
-  });
-
-  it("shows Normal · 1M for Cursor Opus 4.6 when fast mode is off and context window is overridden", async () => {
-    await using _ = await mountCursorPicker({
-      model: "claude-opus-4-6",
-      options: { fastMode: false, contextWindow: "1m" },
-    });
-
-    await vi.waitFor(() => {
-      expect(document.body.textContent ?? "").toContain("Normal · 1M");
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.cursor).toMatchObject({
+      provider: "cursor",
+      model: "composer-2",
+      options: {
+        fastMode: true,
+      },
     });
   });
 });

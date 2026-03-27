@@ -66,6 +66,26 @@ const CURSOR_MODELS: ReadonlyArray<ServerProviderModel> = [
       promptInjectedEffortLevels: [],
     },
   },
+  {
+    slug: "gpt-5.4",
+    name: "GPT-5.4",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [
+        { value: "low", label: "Low" },
+        { value: "medium", label: "Medium", isDefault: true },
+        { value: "high", label: "High" },
+        { value: "xhigh", label: "Extra high" },
+      ],
+      supportsFastMode: true,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [
+        { value: "272k", label: "272k", isDefault: true },
+        { value: "1m", label: "1M" },
+      ],
+      promptInjectedEffortLevels: [],
+    },
+  },
 ];
 
 const CLAUDE_MODELS: ReadonlyArray<ServerProviderModel> = [
@@ -424,7 +444,29 @@ describe("getComposerProviderState", () => {
     });
   });
 
-  it("drops explicit Claude default/off overrides from dispatch while keeping the selected effort label", () => {
+  it("preserves Cursor context window in dispatch options", () => {
+    const state = getComposerProviderState({
+      provider: "cursor",
+      model: "gpt-5.4",
+      models: CURSOR_MODELS,
+      prompt: "",
+      modelOptions: {
+        cursor: {
+          contextWindow: "1m",
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "cursor",
+      promptEffort: "medium",
+      modelOptionsForDispatch: {
+        contextWindow: "1m",
+      },
+    });
+  });
+
+  it("preserves Claude default effort explicitly in dispatch options", () => {
     const state = getComposerProviderState({
       provider: "claudeAgent",
       model: "claude-opus-4-6",

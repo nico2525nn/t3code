@@ -126,7 +126,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
         { value: "medium", label: "Medium" },
         { value: "high", label: "High", isDefault: true },
       ],
-      supportsFastMode: false,
+      supportsFastMode: true,
       supportsThinkingToggle: true,
       contextWindowOptions: [
         { value: "200k", label: "200k", isDefault: true },

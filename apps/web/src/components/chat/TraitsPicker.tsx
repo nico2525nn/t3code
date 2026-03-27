@@ -72,6 +72,16 @@ function getEffortKey(provider: ProviderKind): string {
   return "effort";
 }
 
+function getRawContextWindow(
+  provider: ProviderKind,
+  modelOptions: ProviderOptions | null | undefined,
+): string | null {
+  if (modelOptions && "contextWindow" in modelOptions) {
+    return trimOrNull(modelOptions.contextWindow);
+  }
+  return null;
+}
+
 function buildNextOptions(
   provider: ProviderKind,
   modelOptions: ProviderOptions | null | undefined,
@@ -178,7 +188,6 @@ function getTraitsSectionVisibility(input: {
   const showThinking = selected.thinkingEnabled !== null;
   const showFastMode = selected.caps.supportsFastMode;
   const showContextWindow = selected.contextWindowOptions.length > 1;
-  const showAgent = selected.agentOptions.length > 0;
 
   return {
     ...selected,
@@ -186,8 +195,7 @@ function getTraitsSectionVisibility(input: {
     showThinking,
     showFastMode,
     showContextWindow,
-    showAgent,
-    hasAnyControls: showEffort || showThinking || showFastMode || showContextWindow || showAgent,
+    hasAnyControls: showEffort || showThinking || showFastMode || showContextWindow,
   };
 }
 
@@ -256,9 +264,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     showThinking,
     showFastMode,
     showContextWindow,
-    ultrathinkInBodyText,
-    agentOptions,
-    selectedAgent,
     hasAnyControls,
   } = getTraitsSectionVisibility({
     provider,
@@ -462,14 +467,6 @@ export const TraitsPicker = memo(function TraitsPicker({
     modelOptions,
     allowPromptInjectedEffort,
   });
-  const { selectedAgentLabel } = getSelectedTraits(
-    provider,
-    models,
-    model,
-    prompt,
-    modelOptions,
-    allowPromptInjectedEffort,
-  );
 
   const effortLabel = effort
     ? (effortLevels.find((l) => l.value === effort)?.label ?? effort)
@@ -500,27 +497,23 @@ export const TraitsPicker = memo(function TraitsPicker({
     return null;
   }
 
-  const selectedTriggerTraits = [
-    primaryTraitLabel,
-    ...(caps.supportsFastMode &&
-    (fastModeEnabled || (primaryTraitLabel === null && contextWindowLabel !== null))
-      ? [fastModeEnabled ? "Fast" : "Normal"]
-      : []),
-    ...(contextWindowLabel ? [contextWindowLabel] : []),
-    ...(selectedAgentLabel ? [selectedAgentLabel] : []),
-  ].filter(Boolean);
   const triggerLabel = fastOnlyControl
     ? fastModeEnabled
       ? "Fast"
       : "Normal"
-    : selectedTriggerTraits.length > 0
-      ? selectedTriggerTraits.join(" · ")
-      : caps.supportsFastMode
-        ? "Normal"
-        : defaultContextWindow
-          ? (contextWindowOptions.find((option) => option.value === defaultContextWindow)?.label ??
-            defaultContextWindow)
-          : (selectedAgentLabel ?? "");
+    : [
+        ultrathinkPromptControlled
+          ? "Ultrathink"
+          : effortLabel
+            ? effortLabel
+            : thinkingEnabled === null
+              ? null
+              : `Thinking ${thinkingEnabled ? "On" : "Off"}`,
+        ...(caps.supportsFastMode && fastModeEnabled ? ["Fast"] : []),
+        ...(contextWindowLabel ? [contextWindowLabel] : []),
+      ]
+        .filter(Boolean)
+        .join(" · ");
 
   const isCodexStyle = provider === "codex";
 

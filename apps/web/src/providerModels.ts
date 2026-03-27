@@ -108,10 +108,12 @@ export function normalizeCursorModelOptionsWithCapabilities(
   const fastMode = caps.supportsFastMode && modelOptions?.fastMode === true ? true : undefined;
   const thinking =
     caps.supportsThinkingToggle && modelOptions?.thinking === false ? false : undefined;
+  const contextWindow = resolveContextWindow(caps, modelOptions?.contextWindow);
   const nextOptions: CursorModelOptions = {
     ...(reasoningValue ? { reasoning: reasoningValue } : {}),
     ...(fastMode ? { fastMode: true } : {}),
     ...(thinking === false ? { thinking: false } : {}),
+    ...(contextWindow ? { contextWindow } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
