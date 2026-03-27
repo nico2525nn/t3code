@@ -22,7 +22,6 @@ import {
   TurnId,
   type UserInputQuestion,
 } from "@t3tools/contracts";
-import { resolveCursorDispatchModel } from "@t3tools/shared/model";
 import {
   Cause,
   DateTime,
@@ -57,6 +56,7 @@ import {
 import type { AcpInboundMessage } from "../acp/AcpTypes.ts";
 import { AcpProcessExitedError, AcpRpcError, type AcpError } from "../acp/AcpErrors.ts";
 import { CursorAdapter, type CursorAdapterShape } from "../Services/CursorAdapter.ts";
+import { resolveCursorDispatchModel } from "./CursorProvider.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "cursor" as const;

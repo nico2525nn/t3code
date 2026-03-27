@@ -57,7 +57,7 @@ const CURSOR_MODELS: ReadonlyArray<ServerProviderModel> = [
     capabilities: {
       reasoningEffortLevels: [
         { value: "low", label: "Low" },
-        { value: "normal", label: "Normal", isDefault: true },
+        { value: "medium", label: "Medium", isDefault: true },
         { value: "high", label: "High" },
         { value: "xhigh", label: "Extra high" },
       ],
@@ -413,13 +413,13 @@ describe("getComposerProviderState", () => {
       models: CURSOR_MODELS,
       prompt: "",
       modelOptions: {
-        cursor: { reasoning: "normal" },
+        cursor: { reasoning: "medium" },
       },
     });
 
     expect(state).toEqual({
       provider: "cursor",
-      promptEffort: "normal",
+      promptEffort: "medium",
       modelOptionsForDispatch: undefined,
     });
   });

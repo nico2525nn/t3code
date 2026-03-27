@@ -61,7 +61,8 @@ import {
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { getClaudeModelCapabilities, resolveClaudeApiModelId } from "./ClaudeProvider.ts";
+import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";
+import { resolveClaudeApiModelId } from "./ClaudeModelId.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -1235,10 +1236,167 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         entry.block.fallbackText = text;
       }
 
-      if (entry.block.streamClosed && !entry.block.completionEmitted) {
-        yield* completeAssistantTextBlock(context, entry.block, {
-          rawMethod: "claude/assistant",
-          rawPayload: message,
+              const requestedStamp = yield* makeEventStamp();
+              yield* offerRuntimeEvent({
+                type: "request.opened",
+                eventId: requestedStamp.eventId,
+                provider: PROVIDER,
+                createdAt: requestedStamp.createdAt,
+                threadId: context.session.threadId,
+                ...(context.turnState
+                  ? { turnId: asCanonicalTurnId(context.turnState.turnId) }
+                  : {}),
+                requestId: asRuntimeRequestId(requestId),
+                payload: {
+                  requestType,
+                  detail,
+                  args: {
+                    toolName,
+                    input: toolInput,
+                    ...(callbackOptions.toolUseID ? { toolUseId: callbackOptions.toolUseID } : {}),
+                  },
+                },
+                providerRefs: nativeProviderRefs(context, {
+                  providerItemId: callbackOptions.toolUseID,
+                }),
+                raw: {
+                  source: "claude.sdk.permission",
+                  method: "canUseTool/request",
+                  payload: {
+                    toolName,
+                    input: toolInput,
+                  },
+                },
+              });
+
+              pendingApprovals.set(requestId, pendingApproval);
+
+              const onAbort = () => {
+                if (!pendingApprovals.has(requestId)) {
+                  return;
+                }
+                pendingApprovals.delete(requestId);
+                Effect.runFork(Deferred.succeed(decisionDeferred, "cancel"));
+              };
+
+              callbackOptions.signal.addEventListener("abort", onAbort, {
+                once: true,
+              });
+
+              const decision = yield* Deferred.await(decisionDeferred);
+              pendingApprovals.delete(requestId);
+
+              const resolvedStamp = yield* makeEventStamp();
+              yield* offerRuntimeEvent({
+                type: "request.resolved",
+                eventId: resolvedStamp.eventId,
+                provider: PROVIDER,
+                createdAt: resolvedStamp.createdAt,
+                threadId: context.session.threadId,
+                ...(context.turnState
+                  ? { turnId: asCanonicalTurnId(context.turnState.turnId) }
+                  : {}),
+                requestId: asRuntimeRequestId(requestId),
+                payload: {
+                  requestType,
+                  decision,
+                },
+                providerRefs: nativeProviderRefs(context, {
+                  providerItemId: callbackOptions.toolUseID,
+                }),
+                raw: {
+                  source: "claude.sdk.permission",
+                  method: "canUseTool/decision",
+                  payload: {
+                    decision,
+                  },
+                },
+              });
+
+              if (decision === "accept" || decision === "acceptForSession") {
+                return {
+                  behavior: "allow",
+                  updatedInput: toolInput,
+                  ...(decision === "acceptForSession" && pendingApproval.suggestions
+                    ? { updatedPermissions: [...pendingApproval.suggestions] }
+                    : {}),
+                } satisfies PermissionResult;
+              }
+
+              return {
+                behavior: "deny",
+                message:
+                  decision === "cancel"
+                    ? "User cancelled tool execution."
+                    : "User declined tool execution.",
+              } satisfies PermissionResult;
+            }),
+          );
+
+        const claudeSettings = yield* serverSettingsService.getSettings.pipe(
+          Effect.map((settings) => settings.providers.claudeAgent),
+          Effect.mapError(
+            (error) =>
+              new ProviderAdapterProcessError({
+                provider: PROVIDER,
+                threadId: input.threadId,
+                detail: error.message,
+                cause: error,
+              }),
+          ),
+        );
+        const claudeBinaryPath = claudeSettings.binaryPath;
+        const modelSelection =
+          input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
+        const caps = getClaudeModelCapabilities(modelSelection?.model);
+        const apiModelId = modelSelection ? resolveClaudeApiModelId(modelSelection) : undefined;
+        const effort = (resolveEffort(caps, modelSelection?.options?.effort) ??
+          null) as ClaudeCodeEffort | null;
+        const fastMode = modelSelection?.options?.fastMode === true && caps.supportsFastMode;
+        const thinking =
+          typeof modelSelection?.options?.thinking === "boolean" && caps.supportsThinkingToggle
+            ? modelSelection.options.thinking
+            : undefined;
+        const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
+        const permissionMode =
+          input.runtimeMode === "full-access" ? "bypassPermissions" : undefined;
+        const settings = {
+          ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
+          ...(fastMode ? { fastMode: true } : {}),
+        };
+
+        const queryOptions: ClaudeQueryOptions = {
+          ...(input.cwd ? { cwd: input.cwd } : {}),
+          ...(apiModelId ? { model: apiModelId } : {}),
+          pathToClaudeCodeExecutable: claudeBinaryPath,
+          settingSources: [...CLAUDE_SETTING_SOURCES],
+          ...(effectiveEffort ? { effort: effectiveEffort } : {}),
+          ...(permissionMode ? { permissionMode } : {}),
+          ...(permissionMode === "bypassPermissions"
+            ? { allowDangerouslySkipPermissions: true }
+            : {}),
+          ...(Object.keys(settings).length > 0 ? { settings } : {}),
+          ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
+          ...(newSessionId ? { sessionId: newSessionId } : {}),
+          includePartialMessages: true,
+          canUseTool,
+          env: process.env,
+          ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
+        };
+
+        const queryRuntime = yield* Effect.try({
+          try: () =>
+            createQuery({
+              prompt,
+              options: queryOptions,
+            }),
+          catch: (cause) =>
+            new ProviderAdapterProcessError({
+              provider: PROVIDER,
+              threadId,
+              detail: toMessage(cause, "Failed to start Claude runtime session."),
+              cause,
+            }),
         });
       }
     }
@@ -1711,11 +1869,61 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       return;
     }
 
-    if (event.type === "content_block_start") {
-      const { index, content_block: block } = event;
-      if (block.type === "text") {
-        yield* ensureAssistantTextBlock(context, index, {
-          fallbackText: extractContentBlockText(block),
+        if (modelSelection?.model) {
+          const apiModelId = resolveClaudeApiModelId(modelSelection);
+          yield* Effect.tryPromise({
+            try: () => context.query.setModel(apiModelId),
+            catch: (cause) => toRequestError(input.threadId, "turn/setModel", cause),
+          });
+        }
+
+        // Apply interaction mode by switching the SDK's permission mode.
+        // "plan" maps directly to the SDK's "plan" permission mode;
+        // "default" restores the session's original permission mode.
+        // When interactionMode is absent we leave the current mode unchanged.
+        if (input.interactionMode === "plan") {
+          yield* Effect.tryPromise({
+            try: () => context.query.setPermissionMode("plan"),
+            catch: (cause) => toRequestError(input.threadId, "turn/setPermissionMode", cause),
+          });
+        } else if (input.interactionMode === "default") {
+          yield* Effect.tryPromise({
+            try: () =>
+              context.query.setPermissionMode(context.basePermissionMode ?? "bypassPermissions"),
+            catch: (cause) => toRequestError(input.threadId, "turn/setPermissionMode", cause),
+          });
+        }
+
+        const turnId = TurnId.makeUnsafe(yield* Random.nextUUIDv4);
+        const turnState: ClaudeTurnState = {
+          turnId,
+          startedAt: yield* nowIso,
+          items: [],
+          assistantTextBlocks: new Map(),
+          assistantTextBlockOrder: [],
+          capturedProposedPlanKeys: new Set(),
+          nextSyntheticAssistantBlockIndex: -1,
+        };
+
+        const updatedAt = yield* nowIso;
+        context.turnState = turnState;
+        context.session = {
+          ...context.session,
+          status: "running",
+          activeTurnId: turnId,
+          updatedAt,
+        };
+
+        const turnStartedStamp = yield* makeEventStamp();
+        yield* offerRuntimeEvent({
+          type: "turn.started",
+          eventId: turnStartedStamp.eventId,
+          provider: PROVIDER,
+          createdAt: turnStartedStamp.createdAt,
+          threadId: context.session.threadId,
+          turnId,
+          payload: modelSelection?.model ? { model: modelSelection.model } : {},
+          providerRefs: {},
         });
         return;
       }

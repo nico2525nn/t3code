@@ -140,7 +140,7 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
         capabilities: {
           reasoningEffortLevels: [
             effort("low"),
-            effort("normal", true),
+            effort("medium", true),
             effort("high"),
             effort("xhigh"),
           ],
@@ -151,7 +151,7 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
         },
       },
       {
-        slug: "claude-4.6-opus",
+        slug: "claude-opus-4-6",
         name: "Claude Opus 4.6",
         isCustom: false,
         capabilities: {
@@ -314,10 +314,10 @@ describe("ProviderModelPicker", () => {
     }
   });
 
-  it("maps concrete Cursor slugs onto the server-provided model options", async () => {
+  it("uses canonical Cursor slugs from the server-provided model options", async () => {
     const mounted = await mountPicker({
       provider: "cursor",
-      model: "claude-4.6-opus-high-thinking",
+      model: "claude-opus-4-6",
       lockedProvider: "cursor",
     });
 

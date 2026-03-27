@@ -1104,7 +1104,11 @@ describe("ProviderCommandReactor", () => {
           text: "second cursor turn",
           attachments: [],
         },
-        modelSelection: { provider: "cursor", model: "composer-2-fast" },
+        modelSelection: {
+          provider: "cursor",
+          model: "composer-2",
+          options: { fastMode: true },
+        },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt: now,
@@ -1115,7 +1119,7 @@ describe("ProviderCommandReactor", () => {
 
     expect(harness.startSession.mock.calls.length).toBe(1);
     expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
-      modelSelection: { provider: "cursor", model: "composer-2-fast" },
+      modelSelection: { provider: "cursor", model: "composer-2", options: { fastMode: true } },
     });
   });
 

@@ -1257,7 +1257,7 @@ function SettingsRouteView() {
                                   providerCard.provider === "codex"
                                     ? "gpt-6.7-codex-ultra-preview"
                                     : providerCard.provider === "cursor"
-                                      ? "claude-4.6-sonnet-medium-thinking"
+                                      ? "claude-sonnet-4-6"
                                       : "claude-sonnet-5-0"
                                 }
                                 spellCheck={false}

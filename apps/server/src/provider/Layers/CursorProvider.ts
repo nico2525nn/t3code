@@ -1,4 +1,5 @@
 import type {
+  CursorModelOptions,
   CursorSettings,
   ModelCapabilities,
   ServerProvider,
@@ -6,6 +7,7 @@ import type {
   ServerProviderAuthStatus,
   ServerProviderState,
 } from "@t3tools/contracts";
+import { normalizeModelSlug, resolveContextWindow, resolveEffort } from "@t3tools/shared/model";
 import { Effect, Equal, Layer, Option, Result, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
@@ -21,9 +23,16 @@ import { CursorProvider } from "../Services/CursorProvider";
 import { ServerSettingsError, ServerSettingsService } from "../../serverSettings";
 
 const PROVIDER = "cursor" as const;
+const EMPTY_CAPABILITIES: ModelCapabilities = {
+  reasoningEffortLevels: [],
+  supportsFastMode: false,
+  supportsThinkingToggle: false,
+  contextWindowOptions: [],
+  promptInjectedEffortLevels: [],
+};
 const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
-    slug: "auto",
+    slug: "default",
     name: "Auto",
     isCustom: false,
     capabilities: {
@@ -62,7 +71,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
     capabilities: {
       reasoningEffortLevels: [
         { value: "low", label: "Low" },
-        { value: "normal", label: "Normal", isDefault: true },
+        { value: "medium", label: "Medium", isDefault: true },
         { value: "high", label: "High" },
         { value: "xhigh", label: "Extra High" },
       ],
@@ -72,13 +81,13 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
     },
   },
   {
-    slug: "gpt-5.3-codex-spark-preview",
+    slug: "gpt-5.3-codex-spark",
     name: "Codex 5.3 Spark",
     isCustom: false,
     capabilities: {
       reasoningEffortLevels: [
         { value: "low", label: "Low" },
-        { value: "normal", label: "Normal", isDefault: true },
+        { value: "medium", label: "Medium", isDefault: true },
         { value: "high", label: "High" },
         { value: "xhigh", label: "Extra High" },
       ],
@@ -88,38 +97,54 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
     },
   },
   {
-    slug: "gpt-5.4-1m",
-    name: "GPT 5.4",
+    slug: "gpt-5.4",
+    name: "GPT-5.4",
     isCustom: false,
     capabilities: {
       reasoningEffortLevels: [
         { value: "low", label: "Low" },
-        { value: "normal", label: "Normal", isDefault: true },
+        { value: "medium", label: "Medium", isDefault: true },
         { value: "high", label: "High" },
         { value: "xhigh", label: "Extra High" },
       ],
       supportsFastMode: true,
       supportsThinkingToggle: false,
+      contextWindowOptions: [
+        { value: "272k", label: "272k", isDefault: true },
+        { value: "1m", label: "1M" },
+      ],
       promptInjectedEffortLevels: [],
     },
   },
   {
-    slug: "claude-4.6-opus",
-    name: "Claude Opus 4.6",
+    slug: "claude-opus-4-6",
+    name: "Opus 4.6",
     isCustom: false,
     capabilities: {
-      reasoningEffortLevels: [],
+      reasoningEffortLevels: [
+        { value: "low", label: "Low" },
+        { value: "medium", label: "Medium" },
+        { value: "high", label: "High", isDefault: true },
+      ],
       supportsFastMode: false,
       supportsThinkingToggle: true,
+      contextWindowOptions: [
+        { value: "200k", label: "200k", isDefault: true },
+        { value: "1m", label: "1M" },
+      ],
       promptInjectedEffortLevels: [],
     },
   },
   {
-    slug: "claude-4.6-sonnet",
-    name: "Claude Sonnet 4.6",
+    slug: "claude-sonnet-4-6",
+    name: "Sonnet 4.6",
     isCustom: false,
     capabilities: {
-      reasoningEffortLevels: [],
+      reasoningEffortLevels: [
+        { value: "low", label: "Low" },
+        { value: "medium", label: "Medium", isDefault: true },
+        { value: "high", label: "High" },
+      ],
       supportsFastMode: false,
       supportsThinkingToggle: true,
       promptInjectedEffortLevels: [],
@@ -139,15 +164,47 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
 ];
 
 export function getCursorModelCapabilities(model: string | null | undefined): ModelCapabilities {
-  const slug = model?.trim();
+  const slug = normalizeModelSlug(model, "cursor");
   return (
-    BUILT_IN_MODELS.find((candidate) => candidate.slug === slug)?.capabilities ?? {
-      reasoningEffortLevels: [],
-      supportsFastMode: false,
-      supportsThinkingToggle: false,
-      promptInjectedEffortLevels: [],
-    }
+    BUILT_IN_MODELS.find((candidate) => candidate.slug === slug)?.capabilities ?? EMPTY_CAPABILITIES
   );
+}
+
+export function resolveCursorDispatchModel(
+  model: string | null | undefined,
+  modelOptions: CursorModelOptions | null | undefined,
+): string {
+  const slug = normalizeModelSlug(model, "cursor") ?? "default";
+  if (slug.includes("[") && slug.endsWith("]")) {
+    return slug;
+  }
+  const caps = getCursorModelCapabilities(slug);
+  const isBuiltIn = BUILT_IN_MODELS.some((candidate) => candidate.slug === slug);
+  if (!isBuiltIn) {
+    return `${slug}[]`;
+  }
+
+  const traits: string[] = [];
+  const reasoning = resolveEffort(caps, modelOptions?.reasoning);
+  if (reasoning) {
+    traits.push(`${slug.startsWith("claude-") ? "effort" : "reasoning"}=${reasoning}`);
+  }
+
+  const thinking = caps.supportsThinkingToggle ? (modelOptions?.thinking ?? true) : undefined;
+  if (thinking !== undefined) {
+    traits.push(`thinking=${thinking}`);
+  }
+
+  const contextWindow = resolveContextWindow(caps, modelOptions?.contextWindow);
+  if (contextWindow) {
+    traits.push(`context=${contextWindow}`);
+  }
+
+  if (caps.supportsFastMode) {
+    traits.push(`fast=${modelOptions?.fastMode === true}`);
+  }
+
+  return `${slug}[${traits.join(",")}]`;
 }
 
 /** Timeout for `agent about` — it's slower than a simple `--version` probe. */
@@ -215,7 +272,6 @@ export function parseCursorAboutOutput(result: CommandResult): CursorAboutResult
   }
 
   const plain = stripAnsi(combined);
-  console.log("plain:", plain);
   const version = extractAboutField(plain, "CLI Version") ?? null;
   const userEmail = extractAboutField(plain, "User Email");
 

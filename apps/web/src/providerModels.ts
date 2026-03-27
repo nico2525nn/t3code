@@ -108,12 +108,10 @@ export function normalizeCursorModelOptionsWithCapabilities(
   const fastMode = caps.supportsFastMode && modelOptions?.fastMode === true ? true : undefined;
   const thinking =
     caps.supportsThinkingToggle && modelOptions?.thinking === false ? false : undefined;
-  const claudeOpusTier = modelOptions?.claudeOpusTier ?? undefined;
   const nextOptions: CursorModelOptions = {
     ...(reasoningValue ? { reasoning: reasoningValue } : {}),
     ...(fastMode ? { fastMode: true } : {}),
     ...(thinking === false ? { thinking: false } : {}),
-    ...(claudeOpusTier ? { claudeOpusTier } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }

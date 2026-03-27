@@ -28,8 +28,8 @@ import {
   sanitizeThreadTitle,
   toJsonSchemaObject,
 } from "../Utils.ts";
-import { normalizeClaudeModelOptionsWithCapabilities } from "@t3tools/shared/model";
-import { resolveClaudeApiModelId } from "../../provider/Layers/ClaudeProvider.ts";
+import { resolveClaudeApiModelId } from "../../provider/Layers/ClaudeModelId.ts";
+import { normalizeClaudeModelOptions } from "../../provider/Layers/ClaudeProvider.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "../../provider/Layers/ClaudeProvider.ts";
 
@@ -100,26 +100,27 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       (settings) => settings.providers.claudeAgent,
     ).pipe(Effect.catch(() => Effect.undefined));
 
-    const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
-      const command = ChildProcess.make(
-        claudeSettings?.binaryPath || "claude",
-        [
-          "-p",
-          "--output-format",
-          "json",
-          "--json-schema",
-          jsonSchemaStr,
-          "--model",
-          resolveClaudeApiModelId(modelSelection),
-          ...(normalizedOptions?.effort ? ["--effort", normalizedOptions.effort] : []),
-          ...(Object.keys(settings).length > 0 ? ["--settings", JSON.stringify(settings)] : []),
-          "--dangerously-skip-permissions",
-        ],
-        {
-          cwd,
-          shell: process.platform === "win32",
-          stdin: {
-            stream: Stream.encodeText(Stream.make(prompt)),
+      const runClaudeCommand = Effect.gen(function* () {
+        const command = ChildProcess.make(
+          claudeSettings?.binaryPath || "claude",
+          [
+            "-p",
+            "--output-format",
+            "json",
+            "--json-schema",
+            jsonSchemaStr,
+            "--model",
+            resolveClaudeApiModelId(modelSelection),
+            ...(normalizedOptions?.effort ? ["--effort", normalizedOptions.effort] : []),
+            ...(Object.keys(settings).length > 0 ? ["--settings", JSON.stringify(settings)] : []),
+            "--dangerously-skip-permissions",
+          ],
+          {
+            cwd,
+            shell: process.platform === "win32",
+            stdin: {
+              stream: Stream.encodeText(Stream.make(prompt)),
+            },
           },
         },
       );

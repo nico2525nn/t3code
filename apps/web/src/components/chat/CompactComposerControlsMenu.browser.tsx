@@ -122,7 +122,7 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
                 capabilities: {
                   reasoningEffortLevels: [
                     { value: "low", label: "Low" },
-                    { value: "normal", label: "Normal", isDefault: true },
+                    { value: "medium", label: "Medium", isDefault: true },
                     { value: "high", label: "High" },
                     { value: "xhigh", label: "Extra high" },
                   ],

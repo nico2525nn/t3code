@@ -8,12 +8,12 @@ import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Layer, Stream } from "effect";
 
 import { ApprovalRequestId, type ProviderRuntimeEvent, ThreadId } from "@t3tools/contracts";
-import { resolveCursorDispatchModel } from "@t3tools/shared/model";
 
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { CursorAdapter } from "../Services/CursorAdapter.ts";
 import { makeCursorAdapterLive } from "./CursorAdapter.ts";
+import { resolveCursorDispatchModel } from "./CursorProvider.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mockAgentPath = path.join(__dirname, "../../../scripts/acp-mock-agent.mjs");
@@ -465,7 +465,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
 
       const argvRuns = yield* Effect.promise(() => readArgvLog(argvLogPath));
       assert.lengthOf(argvRuns, 1, "session should not restart — only one spawn");
-      assert.deepStrictEqual(argvRuns[0], ["--model", "composer-2", "acp"]);
+      assert.deepStrictEqual(argvRuns[0], ["--model", "composer-2[fast=false]", "acp"]);
 
       const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
       const setConfigRequests = requests.filter(
@@ -473,7 +473,10 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       );
       assert.isAbove(setConfigRequests.length, 0, "should call session/set_config_option");
       const lastSetConfig = setConfigRequests[setConfigRequests.length - 1];
-      assert.equal((lastSetConfig?.params as Record<string, unknown>)?.value, "composer-2-fast");
+      assert.equal(
+        (lastSetConfig?.params as Record<string, unknown>)?.value,
+        "composer-2[fast=true]",
+      );
 
       yield* adapter.stopSession(threadId);
     }),

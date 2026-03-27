@@ -1,6 +1,7 @@
 import {
   CODEX_REASONING_EFFORT_OPTIONS,
   CURSOR_REASONING_OPTIONS,
+  DEFAULT_MODEL_BY_PROVIDER,
   type ClaudeCodeEffort,
   type CodexReasoningEffort,
   type CursorModelOptions,
@@ -621,23 +622,13 @@ function normalizeProviderModelOptions(
       : undefined;
   const cursorFastMode = cursorCandidate?.fastMode === true;
   const cursorThinkingFalse = cursorCandidate?.thinking === false;
-  const cursorClaudeOpusTierRaw = cursorCandidate?.claudeOpusTier;
-  const cursorClaudeOpusTier =
-    cursorClaudeOpusTierRaw === "max" || cursorClaudeOpusTierRaw === "high"
-      ? cursorClaudeOpusTierRaw
-      : undefined;
-  const defaultCursorReasoning =
-    DEFAULT_REASONING_EFFORT_BY_PROVIDER.cursor as CursorReasoningOption;
 
   const cursor: CursorModelOptions | undefined =
     cursorCandidate !== null
       ? {
-          ...(cursorReasoning && cursorReasoning !== defaultCursorReasoning
-            ? { reasoning: cursorReasoning }
-            : {}),
+          ...(cursorReasoning ? { reasoning: cursorReasoning } : {}),
           ...(cursorFastMode ? { fastMode: true } : {}),
           ...(cursorThinkingFalse ? { thinking: false } : {}),
-          ...(cursorClaudeOpusTier === "max" ? { claudeOpusTier: "max" } : {}),
         }
       : undefined;
 
