@@ -1,18 +1,11 @@
-import { Effect, Schema } from "effect";
-import { ExecutionEnvironmentDescriptor } from "./environment.ts";
-import { ServerAuthDescriptor } from "./auth.ts";
-import {
-  IsoDateTime,
-  NonNegativeInt,
-  ProjectId,
-  ThreadId,
-  TrimmedNonEmptyString,
-} from "./baseSchemas.ts";
-import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings.ts";
-import { EditorId } from "./editor.ts";
-import { ModelCapabilities } from "./model.ts";
-import { ProviderKind } from "./orchestration.ts";
-import { ServerSettings } from "./settings.ts";
+import { Schema } from "effect";
+import { ServerAcpAgentStatus } from "./acp";
+import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas";
+import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
+import { EditorId } from "./editor";
+import { ModelCapabilities } from "./model";
+import { ProviderKind } from "./orchestration";
+import { ServerSettings } from "./settings";
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
   kind: Schema.Literal("keybindings.malformed-config"),
@@ -119,6 +112,7 @@ export const ServerConfig = Schema.Struct({
   keybindings: ResolvedKeybindingsConfig,
   issues: ServerConfigIssues,
   providers: ServerProviders,
+  acpAgentServers: Schema.Array(ServerAcpAgentStatus),
   availableEditors: Schema.Array(EditorId),
   observability: ServerObservability,
   settings: ServerSettings,

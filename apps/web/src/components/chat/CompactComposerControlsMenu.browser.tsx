@@ -8,6 +8,7 @@ import { render } from "vitest-browser-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { TraitsMenuContent } from "./TraitsPicker";
 import { useComposerDraftStore } from "../../composerDraftStore";
+import { getModelSelectionOptions } from "../../modelSelection";
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 
@@ -18,24 +19,19 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
   const provider = props?.modelSelection?.provider ?? "claudeAgent";
   const model = props?.modelSelection?.model ?? DEFAULT_MODEL_BY_PROVIDER[provider];
 
-  useComposerDraftStore.setState({
-    draftsByThreadKey: {
-      [threadKey]: {
-        prompt: props?.prompt ?? "",
-        images: [],
-        nonPersistedImageIds: [],
-        persistedAttachments: [],
-        terminalContexts: [],
-        modelSelectionByProvider: {
-          [provider]: {
-            provider,
-            model,
-            ...(props?.modelSelection?.options ? { options: props.modelSelection.options } : {}),
-          },
-        },
-        activeProvider: provider,
-        runtimeMode: null,
-        interactionMode: null,
+  draftsByThreadId[threadId] = {
+    prompt: props?.prompt ?? "",
+    images: [],
+    nonPersistedImageIds: [],
+    persistedAttachments: [],
+    terminalContexts: [],
+    modelSelectionByProvider: {
+      [provider]: {
+        provider,
+        model,
+        ...(getModelSelectionOptions(props?.modelSelection)
+          ? { options: getModelSelectionOptions(props?.modelSelection) }
+          : {}),
       },
     },
     draftThreadsByThreadKey: {},
@@ -44,7 +40,7 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
   const host = document.createElement("div");
   document.body.append(host);
   const onPromptChange = vi.fn();
-  const providerOptions = props?.modelSelection?.options;
+  const providerOptions = getModelSelectionOptions(props?.modelSelection);
   const models =
     provider === "claudeAgent"
       ? [

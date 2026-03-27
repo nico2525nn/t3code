@@ -1273,23 +1273,30 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("full-access");
   });
 
-  it("rejects provider changes after a thread is already bound to a session provider", async () => {
-    const harness = await createHarness();
+  it("marks the thread session errored when sendTurn fails after the session is running", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "acp", model: "default", agentServerId: "mistral-vibe" },
+    });
     const now = new Date().toISOString();
 
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
-        commandId: CommandId.make("cmd-turn-start-provider-switch-1"),
-        threadId: ThreadId.make("thread-1"),
+        commandId: CommandId.makeUnsafe("cmd-turn-start-send-failure-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
         message: {
-          messageId: asMessageId("user-message-provider-switch-1"),
+          messageId: asMessageId("user-message-send-failure-1"),
           role: "user",
           text: "first",
           attachments: [],
         },
+        modelSelection: {
+          provider: "acp",
+          model: "default",
+          agentServerId: "mistral-vibe",
+        },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
+        runtimeMode: "full-access",
         createdAt: now,
       }),
     );
@@ -1297,50 +1304,62 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
 
+    harness.sendTurn.mockImplementationOnce(
+      (_: unknown) =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: "acp",
+            method: "session/prompt",
+            detail: "Invalid API key. Please check your API key and try again.",
+          }),
+        ) as unknown as Effect.Effect<{ threadId: ThreadId; turnId: TurnId }, never, never>,
+    );
+
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
-        commandId: CommandId.make("cmd-turn-start-provider-switch-2"),
-        threadId: ThreadId.make("thread-1"),
+        commandId: CommandId.makeUnsafe("cmd-turn-start-send-failure-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
         message: {
-          messageId: asMessageId("user-message-provider-switch-2"),
+          messageId: asMessageId("user-message-send-failure-2"),
           role: "user",
           text: "second",
           attachments: [],
         },
         modelSelection: {
-          provider: "claudeAgent",
-          model: "claude-opus-4-6",
+          provider: "acp",
+          model: "default",
+          agentServerId: "mistral-vibe",
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
+        runtimeMode: "full-access",
         createdAt: now,
       }),
     );
 
     await waitFor(async () => {
       const readModel = await Effect.runPromise(harness.engine.getReadModel());
-      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-      return (
-        thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
-        false
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
       );
+      return thread?.session?.status === "error";
     });
 
-    expect(harness.startSession.mock.calls.length).toBe(1);
-    expect(harness.sendTurn.mock.calls.length).toBe(1);
-    expect(harness.stopSession.mock.calls.length).toBe(0);
-
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
-    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    expect(thread?.session?.threadId).toBe("thread-1");
-    expect(thread?.session?.providerName).toBe("codex");
-    expect(thread?.session?.runtimeMode).toBe("approval-required");
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.session).toMatchObject({
+      threadId: "thread-1",
+      status: "error",
+      providerName: "acp",
+      runtimeMode: "approval-required",
+      activeTurnId: null,
+      lastError: expect.stringContaining("Invalid API key"),
+    });
     expect(
       thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
     ).toMatchObject({
       payload: {
-        detail: expect.stringContaining("cannot switch to 'claudeAgent'"),
+        detail: expect.stringContaining("Invalid API key"),
       },
     });
   });

@@ -29,7 +29,8 @@ import type {
   ServerConfig,
   ServerProviderUpdatedPayload,
   ServerUpsertKeybindingResult,
-} from "./server.ts";
+} from "./server";
+import type { AcpRegistryListResult } from "./acp";
 import type {
   TerminalClearInput,
   TerminalCloseInput,
@@ -219,6 +220,7 @@ export interface LocalApi {
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
+    listAcpRegistry: () => Promise<AcpRegistryListResult>;
   };
 }
 
