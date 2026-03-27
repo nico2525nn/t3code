@@ -1,36 +1,38 @@
 import { describe, expect, it } from "vitest";
 
-import { getCursorModelCapabilities, resolveCursorDispatchModel } from "./CursorProvider.ts";
+import {
+  getCursorModelCapabilities,
+  resolveCursorAgentModel,
+  resolveCursorAcpModelId,
+} from "./CursorProvider.ts";
 
-describe("resolveCursorDispatchModel", () => {
+describe("resolveCursorAcpModelId", () => {
   it("builds bracket notation from canonical base slugs and capabilities", () => {
-    expect(resolveCursorDispatchModel("composer-2", { fastMode: true })).toBe(
-      "composer-2[fast=true]",
-    );
-    expect(resolveCursorDispatchModel("gpt-5.4", undefined)).toBe(
+    expect(resolveCursorAcpModelId("composer-2", { fastMode: true })).toBe("composer-2[fast=true]");
+    expect(resolveCursorAcpModelId("gpt-5.4", undefined)).toBe(
       "gpt-5.4[reasoning=medium,context=272k,fast=false]",
     );
     expect(
-      resolveCursorDispatchModel("claude-opus-4-6", {
+      resolveCursorAcpModelId("claude-opus-4-6", {
         reasoning: "high",
         thinking: true,
         contextWindow: "1m",
       }),
-    ).toBe("claude-opus-4-6[effort=high,thinking=true,context=1m]");
+    ).toBe("claude-opus-4-6[effort=high,thinking=true,context=1m,fast=false]");
   });
 
   it("maps legacy cursor aliases onto the canonical base slug", () => {
-    expect(resolveCursorDispatchModel("gpt-5.4-1m", undefined)).toBe(
+    expect(resolveCursorAcpModelId("gpt-5.4-1m", undefined)).toBe(
       "gpt-5.4[reasoning=medium,context=272k,fast=false]",
     );
-    expect(resolveCursorDispatchModel("auto", undefined)).toBe("default[]");
-    expect(resolveCursorDispatchModel("claude-4.6-opus", undefined)).toBe(
-      "claude-opus-4-6[effort=high,thinking=true,context=200k]",
+    expect(resolveCursorAcpModelId("auto", undefined)).toBe("default[]");
+    expect(resolveCursorAcpModelId("claude-4.6-opus", undefined)).toBe(
+      "claude-opus-4-6[effort=high,thinking=true,context=200k,fast=false]",
     );
   });
 
   it("passes custom models through unchanged", () => {
-    expect(resolveCursorDispatchModel("custom/internal-model", undefined)).toBe(
+    expect(resolveCursorAcpModelId("custom/internal-model", undefined)).toBe(
       "custom/internal-model[]",
     );
   });
@@ -43,5 +45,32 @@ describe("getCursorModelCapabilities", () => {
       { value: "1m", label: "1M" },
     ]);
     expect(getCursorModelCapabilities("claude-opus-4-6").supportsThinkingToggle).toBe(true);
+  });
+});
+
+describe("resolveCursorAgentModel", () => {
+  it("maps canonical base slugs onto agent CLI model ids", () => {
+    expect(resolveCursorAgentModel("composer-2", { fastMode: true })).toBe("composer-2-fast");
+    expect(resolveCursorAgentModel("gpt-5.3-codex", { reasoning: "xhigh" })).toBe(
+      "gpt-5.3-codex-xhigh",
+    );
+    expect(
+      resolveCursorAgentModel("gpt-5.4", {
+        reasoning: "medium",
+        fastMode: true,
+        contextWindow: "272k",
+      }),
+    ).toBe("gpt-5.4-medium-fast");
+    expect(resolveCursorAgentModel("claude-opus-4-6", { thinking: true })).toBe(
+      "claude-4.6-opus-high-thinking",
+    );
+    expect(resolveCursorAgentModel("auto", undefined)).toBe("auto");
+  });
+
+  it("passes custom agent model ids through unchanged", () => {
+    expect(resolveCursorAgentModel("gpt-5.4-mini-medium", undefined)).toBe("gpt-5.4-mini-medium");
+    expect(resolveCursorAgentModel("custom/internal-model", undefined)).toBe(
+      "custom/internal-model",
+    );
   });
 });

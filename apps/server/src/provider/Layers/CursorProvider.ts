@@ -182,7 +182,10 @@ export function getCursorModelCapabilities(model: string | null | undefined): Mo
   );
 }
 
-export function resolveCursorDispatchModel(
+/**
+ * Resolve the ACP model ID for a Cursor model to be sent to session/set_config_option
+ */
+export function resolveCursorAcpModelId(
   model: string | null | undefined,
   modelOptions: CursorModelOptions | null | undefined,
 ): string {
@@ -217,6 +220,52 @@ export function resolveCursorDispatchModel(
   }
 
   return `${slug}[${traits.join(",")}]`;
+}
+
+/**
+ * Resolve the Agent CLI model ID for a Cursor model to be set as `--model` arg for the `agent` command.
+ *
+ * Yes... Cursor uses different IDs. No... I don't know why.
+ */
+export function resolveCursorAgentModel(
+  model: string | null | undefined,
+  modelOptions: CursorModelOptions | null | undefined,
+): string {
+  const normalized = normalizeModelSlug(model, "cursor") ?? "default";
+  const slug = normalized.includes("[") ? normalized.slice(0, normalized.indexOf("[")) : normalized;
+  const caps = getCursorModelCapabilities(slug);
+  const reasoning = resolveEffort(caps, modelOptions?.reasoning);
+  const thinking = caps.supportsThinkingToggle ? (modelOptions?.thinking ?? true) : undefined;
+  const fastMode = modelOptions?.fastMode === true;
+
+  switch (slug) {
+    case "default":
+      return "auto";
+    case "composer-2":
+      return fastMode ? "composer-2-fast" : "composer-2";
+    case "composer-1.5":
+      return "composer-1.5";
+    case "gpt-5.3-codex": {
+      const suffix = reasoning && reasoning !== "medium" ? `-${reasoning}` : "";
+      return `gpt-5.3-codex${suffix}${fastMode ? "-fast" : ""}`;
+    }
+    case "gpt-5.3-codex-spark": {
+      const suffix = reasoning && reasoning !== "medium" ? `-${reasoning}` : "";
+      return `gpt-5.3-codex-spark-preview${suffix}`;
+    }
+    case "gpt-5.4":
+      return `gpt-5.4-${reasoning ?? "medium"}${fastMode ? "-fast" : ""}`;
+    case "claude-opus-4-6":
+      return thinking ? "claude-4.6-opus-high-thinking" : "claude-4.6-opus-high";
+    case "claude-sonnet-4-6":
+      return thinking ? "claude-4.6-sonnet-medium-thinking" : "claude-4.6-sonnet-medium";
+    case "gemini-3.1-pro":
+      return "gemini-3.1-pro";
+    case "grok-4-20":
+      return thinking ? "grok-4-20-thinking" : "grok-4-20";
+    default:
+      return slug === "default" ? "auto" : slug;
+  }
 }
 
 /** Timeout for `agent about` — it's slower than a simple `--version` probe. */

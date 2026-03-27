@@ -56,7 +56,7 @@ import {
 import type { AcpInboundMessage } from "../acp/AcpTypes.ts";
 import { AcpProcessExitedError, AcpRpcError, type AcpError } from "../acp/AcpErrors.ts";
 import { CursorAdapter, type CursorAdapterShape } from "../Services/CursorAdapter.ts";
-import { resolveCursorDispatchModel } from "./CursorProvider.ts";
+import { resolveCursorAcpModelId } from "./CursorProvider.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "cursor" as const;
@@ -1285,7 +1285,7 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         const turnId = TurnId.makeUnsafe(crypto.randomUUID());
         const turnModelSelection =
           input.modelSelection?.provider === "cursor" ? input.modelSelection : undefined;
-        const model = resolveCursorDispatchModel(
+        const model = resolveCursorAcpModelId(
           turnModelSelection?.model ?? ctx.session.model,
           turnModelSelection?.options,
         );

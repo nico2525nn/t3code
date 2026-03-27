@@ -1703,16 +1703,17 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         return result;
       });
 
-      return yield* runAction().pipe(
-        Effect.ensuring(invalidateStatus(input.cwd)),
-        Effect.tapError((error) =>
-          Effect.flatMap(Ref.get(currentPhase), (phase) =>
-            progress.emit({
+      return yield* runAction.pipe(
+        Effect.catch((error) =>
+          Effect.gen(function* () {
+            yield* Effect.logError("Failed to run action:", error);
+            yield* progress.emit({
               kind: "action_failed",
               phase: Option.getOrNull(phase),
               message: error.message,
-            }),
-          ),
+            });
+            return yield* Effect.fail(error);
+          }),
         ),
       );
     },

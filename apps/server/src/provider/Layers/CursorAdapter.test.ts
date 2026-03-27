@@ -13,7 +13,7 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { CursorAdapter } from "../Services/CursorAdapter.ts";
 import { makeCursorAdapterLive } from "./CursorAdapter.ts";
-import { resolveCursorDispatchModel } from "./CursorProvider.ts";
+import { resolveCursorAcpModelId } from "./CursorProvider.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mockAgentPath = path.join(__dirname, "../../../scripts/acp-mock-agent.mjs");
@@ -169,7 +169,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     }),
   );
 
-  it.effect("selects the Cursor model via CLI argv instead of ACP request payloads", () =>
+  it.effect("selects the Cursor model via ACP config updates instead of CLI argv", () =>
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const serverSettings = yield* ServerSettingsService;
@@ -183,7 +183,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       );
       yield* serverSettings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
 
-      const dispatchedModel = resolveCursorDispatchModel("composer-2", { fastMode: true });
+      const dispatchedModel = resolveCursorAcpModelId("composer-2", { fastMode: true });
       const session = yield* adapter.startSession({
         threadId,
         provider: "cursor",
@@ -198,11 +198,12 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
         threadId,
         input: "probe model selection",
         attachments: [],
+        modelSelection: { provider: "cursor", model: "composer-2", options: { fastMode: true } },
       });
       yield* adapter.stopSession(threadId);
 
       const argvRuns = yield* Effect.promise(() => readArgvLog(argvLogPath));
-      assert.deepStrictEqual(argvRuns, [["--model", dispatchedModel, "acp"]]);
+      assert.deepStrictEqual(argvRuns, [["acp"]]);
 
       const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
       const methods = requests
@@ -222,6 +223,15 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
           assert.isFalse(Object.prototype.hasOwnProperty.call(params, "model"));
         }
       }
+
+      const setConfigRequests = requests.filter(
+        (entry) => entry.method === "session/set_config_option",
+      );
+      assert.isAbove(setConfigRequests.length, 0, "should call session/set_config_option");
+      assert.equal(
+        (setConfigRequests[setConfigRequests.length - 1]?.params as Record<string, unknown>)?.value,
+        dispatchedModel,
+      );
 
       const promptRequest = requests.find((entry) => entry.method === "session/prompt");
       assert.isDefined(promptRequest);
@@ -465,13 +475,17 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
 
       const argvRuns = yield* Effect.promise(() => readArgvLog(argvLogPath));
       assert.lengthOf(argvRuns, 1, "session should not restart — only one spawn");
-      assert.deepStrictEqual(argvRuns[0], ["--model", "composer-2[fast=false]", "acp"]);
+      assert.deepStrictEqual(argvRuns[0], ["acp"]);
 
       const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
       const setConfigRequests = requests.filter(
         (entry) => entry.method === "session/set_config_option",
       );
       assert.isAbove(setConfigRequests.length, 0, "should call session/set_config_option");
+      assert.equal(
+        (setConfigRequests[0]?.params as Record<string, unknown>)?.value,
+        "composer-2[fast=false]",
+      );
       const lastSetConfig = setConfigRequests[setConfigRequests.length - 1];
       assert.equal(
         (lastSetConfig?.params as Record<string, unknown>)?.value,
