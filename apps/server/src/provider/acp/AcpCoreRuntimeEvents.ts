@@ -1,4 +1,5 @@
 import {
+  type RuntimeEventRawSource,
   RuntimeItemId,
   type CanonicalRequestType,
   type EventId,
@@ -13,9 +14,12 @@ import {
 
 import type { AcpPermissionRequest, AcpPlanUpdate, AcpToolCallState } from "./AcpRuntimeModel.ts";
 
-export type AcpAdapterRawSource = "acp.jsonrpc" | `acp.${string}.extension`;
+type AcpAdapterRawSource = Extract<
+  RuntimeEventRawSource,
+  "acp.jsonrpc" | `acp.${string}.extension`
+>;
 
-export interface AcpEventStamp {
+interface AcpEventStamp {
   readonly eventId: EventId;
   readonly createdAt: string;
 }
@@ -25,9 +29,7 @@ type AcpCanonicalRequestType = Extract<
   "exec_command_approval" | "file_read_approval" | "file_change_approval" | "unknown"
 >;
 
-function canonicalRequestTypeFromAcpKind(
-  kind: string | "unknown",
-): AcpCanonicalRequestType {
+function canonicalRequestTypeFromAcpKind(kind: string | "unknown"): AcpCanonicalRequestType {
   switch (kind) {
     case "execute":
       return "exec_command_approval";
