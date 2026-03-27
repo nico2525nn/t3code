@@ -1,5 +1,4 @@
 import {
-  type RuntimeEventRawSource,
   RuntimeItemId,
   type CanonicalRequestType,
   type EventId,
@@ -14,12 +13,9 @@ import {
 
 import type { AcpPermissionRequest, AcpPlanUpdate, AcpToolCallState } from "./AcpRuntimeModel.ts";
 
-type AcpAdapterRawSource = Extract<
-  RuntimeEventRawSource,
-  "acp.jsonrpc" | `acp.${string}.extension`
->;
+export type AcpAdapterRawSource = "acp.jsonrpc" | `acp.${string}.extension`;
 
-interface AcpEventStamp {
+export interface AcpEventStamp {
   readonly eventId: EventId;
   readonly createdAt: string;
 }
@@ -29,7 +25,9 @@ type AcpCanonicalRequestType = Extract<
   "exec_command_approval" | "file_read_approval" | "file_change_approval" | "unknown"
 >;
 
-function canonicalRequestTypeFromAcpKind(kind: string | "unknown"): AcpCanonicalRequestType {
+function canonicalRequestTypeFromAcpKind(
+  kind: string | "unknown",
+): AcpCanonicalRequestType {
   switch (kind) {
     case "execute":
       return "exec_command_approval";
@@ -175,7 +173,7 @@ export function makeAcpToolCallEvent(input: {
     provider: input.provider,
     threadId: input.threadId,
     turnId: input.turnId,
-    itemId: RuntimeItemId.make(input.toolCall.toolCallId),
+    itemId: RuntimeItemId.makeUnsafe(input.toolCall.toolCallId),
     payload: {
       itemType: canonicalItemTypeFromAcpToolKind(input.toolCall.kind),
       ...(runtimeStatus ? { status: runtimeStatus } : {}),
@@ -191,34 +189,11 @@ export function makeAcpToolCallEvent(input: {
   };
 }
 
-export function makeAcpAssistantItemEvent(input: {
-  readonly stamp: AcpEventStamp;
-  readonly provider: ProviderKind;
-  readonly threadId: ThreadId;
-  readonly turnId: TurnId | undefined;
-  readonly itemId: string;
-  readonly lifecycle: "item.started" | "item.completed";
-}): ProviderRuntimeEvent {
-  return {
-    type: input.lifecycle,
-    ...input.stamp,
-    provider: input.provider,
-    threadId: input.threadId,
-    turnId: input.turnId,
-    itemId: RuntimeItemId.make(input.itemId),
-    payload: {
-      itemType: "assistant_message",
-      status: input.lifecycle === "item.completed" ? "completed" : "inProgress",
-    },
-  };
-}
-
 export function makeAcpContentDeltaEvent(input: {
   readonly stamp: AcpEventStamp;
   readonly provider: ProviderKind;
   readonly threadId: ThreadId;
   readonly turnId: TurnId | undefined;
-  readonly itemId?: string;
   readonly text: string;
   readonly rawPayload: unknown;
 }): ProviderRuntimeEvent {
@@ -228,7 +203,6 @@ export function makeAcpContentDeltaEvent(input: {
     provider: input.provider,
     threadId: input.threadId,
     turnId: input.turnId,
-    ...(input.itemId ? { itemId: RuntimeItemId.make(input.itemId) } : {}),
     payload: {
       streamKind: "assistant_text",
       delta: input.text,
