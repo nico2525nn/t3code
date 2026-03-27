@@ -1712,7 +1712,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
               phase: Option.getOrNull(phase),
               message: error.message,
             });
-            return yield* Effect.fail(error);
+            return yield* error;
           }),
         ),
       );

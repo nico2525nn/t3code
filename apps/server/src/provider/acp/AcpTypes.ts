@@ -19,22 +19,19 @@ export const JsonRpcInboundWire = Schema.Struct({
   error: Schema.optional(JsonRpcErrorPayload),
 });
 
-export const AcpInboundResponse = Schema.Struct({
-  _tag: Schema.Literal("response"),
+export const AcpInboundResponse = Schema.TaggedStruct("response", {
   id: Schema.Union([Schema.String, Schema.Number]),
   result: Schema.optional(Schema.Unknown),
   error: Schema.optional(JsonRpcErrorPayload),
 });
 
-export const AcpInboundRequest = Schema.Struct({
-  _tag: Schema.Literal("request"),
+export const AcpInboundRequest = Schema.TaggedStruct("request", {
   id: Schema.Union([Schema.String, Schema.Number]),
   method: Schema.String,
   params: Schema.optional(Schema.Unknown),
 });
 
-export const AcpInboundNotification = Schema.Struct({
-  _tag: Schema.Literal("notification"),
+export const AcpInboundNotification = Schema.TaggedStruct("notification", {
   method: Schema.String,
   params: Schema.optional(Schema.Unknown),
 });
