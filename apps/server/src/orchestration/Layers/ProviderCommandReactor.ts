@@ -96,9 +96,16 @@ function findProviderAdapterRequestError(
   return Schema.is(ProviderAdapterRequestError)(failReason?.error) ? failReason.error : undefined;
 }
 
+function findProviderAdapterRequestError(
+  cause: Cause.Cause<ProviderServiceError>,
+): ProviderAdapterRequestError | undefined {
+  const failReason = cause.reasons.find(Cause.isFailReason);
+  return Schema.is(ProviderAdapterRequestError)(failReason?.error) ? failReason.error : undefined;
+}
+
 function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = findProviderAdapterRequestError(cause);
-  if (error) {
+  if (Schema.is(ProviderAdapterRequestError)(error)) {
     const detail = error.detail.toLowerCase();
     return (
       detail.includes("unknown pending approval request") ||
@@ -114,7 +121,7 @@ function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderService
 
 function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = findProviderAdapterRequestError(cause);
-  if (error) {
+  if (Schema.is(ProviderAdapterRequestError)(error)) {
     return error.detail.toLowerCase().includes("unknown pending user-input request");
   }
   return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
@@ -205,29 +212,16 @@ const make = Effect.gen(function* () {
       createdAt: input.createdAt,
     });
 
-  const setThreadSessionErrorIfActive = (input: {
-    readonly threadId: ThreadId;
-    readonly detail: string;
-    readonly createdAt: string;
-  }) =>
-    Effect.gen(function* () {
-      const thread = yield* resolveThread(input.threadId);
-      if (!thread?.session || thread.session.status === "stopped") {
-        return;
-      }
-
-      yield* setThreadSession({
-        threadId: input.threadId,
-        session: {
-          ...thread.session,
-          status: "error",
-          activeTurnId: null,
-          lastError: input.detail,
-          updatedAt: input.createdAt,
-        },
-        createdAt: input.createdAt,
-      });
-    });
+  const formatFailureDetail = (cause: Cause.Cause<unknown>): string => {
+    const failReason = cause.reasons.find(Cause.isFailReason);
+    const providerError = Schema.is(ProviderAdapterRequestError)(failReason?.error)
+      ? failReason.error
+      : undefined;
+    if (providerError) {
+      return providerError.message;
+    }
+    return Cause.pretty(cause);
+  };
 
   const setThreadSession = (input: {
     readonly threadId: ThreadId;
@@ -659,22 +653,23 @@ const make = Effect.gen(function* () {
       createdAt: event.payload.createdAt,
     }).pipe(
       Effect.catchCause((cause) => {
-        const detail = Cause.pretty(cause);
-        return Effect.gen(function* () {
-          yield* appendProviderFailureActivity({
-            threadId: event.payload.threadId,
-            kind: "provider.turn.start.failed",
-            summary: "Provider turn start failed",
-            detail,
-            turnId: null,
-            createdAt: event.payload.createdAt,
-          });
-          yield* setThreadSessionErrorIfActive({
-            threadId: event.payload.threadId,
-            detail,
-            createdAt: event.payload.createdAt,
-          });
-        });
+        const detail = formatFailureDetail(cause);
+        return setThreadSessionErrorOnTurnStartFailure({
+          threadId: event.payload.threadId,
+          detail,
+          createdAt: event.payload.createdAt,
+        }).pipe(
+          Effect.flatMap(() =>
+            appendProviderFailureActivity({
+              threadId: event.payload.threadId,
+              kind: "provider.turn.start.failed",
+              summary: "Provider turn start failed",
+              detail,
+              turnId: null,
+              createdAt: event.payload.createdAt,
+            }),
+          ),
+        );
       }),
     );
 
