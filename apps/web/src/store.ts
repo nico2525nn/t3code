@@ -1,42 +1,18 @@
-import type {
-  EnvironmentId,
-  MessageId,
-  OrchestrationCheckpointSummary,
-  OrchestrationEvent,
-  OrchestrationLatestTurn,
-  OrchestrationMessage,
-  OrchestrationProposedPlan,
-  OrchestrationReadModel,
-  OrchestrationShellSnapshot,
-  OrchestrationShellStreamEvent,
-  OrchestrationSession,
-  OrchestrationSessionStatus,
-  OrchestrationThread,
-  OrchestrationThreadShell,
-  OrchestrationThreadActivity,
-  ProjectId,
-  ScopedProjectRef,
-  ScopedThreadRef,
+import { Fragment, type ReactNode, createElement, useEffect } from "react";
+import {
+  ProviderKind,
+  ThreadId,
+  type OrchestrationReadModel,
+  type OrchestrationSessionStatus,
 } from "@t3tools/contracts";
 import { ProviderKind } from "@t3tools/contracts";
 import type { ThreadId, TurnId } from "@t3tools/contracts";
 import { Schema } from "effect";
 import { resolveModelSlugForProvider } from "@t3tools/shared/model";
 import { create } from "zustand";
-import {
-  type ChatMessage,
-  type Project,
-  type ProposedPlan,
-  type SidebarThreadSummary,
-  type Thread,
-  type ThreadSession,
-  type ThreadShell,
-  type ThreadTurnState,
-  type TurnDiffSummary,
-} from "./types";
-import { resolveEnvironmentHttpUrl } from "./environments/runtime";
-import { sanitizeThreadErrorMessage } from "./rpc/transportError";
-import { getThreadFromEnvironmentState } from "./threadDerivation";
+import { type ChatMessage, type Project, type Thread } from "./types";
+import { Debouncer } from "@tanstack/react-pacer";
+import { Schema } from "effect";
 
 export interface EnvironmentState {
   projectIds: ProjectId[];
@@ -1001,7 +977,7 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex" || providerName === "claudeAgent" || providerName === "cursor") {
+  if (Schema.is(ProviderKind)(providerName)) {
     return providerName;
   }
   return "codex";
