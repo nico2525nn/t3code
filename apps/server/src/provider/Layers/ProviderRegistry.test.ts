@@ -772,13 +772,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
                 if (joined === "login status") {
                   return { stdout: "Logged in\n", stderr: "", code: 0 };
                 }
-                if (joined === "about") {
-                  return {
-                    stdout: "Version: 1.0.0\nUser Email: user@example.com\n",
-                    stderr: "",
-                    code: 0,
-                  };
-                }
                 throw new Error(`Unexpected args: ${joined}`);
               }),
             ),

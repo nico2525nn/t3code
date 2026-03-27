@@ -303,10 +303,6 @@ export const fromChildProcess = Effect.fnUntraced(function* (
             notification.method,
             notification.params,
           );
-        case "SessionCancel":
-          return handlers.extNotification
-            ? handlers.extNotification(notification.method, notification.params)
-            : Effect.void;
       }
     },
     ...(handlers.extRequest || handlers.extRequests

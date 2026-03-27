@@ -7,33 +7,30 @@ import {
 } from "./CursorProvider.ts";
 
 describe("resolveCursorAcpModelId", () => {
-  it("builds bracket notation from canonical base slugs and capabilities", () => {
+  it("emits ACP model ids that match explicit Cursor ACP config values", () => {
     expect(resolveCursorAcpModelId("composer-2", { fastMode: true })).toBe("composer-2[fast=true]");
-    expect(resolveCursorAcpModelId("gpt-5.4", undefined)).toBe(
-      "gpt-5.4[reasoning=medium,context=272k,fast=false]",
-    );
+    expect(resolveCursorAcpModelId("gpt-5.4", undefined)).toBe("gpt-5.4");
     expect(
       resolveCursorAcpModelId("claude-opus-4-6", {
         reasoning: "high",
         thinking: true,
         contextWindow: "1m",
       }),
-    ).toBe("claude-opus-4-6[effort=high,thinking=true,context=1m,fast=false]");
+    ).toBe("claude-opus-4-6[effort=high,thinking=true,context=1m]");
+    expect(resolveCursorAcpModelId("gpt-5.3-codex", undefined)).toBe(
+      "gpt-5.3-codex[reasoning=medium,fast=false]",
+    );
   });
 
   it("maps legacy cursor aliases onto the canonical base slug", () => {
-    expect(resolveCursorAcpModelId("gpt-5.4-1m", undefined)).toBe(
-      "gpt-5.4[reasoning=medium,context=272k,fast=false]",
-    );
-    expect(resolveCursorAcpModelId("auto", undefined)).toBe("default[]");
-    expect(resolveCursorAcpModelId("claude-4.6-opus", undefined)).toBe(
-      "claude-opus-4-6[effort=high,thinking=true,context=200k,fast=false]",
-    );
+    expect(resolveCursorAcpModelId("gpt-5.4-1m", undefined)).toBe("gpt-5.4");
+    expect(resolveCursorAcpModelId("auto", undefined)).toBe("auto[]");
+    expect(resolveCursorAcpModelId("claude-4.6-opus", undefined)).toBe("claude-opus-4-6");
   });
 
   it("passes custom models through unchanged", () => {
     expect(resolveCursorAcpModelId("custom/internal-model", undefined)).toBe(
-      "custom/internal-model[]",
+      "custom/internal-model",
     );
   });
 });

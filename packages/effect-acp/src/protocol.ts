@@ -30,11 +30,6 @@ export type AcpIncomingNotification =
       readonly params: typeof AcpSchema.SessionNotification.Type;
     }
   | {
-      readonly _tag: "SessionCancel";
-      readonly method: "session/cancel";
-      readonly params: typeof AcpSchema.CancelNotification.Type;
-    }
-  | {
       readonly _tag: "ElicitationComplete";
       readonly method: typeof CLIENT_METHODS.session_elicitation_complete;
       readonly params: typeof AcpSchema.ElicitationCompleteNotification.Type;
@@ -83,7 +78,6 @@ export interface AcpPatchedProtocol {
 }
 
 const decodeSessionUpdate = Schema.decodeUnknownEffect(AcpSchema.SessionNotification);
-const decodeSessionCancel = Schema.decodeUnknownEffect(AcpSchema.CancelNotification);
 const decodeElicitationComplete = Schema.decodeUnknownEffect(
   AcpSchema.ElicitationCompleteNotification,
 );
@@ -237,26 +231,6 @@ export const makeAcpPatchedProtocol = (
               (cause) =>
                 new AcpError.AcpProtocolParseError({
                   detail: `Invalid ${CLIENT_METHODS.session_update} notification payload`,
-                  cause,
-                }),
-            ),
-            Effect.flatMap(dispatchNotification),
-          );
-        }
-        if (message.tag === "session/cancel") {
-          return decodeSessionCancel(message.payload).pipe(
-            Effect.map(
-              (params) =>
-                ({
-                  _tag: "SessionCancel",
-                  method: "session/cancel",
-                  params,
-                }) satisfies AcpIncomingNotification,
-            ),
-            Effect.mapError(
-              (cause) =>
-                new AcpError.AcpProtocolParseError({
-                  detail: "Invalid session/cancel notification payload",
                   cause,
                 }),
             ),

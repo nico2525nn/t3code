@@ -54,6 +54,7 @@ const availableModes = [
   },
 ];
 const pendingPermissionRequests = new Map();
+const cancelledPromptRequestIds = new Set<number | string>();
 
 function send(obj: unknown) {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
@@ -102,6 +103,17 @@ rl.on("line", (line) => {
   if (method === undefined && id !== undefined && pendingPermissionRequests.has(id)) {
     const pending = pendingPermissionRequests.get(id);
     pendingPermissionRequests.delete(id);
+    const outcome = (rpcMessage.params?.outcome ??
+      (msg as { result?: { outcome?: unknown } }).result?.outcome) as
+      | { outcome?: unknown }
+      | undefined;
+    const cancelled =
+      cancelledPromptRequestIds.has(pending.promptRequestId) ||
+      (typeof outcome === "object" &&
+        outcome !== null &&
+        "outcome" in outcome &&
+        outcome.outcome === "cancelled");
+    cancelledPromptRequestIds.delete(pending.promptRequestId);
     sendSessionUpdate(
       {
         sessionUpdate: "tool_call_update",
@@ -127,7 +139,7 @@ rl.on("line", (line) => {
     send({
       jsonrpc: "2.0",
       id: pending.promptRequestId,
-      result: { stopReason: "end_turn" },
+      result: { stopReason: cancelled ? "cancelled" : "end_turn" },
     });
     return;
   }
@@ -331,6 +343,12 @@ rl.on("line", (line) => {
   }
 
   if (method === AGENT_METHODS.session_cancel) {
+    const cancelledSessionId = rpcMessage.params?.sessionId;
+    for (const pending of pendingPermissionRequests.values()) {
+      if (pending.sessionId === cancelledSessionId) {
+        cancelledPromptRequestIds.add(pending.promptRequestId);
+      }
+    }
     if (id !== undefined) {
       send({ jsonrpc: "2.0", id, result: null });
     }

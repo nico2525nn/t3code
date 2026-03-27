@@ -1,4 +1,3 @@
-import type { ToolLifecycleItemType } from "@t3tools/contracts";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -18,7 +17,7 @@ export interface AcpSessionModeState {
 
 export interface AcpToolCallState {
   readonly toolCallId: string;
-  readonly itemType: ToolLifecycleItemType;
+  readonly kind?: string;
   readonly title?: string;
   readonly status?: "pending" | "inProgress" | "completed" | "failed";
   readonly command?: string;
@@ -35,11 +34,7 @@ export interface AcpPlanUpdate {
 }
 
 export interface AcpPermissionRequest {
-  readonly requestType:
-    | "exec_command_approval"
-    | "file_read_approval"
-    | "file_change_approval"
-    | "unknown";
+  readonly kind: string | "unknown";
   readonly detail?: string;
   readonly toolCall?: AcpToolCallState;
 }
@@ -231,37 +226,8 @@ function extractTextContentFromToolCallContent(
   return chunks.length > 0 ? chunks.join("\n") : undefined;
 }
 
-function toolLifecycleItemTypeFromKind(kind: unknown): ToolLifecycleItemType {
-  switch (kind) {
-    case "execute":
-      return "command_execution";
-    case "edit":
-    case "delete":
-    case "move":
-      return "file_change";
-    case "search":
-    case "fetch":
-      return "web_search";
-    default:
-      return "dynamic_tool_call";
-  }
-}
-
-function requestTypeFromToolKind(
-  kind: unknown,
-): "exec_command_approval" | "file_read_approval" | "file_change_approval" | "unknown" {
-  switch (kind) {
-    case "execute":
-      return "exec_command_approval";
-    case "read":
-      return "file_read_approval";
-    case "edit":
-    case "delete":
-    case "move":
-      return "file_change_approval";
-    default:
-      return "unknown";
-  }
+function normalizeToolKind(kind: unknown): string | undefined {
+  return typeof kind === "string" && kind.trim().length > 0 ? kind.trim() : undefined;
 }
 
 function makeToolCallState(
@@ -292,8 +258,9 @@ function makeToolCallState(
       : undefined;
   const detail = command ?? normalizedTitle ?? textContent;
   const data: Record<string, unknown> = { toolCallId };
-  if (input.kind) {
-    data.kind = input.kind;
+  const kind = normalizeToolKind(input.kind);
+  if (kind) {
+    data.kind = kind;
   }
   if (command) {
     data.command = command;
@@ -313,7 +280,7 @@ function makeToolCallState(
   const status = normalizeToolCallStatus(input.status, options?.fallbackStatus);
   return {
     toolCallId,
-    itemType: toolLifecycleItemTypeFromKind(input.kind),
+    ...(kind ? { kind } : {}),
     ...(title ? { title } : {}),
     ...(status ? { status } : {}),
     ...(command ? { command } : {}),
@@ -348,13 +315,14 @@ export function mergeToolCallState(
   next: AcpToolCallState,
 ): AcpToolCallState {
   const nextKind = typeof next.data.kind === "string" ? next.data.kind : undefined;
+  const kind = nextKind ?? previous?.kind;
   const title = next.title ?? previous?.title;
   const status = next.status ?? previous?.status;
   const command = next.command ?? previous?.command;
   const detail = next.detail ?? previous?.detail;
   return {
     toolCallId: next.toolCallId,
-    itemType: nextKind !== undefined ? next.itemType : (previous?.itemType ?? next.itemType),
+    ...(kind ? { kind } : {}),
     ...(title ? { title } : {}),
     ...(status ? { status } : {}),
     ...(command ? { command } : {}),
@@ -382,14 +350,14 @@ export function parsePermissionRequest(
     },
     { fallbackStatus: "pending" },
   );
-  const requestType = requestTypeFromToolKind(params.toolCall.kind);
+  const kind = normalizeToolKind(params.toolCall.kind) ?? "unknown";
   const detail =
     toolCall?.command ??
     toolCall?.title ??
     toolCall?.detail ??
     (typeof params.sessionId === "string" ? `Session ${params.sessionId}` : undefined);
   return {
-    requestType,
+    kind,
     ...(detail ? { detail } : {}),
     ...(toolCall ? { toolCall } : {}),
   };

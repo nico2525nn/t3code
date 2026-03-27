@@ -89,7 +89,7 @@ describe("AcpRuntimeModel", () => {
         _tag: "ToolCallUpdated",
         toolCall: {
           toolCallId: "tool-1",
-          itemType: "command_execution",
+          kind: "execute",
           title: "Terminal",
           status: "pending",
           command: "bun run typecheck",
@@ -253,11 +253,11 @@ describe("AcpRuntimeModel", () => {
     });
 
     expect(request).toMatchObject({
-      requestType: "exec_command_approval",
+      kind: "execute",
       detail: "cat package.json",
       toolCall: {
         toolCallId: "tool-1",
-        itemType: "command_execution",
+        kind: "execute",
         status: "pending",
         command: "cat package.json",
       },

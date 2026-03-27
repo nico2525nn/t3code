@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Sink from "effect/Sink";
 import * as Stdio from "effect/Stdio";
@@ -13,6 +14,10 @@ import * as AcpProtocol from "./protocol";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const UnknownJson = Schema.UnknownFromJsonString;
+
+const encodeJson = Schema.encodeSync(UnknownJson);
+const decodeJson = Schema.decodeUnknownSync(UnknownJson);
 
 function makeInMemoryStdio() {
   return Effect.gen(function* () {
@@ -57,7 +62,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
 
         yield* transport.notifications.sendSessionCancel({ sessionId: "session-1" });
         const outbound = yield* Queue.take(output);
-        assert.deepEqual(JSON.parse(outbound), {
+        assert.deepEqual(decodeJson(outbound), {
           jsonrpc: "2.0",
           method: "session/cancel",
           params: {
@@ -68,7 +73,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
         yield* Queue.offer(
           input,
           encoder.encode(
-            `${JSON.stringify({
+            `${encodeJson({
               jsonrpc: "2.0",
               method: "session/update",
               params: {
@@ -91,7 +96,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
         yield* Queue.offer(
           input,
           encoder.encode(
-            `${JSON.stringify({
+            `${encodeJson({
               jsonrpc: "2.0",
               method: "session/elicitation/complete",
               params: {
@@ -119,7 +124,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
         .sendRequest("x/test", { hello: "world" })
         .pipe(Effect.forkScoped);
       const outbound = yield* Queue.take(output);
-      assert.deepEqual(JSON.parse(outbound), {
+      assert.deepEqual(decodeJson(outbound), {
         jsonrpc: "2.0",
         id: 1,
         method: "x/test",
@@ -132,7 +137,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       yield* Queue.offer(
         input,
         encoder.encode(
-          `${JSON.stringify({
+          `${encodeJson({
             jsonrpc: "2.0",
             id: 1,
             result: {

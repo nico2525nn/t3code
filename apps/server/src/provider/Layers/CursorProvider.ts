@@ -189,37 +189,48 @@ export function resolveCursorAcpModelId(
   model: string | null | undefined,
   modelOptions: CursorModelOptions | null | undefined,
 ): string {
-  const slug = normalizeModelSlug(model, "cursor") ?? "default";
+  const slug = normalizeModelSlug(model, "cursor") ?? "auto";
   if (slug.includes("[") && slug.endsWith("]")) {
     return slug;
   }
   const caps = getCursorModelCapabilities(slug);
   const isBuiltIn = BUILT_IN_MODELS.some((candidate) => candidate.slug === slug);
   if (!isBuiltIn) {
-    return `${slug}[]`;
+    return slug;
   }
 
   const traits: string[] = [];
-  const reasoning = resolveEffort(caps, modelOptions?.reasoning);
-  if (reasoning) {
-    traits.push(`${slug.startsWith("claude-") ? "effort" : "reasoning"}=${reasoning}`);
-  }
 
-  const thinking = caps.supportsThinkingToggle ? (modelOptions?.thinking ?? true) : undefined;
-  if (thinking !== undefined) {
-    traits.push(`thinking=${thinking}`);
-  }
-
-  const contextWindow = resolveContextWindow(caps, modelOptions?.contextWindow);
-  if (contextWindow) {
-    traits.push(`context=${contextWindow}`);
-  }
-
-  if (caps.supportsFastMode) {
+  if (slug === "gpt-5.3-codex") {
+    const reasoning = resolveEffort(caps, modelOptions?.reasoning) ?? "medium";
+    traits.push(`reasoning=${reasoning}`);
     traits.push(`fast=${modelOptions?.fastMode === true}`);
+    return `${slug}[${traits.join(",")}]`;
   }
 
-  return `${slug}[${traits.join(",")}]`;
+  if (caps.supportsFastMode && modelOptions?.fastMode === true) {
+    traits.push("fast=true");
+  }
+
+  if (modelOptions?.reasoning !== undefined) {
+    const reasoning = resolveEffort(caps, modelOptions.reasoning);
+    if (reasoning) {
+      traits.push(`${slug.startsWith("claude-") ? "effort" : "reasoning"}=${reasoning}`);
+    }
+  }
+
+  if (caps.supportsThinkingToggle && modelOptions?.thinking !== undefined) {
+    traits.push(`thinking=${modelOptions.thinking}`);
+  }
+
+  if (modelOptions?.contextWindow !== undefined) {
+    const contextWindow = resolveContextWindow(caps, modelOptions.contextWindow);
+    if (contextWindow) {
+      traits.push(`context=${contextWindow}`);
+    }
+  }
+
+  return traits.length > 0 ? `${slug}[${traits.join(",")}]` : slug;
 }
 
 /**

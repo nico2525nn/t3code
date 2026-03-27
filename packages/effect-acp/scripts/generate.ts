@@ -10,6 +10,11 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const CURRENT_SCHEMA_RELEASE = "v0.11.3";
 
+interface GenerateCommandError {
+  readonly _tag: "GenerateCommandError";
+  readonly message: string;
+}
+
 interface GeneratedPaths {
   readonly generatedDir: string;
   readonly upstreamSchemaPath: string;
@@ -253,7 +258,12 @@ const generateSchemas = Effect.fn("generateSchemas")(function* (skipDownload: bo
     Effect.flatMap((spawner) => spawner.spawn(ChildProcess.make("bun", ["oxfmt", generatedDir]))),
     Effect.flatMap((child) => child.exitCode),
     Effect.tap((code) =>
-      code === 0 ? Effect.void : Effect.fail(new Error(`oxfmt failed with exit code ${code}`)),
+      code === 0
+        ? Effect.void
+        : Effect.fail<GenerateCommandError>({
+            _tag: "GenerateCommandError",
+            message: `oxfmt failed with exit code ${code}`,
+          }),
     ),
   );
 });
