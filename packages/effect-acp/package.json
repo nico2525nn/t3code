@@ -4,37 +4,79 @@
   "type": "module",
   "exports": {
     "./client": {
-      "types": "./src/client.ts",
-      "import": "./src/client.ts"
+      "import": {
+        "types": "./src/client.d.mts",
+        "default": "./src/client.mjs"
+      },
+      "require": {
+        "types": "./src/client.d.cts",
+        "default": "./src/client.cjs"
+      }
     },
-    "./agent": {
-      "types": "./src/agent.ts",
-      "import": "./src/agent.ts"
+    "./server": {
+      "import": {
+        "types": "./src/server.d.mts",
+        "default": "./src/server.mjs"
+      },
+      "require": {
+        "types": "./src/server.d.cts",
+        "default": "./src/server.cjs"
+      }
     },
     "./schema": {
-      "types": "./src/schema.ts",
-      "import": "./src/schema.ts"
+      "import": {
+        "types": "./src/_generated/schema.gen.d.mts",
+        "default": "./src/_generated/schema.gen.mjs"
+      },
+      "require": {
+        "types": "./src/_generated/schema.gen.d.cts",
+        "default": "./src/_generated/schema.gen.cjs"
+      }
     },
     "./rpc": {
-      "types": "./src/rpc.ts",
-      "import": "./src/rpc.ts"
+      "import": {
+        "types": "./src/rpc.d.mts",
+        "default": "./src/rpc.mjs"
+      },
+      "require": {
+        "types": "./src/rpc.d.cts",
+        "default": "./src/rpc.cjs"
+      }
     },
     "./protocol": {
-      "types": "./src/protocol.ts",
-      "import": "./src/protocol.ts"
+      "import": {
+        "types": "./src/protocol.d.mts",
+        "default": "./src/protocol.mjs"
+      },
+      "require": {
+        "types": "./src/protocol.d.cts",
+        "default": "./src/protocol.cjs"
+      }
     },
     "./terminal": {
-      "types": "./src/terminal.ts",
-      "import": "./src/terminal.ts"
+      "import": {
+        "types": "./src/terminal.d.mts",
+        "default": "./src/terminal.mts"
+      },
+      "require": {
+        "types": "./src/terminal.d.cts",
+        "default": "./src/terminal.cjs"
+      }
     },
-    "./errors": {
-      "types": "./src/errors.ts",
-      "import": "./src/errors.ts"
+    "./child-process": {
+      "import": {
+        "types": "./src/child-process.d.mts",
+        "default": "./src/child-process.mts"
+      },
+      "require": {
+        "types": "./src/child-process.d.cts",
+        "default": "./src/child-process.cjs"
+      }
     }
   },
   "scripts": {
-    "dev": "tsdown src/client.ts src/agent.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/terminal.ts --format esm,cjs --dts --watch --clean",
-    "build": "tsdown src/client.ts src/agent.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/terminal.ts --format esm,cjs --dts --clean",
+    "dev": "tsdown src/client.ts src/server.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/child-process.ts src/terminal.ts --format esm,cjs --dts --watch --clean",
+    "build": "tsdown src/client.ts src/server.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/child-process.ts src/terminal.ts --format esm,cjs --dts --clean",
     "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

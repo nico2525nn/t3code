@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 
-import type * as AcpSchema from "./_generated/schema.gen.ts";
-import type * as AcpError from "./errors.ts";
+import type * as AcpSchema from "./_generated/schema.gen";
+import type * as AcpError from "./errors";
 
 export interface AcpTerminal {
   readonly sessionId: string;
@@ -43,3 +43,7 @@ export function makeTerminal(options: MakeTerminalOptions): AcpTerminal {
     release: options.release,
   };
 }
+
+export const TerminalHandle = {
+  make: makeTerminal,
+};
