@@ -194,4 +194,25 @@ describe("browserAuth", () => {
       }),
     );
   });
+
+  it("bypasses browser pairing when the electron desktop bridge is available", async () => {
+    vi.stubGlobal("window", {
+      location: {
+        href: "file:///app/index.html",
+        origin: "file://",
+        hash: "",
+      },
+      history: {
+        state: undefined,
+        replaceState: vi.fn(),
+      },
+      nativeApi: undefined,
+      desktopBridge: {
+        getWsUrl: () => "ws://127.0.0.1:3773",
+      },
+    });
+
+    await expect(ensureBrowserPairing()).resolves.toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

@@ -92,7 +92,7 @@ async function waitForAuthenticatedSession(serverOrigin: string): Promise<boolea
 
 export async function ensureBrowserPairing(): Promise<boolean> {
   if (typeof window === "undefined") return false;
-  if (window.nativeApi) return true;
+  if (window.nativeApi || window.desktopBridge) return true;
 
   const serverOrigin = resolveServerHttpOrigin();
   const bootstrapToken = consumeBootstrapTokenFromHash();
