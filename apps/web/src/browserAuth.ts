@@ -1,4 +1,6 @@
 const BOOTSTRAP_HASH_KEY = "t3_bootstrap";
+const AUTH_SESSION_POLL_ATTEMPTS = 50;
+const AUTH_SESSION_POLL_INTERVAL_MS = 100;
 
 interface AuthSessionResponse {
   readonly authenticated: boolean;
@@ -76,6 +78,18 @@ async function fetchSession(serverOrigin: string): Promise<boolean> {
   return parsed.authenticated === true;
 }
 
+async function waitForAuthenticatedSession(serverOrigin: string): Promise<boolean> {
+  for (let attempt = 0; attempt < AUTH_SESSION_POLL_ATTEMPTS; attempt += 1) {
+    if (await fetchSession(serverOrigin)) {
+      return true;
+    }
+    if (attempt < AUTH_SESSION_POLL_ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, AUTH_SESSION_POLL_INTERVAL_MS));
+    }
+  }
+  return false;
+}
+
 export async function ensureBrowserPairing(): Promise<boolean> {
   if (typeof window === "undefined") return false;
   if (window.nativeApi) return true;
@@ -84,9 +98,10 @@ export async function ensureBrowserPairing(): Promise<boolean> {
   const bootstrapToken = consumeBootstrapTokenFromHash();
 
   if (bootstrapToken) {
-    clearBootstrapTokenFromUrl();
     try {
       await exchangeBootstrapToken(serverOrigin, bootstrapToken);
+      clearBootstrapTokenFromUrl();
+      return waitForAuthenticatedSession(serverOrigin);
     } catch {
       return false;
     }

@@ -123,6 +123,45 @@ describe("browserAuth", () => {
     expect(window.location.hash).toBe("");
   });
 
+  it("polls auth session after a successful bootstrap until the cookie is visible", async () => {
+    setTestWindow("http://localhost:3773/#t3_bootstrap=pair-me");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 204,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ authenticated: false }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ authenticated: false }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ authenticated: true }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }),
+      );
+
+    await expect(ensureBrowserPairing()).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(window.location.hash).toBe("");
+  });
+
   it("returns false when bootstrap exchange fails", async () => {
     setTestWindow("http://localhost:3773/#t3_bootstrap=pair-me");
     fetchMock.mockResolvedValueOnce(
@@ -133,7 +172,7 @@ describe("browserAuth", () => {
 
     await expect(ensureBrowserPairing()).resolves.toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(window.location.hash).toBe("");
+    expect(window.location.hash).toBe("#t3_bootstrap=pair-me");
   });
 
   it("checks the existing auth session when no bootstrap token is present", async () => {

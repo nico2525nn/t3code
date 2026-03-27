@@ -18,6 +18,7 @@ const history = isElectron ? createHashHistory() : createBrowserHistory();
 const router = getRouter(history);
 
 document.title = APP_DISPLAY_NAME;
+const UNPAIRED_RETRY_INTERVAL_MS = 1_000;
 
 function PairingRequiredScreen() {
   return (
@@ -72,6 +73,43 @@ function BootstrappedApp() {
       active = false;
     };
   }, []);
+
+  React.useEffect(() => {
+    if (state !== "unpaired") {
+      return;
+    }
+
+    let active = true;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const retry = () => {
+      void ensureBrowserPairing()
+        .then((authenticated) => {
+          if (!active || !authenticated) {
+            if (active) {
+              retryTimeout = setTimeout(retry, UNPAIRED_RETRY_INTERVAL_MS);
+            }
+            return;
+          }
+          initializeNativeApi();
+          setState("ready");
+        })
+        .catch(() => {
+          if (active) {
+            retryTimeout = setTimeout(retry, UNPAIRED_RETRY_INTERVAL_MS);
+          }
+        });
+    };
+
+    retryTimeout = setTimeout(retry, UNPAIRED_RETRY_INTERVAL_MS);
+
+    return () => {
+      active = false;
+      if (retryTimeout !== null) {
+        clearTimeout(retryTimeout);
+      }
+    };
+  }, [state]);
 
   if (state === "loading") {
     return (
