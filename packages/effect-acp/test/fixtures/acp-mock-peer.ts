@@ -122,6 +122,8 @@ async function handleRequest(message: {
       });
 
       await requestClient("session/elicitation", {
+        sessionId: "mock-session-1",
+        message: "Need confirmation before continuing.",
         mode: "form",
         requestedSchema: {
           type: "object",
@@ -152,6 +154,14 @@ async function handleRequest(message: {
 
       notify("session/elicitation/complete", {
         elicitationId: "elicitation-1",
+      });
+
+      await requestClient("x/typed_request", {
+        message: "hello from typed request",
+      });
+
+      notify("x/typed_notification", {
+        count: 2,
       });
 
       respond(message.id, {

@@ -1,176 +1,28 @@
 #!/usr/bin/env bun
+/**
+ * Minimal NDJSON JSON-RPC "agent" for ACP client tests.
+ * Reads stdin lines; writes responses/notifications to stdout.
+ */
+import * as readline from "node:readline";
 import { appendFileSync } from "node:fs";
 
-import * as Effect from "effect/Effect";
+import { AGENT_METHODS, CLIENT_METHODS } from "effect-acp/schema";
 
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-
-import * as EffectAcpAgent from "effect-acp/agent";
-import * as AcpError from "effect-acp/errors";
-import type * as AcpSchema from "effect-acp/schema";
-
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
-const exitLogPath = process.env.T3_ACP_EXIT_LOG_PATH;
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
-const emitInterleavedAssistantToolCalls =
-  process.env.T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
-const emitGenericToolPlaceholders = process.env.T3_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS === "1";
-const emitAskQuestion = process.env.T3_ACP_EMIT_ASK_QUESTION === "1";
-const failSetConfigOption = process.env.T3_ACP_FAIL_SET_CONFIG_OPTION === "1";
-const exitOnSetConfigOption = process.env.T3_ACP_EXIT_ON_SET_CONFIG_OPTION === "1";
-const promptResponseText = process.env.T3_ACP_PROMPT_RESPONSE_TEXT;
 const sessionId = "mock-session-1";
-
 let currentModeId = "ask";
 let currentModelId = "default";
-let parameterizedModelPicker = false;
-let currentReasoning = "medium";
-let currentContext = "272k";
-let currentFast = false;
-const cancelledSessions = new Set<string>();
+let nextRequestId = 1;
 
-function logExit(reason: string): void {
-  if (!exitLogPath) {
-    return;
-  }
-  appendFileSync(exitLogPath, `${reason}\n`, "utf8");
-}
-
-process.once("SIGTERM", () => {
-  logExit("SIGTERM");
-  process.exit(0);
-});
-
-process.once("SIGINT", () => {
-  logExit("SIGINT");
-  process.exit(0);
-});
-
-process.once("exit", (code) => {
-  logExit(`exit:${code}`);
-});
-
-function configOptions(): ReadonlyArray<AcpSchema.SessionConfigOption> {
-  if (parameterizedModelPicker) {
-    const baseOptions: Array<AcpSchema.SessionConfigOption> = [
-      {
-        id: "mode",
-        name: "Mode",
-        category: "mode",
-        type: "select",
-        currentValue: currentModeId,
-        options: availableModes.map((mode) => ({
-          value: mode.id,
-          name: mode.name,
-          ...(mode.description ? { description: mode.description } : {}),
-        })),
-      },
-      {
-        id: "model",
-        name: "Model",
-        category: "model",
-        type: "select",
-        currentValue: currentModelId,
-        options: [
-          { value: "default", name: "Auto" },
-          { value: "composer-2", name: "Composer 2" },
-          { value: "gpt-5.4", name: "GPT-5.4" },
-          { value: "claude-opus-4-6", name: "Opus 4.6" },
-        ],
-      },
-    ];
-
-    switch (currentModelId) {
-      case "gpt-5.4":
-        return [
-          ...baseOptions,
-          {
-            id: "reasoning",
-            name: "Reasoning",
-            category: "thought_level",
-            type: "select",
-            currentValue: currentReasoning,
-            options: [
-              { value: "none", name: "None" },
-              { value: "low", name: "Low" },
-              { value: "medium", name: "Medium" },
-              { value: "high", name: "High" },
-              { value: "extra-high", name: "Extra High" },
-            ],
-          },
-          {
-            id: "context",
-            name: "Context",
-            category: "model_config",
-            type: "select",
-            currentValue: currentContext,
-            options: [
-              { value: "272k", name: "272K" },
-              { value: "1m", name: "1M" },
-            ],
-          },
-          {
-            id: "fast",
-            name: "Fast",
-            category: "model_config",
-            type: "select",
-            currentValue: String(currentFast),
-            options: [
-              { value: "false", name: "Off" },
-              { value: "true", name: "Fast" },
-            ],
-          },
-        ];
-      case "composer-2":
-        return [
-          ...baseOptions,
-          {
-            id: "fast",
-            name: "Fast",
-            category: "model_config",
-            type: "select",
-            currentValue: String(currentFast),
-            options: [
-              { value: "false", name: "Off" },
-              { value: "true", name: "Fast" },
-            ],
-          },
-        ];
-      case "claude-opus-4-6":
-        return [
-          ...baseOptions,
-          {
-            id: "reasoning",
-            name: "Reasoning",
-            category: "thought_level",
-            type: "select",
-            currentValue: currentReasoning,
-            options: [
-              { value: "low", name: "Low" },
-              { value: "medium", name: "Medium" },
-              { value: "high", name: "High" },
-            ],
-          },
-          {
-            id: "thinking",
-            name: "Thinking",
-            category: "model_config",
-            type: "boolean",
-            currentValue: true,
-          },
-        ];
-      default:
-        return baseOptions;
-    }
-  }
-
+function configOptions() {
   return [
     {
       id: "model",
       name: "Model",
       category: "model",
-      type: "select" as const,
+      type: "select",
       currentValue: currentModelId,
       options: [
         { value: "default", name: "Auto" },
@@ -182,7 +34,7 @@ function configOptions(): ReadonlyArray<AcpSchema.SessionConfigOption> {
   ];
 }
 
-const availableModes: ReadonlyArray<AcpSchema.SessionMode> = [
+const availableModes = [
   {
     id: "ask",
     name: "Ask",
@@ -199,179 +51,185 @@ const availableModes: ReadonlyArray<AcpSchema.SessionMode> = [
     description: "Write and modify code with full tool access",
   },
 ];
+const pendingPermissionRequests = new Map();
 
-function modeState(): AcpSchema.SessionModeState {
+function send(obj: unknown) {
+  process.stdout.write(`${JSON.stringify(obj)}\n`);
+}
+
+function modeState() {
   return {
     currentModeId,
     availableModes,
   };
 }
 
-const program = Effect.gen(function* () {
-  const agent = yield* EffectAcpAgent.AcpAgent;
+function sendSessionUpdate(update: unknown, session = sessionId) {
+  send({
+    jsonrpc: "2.0",
+    method: CLIENT_METHODS.session_update,
+    params: {
+      sessionId: session,
+      update,
+    },
+  });
+}
 
-  yield* agent.handleInitialize((request) =>
-    Effect.sync(() => {
-      parameterizedModelPicker =
-        request.clientCapabilities?._meta?.parameterizedModelPicker === true;
-      return {
+rl.on("line", (line) => {
+  const trimmed = line.trim();
+  if (!trimmed) return;
+  let msg;
+  try {
+    msg = JSON.parse(trimmed);
+  } catch {
+    return;
+  }
+  if (!msg || typeof msg !== "object") return;
+  if (requestLogPath) {
+    appendFileSync(requestLogPath, `${JSON.stringify(msg)}\n`, "utf8");
+  }
+
+  const rpcMessage = msg as {
+    id?: number | string;
+    method?: string;
+    params?: Record<string, unknown>;
+  };
+  const id = rpcMessage.id;
+  const method = rpcMessage.method;
+
+  if (method === undefined && id !== undefined && pendingPermissionRequests.has(id)) {
+    const pending = pendingPermissionRequests.get(id);
+    pendingPermissionRequests.delete(id);
+    sendSessionUpdate(
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: pending.toolCallId,
+        title: "Terminal",
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          exitCode: 0,
+          stdout: '{ "name": "t3" }',
+          stderr: "",
+        },
+      },
+      pending.sessionId,
+    );
+    sendSessionUpdate(
+      {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "hello from mock" },
+      },
+      pending.sessionId,
+    );
+    send({
+      jsonrpc: "2.0",
+      id: pending.promptRequestId,
+      result: { stopReason: "end_turn" },
+    });
+    return;
+  }
+
+  if (method === AGENT_METHODS.initialize && id !== undefined) {
+    send({
+      jsonrpc: "2.0",
+      id,
+      result: {
         protocolVersion: 1,
         agentCapabilities: { loadSession: true },
-      };
-    }),
-  );
+      },
+    });
+    return;
+  }
 
-  yield* agent.handleAuthenticate(() => Effect.succeed({}));
+  if (method === AGENT_METHODS.authenticate && id !== undefined) {
+    send({ jsonrpc: "2.0", id, result: { authenticated: true } });
+    return;
+  }
 
-  yield* agent.handleCreateSession(() =>
-    Effect.succeed({
-      sessionId,
-      modes: modeState(),
-      configOptions: configOptions(),
-    }),
-  );
-
-  yield* agent.handleLoadSession((request) =>
-    agent.client
-      .sessionUpdate({
-        sessionId: String(request.sessionId ?? sessionId),
-        update: {
-          sessionUpdate: "user_message_chunk",
-          content: { type: "text", text: "replay" },
-        },
-      })
-      .pipe(
-        Effect.as({
-          modes: modeState(),
-          configOptions: configOptions(),
-        }),
-      ),
-  );
-
-  yield* agent.handleSetSessionConfigOption((request) =>
-    Effect.gen(function* () {
-      if (exitOnSetConfigOption) {
-        return yield* Effect.sync(() => {
-          process.exit(7);
-        });
-      }
-      if (failSetConfigOption) {
-        return yield* AcpError.AcpRequestError.invalidParams(
-          "Mock invalid params for session/set_config_option",
-          {
-            method: "session/set_config_option",
-            params: request,
-          },
-        );
-      }
-      if (request.configId === "mode" && typeof request.value === "string") {
-        currentModeId = request.value;
-      }
-      if (request.configId === "model" && typeof request.value === "string") {
-        currentModelId = request.value;
-      }
-      if (request.configId === "reasoning" && typeof request.value === "string") {
-        currentReasoning = request.value;
-      }
-      if (request.configId === "context" && typeof request.value === "string") {
-        currentContext = request.value;
-      }
-      if (request.configId === "fast") {
-        currentFast = request.value === true || request.value === "true";
-      }
-      return {
+  if (method === AGENT_METHODS.session_new && id !== undefined) {
+    send({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        sessionId,
+        modes: modeState(),
         configOptions: configOptions(),
-      };
-    }),
-  );
+      },
+    });
+    return;
+  }
 
-  yield* agent.handleCancel(({ sessionId }) =>
-    Effect.sync(() => {
-      cancelledSessions.add(String(sessionId ?? "mock-session-1"));
-    }),
-  );
+  if (method === AGENT_METHODS.session_load && id !== undefined) {
+    const requestedSessionId = rpcMessage.params?.sessionId ?? sessionId;
+    sendSessionUpdate(
+      {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: "replay" },
+      },
+      String(requestedSessionId),
+    );
+    send({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        modes: modeState(),
+        configOptions: configOptions(),
+      },
+    });
+    return;
+  }
 
-  yield* agent.handlePrompt((request) =>
-    Effect.gen(function* () {
-      const requestedSessionId = String(request.sessionId ?? sessionId);
+  if (method === AGENT_METHODS.session_set_config_option && id !== undefined) {
+    const configId = rpcMessage.params?.configId;
+    const value = rpcMessage.params?.value;
+    if (configId === "model" && typeof value === "string") {
+      currentModelId = value;
+    }
+    send({
+      jsonrpc: "2.0",
+      id,
+      result: { configOptions: configOptions() },
+    });
+    return;
+  }
 
-      if (emitInterleavedAssistantToolCalls) {
-        const toolCallId = "tool-call-1";
-
-        yield* agent.client.sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "before tool" },
+  if (method === AGENT_METHODS.session_prompt && id !== undefined) {
+    const requestedSessionId = String(rpcMessage.params?.sessionId ?? sessionId);
+    if (emitToolCalls) {
+      const toolCallId = "tool-call-1";
+      const permissionRequestId = nextRequestId++;
+      sendSessionUpdate(
+        {
+          sessionUpdate: "tool_call",
+          toolCallId,
+          title: "Terminal",
+          kind: "execute",
+          status: "pending",
+          rawInput: {
+            command: ["cat", "server/package.json"],
           },
-        });
-
-        yield* agent.client.sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId,
-            title: "Terminal",
-            kind: "execute",
-            status: "pending",
-            rawInput: {
-              command: ["echo", "hello"],
-            },
-          },
-        });
-
-        yield* agent.client.sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "tool_call_update",
-            toolCallId,
-            status: "completed",
-            rawOutput: {
-              exitCode: 0,
-              stdout: "hello",
-              stderr: "",
-            },
-          },
-        });
-
-        yield* agent.client.sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "after tool" },
-          },
-        });
-
-        return { stopReason: "end_turn" };
-      }
-
-      if (emitToolCalls) {
-        const toolCallId = "tool-call-1";
-
-        yield* agent.client.sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId,
-            title: "Terminal",
-            kind: "execute",
-            status: "pending",
-            rawInput: {
-              command: ["cat", "server/package.json"],
-            },
-          },
-        });
-
-        yield* agent.client.sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "tool_call_update",
-            toolCallId,
-            status: "in_progress",
-          },
-        });
-
-        const permission = yield* agent.client.requestPermission({
+        },
+        requestedSessionId,
+      );
+      sendSessionUpdate(
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId,
+          status: "in_progress",
+        },
+        requestedSessionId,
+      );
+      pendingPermissionRequests.set(permissionRequestId, {
+        promptRequestId: id,
+        sessionId: requestedSessionId,
+        toolCallId,
+      });
+      send({
+        jsonrpc: "2.0",
+        id: permissionRequestId,
+        method: CLIENT_METHODS.session_request_permission,
+        params: {
           sessionId: requestedSessionId,
           toolCall: {
             toolCallId,
@@ -393,198 +251,77 @@ const program = Effect.gen(function* () {
             { optionId: "allow-always", name: "Allow always", kind: "allow_always" },
             { optionId: "reject-once", name: "Reject", kind: "reject_once" },
           ],
-        });
-
-        const cancelled =
-          cancelledSessions.delete(requestedSessionId) ||
-          permission.outcome.outcome === "cancelled";
-
-        yield* agent.client.sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "tool_call_update",
-            toolCallId,
-            title: "Terminal",
-            kind: "execute",
+        },
+      });
+      return;
+    }
+    sendSessionUpdate(
+      {
+        sessionUpdate: "plan",
+        explanation: `Mock plan while in ${currentModeId}`,
+        entries: [
+          {
+            content: "Inspect mock ACP state",
+            priority: "high",
             status: "completed",
-            rawOutput: {
-              exitCode: 0,
-              stdout: '{ "name": "t3" }',
-              stderr: "",
-            },
           },
-        });
-
-        yield* agent.client.sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "hello from mock" },
-          },
-        });
-
-        return { stopReason: cancelled ? "cancelled" : "end_turn" };
-      }
-
-      if (emitGenericToolPlaceholders) {
-        const toolCallId = "tool-call-generic-1";
-
-        yield* agent.client.sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId,
-            title: "Read File",
-            kind: "read",
-            status: "pending",
-            rawInput: {},
-          },
-        });
-
-        yield* agent.client.sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "tool_call_update",
-            toolCallId,
+          {
+            content: "Implement the requested change",
+            priority: "high",
             status: "in_progress",
           },
-        });
+        ],
+      },
+      requestedSessionId,
+    );
+    sendSessionUpdate(
+      {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "hello from mock" },
+      },
+      requestedSessionId,
+    );
+    send({
+      jsonrpc: "2.0",
+      id,
+      result: { stopReason: "end_turn" },
+    });
+    return;
+  }
 
-        yield* agent.client.sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "tool_call_update",
-            toolCallId,
-            status: "completed",
-            rawOutput: {
-              content: "package.json\n",
-            },
-          },
-        });
-
-        return { stopReason: "end_turn" };
-      }
-
-      if (emitAskQuestion) {
-        yield* agent.client.extRequest("cursor/ask_question", {
-          toolCallId: "ask-question-tool-call-1",
-          title: "Question",
-          questions: [
-            {
-              id: "scope",
-              prompt: "Which scope?",
-              options: [
-                { id: "workspace", label: "Workspace" },
-                { id: "session", label: "Session" },
-              ],
-            },
-          ],
-        });
-
-        return { stopReason: "end_turn" };
-      }
-
-      yield* agent.client.sessionUpdate({
-        sessionId: requestedSessionId,
-        update: {
-          sessionUpdate: "plan",
-          entries: [
-            {
-              content: "Inspect mock ACP state",
-              priority: "high",
-              status: "completed",
-            },
-            {
-              content: "Implement the requested change",
-              priority: "high",
-              status: "in_progress",
-            },
-          ],
-        },
-      });
-
-      yield* agent.client.sessionUpdate({
-        sessionId: requestedSessionId,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: promptResponseText ?? "hello from mock" },
-        },
-      });
-
-      return { stopReason: "end_turn" };
-    }),
-  );
-
-  yield* agent.handleUnknownExtRequest((method, params) => {
-    if (method !== "session/mode/set") {
-      return Effect.fail(AcpError.AcpRequestError.methodNotFound(method));
-    }
-
+  if (
+    (method === AGENT_METHODS.session_set_mode || method === "session/mode/set") &&
+    id !== undefined
+  ) {
     const nextModeId =
-      typeof params === "object" &&
-      params !== null &&
-      "modeId" in params &&
-      typeof params.modeId === "string"
-        ? params.modeId
-        : typeof params === "object" &&
-            params !== null &&
-            "mode" in params &&
-            typeof params.mode === "string"
-          ? params.mode
+      typeof rpcMessage.params?.modeId === "string"
+        ? rpcMessage.params.modeId
+        : typeof rpcMessage.params?.mode === "string"
+          ? rpcMessage.params.mode
           : undefined;
-    const requestedSessionId =
-      typeof params === "object" &&
-      params !== null &&
-      "sessionId" in params &&
-      typeof params.sessionId === "string"
-        ? params.sessionId
-        : sessionId;
-
     if (typeof nextModeId === "string" && nextModeId.trim()) {
       currentModeId = nextModeId.trim();
-      return agent.client
-        .sessionUpdate({
-          sessionId: requestedSessionId,
-          update: {
-            sessionUpdate: "current_mode_update",
-            currentModeId,
-          },
-        })
-        .pipe(Effect.as({}));
+      sendSessionUpdate({
+        sessionUpdate: "current_mode_update",
+        currentModeId,
+      });
     }
+    send({ jsonrpc: "2.0", id, result: {} });
+    return;
+  }
 
-    return Effect.succeed({});
-  });
+  if (method === AGENT_METHODS.session_cancel) {
+    if (id !== undefined) {
+      send({ jsonrpc: "2.0", id, result: null });
+    }
+    return;
+  }
 
-  return yield* Effect.never;
-}).pipe(
-  Effect.provide(
-    EffectAcpAgent.layerStdio(
-      requestLogPath
-        ? {
-            logIncoming: true,
-            logger: (event) => {
-              if (event.direction !== "incoming" || event.stage !== "raw") {
-                return Effect.void;
-              }
-              if (typeof event.payload !== "string") {
-                return Effect.void;
-              }
-              const payload = event.payload;
-              return Effect.sync(() => {
-                appendFileSync(
-                  requestLogPath,
-                  payload.endsWith("\n") ? payload : `${payload}\n`,
-                  "utf8",
-                );
-              });
-            },
-          }
-        : {},
-    ),
-  ),
-  Effect.scoped,
-  Effect.provide(NodeServices.layer),
-);
-
-NodeRuntime.runMain(program);
+  if (id !== undefined) {
+    send({
+      jsonrpc: "2.0",
+      id,
+      error: { code: -32601, message: `Unhandled method: ${String(method)}` },
+    });
+  }
+});

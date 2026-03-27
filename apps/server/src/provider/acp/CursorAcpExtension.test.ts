@@ -29,39 +29,9 @@ describe("CursorAcpExtension", () => {
         id: "language",
         header: "Question",
         question: "Which language should I use?",
-        multiSelect: false,
         options: [
           { label: "TypeScript", description: "TypeScript" },
           { label: "Rust", description: "Rust" },
-        ],
-      },
-    ]);
-  });
-
-  it("defaults ask-question multi-select to false when Cursor omits allowMultiple", () => {
-    const questions = extractAskQuestions({
-      toolCallId: "ask-2",
-      questions: [
-        {
-          id: "mode",
-          prompt: "Which mode should I use?",
-          options: [
-            { id: "agent", label: "Agent" },
-            { id: "plan", label: "Plan" },
-          ],
-        },
-      ],
-    });
-
-    expect(questions).toEqual([
-      {
-        id: "mode",
-        header: "Question",
-        question: "Which mode should I use?",
-        multiSelect: false,
-        options: [
-          { label: "Agent", description: "Agent" },
-          { label: "Plan", description: "Plan" },
         ],
       },
     ]);
@@ -83,25 +53,20 @@ describe("CursorAcpExtension", () => {
     expect(planMarkdown).toBe("# Plan\n\n1. Add schemas\n2. Remove casts");
   });
 
-  it("projects todo updates into a plan shape and drops invalid entries", () => {
+  it("projects todo updates into a plan shape", () => {
     expect(
       extractTodosAsPlan({
-        toolCallId: "todos-1",
         todos: [
-          { id: "1", content: "Inspect state", status: "completed" },
-          { id: "2", content: "  Apply fix  ", status: "in_progress" },
-          { id: "3", title: "Fallback title", status: "pending" },
-          { id: "4", content: "Unknown status", status: "weird_status" },
-          { id: "5", content: "   " },
+          { content: "Inspect state", status: "completed" },
+          { title: "Apply fix", status: "in_progress" },
+          {},
         ],
-        merge: true,
       }),
     ).toEqual({
       plan: [
         { step: "Inspect state", status: "completed" },
         { step: "Apply fix", status: "inProgress" },
-        { step: "Fallback title", status: "pending" },
-        { step: "Unknown status", status: "pending" },
+        { step: "Step 3", status: "pending" },
       ],
     });
   });

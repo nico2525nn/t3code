@@ -21,11 +21,13 @@ function makeInMemoryStdio() {
 
     return {
       stdio: Stdio.make({
+        args: Effect.succeed([]),
         stdin: Stream.fromQueue(input),
-        stdout: Sink.forEach((chunk: string | Uint8Array) =>
-          Queue.offer(output, typeof chunk === "string" ? chunk : decoder.decode(chunk)),
-        ),
-        stderr: Sink.drain,
+        stdout: () =>
+          Sink.forEach((chunk: string | Uint8Array) =>
+            Queue.offer(output, typeof chunk === "string" ? chunk : decoder.decode(chunk)),
+          ),
+        stderr: () => Sink.drain,
       }),
       input,
       output,

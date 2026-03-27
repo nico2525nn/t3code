@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Sink from "effect/Sink";
 import * as Stdio from "effect/Stdio";
@@ -9,11 +10,13 @@ export function makeStdioFromChildProcess(
   handle: ChildProcessSpawner.ChildProcessHandle,
 ): Stdio.Stdio {
   return Stdio.make({
+    args: Effect.succeed([]),
     stdin: handle.stdout,
-    stdout: Sink.mapInput(handle.stdin, (chunk) =>
-      typeof chunk === "string" ? textEncoder.encode(chunk) : chunk,
-    ),
-    stderr: Sink.drain,
+    stdout: () =>
+      Sink.mapInput(handle.stdin, (chunk: string | Uint8Array) =>
+        typeof chunk === "string" ? textEncoder.encode(chunk) : chunk,
+      ),
+    stderr: () => Sink.drain,
   });
 }
 

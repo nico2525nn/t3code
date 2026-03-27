@@ -4,74 +4,36 @@
   "type": "module",
   "exports": {
     "./client": {
-      "import": {
-        "types": "./src/client.d.mts",
-        "default": "./src/client.mjs"
-      },
-      "require": {
-        "types": "./src/client.d.cts",
-        "default": "./src/client.cjs"
-      }
+      "types": "./src/client.ts",
+      "import": "./src/client.ts"
     },
     "./server": {
-      "import": {
-        "types": "./src/server.d.mts",
-        "default": "./src/server.mjs"
-      },
-      "require": {
-        "types": "./src/server.d.cts",
-        "default": "./src/server.cjs"
-      }
+      "types": "./src/server.ts",
+      "import": "./src/server.ts"
     },
     "./schema": {
-      "import": {
-        "types": "./src/_generated/schema.gen.d.mts",
-        "default": "./src/_generated/schema.gen.mjs"
-      },
-      "require": {
-        "types": "./src/_generated/schema.gen.d.cts",
-        "default": "./src/_generated/schema.gen.cjs"
-      }
+      "types": "./src/schema.ts",
+      "import": "./src/schema.ts"
     },
     "./rpc": {
-      "import": {
-        "types": "./src/rpc.d.mts",
-        "default": "./src/rpc.mjs"
-      },
-      "require": {
-        "types": "./src/rpc.d.cts",
-        "default": "./src/rpc.cjs"
-      }
+      "types": "./src/rpc.ts",
+      "import": "./src/rpc.ts"
     },
     "./protocol": {
-      "import": {
-        "types": "./src/protocol.d.mts",
-        "default": "./src/protocol.mjs"
-      },
-      "require": {
-        "types": "./src/protocol.d.cts",
-        "default": "./src/protocol.cjs"
-      }
+      "types": "./src/protocol.ts",
+      "import": "./src/protocol.ts"
     },
     "./terminal": {
-      "import": {
-        "types": "./src/terminal.d.mts",
-        "default": "./src/terminal.mts"
-      },
-      "require": {
-        "types": "./src/terminal.d.cts",
-        "default": "./src/terminal.cjs"
-      }
+      "types": "./src/terminal.ts",
+      "import": "./src/terminal.ts"
     },
     "./child-process": {
-      "import": {
-        "types": "./src/child-process.d.mts",
-        "default": "./src/child-process.mts"
-      },
-      "require": {
-        "types": "./src/child-process.d.cts",
-        "default": "./src/child-process.cjs"
-      }
+      "types": "./src/child-process.ts",
+      "import": "./src/child-process.ts"
+    },
+    "./errors": {
+      "types": "./src/errors.ts",
+      "import": "./src/errors.ts"
     }
   },
   "scripts": {

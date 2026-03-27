@@ -47,7 +47,12 @@ Effect.gen(function* () {
 
   const result = yield* client.prompt({
     sessionId: session.sessionId,
-    prompt: [{ type: "text", text: "Summarize this repository." }],
+    prompt: [
+      {
+        type: "text",
+        text: "Illustrate your ability to create todo lists and then execute all of them. Do not write the list to disk, illustrate your built in ability!",
+      },
+    ],
   });
 
   yield* Effect.logInfo("prompt result", result);

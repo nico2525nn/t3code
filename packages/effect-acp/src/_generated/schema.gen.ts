@@ -481,6 +481,17 @@ export const SessionCloseCapabilities = Schema.Struct({
     "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nCapabilities for the `session/close` method.\n\nBy supplying `{}` it means that the agent supports closing of sessions.",
 });
 
+export type SessionConfigOptionCategory = "mode" | "model" | "thought_level" | string;
+export const SessionConfigOptionCategory = Schema.Union([
+  Schema.Literal("mode").annotate({ description: "Session mode selector." }),
+  Schema.Literal("model").annotate({ description: "Model selector." }),
+  Schema.Literal("thought_level").annotate({ description: "Thought/reasoning level selector." }),
+  Schema.String.annotate({ title: "other", description: "Unknown / uncategorized selector." }),
+]).annotate({
+  description:
+    "Semantic category for a session configuration option.\n\nThis is intended to help Clients distinguish broadly common selectors (e.g. model selector vs\nsession mode selector vs thought/reasoning level) for UX purposes (keyboard shortcuts, icons,\nplacement). It MUST NOT be required for correctness. Clients MUST handle missing or unknown\ncategories gracefully.\n\nCategory names beginning with `_` are free for custom use, like other ACP extension methods.\nCategory names that do not begin with `_` are reserved for the ACP spec.",
+});
+
 export type SessionConfigSelectOption = {
   readonly _meta?: { readonly [x: string]: unknown } | null;
   readonly description?: string | null;
@@ -1800,40 +1811,97 @@ export type SessionConfigOption =
       readonly options:
         | ReadonlyArray<SessionConfigSelectOption>
         | ReadonlyArray<SessionConfigSelectGroup>;
+      readonly _meta?: { readonly [x: string]: unknown } | null;
+      readonly category?: SessionConfigOptionCategory | null;
+      readonly description?: string | null;
+      readonly id: string;
+      readonly name: string;
     }
-  | { readonly type: "boolean"; readonly currentValue: boolean };
-export const SessionConfigOption = Schema.Union(
-  [
-    Schema.Struct({
-      type: Schema.Literal("select"),
-      currentValue: Schema.String.annotate({
-        description: "Unique identifier for a session configuration option value.",
-      }),
-      options: Schema.Union([
-        Schema.Array(SessionConfigSelectOption).annotate({
-          title: "Ungrouped",
-          description: "A flat list of options with no grouping.",
-        }),
-        Schema.Array(SessionConfigSelectGroup).annotate({
-          title: "Grouped",
-          description: "A list of options grouped under headers.",
-        }),
-      ]).annotate({ description: "Possible values for a session configuration option." }),
-    }).annotate({
-      description: "A single-value selector (dropdown) session configuration option payload.",
+  | {
+      readonly type: "boolean";
+      readonly currentValue: boolean;
+      readonly _meta?: { readonly [x: string]: unknown } | null;
+      readonly category?: SessionConfigOptionCategory | null;
+      readonly description?: string | null;
+      readonly id: string;
+      readonly name: string;
+    };
+export const SessionConfigOption = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("select"),
+    currentValue: Schema.String.annotate({
+      description: "Unique identifier for a session configuration option value.",
     }),
-    Schema.Struct({
-      type: Schema.Literal("boolean"),
-      currentValue: Schema.Boolean.annotate({
-        description: "The current value of the boolean option.",
+    options: Schema.Union([
+      Schema.Array(SessionConfigSelectOption).annotate({
+        title: "Ungrouped",
+        description: "A flat list of options with no grouping.",
       }),
-    }).annotate({
-      description:
-        "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nA boolean on/off toggle session configuration option payload.",
+      Schema.Array(SessionConfigSelectGroup).annotate({
+        title: "Grouped",
+        description: "A list of options grouped under headers.",
+      }),
+    ]).annotate({ description: "Possible values for a session configuration option." }),
+    _meta: Schema.optionalKey(
+      Schema.Union([
+        Schema.Record(Schema.String, Schema.Unknown).annotate({
+          description:
+            "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+        }),
+        Schema.Null,
+      ]),
+    ),
+    category: Schema.optionalKey(
+      Schema.Union([SessionConfigOptionCategory, Schema.Null]).annotate({
+        description: "Optional semantic category for this option (UX only).",
+      }),
+    ),
+    description: Schema.optionalKey(
+      Schema.Union([
+        Schema.String.annotate({
+          description: "Optional description for the Client to display to the user.",
+        }),
+        Schema.Null,
+      ]),
+    ),
+    id: Schema.String.annotate({
+      description: "Unique identifier for a session configuration option.",
     }),
-  ],
-  { mode: "oneOf" },
-).annotate({ description: "A session configuration option selector and its current state." });
+    name: Schema.String.annotate({ description: "Human-readable label for the option." }),
+  }).annotate({ description: "A session configuration option selector and its current state." }),
+  Schema.Struct({
+    type: Schema.Literal("boolean"),
+    currentValue: Schema.Boolean.annotate({
+      description: "The current value of the boolean option.",
+    }),
+    _meta: Schema.optionalKey(
+      Schema.Union([
+        Schema.Record(Schema.String, Schema.Unknown).annotate({
+          description:
+            "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+        }),
+        Schema.Null,
+      ]),
+    ),
+    category: Schema.optionalKey(
+      Schema.Union([SessionConfigOptionCategory, Schema.Null]).annotate({
+        description: "Optional semantic category for this option (UX only).",
+      }),
+    ),
+    description: Schema.optionalKey(
+      Schema.Union([
+        Schema.String.annotate({
+          description: "Optional description for the Client to display to the user.",
+        }),
+        Schema.Null,
+      ]),
+    ),
+    id: Schema.String.annotate({
+      description: "Unique identifier for a session configuration option.",
+    }),
+    name: Schema.String.annotate({ description: "Human-readable label for the option." }),
+  }).annotate({ description: "A session configuration option selector and its current state." }),
+]);
 
 export type SessionModeState = {
   readonly _meta?: { readonly [x: string]: unknown } | null;
@@ -3005,8 +3073,18 @@ export type AgentRequest = {
           readonly title?: string | null;
           readonly type?: "object";
         };
+        readonly _meta?: { readonly [x: string]: unknown } | null;
+        readonly message: string;
+        readonly sessionId: string;
       }
-    | { readonly mode: "url"; readonly elicitationId: string; readonly url: string }
+    | {
+        readonly mode: "url";
+        readonly elicitationId: string;
+        readonly url: string;
+        readonly _meta?: { readonly [x: string]: unknown } | null;
+        readonly message: string;
+        readonly sessionId: string;
+      }
     | unknown
     | null;
 };
@@ -3285,73 +3363,102 @@ export const AgentRequest = Schema.Struct({
           title: "KillTerminalRequest",
           description: "Request to kill a terminal without releasing it.",
         }),
-        Schema.Union(
-          [
-            Schema.Struct({
-              mode: Schema.Literal("form"),
-              requestedSchema: Schema.Struct({
-                description: Schema.optionalKey(
-                  Schema.Union([
-                    Schema.String.annotate({
-                      description: "Optional description of what this schema represents.",
-                    }),
-                    Schema.Null,
-                  ]),
-                ),
-                properties: Schema.optionalKey(
-                  Schema.Record(Schema.String, ElicitationPropertySchema).annotate({
-                    description: "Property definitions (must be primitive types).",
-                    default: {},
+        Schema.Union([
+          Schema.Struct({
+            mode: Schema.Literal("form"),
+            requestedSchema: Schema.Struct({
+              description: Schema.optionalKey(
+                Schema.Union([
+                  Schema.String.annotate({
+                    description: "Optional description of what this schema represents.",
                   }),
-                ),
-                required: Schema.optionalKey(
-                  Schema.Union([
-                    Schema.Array(Schema.String).annotate({
-                      description: "List of required property names.",
-                    }),
-                    Schema.Null,
-                  ]),
-                ),
-                title: Schema.optionalKey(
-                  Schema.Union([
-                    Schema.String.annotate({ description: "Optional title for the schema." }),
-                    Schema.Null,
-                  ]),
-                ),
-                type: Schema.optionalKey(
-                  Schema.Literal("object").annotate({
-                    description: "Type discriminator for elicitation schemas.",
-                    default: "object",
+                  Schema.Null,
+                ]),
+              ),
+              properties: Schema.optionalKey(
+                Schema.Record(Schema.String, ElicitationPropertySchema).annotate({
+                  description: "Property definitions (must be primitive types).",
+                  default: {},
+                }),
+              ),
+              required: Schema.optionalKey(
+                Schema.Union([
+                  Schema.Array(Schema.String).annotate({
+                    description: "List of required property names.",
                   }),
-                ),
-              }).annotate({
-                description:
-                  "Type-safe elicitation schema for requesting structured user input.\n\nThis represents a JSON Schema object with primitive-typed properties,\nas required by the elicitation specification.",
-              }),
+                  Schema.Null,
+                ]),
+              ),
+              title: Schema.optionalKey(
+                Schema.Union([
+                  Schema.String.annotate({ description: "Optional title for the schema." }),
+                  Schema.Null,
+                ]),
+              ),
+              type: Schema.optionalKey(
+                Schema.Literal("object").annotate({
+                  description: "Type discriminator for elicitation schemas.",
+                  default: "object",
+                }),
+              ),
             }).annotate({
               description:
-                "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nForm-based elicitation mode where the client renders a form from the provided schema.",
+                "Type-safe elicitation schema for requesting structured user input.\n\nThis represents a JSON Schema object with primitive-typed properties,\nas required by the elicitation specification.",
             }),
-            Schema.Struct({
-              mode: Schema.Literal("url"),
-              elicitationId: Schema.String.annotate({
-                description:
-                  "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUnique identifier for an elicitation.",
-              }),
-              url: Schema.String.annotate({
-                description: "The URL to direct the user to.",
-                format: "uri",
-              }),
-            }).annotate({
+            _meta: Schema.optionalKey(
+              Schema.Union([
+                Schema.Record(Schema.String, Schema.Unknown).annotate({
+                  description:
+                    "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+                }),
+                Schema.Null,
+              ]),
+            ),
+            message: Schema.String.annotate({
+              description: "A human-readable message describing what input is needed.",
+            }),
+            sessionId: Schema.String.annotate({
               description:
-                "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nURL-based elicitation mode where the client directs the user to a URL.",
+                "A unique identifier for a conversation session between a client and agent.\n\nSessions maintain their own context, conversation history, and state,\nallowing multiple independent interactions with the same agent.\n\nSee protocol docs: [Session ID](https://agentclientprotocol.com/protocol/session-setup#session-id)",
             }),
-          ],
-          { mode: "oneOf" },
-        ).annotate({
+          }).annotate({
+            description:
+              "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest from the agent to elicit structured user input.\n\nThe agent sends this to the client to request information from the user,\neither via a form or by directing them to a URL.",
+          }),
+          Schema.Struct({
+            mode: Schema.Literal("url"),
+            elicitationId: Schema.String.annotate({
+              description:
+                "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUnique identifier for an elicitation.",
+            }),
+            url: Schema.String.annotate({
+              description: "The URL to direct the user to.",
+              format: "uri",
+            }),
+            _meta: Schema.optionalKey(
+              Schema.Union([
+                Schema.Record(Schema.String, Schema.Unknown).annotate({
+                  description:
+                    "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+                }),
+                Schema.Null,
+              ]),
+            ),
+            message: Schema.String.annotate({
+              description: "A human-readable message describing what input is needed.",
+            }),
+            sessionId: Schema.String.annotate({
+              description:
+                "A unique identifier for a conversation session between a client and agent.\n\nSessions maintain their own context, conversation history, and state,\nallowing multiple independent interactions with the same agent.\n\nSee protocol docs: [Session ID](https://agentclientprotocol.com/protocol/session-setup#session-id)",
+            }),
+          }).annotate({
+            description:
+              "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest from the agent to elicit structured user input.\n\nThe agent sends this to the client to request information from the user,\neither via a form or by directing them to a URL.",
+          }),
+        ]).annotate({
           title: "ElicitationRequest",
           description:
-            "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest from the agent to elicit structured user input.\n\nThe agent sends this to the client to request information from the user,\neither via a form or by directing them to a URL.",
+            "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequests structured user input via a form or URL.",
         }),
         Schema.Unknown.annotate({
           title: "ExtMethodRequest",
@@ -4490,8 +4597,19 @@ export type ClientRequest = {
         readonly modeId: string;
         readonly sessionId: string;
       }
-    | { readonly type: "boolean"; readonly value: boolean }
-    | { readonly value: string }
+    | {
+        readonly type: "boolean";
+        readonly value: boolean;
+        readonly _meta?: { readonly [x: string]: unknown } | null;
+        readonly configId: string;
+        readonly sessionId: string;
+      }
+    | {
+        readonly value: string;
+        readonly _meta?: { readonly [x: string]: unknown } | null;
+        readonly configId: string;
+        readonly sessionId: string;
+      }
     | {
         readonly _meta?: { readonly [x: string]: unknown } | null;
         readonly messageId?: string | null;
@@ -4830,19 +4948,52 @@ export const ClientRequest = Schema.Struct({
           Schema.Struct({
             type: Schema.Literal("boolean"),
             value: Schema.Boolean.annotate({ description: "The boolean value." }),
-          }).annotate({ description: 'A boolean value (`type: "boolean"`).' }),
+            _meta: Schema.optionalKey(
+              Schema.Union([
+                Schema.Record(Schema.String, Schema.Unknown).annotate({
+                  description:
+                    "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+                }),
+                Schema.Null,
+              ]),
+            ),
+            configId: Schema.String.annotate({
+              description: "Unique identifier for a session configuration option.",
+            }),
+            sessionId: Schema.String.annotate({
+              description:
+                "A unique identifier for a conversation session between a client and agent.\n\nSessions maintain their own context, conversation history, and state,\nallowing multiple independent interactions with the same agent.\n\nSee protocol docs: [Session ID](https://agentclientprotocol.com/protocol/session-setup#session-id)",
+            }),
+          }).annotate({
+            description: "Request parameters for setting a session configuration option.",
+          }),
           Schema.Struct({
             value: Schema.String.annotate({
               description: "Unique identifier for a session configuration option value.",
             }),
+            _meta: Schema.optionalKey(
+              Schema.Union([
+                Schema.Record(Schema.String, Schema.Unknown).annotate({
+                  description:
+                    "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+                }),
+                Schema.Null,
+              ]),
+            ),
+            configId: Schema.String.annotate({
+              description: "Unique identifier for a session configuration option.",
+            }),
+            sessionId: Schema.String.annotate({
+              description:
+                "A unique identifier for a conversation session between a client and agent.\n\nSessions maintain their own context, conversation history, and state,\nallowing multiple independent interactions with the same agent.\n\nSee protocol docs: [Session ID](https://agentclientprotocol.com/protocol/session-setup#session-id)",
+            }),
           }).annotate({
             title: "value_id",
-            description:
-              "A [`SessionConfigValueId`] string value.\n\nThis is the default when `type` is absent on the wire. Unknown `type`\nvalues with string payloads also gracefully deserialize into this\nvariant.",
+            description: "Request parameters for setting a session configuration option.",
           }),
         ]).annotate({
           title: "SetSessionConfigOptionRequest",
-          description: "Request parameters for setting a session configuration option.",
+          description: "Sets the current value for a session configuration option.",
         }),
         Schema.Struct({
           _meta: Schema.optionalKey(
@@ -5818,72 +5969,106 @@ export type ElicitationRequest =
         readonly title?: string | null;
         readonly type?: "object";
       };
+      readonly _meta?: { readonly [x: string]: unknown } | null;
+      readonly message: string;
+      readonly sessionId: string;
     }
-  | { readonly mode: "url"; readonly elicitationId: string; readonly url: string };
-export const ElicitationRequest = Schema.Union(
-  [
-    Schema.Struct({
-      mode: Schema.Literal("form"),
-      requestedSchema: Schema.Struct({
-        description: Schema.optionalKey(
-          Schema.Union([
-            Schema.String.annotate({
-              description: "Optional description of what this schema represents.",
-            }),
-            Schema.Null,
-          ]),
-        ),
-        properties: Schema.optionalKey(
-          Schema.Record(Schema.String, ElicitationPropertySchema).annotate({
-            description: "Property definitions (must be primitive types).",
-            default: {},
+  | {
+      readonly mode: "url";
+      readonly elicitationId: string;
+      readonly url: string;
+      readonly _meta?: { readonly [x: string]: unknown } | null;
+      readonly message: string;
+      readonly sessionId: string;
+    };
+export const ElicitationRequest = Schema.Union([
+  Schema.Struct({
+    mode: Schema.Literal("form"),
+    requestedSchema: Schema.Struct({
+      description: Schema.optionalKey(
+        Schema.Union([
+          Schema.String.annotate({
+            description: "Optional description of what this schema represents.",
           }),
-        ),
-        required: Schema.optionalKey(
-          Schema.Union([
-            Schema.Array(Schema.String).annotate({
-              description: "List of required property names.",
-            }),
-            Schema.Null,
-          ]),
-        ),
-        title: Schema.optionalKey(
-          Schema.Union([
-            Schema.String.annotate({ description: "Optional title for the schema." }),
-            Schema.Null,
-          ]),
-        ),
-        type: Schema.optionalKey(
-          Schema.Literal("object").annotate({
-            description: "Type discriminator for elicitation schemas.",
-            default: "object",
-          }),
-        ),
-      }).annotate({
-        description:
-          "Type-safe elicitation schema for requesting structured user input.\n\nThis represents a JSON Schema object with primitive-typed properties,\nas required by the elicitation specification.",
-      }),
+          Schema.Null,
+        ]),
+      ),
+      properties: Schema.optionalKey(
+        Schema.Record(Schema.String, ElicitationPropertySchema).annotate({
+          description: "Property definitions (must be primitive types).",
+          default: {},
+        }),
+      ),
+      required: Schema.optionalKey(
+        Schema.Union([
+          Schema.Array(Schema.String).annotate({ description: "List of required property names." }),
+          Schema.Null,
+        ]),
+      ),
+      title: Schema.optionalKey(
+        Schema.Union([
+          Schema.String.annotate({ description: "Optional title for the schema." }),
+          Schema.Null,
+        ]),
+      ),
+      type: Schema.optionalKey(
+        Schema.Literal("object").annotate({
+          description: "Type discriminator for elicitation schemas.",
+          default: "object",
+        }),
+      ),
     }).annotate({
       description:
-        "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nForm-based elicitation mode where the client renders a form from the provided schema.",
+        "Type-safe elicitation schema for requesting structured user input.\n\nThis represents a JSON Schema object with primitive-typed properties,\nas required by the elicitation specification.",
     }),
-    Schema.Struct({
-      mode: Schema.Literal("url"),
-      elicitationId: Schema.String.annotate({
-        description:
-          "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUnique identifier for an elicitation.",
-      }),
-      url: Schema.String.annotate({ description: "The URL to direct the user to.", format: "uri" }),
-    }).annotate({
+    _meta: Schema.optionalKey(
+      Schema.Union([
+        Schema.Record(Schema.String, Schema.Unknown).annotate({
+          description:
+            "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+        }),
+        Schema.Null,
+      ]),
+    ),
+    message: Schema.String.annotate({
+      description: "A human-readable message describing what input is needed.",
+    }),
+    sessionId: Schema.String.annotate({
       description:
-        "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nURL-based elicitation mode where the client directs the user to a URL.",
+        "A unique identifier for a conversation session between a client and agent.\n\nSessions maintain their own context, conversation history, and state,\nallowing multiple independent interactions with the same agent.\n\nSee protocol docs: [Session ID](https://agentclientprotocol.com/protocol/session-setup#session-id)",
     }),
-  ],
-  { mode: "oneOf" },
-).annotate({
-  description:
-    "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest from the agent to elicit structured user input.\n\nThe agent sends this to the client to request information from the user,\neither via a form or by directing them to a URL.",
-});
+  }).annotate({
+    description:
+      "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest from the agent to elicit structured user input.\n\nThe agent sends this to the client to request information from the user,\neither via a form or by directing them to a URL.",
+  }),
+  Schema.Struct({
+    mode: Schema.Literal("url"),
+    elicitationId: Schema.String.annotate({
+      description:
+        "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nUnique identifier for an elicitation.",
+    }),
+    url: Schema.String.annotate({ description: "The URL to direct the user to.", format: "uri" }),
+    _meta: Schema.optionalKey(
+      Schema.Union([
+        Schema.Record(Schema.String, Schema.Unknown).annotate({
+          description:
+            "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+        }),
+        Schema.Null,
+      ]),
+    ),
+    message: Schema.String.annotate({
+      description: "A human-readable message describing what input is needed.",
+    }),
+    sessionId: Schema.String.annotate({
+      description:
+        "A unique identifier for a conversation session between a client and agent.\n\nSessions maintain their own context, conversation history, and state,\nallowing multiple independent interactions with the same agent.\n\nSee protocol docs: [Session ID](https://agentclientprotocol.com/protocol/session-setup#session-id)",
+    }),
+  }).annotate({
+    description:
+      "**UNSTABLE**\n\nThis capability is not part of the spec yet, and may be removed or changed at any point.\n\nRequest from the agent to elicit structured user input.\n\nThe agent sends this to the client to request information from the user,\neither via a form or by directing them to a URL.",
+  }),
+]);
 
 export type ElicitationResponse = {
   readonly _meta?: { readonly [x: string]: unknown } | null;
@@ -7801,17 +7986,6 @@ export const SessionConfigId = Schema.String.annotate({
   description: "Unique identifier for a session configuration option.",
 });
 
-export type SessionConfigOptionCategory = "mode" | "model" | "thought_level" | string;
-export const SessionConfigOptionCategory = Schema.Union([
-  Schema.Literal("mode").annotate({ description: "Session mode selector." }),
-  Schema.Literal("model").annotate({ description: "Model selector." }),
-  Schema.Literal("thought_level").annotate({ description: "Thought/reasoning level selector." }),
-  Schema.String.annotate({ title: "other", description: "Unknown / uncategorized selector." }),
-]).annotate({
-  description:
-    "Semantic category for a session configuration option.\n\nThis is intended to help Clients distinguish broadly common selectors (e.g. model selector vs\nsession mode selector vs thought/reasoning level) for UX purposes (keyboard shortcuts, icons,\nplacement). It MUST NOT be required for correctness. Clients MUST handle missing or unknown\ncategories gracefully.\n\nCategory names beginning with `_` are free for custom use, like other ACP extension methods.\nCategory names that do not begin with `_` are reserved for the ACP spec.",
-});
-
 export type SessionConfigSelect = {
   readonly currentValue: string;
   readonly options:
@@ -9533,23 +9707,65 @@ export const SessionUpdate = Schema.Union(
 });
 
 export type SetSessionConfigOptionRequest =
-  | { readonly type: "boolean"; readonly value: boolean }
-  | { readonly value: string };
+  | {
+      readonly type: "boolean";
+      readonly value: boolean;
+      readonly _meta?: { readonly [x: string]: unknown } | null;
+      readonly configId: string;
+      readonly sessionId: string;
+    }
+  | {
+      readonly value: string;
+      readonly _meta?: { readonly [x: string]: unknown } | null;
+      readonly configId: string;
+      readonly sessionId: string;
+    };
 export const SetSessionConfigOptionRequest = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("boolean"),
     value: Schema.Boolean.annotate({ description: "The boolean value." }),
-  }).annotate({ description: 'A boolean value (`type: "boolean"`).' }),
+    _meta: Schema.optionalKey(
+      Schema.Union([
+        Schema.Record(Schema.String, Schema.Unknown).annotate({
+          description:
+            "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+        }),
+        Schema.Null,
+      ]),
+    ),
+    configId: Schema.String.annotate({
+      description: "Unique identifier for a session configuration option.",
+    }),
+    sessionId: Schema.String.annotate({
+      description:
+        "A unique identifier for a conversation session between a client and agent.\n\nSessions maintain their own context, conversation history, and state,\nallowing multiple independent interactions with the same agent.\n\nSee protocol docs: [Session ID](https://agentclientprotocol.com/protocol/session-setup#session-id)",
+    }),
+  }).annotate({ description: "Request parameters for setting a session configuration option." }),
   Schema.Struct({
     value: Schema.String.annotate({
       description: "Unique identifier for a session configuration option value.",
     }),
+    _meta: Schema.optionalKey(
+      Schema.Union([
+        Schema.Record(Schema.String, Schema.Unknown).annotate({
+          description:
+            "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+        }),
+        Schema.Null,
+      ]),
+    ),
+    configId: Schema.String.annotate({
+      description: "Unique identifier for a session configuration option.",
+    }),
+    sessionId: Schema.String.annotate({
+      description:
+        "A unique identifier for a conversation session between a client and agent.\n\nSessions maintain their own context, conversation history, and state,\nallowing multiple independent interactions with the same agent.\n\nSee protocol docs: [Session ID](https://agentclientprotocol.com/protocol/session-setup#session-id)",
+    }),
   }).annotate({
     title: "value_id",
-    description:
-      "A [`SessionConfigValueId`] string value.\n\nThis is the default when `type` is absent on the wire. Unknown `type`\nvalues with string payloads also gracefully deserialize into this\nvariant.",
+    description: "Request parameters for setting a session configuration option.",
   }),
-]).annotate({ description: "Request parameters for setting a session configuration option." });
+]);
 
 export type SetSessionConfigOptionResponse = {
   readonly _meta?: { readonly [x: string]: unknown } | null;

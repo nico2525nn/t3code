@@ -89,8 +89,8 @@ describe("AcpRuntimeModel", () => {
         _tag: "ToolCallUpdated",
         toolCall: {
           toolCallId: "tool-1",
-          kind: "execute",
-          title: "Ran command",
+          itemType: "command_execution",
+          title: "Terminal",
           status: "pending",
           command: "bun run typecheck",
           detail: "bun run typecheck",
@@ -157,29 +157,9 @@ describe("AcpRuntimeModel", () => {
       expect(mergeToolCallState(createdEvent.toolCall, updatedEvent.toolCall)).toMatchObject({
         toolCallId: "tool-1",
         status: "completed",
-        title: "Ran command",
-        detail: "bun run typecheck",
         command: "bun run typecheck",
       });
     }
-  });
-
-  it("trims padded current mode updates before emitting a mode change", () => {
-    const result = parseSessionUpdateEvent({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "current_mode_update",
-        currentModeId: " code ",
-      },
-    } satisfies EffectAcpSchema.SessionNotification);
-
-    expect(result.modeId).toBe("code");
-    expect(result.events).toEqual([
-      {
-        _tag: "ModeChanged",
-        modeId: "code",
-      },
-    ]);
   });
 
   it("projects typed ACP plan and content updates", () => {
@@ -273,11 +253,11 @@ describe("AcpRuntimeModel", () => {
     });
 
     expect(request).toMatchObject({
-      kind: "execute",
+      requestType: "exec_command_approval",
       detail: "cat package.json",
       toolCall: {
         toolCallId: "tool-1",
-        kind: "execute",
+        itemType: "command_execution",
         status: "pending",
         command: "cat package.json",
       },

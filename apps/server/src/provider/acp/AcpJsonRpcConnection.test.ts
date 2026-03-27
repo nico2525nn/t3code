@@ -6,46 +6,42 @@ import { it } from "@effect/vitest";
 import { Effect, Stream } from "effect";
 import { describe, expect } from "vitest";
 
-import { makeAcpJsonRpcConnection } from "./AcpJsonRpcConnection.ts";
+import { makeAcpSessionRuntime } from "./AcpSessionRuntime.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const mockAgentPath = path.join(__dirname, "../../../scripts/acp-mock-agent.mjs");
+const mockAgentPath = path.join(__dirname, "../../../scripts/acp-mock-agent.ts");
+const bunExe = "bun";
 
-describe("AcpJsonRpcConnection", () => {
-  it.effect("performs initialize → session/new → session/prompt against mock agent", () =>
+describe("AcpSessionRuntime", () => {
+  it.effect("starts a session, prompts, and emits normalized events against the mock agent", () =>
     Effect.gen(function* () {
-      const conn = yield* makeAcpJsonRpcConnection({
-        command: process.execPath,
-        args: [mockAgentPath],
-      });
-
-      const initResult = yield* conn.request("initialize", {
-        protocolVersion: 1,
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      const runtime = yield* makeAcpSessionRuntime({
+        spawn: {
+          command: bunExe,
+          args: [mockAgentPath],
+        },
+        cwd: process.cwd(),
         clientInfo: { name: "t3-test", version: "0.0.0" },
       });
-      expect(initResult).toMatchObject({ protocolVersion: 1 });
 
-      yield* conn.request("authenticate", { methodId: "cursor_login" });
+      expect(runtime.initializeResult).toMatchObject({ protocolVersion: 1 });
+      expect(runtime.sessionId).toBe("mock-session-1");
 
-      const newResult = yield* conn.request("session/new", {
-        cwd: process.cwd(),
-        mcpServers: [],
-      });
-      expect(newResult).toMatchObject({ sessionId: "mock-session-1" });
-
-      const promptResult = yield* conn.request("session/prompt", {
-        sessionId: "mock-session-1",
+      const promptResult = yield* runtime.prompt({
         prompt: [{ type: "text", text: "hi" }],
       });
       expect(promptResult).toMatchObject({ stopReason: "end_turn" });
 
-      const notes = yield* Stream.runCollect(Stream.take(conn.notifications, 1));
-      expect(notes.length).toBe(1);
-      expect(notes[0]?._tag).toBe("notification");
-      if (notes[0]?._tag === "notification") {
-        expect(notes[0].method).toBe("session/update");
+      const notes = Array.from(yield* Stream.runCollect(Stream.take(runtime.events, 2)));
+      expect(notes).toHaveLength(2);
+      expect(notes.map((note) => note._tag)).toEqual(["PlanUpdated", "ContentDelta"]);
+      const planUpdate = notes.find((note) => note._tag === "PlanUpdated");
+      expect(planUpdate?._tag).toBe("PlanUpdated");
+      if (planUpdate?._tag === "PlanUpdated") {
+        expect(planUpdate.payload.plan).toHaveLength(2);
       }
+
+      yield* runtime.close;
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 });

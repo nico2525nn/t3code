@@ -16,7 +16,8 @@ import { makeCursorAdapterLive } from "./CursorAdapter.ts";
 import { resolveCursorAcpModelId } from "./CursorProvider.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const mockAgentPath = path.join(__dirname, "../../../scripts/acp-mock-agent.mjs");
+const mockAgentPath = path.join(__dirname, "../../../scripts/acp-mock-agent.ts");
+const bunExe = "bun";
 
 async function makeMockAgentWrapper(extraEnv?: Record<string, string>) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "cursor-acp-mock-"));
@@ -26,7 +27,7 @@ async function makeMockAgentWrapper(extraEnv?: Record<string, string>) {
     .join("\n");
   const script = `#!/bin/sh
 ${envExports}
-exec ${JSON.stringify(process.execPath)} ${JSON.stringify(mockAgentPath)} "$@"
+exec ${JSON.stringify(bunExe)} ${JSON.stringify(mockAgentPath)} "$@"
 `;
   await writeFile(wrapperPath, script, "utf8");
   await chmod(wrapperPath, 0o755);
@@ -48,7 +49,7 @@ printf '%s\t' "$@" >> ${JSON.stringify(argvLogPath)}
 printf '\n' >> ${JSON.stringify(argvLogPath)}
 export T3_ACP_REQUEST_LOG_PATH=${JSON.stringify(requestLogPath)}
 ${envExports}
-exec ${JSON.stringify(process.execPath)} ${JSON.stringify(mockAgentPath)} "$@"
+exec ${JSON.stringify(bunExe)} ${JSON.stringify(mockAgentPath)} "$@"
 `;
   await writeFile(wrapperPath, script, "utf8");
   await chmod(wrapperPath, 0o755);
@@ -140,13 +141,10 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       const planUpdate = runtimeEvents.find((event) => event.type === "turn.plan.updated");
       assert.isDefined(planUpdate);
       if (planUpdate?.type === "turn.plan.updated") {
-        assert.deepStrictEqual(planUpdate.payload, {
-          explanation: "Mock plan while in code",
-          plan: [
-            { step: "Inspect mock ACP state", status: "completed" },
-            { step: "Implement the requested change", status: "inProgress" },
-          ],
-        });
+        assert.deepStrictEqual(planUpdate.payload.plan, [
+          { step: "Inspect mock ACP state", status: "completed" },
+          { step: "Implement the requested change", status: "inProgress" },
+        ]);
       }
 
       yield* adapter.stopSession(threadId);

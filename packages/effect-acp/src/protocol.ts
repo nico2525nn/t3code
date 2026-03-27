@@ -44,12 +44,14 @@ export interface AcpPatchedProtocolOptions {
   readonly serverRequestMethods: ReadonlySet<string>;
   readonly onNotification?: (
     notification: AcpIncomingNotification,
-  ) => Effect.Effect<void, AcpError.AcpError>;
+  ) => Effect.Effect<void, AcpError.AcpError, never>;
   readonly onExtRequest?: (
     method: string,
     params: unknown,
-  ) => Effect.Effect<unknown, AcpError.AcpError>;
-  readonly onProcessExit?: (error: AcpError.AcpProcessExitedError) => Effect.Effect<void>;
+  ) => Effect.Effect<unknown, AcpError.AcpError, never>;
+  readonly onProcessExit?: (
+    error: AcpError.AcpProcessExitedError,
+  ) => Effect.Effect<void, never, never>;
 }
 
 export interface AcpPatchedProtocol {
@@ -376,7 +378,7 @@ export const makeAcpPatchedProtocol = (
       Effect.forkScoped,
     );
 
-    yield* Stream.fromQueue(outgoing).pipe(Stream.run(options.stdio.stdout), Effect.forkScoped);
+    yield* Stream.fromQueue(outgoing).pipe(Stream.run(options.stdio.stdout()), Effect.forkScoped);
 
     const clientProtocol = RpcClient.Protocol.of({
       run: (f) =>

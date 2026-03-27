@@ -14,6 +14,26 @@ import * as AcpSchema from "./_generated/schema.gen";
 import { AGENT_METHODS, CLIENT_METHODS } from "./_generated/meta.gen";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
+export interface AcpExtensionRequestRegistration<A> {
+  readonly payload: Schema.Schema<A>;
+  readonly handler: (payload: A) => Effect.Effect<unknown, AcpError.AcpError>;
+}
+
+export interface AcpExtensionNotificationRegistration<A> {
+  readonly payload: Schema.Schema<A>;
+  readonly handler: (payload: A) => Effect.Effect<void, AcpError.AcpError>;
+}
+
+export const defineExtRequest = <A>(
+  payload: Schema.Schema<A>,
+  handler: (payload: A) => Effect.Effect<unknown, AcpError.AcpError>,
+): AcpExtensionRequestRegistration<A> => ({ payload, handler });
+
+export const defineExtNotification = <A>(
+  payload: Schema.Schema<A>,
+  handler: (payload: A) => Effect.Effect<void, AcpError.AcpError>,
+): AcpExtensionNotificationRegistration<A> => ({ payload, handler });
+
 export interface AcpClientHandlers {
   /**
    * Handles `session/request_permission`.
@@ -101,6 +121,10 @@ export interface AcpClientHandlers {
     params: unknown,
   ) => Effect.Effect<unknown, AcpError.AcpError>;
   /**
+   * Handles extension requests outside the core ACP method set using typed payload decoders.
+   */
+  readonly extRequests?: Readonly<Record<string, AcpExtensionRequestRegistration<any>>>;
+  /**
    * Handles extension notifications outside the core ACP method set.
    * @see https://agentclientprotocol.com/protocol/extensibility
    */
@@ -108,6 +132,10 @@ export interface AcpClientHandlers {
     method: string,
     params: unknown,
   ) => Effect.Effect<void, AcpError.AcpError>;
+  /**
+   * Handles extension notifications outside the core ACP method set using typed payload decoders.
+   */
+  readonly extNotifications?: Readonly<Record<string, AcpExtensionNotificationRegistration<any>>>;
 }
 
 export interface AcpClientConnectOptions {
@@ -257,16 +285,29 @@ export const fromChildProcess = Effect.fnUntraced(function* (
             ? handlers.elicitationComplete(notification.params)
             : Effect.void;
         case "ExtNotification":
-          return handlers.extNotification
-            ? handlers.extNotification(notification.method, notification.params)
-            : Effect.void;
+          return runExtNotificationHandler(
+            handlers.extNotifications?.[notification.method],
+            handlers.extNotification,
+            notification.method,
+            notification.params,
+          );
         case "SessionCancel":
           return handlers.extNotification
             ? handlers.extNotification(notification.method, notification.params)
             : Effect.void;
       }
     },
-    ...(handlers.extRequest ? { onExtRequest: handlers.extRequest } : {}),
+    ...(handlers.extRequest || handlers.extRequests
+      ? {
+          onExtRequest: (method: string, params: unknown) =>
+            runExtRequestHandler(
+              handlers.extRequests?.[method],
+              handlers.extRequest,
+              method,
+              params,
+            ),
+        }
+      : {}),
   });
 
   const clientHandlerLayer = AcpRpcs.ClientRpcs.toLayer(
@@ -354,3 +395,52 @@ const runHandler = Effect.fnUntraced(function* <A, B>(
     }),
   );
 });
+
+const decodeUnknownWith = <A>(
+  schema: Schema.Schema<A>,
+  payload: unknown,
+): Effect.Effect<A, AcpError.AcpError> =>
+  Effect.try({
+    try: () => Schema.decodeUnknownSync(schema as never)(payload) as A,
+    catch: (cause) =>
+      new AcpError.AcpProtocolParseError({
+        detail: "Failed to decode typed ACP extension payload",
+        cause,
+      }),
+  });
+
+const runExtRequestHandler = <A>(
+  registration: AcpExtensionRequestRegistration<A> | undefined,
+  fallback:
+    | ((method: string, params: unknown) => Effect.Effect<unknown, AcpError.AcpError>)
+    | undefined,
+  method: string,
+  params: unknown,
+): Effect.Effect<unknown, AcpError.AcpError> => {
+  if (registration) {
+    return decodeUnknownWith(registration.payload, params).pipe(
+      Effect.mapError(() => AcpError.AcpRequestError.invalidParams(`Invalid ${method} payload`)),
+      Effect.flatMap((payload) => registration.handler(payload)),
+    );
+  }
+  if (fallback) {
+    return fallback(method, params);
+  }
+  return Effect.fail(AcpError.AcpRequestError.methodNotFound(method));
+};
+
+const runExtNotificationHandler = <A>(
+  registration: AcpExtensionNotificationRegistration<A> | undefined,
+  fallback:
+    | ((method: string, params: unknown) => Effect.Effect<void, AcpError.AcpError>)
+    | undefined,
+  method: string,
+  params: unknown,
+): Effect.Effect<void, AcpError.AcpError> => {
+  if (registration) {
+    return decodeUnknownWith(registration.payload, params).pipe(
+      Effect.flatMap((payload) => registration.handler(payload)),
+    );
+  }
+  return fallback ? fallback(method, params) : Effect.void;
+};

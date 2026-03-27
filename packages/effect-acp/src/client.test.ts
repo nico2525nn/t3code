@@ -1,6 +1,7 @@
 import * as Path from "effect/Path";
 import * as Effect from "effect/Effect";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
@@ -18,6 +19,8 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
     Effect.gen(function* () {
       const updates = yield* Ref.make<Array<unknown>>([]);
       const elicitationCompletions = yield* Ref.make<Array<unknown>>([]);
+      const typedRequests = yield* Ref.make<Array<unknown>>([]);
+      const typedNotifications = yield* Ref.make<Array<unknown>>([]);
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const path = yield* Path.Path;
 
@@ -49,6 +52,24 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
             Ref.update(updates, (current) => [...current, notification]),
           elicitationComplete: (notification) =>
             Ref.update(elicitationCompletions, (current) => [...current, notification]),
+          extRequests: {
+            "x/typed_request": AcpClient.defineExtRequest(
+              Schema.Struct({ message: Schema.String }),
+              (payload) =>
+                Ref.update(typedRequests, (current) => [...current, payload]).pipe(
+                  Effect.as({
+                    ok: true,
+                    echoedMessage: payload.message,
+                  }),
+                ),
+            ),
+          },
+          extNotifications: {
+            "x/typed_notification": AcpClient.defineExtNotification(
+              Schema.Struct({ count: Schema.Number }),
+              (payload) => Ref.update(typedNotifications, (current) => [...current, payload]),
+            ),
+          },
         },
       });
 
@@ -85,6 +106,8 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
       assert.equal(streamed[1]?._tag, "ElicitationComplete");
       assert.equal((yield* Ref.get(updates)).length, 1);
       assert.equal((yield* Ref.get(elicitationCompletions)).length, 1);
+      assert.deepEqual(yield* Ref.get(typedRequests), [{ message: "hello from typed request" }]);
+      assert.deepEqual(yield* Ref.get(typedNotifications), [{ count: 2 }]);
 
       const ext = yield* client.extRequest("x/echo", {
         hello: "world",
