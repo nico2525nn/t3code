@@ -252,7 +252,9 @@ const generateSchemas = Effect.fn("generateSchemas")(function* (skipDownload: bo
   yield* Effect.service(ChildProcessSpawner.ChildProcessSpawner).pipe(
     Effect.flatMap((spawner) => spawner.spawn(ChildProcess.make("bun", ["oxfmt", generatedDir]))),
     Effect.flatMap((child) => child.exitCode),
-    Effect.tap(() => Effect.log("Formatted generated files")),
+    Effect.tap((code) =>
+      code === 0 ? Effect.void : Effect.fail(new Error(`oxfmt failed with exit code ${code}`)),
+    ),
   );
 });
 
