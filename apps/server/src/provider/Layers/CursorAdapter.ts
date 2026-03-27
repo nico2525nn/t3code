@@ -71,12 +71,6 @@ export interface CursorAdapterLiveOptions {
   readonly nativeEventLogger?: EventNdjsonLogger;
 }
 
-interface CursorSpawnOptions {
-  readonly binaryPath?: string | undefined;
-  readonly args?: ReadonlyArray<string> | undefined;
-  readonly apiEndpoint?: string | undefined;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -98,17 +92,6 @@ function extractModelConfigId(sessionResponse: unknown): string | undefined {
     }
   }
   return undefined;
-}
-
-function buildCursorSpawnInput(cwd: string, opts?: CursorSpawnOptions, model?: string | undefined) {
-  const command = opts?.binaryPath?.trim() || "agent";
-  const hasCustomArgs = opts?.args && opts.args.length > 0;
-  const args = [
-    ...(opts?.apiEndpoint ? (["-e", opts.apiEndpoint] as const) : []),
-    ...(model && !hasCustomArgs ? (["--model", model] as const) : []),
-    ...(hasCustomArgs ? opts.args : (["acp"] as const)),
-  ];
-  return { command, args, cwd } as const;
 }
 
 function toMessage(cause: unknown, fallback: string): string {
@@ -678,7 +661,6 @@ interface PendingUserInput {
 interface CursorSessionContext {
   readonly threadId: ThreadId;
   session: ProviderSession;
-  readonly spawnOptions?: CursorSpawnOptions | undefined;
   readonly child: ChildProcessWithoutNullStreams;
   readonly conn: AcpJsonRpcConnection;
   acpSessionId: string;
@@ -896,8 +878,16 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
           });
         }
         const cwd = nodePath.resolve(input.cwd.trim());
-        const cursorSettings = yield* serverSettingsService.getSettings.pipe(
+        const spawnOptions = yield* serverSettingsService.getSettings.pipe(
           Effect.map((settings) => settings.providers.cursor),
+          Effect.map((cursorSettings) => ({
+            command: cursorSettings.binaryPath,
+            args: [
+              ...(cursorSettings.apiEndpoint ? (["-e", cursorSettings.apiEndpoint] as const) : []),
+              "acp",
+            ],
+            cwd,
+          })),
           Effect.mapError(
             (error) =>
               new ProviderAdapterProcessError({
@@ -908,22 +898,14 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
               }),
           ),
         );
-        const cursorOpts: CursorSpawnOptions = {
-          binaryPath: cursorSettings.binaryPath,
-          apiEndpoint: cursorSettings.apiEndpoint || undefined,
-        };
         const cursorModelSelection =
           input.modelSelection?.provider === "cursor" ? input.modelSelection : undefined;
-        const initialModel = resolveCursorDispatchModel(
-          cursorModelSelection?.model,
-          cursorModelSelection?.options,
-        );
         const existing = sessions.get(input.threadId);
         if (existing && !existing.stopped) {
           yield* stopSessionInternal(existing);
         }
-        const spawnInput = buildCursorSpawnInput(cwd, cursorOpts, initialModel);
-        const child = yield* spawnAcpChildProcess(spawnInput).pipe(
+
+        const child = yield* spawnAcpChildProcess(spawnOptions).pipe(
           Effect.mapError(
             (e) =>
               new ProviderAdapterProcessError({
@@ -950,7 +932,6 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         const ctx: CursorSessionContext = {
           threadId: input.threadId,
           session: {} as ProviderSession,
-          spawnOptions: cursorOpts,
           child,
           conn,
           acpSessionId: "",

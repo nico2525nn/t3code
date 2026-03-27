@@ -161,6 +161,18 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
       promptInjectedEffortLevels: [],
     },
   },
+  {
+    slug: "grok-4-20",
+    name: "Grok 4.20",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [],
+      supportsFastMode: false,
+      supportsThinkingToggle: true,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    },
+  },
 ];
 
 export function getCursorModelCapabilities(model: string | null | undefined): ModelCapabilities {
