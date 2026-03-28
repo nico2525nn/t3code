@@ -449,23 +449,13 @@ export const makeAcpPatchedProtocol = (
       method: string,
       payload: unknown,
     ) {
-      const message = {
-        jsonrpc: "2.0" as const,
-        method,
-        ...(payload !== undefined ? { params: payload } : {}),
-      };
-      yield* logProtocol({
-        direction: "outgoing",
-        stage: "decoded",
-        payload: message,
+      yield* offerOutgoing({
+        _tag: "Request",
+        id: "",
+        tag: method,
+        payload,
+        headers: [],
       });
-      const encoded = `${JSON.stringify(message)}\n`;
-      yield* logProtocol({
-        direction: "outgoing",
-        stage: "raw",
-        payload: encoded,
-      });
-      yield* Queue.offer(outgoing, encoded).pipe(Effect.asVoid);
     });
 
     const sendRequest = Effect.fn("sendRequest")(function* (method: string, payload: unknown) {

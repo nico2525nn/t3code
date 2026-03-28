@@ -1,3 +1,4 @@
+import * as AcpError from "./errors";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -64,6 +65,8 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
         const outbound = yield* Queue.take(output);
         assert.deepEqual(decodeJson(outbound), {
           jsonrpc: "2.0",
+          id: "",
+          headers: [],
           method: "session/cancel",
           params: {
             sessionId: "session-1",
@@ -133,20 +136,46 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
           direction: "outgoing",
           stage: "decoded",
           payload: {
-            jsonrpc: "2.0",
-            method: "session/cancel",
-            params: {
+            _tag: "Request",
+            id: "",
+            tag: "session/cancel",
+            payload: {
               sessionId: "session-1",
             },
+            headers: [],
           },
         },
         {
           direction: "outgoing",
           stage: "raw",
           payload:
-            '{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"session-1"}}\n',
+            '{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"session-1"},"id":"","headers":[]}\n',
         },
       ]);
+    }),
+  );
+
+  it.effect("fails notification encoding through the declared ACP error channel", () =>
+    Effect.gen(function* () {
+      const { stdio } = yield* makeInMemoryStdio();
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio,
+        serverRequestMethods: new Set(),
+      });
+
+      const bigintError = yield* transport.notifications
+        .sendExtNotification("x/test", 1n)
+        .pipe(Effect.flip);
+      assert.instanceOf(bigintError, AcpError.AcpProtocolParseError);
+      assert.equal(bigintError.detail, "Failed to encode ACP message");
+
+      const circular: Record<string, unknown> = {};
+      circular.self = circular;
+      const circularError = yield* transport.notifications
+        .sendExtNotification("x/test", circular)
+        .pipe(Effect.flip);
+      assert.instanceOf(circularError, AcpError.AcpProtocolParseError);
+      assert.equal(circularError.detail, "Failed to encode ACP message");
     }),
   );
 
