@@ -99,32 +99,34 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
     );
   };
 
-  const offerOutgoing = (message: RpcMessage.FromClientEncoded | RpcMessage.FromServerEncoded) =>
-    Effect.try({
+  const offerOutgoing = Effect.fn("offerOutgoing")(function* (
+    message: RpcMessage.FromClientEncoded | RpcMessage.FromServerEncoded,
+  ) {
+    yield* logProtocol({
+      direction: "outgoing",
+      stage: "decoded",
+      payload: message,
+    });
+
+    const encoded = yield* Effect.try({
       try: () => parser.encode(message),
       catch: (cause) =>
         new AcpError.AcpProtocolParseError({
           detail: "Failed to encode ACP message",
           cause,
         }),
-    }).pipe(
-      Effect.tap(() =>
-        logProtocol({
-          direction: "outgoing",
-          stage: "decoded",
-          payload: message,
-        }),
-      ),
-      Effect.flatMap((encoded) =>
-        encoded === undefined
-          ? Effect.void
-          : logProtocol({
-              direction: "outgoing",
-              stage: "raw",
-              payload: typeof encoded === "string" ? encoded : new TextDecoder().decode(encoded),
-            }).pipe(Effect.flatMap(() => Queue.offer(outgoing, encoded).pipe(Effect.asVoid))),
-      ),
-    );
+    });
+
+    if (encoded) {
+      yield* logProtocol({
+        direction: "outgoing",
+        stage: "raw",
+        payload: typeof encoded === "string" ? encoded : new TextDecoder().decode(encoded),
+      });
+
+      yield* Queue.offer(outgoing, encoded).pipe(Effect.asVoid);
+    }
+  });
 
   const resolveExtPending = (
     requestId: string,
@@ -451,7 +453,7 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
       ),
     disconnects,
     send: (_clientId, response) => offerOutgoing(response).pipe(Effect.orDie),
-    end: () => Queue.end(outgoing).pipe(Effect.orDie),
+    end: () => Queue.end(outgoing),
     clientIds: Effect.succeed(new Set([0])),
     initialMessage: Effect.succeedNone,
     supportsAck: true,
