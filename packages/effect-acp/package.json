@@ -7,10 +7,6 @@
       "types": "./src/client.ts",
       "import": "./src/client.ts"
     },
-    "./server": {
-      "types": "./src/server.ts",
-      "import": "./src/server.ts"
-    },
     "./schema": {
       "types": "./src/schema.ts",
       "import": "./src/schema.ts"
@@ -33,8 +29,8 @@
     }
   },
   "scripts": {
-    "dev": "tsdown src/client.ts src/server.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/terminal.ts --format esm,cjs --dts --watch --clean",
-    "build": "tsdown src/client.ts src/server.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/terminal.ts --format esm,cjs --dts --clean",
+    "dev": "tsdown src/client.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/terminal.ts --format esm,cjs --dts --watch --clean",
+    "build": "tsdown src/client.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/terminal.ts --format esm,cjs --dts --clean",
     "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

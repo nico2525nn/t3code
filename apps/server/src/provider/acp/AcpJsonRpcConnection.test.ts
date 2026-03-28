@@ -8,7 +8,7 @@ import { it } from "@effect/vitest";
 import { Effect, Stream } from "effect";
 import { describe, expect } from "vitest";
 
-import { makeAcpSessionRuntime, type AcpSessionRequestLogEvent } from "./AcpSessionRuntime.ts";
+import { AcpSessionRuntime, type AcpSessionRequestLogEvent } from "./AcpSessionRuntime.ts";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -18,18 +18,11 @@ const bunExe = "bun";
 describe("AcpSessionRuntime", () => {
   it.effect("starts a session, prompts, and emits normalized events against the mock agent", () =>
     Effect.gen(function* () {
-      const runtime = yield* makeAcpSessionRuntime({
-        spawn: {
-          command: bunExe,
-          args: [mockAgentPath],
-        },
-        cwd: process.cwd(),
-        clientInfo: { name: "t3-test", version: "0.0.0" },
-        authMethodId: "test",
-      });
+      const runtime = yield* AcpSessionRuntime;
+      const started = yield* runtime.start();
 
-      expect(runtime.initializeResult).toMatchObject({ protocolVersion: 1 });
-      expect(runtime.sessionId).toBe("mock-session-1");
+      expect(started.initializeResult).toMatchObject({ protocolVersion: 1 });
+      expect(started.sessionId).toBe("mock-session-1");
 
       const promptResult = yield* runtime.prompt({
         prompt: [{ type: "text", text: "hi" }],
@@ -46,25 +39,28 @@ describe("AcpSessionRuntime", () => {
       }
 
       yield* runtime.close;
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    }).pipe(
+      Effect.provide(
+        AcpSessionRuntime.layer({
+          spawn: {
+            command: bunExe,
+            args: [mockAgentPath],
+          },
+          cwd: process.cwd(),
+          clientInfo: { name: "t3-test", version: "0.0.0" },
+          authMethodId: "test",
+        }),
+      ),
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+    ),
   );
 
-  it.effect("logs ACP requests from the shared runtime", () =>
-    Effect.gen(function* () {
-      const requestEvents: Array<AcpSessionRequestLogEvent> = [];
-      const runtime = yield* makeAcpSessionRuntime({
-        authMethodId: "test",
-        spawn: {
-          command: bunExe,
-          args: [mockAgentPath],
-        },
-        cwd: process.cwd(),
-        clientInfo: { name: "t3-test", version: "0.0.0" },
-        requestLogger: (event) =>
-          Effect.sync(() => {
-            requestEvents.push(event);
-          }),
-      });
+  it.effect("logs ACP requests from the shared runtime", () => {
+    const requestEvents: Array<AcpSessionRequestLogEvent> = [];
+    return Effect.gen(function* () {
+      const runtime = yield* AcpSessionRuntime;
+      yield* runtime.start();
 
       yield* runtime.setModel("composer-2");
       yield* runtime.prompt({
@@ -93,29 +89,32 @@ describe("AcpSessionRuntime", () => {
       ).toBe(true);
 
       yield* runtime.close;
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("emits low-level ACP protocol logs for raw and decoded messages", () =>
-    Effect.gen(function* () {
-      const protocolEvents: Array<EffectAcpProtocol.AcpProtocolLogEvent> = [];
-      const runtime = yield* makeAcpSessionRuntime({
-        authMethodId: "test",
-        spawn: {
-          command: bunExe,
-          args: [mockAgentPath],
-        },
-        cwd: process.cwd(),
-        clientInfo: { name: "t3-test", version: "0.0.0" },
-        protocolLogging: {
-          logIncoming: true,
-          logOutgoing: true,
-          logger: (event) =>
+    }).pipe(
+      Effect.provide(
+        AcpSessionRuntime.layer({
+          authMethodId: "test",
+          spawn: {
+            command: bunExe,
+            args: [mockAgentPath],
+          },
+          cwd: process.cwd(),
+          clientInfo: { name: "t3-test", version: "0.0.0" },
+          requestLogger: (event) =>
             Effect.sync(() => {
-              protocolEvents.push(event);
+              requestEvents.push(event);
             }),
-        },
-      });
+        }),
+      ),
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+    );
+  });
+
+  it.effect("emits low-level ACP protocol logs for raw and decoded messages", () => {
+    const protocolEvents: Array<EffectAcpProtocol.AcpProtocolLogEvent> = [];
+    return Effect.gen(function* () {
+      const runtime = yield* AcpSessionRuntime;
+      yield* runtime.start();
 
       yield* runtime.prompt({
         prompt: [{ type: "text", text: "hi" }],
@@ -135,25 +134,37 @@ describe("AcpSessionRuntime", () => {
       ).toBe(true);
 
       yield* runtime.close;
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("rejects invalid config option values before sending session/set_config_option", () =>
-    Effect.gen(function* () {
-      const tempDir = mkdtempSync(path.join(os.tmpdir(), "acp-runtime-"));
-      const requestLogPath = path.join(tempDir, "requests.ndjson");
-      const runtime = yield* makeAcpSessionRuntime({
-        authMethodId: "test",
-        spawn: {
-          command: bunExe,
-          args: [mockAgentPath],
-          env: {
-            T3_ACP_REQUEST_LOG_PATH: requestLogPath,
+    }).pipe(
+      Effect.provide(
+        AcpSessionRuntime.layer({
+          authMethodId: "test",
+          spawn: {
+            command: bunExe,
+            args: [mockAgentPath],
           },
-        },
-        cwd: process.cwd(),
-        clientInfo: { name: "t3-test", version: "0.0.0" },
-      });
+          cwd: process.cwd(),
+          clientInfo: { name: "t3-test", version: "0.0.0" },
+          protocolLogging: {
+            logIncoming: true,
+            logOutgoing: true,
+            logger: (event) =>
+              Effect.sync(() => {
+                protocolEvents.push(event);
+              }),
+          },
+        }),
+      ),
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+    );
+  });
+
+  it.effect("rejects invalid config option values before sending session/set_config_option", () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "acp-runtime-"));
+    const requestLogPath = path.join(tempDir, "requests.ndjson");
+    return Effect.gen(function* () {
+      const runtime = yield* AcpSessionRuntime;
+      yield* runtime.start();
 
       const error = yield* runtime.setModel("composer-2[fast=false]").pipe(Effect.flip);
       expect(error._tag).toBe("AcpRequestError");
@@ -181,6 +192,23 @@ describe("AcpSessionRuntime", () => {
       ).toBe(false);
 
       rmSync(tempDir, { recursive: true, force: true });
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
-  );
+    }).pipe(
+      Effect.provide(
+        AcpSessionRuntime.layer({
+          authMethodId: "test",
+          spawn: {
+            command: bunExe,
+            args: [mockAgentPath],
+            env: {
+              T3_ACP_REQUEST_LOG_PATH: requestLogPath,
+            },
+          },
+          cwd: process.cwd(),
+          clientInfo: { name: "t3-test", version: "0.0.0" },
+        }),
+      ),
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+    );
+  });
 });

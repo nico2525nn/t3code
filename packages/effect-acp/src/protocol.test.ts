@@ -100,14 +100,14 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
 
         const notifications =
           yield* Deferred.make<ReadonlyArray<AcpProtocol.AcpIncomingNotification>>();
-        yield* transport.notifications.incoming.pipe(
+        yield* transport.incoming.pipe(
           Stream.take(2),
           Stream.runCollect,
           Effect.flatMap((notificationChunk) => Deferred.succeed(notifications, notificationChunk)),
           Effect.forkScoped,
         );
 
-        yield* transport.notifications.sendSessionCancel({ sessionId: "session-1" });
+        yield* transport.notify("session/cancel", { sessionId: "session-1" });
         const outbound = yield* Queue.take(output);
         assert.deepEqual(decodeJson(outbound), {
           jsonrpc: "2.0",
@@ -175,7 +175,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
           }),
       });
 
-      yield* transport.notifications.sendSessionCancel({ sessionId: "session-1" });
+      yield* transport.notify("session/cancel", { sessionId: "session-1" });
 
       assert.deepEqual(events, [
         {
@@ -209,17 +209,13 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
         serverRequestMethods: new Set(),
       });
 
-      const bigintError = yield* transport.notifications
-        .sendExtNotification("x/test", 1n)
-        .pipe(Effect.flip);
+      const bigintError = yield* transport.notify("x/test", 1n).pipe(Effect.flip);
       assert.instanceOf(bigintError, AcpError.AcpProtocolParseError);
       assert.equal(bigintError.detail, "Failed to encode ACP message");
 
       const circular: Record<string, unknown> = {};
       circular.self = circular;
-      const circularError = yield* transport.notifications
-        .sendExtNotification("x/test", circular)
-        .pipe(Effect.flip);
+      const circularError = yield* transport.notify("x/test", circular).pipe(Effect.flip);
       assert.instanceOf(circularError, AcpError.AcpProtocolParseError);
       assert.equal(circularError.detail, "Failed to encode ACP message");
     }),
@@ -234,7 +230,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       });
 
       const response = yield* transport
-        .sendRequest("x/test", { hello: "world" })
+        .request("x/test", { hello: "world" })
         .pipe(Effect.forkScoped);
       const outbound = yield* Queue.take(output);
       assert.deepEqual(decodeJson(outbound), {
@@ -279,7 +275,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
         .pipe(Effect.forkScoped);
 
       const response = yield* transport
-        .sendRequest("x/test", { hello: "world" })
+        .request("x/test", { hello: "world" })
         .pipe(Effect.forkScoped);
       const outbound = yield* Queue.take(output);
       assert.deepEqual(decodeJson(outbound), {
@@ -392,7 +388,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       });
 
       const response = yield* transport
-        .sendRequest("x/test", { hello: "world" })
+        .request("x/test", { hello: "world" })
         .pipe(Effect.forkScoped);
       yield* Queue.take(output);
       yield* Queue.end(input);

@@ -8,42 +8,41 @@ import { Effect } from "effect";
 import { describe, expect } from "vitest";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
-import { makeAcpSessionRuntime } from "./AcpSessionRuntime.ts";
+import { AcpSessionRuntime } from "./AcpSessionRuntime.ts";
 
 describe.runIf(process.env.T3_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", () => {
   it.effect("initialize and authenticate against real agent acp", () =>
     Effect.gen(function* () {
-      const runtime = yield* makeAcpSessionRuntime({
-        spawn: {
-          command: "agent",
-          args: ["acp"],
-          cwd: process.cwd(),
-        },
-        cwd: process.cwd(),
-        clientInfo: { name: "t3-probe", version: "0.0.0" },
-        authMethodId: "cursor_login",
-      });
-      expect(runtime.initializeResult).toBeDefined();
+      const runtime = yield* AcpSessionRuntime;
+      const started = yield* runtime.start();
+      expect(started.initializeResult).toBeDefined();
       yield* runtime.close;
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    }).pipe(
+      Effect.provide(
+        AcpSessionRuntime.layer({
+          spawn: {
+            command: "agent",
+            args: ["acp"],
+            cwd: process.cwd(),
+          },
+          cwd: process.cwd(),
+          clientInfo: { name: "t3-probe", version: "0.0.0" },
+          authMethodId: "cursor_login",
+        }),
+      ),
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+    ),
   );
 
   it.effect("session/new returns configOptions with a model selector", () =>
     Effect.gen(function* () {
-      const runtime = yield* makeAcpSessionRuntime({
-        authMethodId: "cursor_login",
-        spawn: {
-          command: "agent",
-          args: ["acp"],
-          cwd: process.cwd(),
-        },
-        cwd: process.cwd(),
-        clientInfo: { name: "t3-probe", version: "0.0.0" },
-      });
-      const result = runtime.sessionSetupResult;
+      const runtime = yield* AcpSessionRuntime;
+      const started = yield* runtime.start();
+      const result = started.sessionSetupResult;
       console.log("session/new result:", JSON.stringify(result, null, 2));
 
-      expect(typeof runtime.sessionId).toBe("string");
+      expect(typeof started.sessionId).toBe("string");
 
       const configOptions = result.configOptions;
       console.log("session/new configOptions:", JSON.stringify(configOptions, null, 2));
@@ -55,22 +54,29 @@ describe.runIf(process.env.T3_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", 
         expect(typeof modelConfig?.id).toBe("string");
       }
       yield* runtime.close;
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    }).pipe(
+      Effect.provide(
+        AcpSessionRuntime.layer({
+          authMethodId: "cursor_login",
+          spawn: {
+            command: "agent",
+            args: ["acp"],
+            cwd: process.cwd(),
+          },
+          cwd: process.cwd(),
+          clientInfo: { name: "t3-probe", version: "0.0.0" },
+        }),
+      ),
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+    ),
   );
 
   it.effect("session/set_config_option switches the model in-session", () =>
     Effect.gen(function* () {
-      const runtime = yield* makeAcpSessionRuntime({
-        authMethodId: "cursor_login",
-        spawn: {
-          command: "agent",
-          args: ["acp"],
-          cwd: process.cwd(),
-        },
-        cwd: process.cwd(),
-        clientInfo: { name: "t3-probe", version: "0.0.0" },
-      });
-      const newResult = runtime.sessionSetupResult;
+      const runtime = yield* AcpSessionRuntime;
+      const started = yield* runtime.start();
+      const newResult = started.sessionSetupResult;
 
       const configOptions = newResult.configOptions;
       let modelConfigId = "model";
@@ -93,6 +99,21 @@ describe.runIf(process.env.T3_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", 
         }
       }
       yield* runtime.close;
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    }).pipe(
+      Effect.provide(
+        AcpSessionRuntime.layer({
+          authMethodId: "cursor_login",
+          spawn: {
+            command: "agent",
+            args: ["acp"],
+            cwd: process.cwd(),
+          },
+          cwd: process.cwd(),
+          clientInfo: { name: "t3-probe", version: "0.0.0" },
+        }),
+      ),
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+    ),
   );
 });
