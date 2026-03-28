@@ -3,8 +3,8 @@ import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 import { RpcClientError } from "effect/unstable/rpc";
 
-import * as AcpSchema from "../_generated/schema.gen.ts";
-import * as AcpError from "../errors.ts";
+import * as AcpSchema from "../_generated/schema.gen";
+import * as AcpError from "../errors";
 
 const formatSchemaIssue = SchemaIssue.makeFormatterDefault();
 
@@ -31,7 +31,7 @@ export const runHandler = Effect.fnUntraced(function* <A, B>(
   method: string,
 ) {
   if (!handler) {
-    return yield* Effect.fail(AcpError.AcpRequestError.methodNotFound(method).toProtocolError());
+    return yield* AcpError.AcpRequestError.methodNotFound(method);
   }
   return yield* handler(payload).pipe(
     Effect.mapError((error) =>

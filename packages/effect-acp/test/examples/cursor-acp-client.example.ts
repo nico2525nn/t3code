@@ -6,20 +6,20 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 
 import * as AcpClient from "../../src/client";
 
-Effect.gen(function* () {
+const program = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const command = ChildProcess.make("cursor-agent", ["acp"], {
     cwd: process.cwd(),
     shell: process.platform === "win32",
   });
   const handle = yield* spawner.spawn(command);
-  const acpLayer = AcpClient.layerFromChildProcessHandle(handle, {
+  const acpLayer = AcpClient.layerChildProcess(handle, {
     logIncoming: true,
     logOutgoing: true,
   });
 
   yield* Effect.gen(function* () {
-    const acp = yield* AcpClient.AcpConnection;
+    const acp = yield* AcpClient.AcpClient;
 
     yield* acp.handleRequestPermission(() =>
       Effect.succeed({
@@ -33,7 +33,7 @@ Effect.gen(function* () {
       Effect.logInfo("session/update", notification),
     );
 
-    const initialized = yield* acp.initialize({
+    const initialized = yield* acp.agent.initialize({
       protocolVersion: 1,
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
@@ -46,18 +46,18 @@ Effect.gen(function* () {
     });
     yield* Effect.logInfo("initialized", initialized);
 
-    const session = yield* acp.createSession({
+    const session = yield* acp.agent.createSession({
       cwd: process.cwd(),
       mcpServers: [],
     });
 
-    yield* acp.setSessionConfigOption({
+    yield* acp.agent.setSessionConfigOption({
       sessionId: session.sessionId,
       configId: "model",
       value: "gpt-5.4[reasoning=medium,context=272k,fast=false]",
     });
 
-    const result = yield* acp.prompt({
+    const result = yield* acp.agent.prompt({
       sessionId: session.sessionId,
       prompt: [
         {
@@ -68,6 +68,8 @@ Effect.gen(function* () {
     });
 
     yield* Effect.logInfo("prompt result", result);
-    yield* acp.cancel({ sessionId: session.sessionId });
+    yield* acp.agent.cancel({ sessionId: session.sessionId });
   }).pipe(Effect.provide(acpLayer));
-}).pipe(Effect.scoped, Effect.provide(NodeServices.layer), NodeRuntime.runMain);
+});
+
+program.pipe(Effect.scoped, Effect.provide(NodeServices.layer), NodeRuntime.runMain);

@@ -42,7 +42,7 @@ export type AcpIncomingNotification =
 
 export interface AcpPatchedProtocolOptions {
   readonly stdio: Stdio.Stdio;
-  readonly processExit?: Effect.Effect<number | null, AcpError.AcpProcessExitedError>;
+  readonly terminationError?: Effect.Effect<AcpError.AcpError>;
   readonly serverRequestMethods: ReadonlySet<string>;
   readonly logIncoming?: boolean;
   readonly logOutgoing?: boolean;
@@ -54,9 +54,7 @@ export interface AcpPatchedProtocolOptions {
     method: string,
     params: unknown,
   ) => Effect.Effect<unknown, AcpError.AcpError, never>;
-  readonly onProcessExit?: (
-    error: AcpError.AcpProcessExitedError,
-  ) => Effect.Effect<void, never, never>;
+  readonly onTermination?: (error: AcpError.AcpError) => Effect.Effect<void, never, never>;
 }
 
 export interface AcpPatchedProtocol {
@@ -189,15 +187,7 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
       }),
     }).pipe(Effect.asVoid);
 
-  const handleTermination = (
-    classify: () => Effect.Effect<
-      | {
-          readonly error: AcpError.AcpError;
-          readonly processExitError?: AcpError.AcpProcessExitedError | undefined;
-        }
-      | undefined
-    >,
-  ) =>
+  const handleTermination = (classify: () => Effect.Effect<AcpError.AcpError | undefined>) =>
     Ref.modify(terminationHandled, (handled) => {
       if (handled) {
         return [Effect.void, true] as const;
@@ -205,14 +195,14 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
       return [
         Effect.gen(function* () {
           yield* Queue.offer(disconnects, 0);
-          const terminated = yield* classify();
-          if (!terminated) {
+          const error = yield* classify();
+          if (!error) {
             return;
           }
-          yield* failAllExtPending(terminated.error);
-          yield* emitClientProtocolError(terminated.error);
-          if (terminated.processExitError && options.onProcessExit) {
-            yield* options.onProcessExit(terminated.processExitError);
+          yield* failAllExtPending(error);
+          yield* emitClientProtocolError(error);
+          if (options.onTermination) {
+            yield* options.onTermination(error);
           }
         }),
         true,
@@ -423,36 +413,18 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
               detail: error instanceof Error ? error.message : String(error),
               cause: error,
             });
-        return handleTermination(() => Effect.succeed({ error: normalized }));
+        return handleTermination(() => Effect.succeed(normalized));
       },
       onSuccess: () =>
-        handleTermination(() =>
-          options.processExit
-            ? options.processExit.pipe(
-                Effect.match({
-                  onFailure: (processExitError) =>
-                    ({
-                      error: processExitError,
-                      processExitError,
-                    }) as const,
-                  onSuccess: (code) => {
-                    const processExitError =
-                      code === null
-                        ? new AcpError.AcpProcessExitedError({})
-                        : new AcpError.AcpProcessExitedError({ code });
-                    return {
-                      error: processExitError,
-                      processExitError,
-                    } as const;
-                  },
-                }),
-              )
-            : Effect.succeed({
-                error: new AcpError.AcpTransportError({
-                  detail: "ACP input stream ended",
-                  cause: new Error("ACP input stream ended"),
-                }),
+        handleTermination(
+          () =>
+            options.terminationError ??
+            Effect.succeed(
+              new AcpError.AcpTransportError({
+                detail: "ACP input stream ended",
+                cause: new Error("ACP input stream ended"),
               }),
+            ),
         ),
     }),
     Effect.forkScoped,

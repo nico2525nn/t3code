@@ -71,21 +71,21 @@ export interface AcpSessionRuntimeStartResult {
 }
 
 export interface AcpSessionRuntimeShape {
-  readonly handleRequestPermission: EffectAcpClient.AcpConnectionShape["handleRequestPermission"];
-  readonly handleElicitation: EffectAcpClient.AcpConnectionShape["handleElicitation"];
-  readonly handleReadTextFile: EffectAcpClient.AcpConnectionShape["handleReadTextFile"];
-  readonly handleWriteTextFile: EffectAcpClient.AcpConnectionShape["handleWriteTextFile"];
-  readonly handleCreateTerminal: EffectAcpClient.AcpConnectionShape["handleCreateTerminal"];
-  readonly handleTerminalOutput: EffectAcpClient.AcpConnectionShape["handleTerminalOutput"];
-  readonly handleTerminalWaitForExit: EffectAcpClient.AcpConnectionShape["handleTerminalWaitForExit"];
-  readonly handleTerminalKill: EffectAcpClient.AcpConnectionShape["handleTerminalKill"];
-  readonly handleTerminalRelease: EffectAcpClient.AcpConnectionShape["handleTerminalRelease"];
-  readonly handleSessionUpdate: EffectAcpClient.AcpConnectionShape["handleSessionUpdate"];
-  readonly handleElicitationComplete: EffectAcpClient.AcpConnectionShape["handleElicitationComplete"];
-  readonly handleUnknownExtRequest: EffectAcpClient.AcpConnectionShape["handleUnknownExtRequest"];
-  readonly handleUnknownExtNotification: EffectAcpClient.AcpConnectionShape["handleUnknownExtNotification"];
-  readonly handleExtRequest: EffectAcpClient.AcpConnectionShape["handleExtRequest"];
-  readonly handleExtNotification: EffectAcpClient.AcpConnectionShape["handleExtNotification"];
+  readonly handleRequestPermission: EffectAcpClient.AcpClientShape["handleRequestPermission"];
+  readonly handleElicitation: EffectAcpClient.AcpClientShape["handleElicitation"];
+  readonly handleReadTextFile: EffectAcpClient.AcpClientShape["handleReadTextFile"];
+  readonly handleWriteTextFile: EffectAcpClient.AcpClientShape["handleWriteTextFile"];
+  readonly handleCreateTerminal: EffectAcpClient.AcpClientShape["handleCreateTerminal"];
+  readonly handleTerminalOutput: EffectAcpClient.AcpClientShape["handleTerminalOutput"];
+  readonly handleTerminalWaitForExit: EffectAcpClient.AcpClientShape["handleTerminalWaitForExit"];
+  readonly handleTerminalKill: EffectAcpClient.AcpClientShape["handleTerminalKill"];
+  readonly handleTerminalRelease: EffectAcpClient.AcpClientShape["handleTerminalRelease"];
+  readonly handleSessionUpdate: EffectAcpClient.AcpClientShape["handleSessionUpdate"];
+  readonly handleElicitationComplete: EffectAcpClient.AcpClientShape["handleElicitationComplete"];
+  readonly handleUnknownExtRequest: EffectAcpClient.AcpClientShape["handleUnknownExtRequest"];
+  readonly handleUnknownExtNotification: EffectAcpClient.AcpClientShape["handleUnknownExtNotification"];
+  readonly handleExtRequest: EffectAcpClient.AcpClientShape["handleExtRequest"];
+  readonly handleExtNotification: EffectAcpClient.AcpClientShape["handleExtNotification"];
   readonly start: () => Effect.Effect<AcpSessionRuntimeStartResult, EffectAcpErrors.AcpError>;
   readonly events: Stream.Stream<AcpParsedSessionEvent, never>;
   readonly getModeState: Effect.Effect<AcpSessionModeState | undefined>;
@@ -204,7 +204,7 @@ const makeAcpSessionRuntime = (
       );
 
     const acpContext = yield* Layer.build(
-      EffectAcpClient.layerFromChildProcessHandle(child, {
+      EffectAcpClient.layerChildProcess(child, {
         ...(options.protocolLogging?.logIncoming !== undefined
           ? { logIncoming: options.protocolLogging.logIncoming }
           : {}),
@@ -215,9 +215,7 @@ const makeAcpSessionRuntime = (
       }),
     ).pipe(Effect.provideService(Scope.Scope, runtimeScope));
 
-    const acp = yield* Effect.service(EffectAcpClient.AcpConnection).pipe(
-      Effect.provide(acpContext),
-    );
+    const acp = yield* Effect.service(EffectAcpClient.AcpClient).pipe(Effect.provide(acpContext));
 
     yield* acp.handleSessionUpdate((notification) =>
       handleSessionUpdate({
@@ -320,7 +318,7 @@ const makeAcpSessionRuntime = (
           return runLoggedRequest(
             "session/set_config_option",
             requestPayload,
-            acp.setSessionConfigOption(requestPayload),
+            acp.agent.setSessionConfigOption(requestPayload),
           ).pipe(Effect.tap((response) => updateConfigOptions(response)));
         }),
       );
@@ -338,7 +336,7 @@ const makeAcpSessionRuntime = (
       const initializeResult = yield* runLoggedRequest(
         "initialize",
         initializePayload,
-        acp.initialize(initializePayload),
+        acp.agent.initialize(initializePayload),
       );
 
       const authenticatePayload = {
@@ -348,7 +346,7 @@ const makeAcpSessionRuntime = (
       yield* runLoggedRequest(
         "authenticate",
         authenticatePayload,
-        acp.authenticate(authenticatePayload),
+        acp.agent.authenticate(authenticatePayload),
       );
 
       let sessionId: string;
@@ -365,7 +363,7 @@ const makeAcpSessionRuntime = (
         const resumed = yield* runLoggedRequest(
           "session/load",
           loadPayload,
-          acp.loadSession(loadPayload),
+          acp.agent.loadSession(loadPayload),
         ).pipe(Effect.exit);
         if (Exit.isSuccess(resumed)) {
           sessionId = options.resumeSessionId;
@@ -378,7 +376,7 @@ const makeAcpSessionRuntime = (
           const created = yield* runLoggedRequest(
             "session/new",
             createPayload,
-            acp.createSession(createPayload),
+            acp.agent.createSession(createPayload),
           );
           sessionId = created.sessionId;
           sessionSetupResult = created;
@@ -391,7 +389,7 @@ const makeAcpSessionRuntime = (
         const created = yield* runLoggedRequest(
           "session/new",
           createPayload,
-          acp.createSession(createPayload),
+          acp.agent.createSession(createPayload),
         );
         sessionId = created.sessionId;
         sessionSetupResult = created;
@@ -467,34 +465,27 @@ const makeAcpSessionRuntime = (
               sessionId: started.sessionId,
               ...payload,
             } satisfies EffectAcpSchema.PromptRequest;
-            return runLoggedRequest("session/prompt", requestPayload, acp.prompt(requestPayload));
-          }),
-        ),
-      cancel: getStartedState.pipe(
-        Effect.flatMap((started) => acp.cancel({ sessionId: started.sessionId })),
-      ),
-      setMode: (modeId) =>
-        getStartedState.pipe(
-          Effect.flatMap((started) => {
-            const requestPayload = {
-              sessionId: started.sessionId,
-              modeId,
-            } satisfies EffectAcpSchema.SetSessionModeRequest;
             return runLoggedRequest(
-              "session/set_mode",
+              "session/prompt",
               requestPayload,
-              acp.setSessionMode(requestPayload),
+              acp.agent.prompt(requestPayload),
             );
           }),
         ),
+      cancel: getStartedState.pipe(
+        Effect.flatMap((started) => acp.agent.cancel({ sessionId: started.sessionId })),
+      ),
+      setMode: (modeId) =>
+        getStartedState.pipe(Effect.flatMap(() => setConfigOption("mode", modeId))),
       setConfigOption,
       setModel: (model) =>
         getStartedState.pipe(
           Effect.flatMap((started) => setConfigOption(started.modelConfigId ?? "model", model)),
           Effect.asVoid,
         ),
-      request: (method, payload) => runLoggedRequest(method, payload, acp.request(method, payload)),
-      notify: acp.notify,
+      request: (method, payload) =>
+        runLoggedRequest(method, payload, acp.raw.request(method, payload)),
+      notify: acp.raw.notify,
       close,
     } satisfies AcpSessionRuntimeShape;
   });

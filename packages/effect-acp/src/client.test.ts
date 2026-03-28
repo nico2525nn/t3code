@@ -39,11 +39,11 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
       const typedNotifications = yield* Ref.make<Array<unknown>>([]);
       const handle = yield* makeHandle();
       const scope = yield* Scope.make();
-      const acpLayer = AcpClient.layerFromChildProcessHandle(handle);
+      const acpLayer = AcpClient.layerChildProcess(handle);
       const context = yield* Layer.buildWithScope(acpLayer, scope);
 
       const ext = yield* Effect.gen(function* () {
-        const acp = yield* AcpClient.AcpConnection;
+        const acp = yield* AcpClient.AcpClient;
 
         yield* acp.handleRequestPermission(() =>
           Effect.succeed({
@@ -86,7 +86,7 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
           (payload) => Ref.update(typedNotifications, (current) => [...current, payload]),
         );
 
-        const init = yield* acp.initialize({
+        const init = yield* acp.agent.initialize({
           protocolVersion: 1,
           clientCapabilities: {
             fs: { readTextFile: false, writeTextFile: false },
@@ -99,21 +99,21 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
         });
         assert.equal(init.protocolVersion, 1);
 
-        yield* acp.authenticate({ methodId: "cursor_login" });
+        yield* acp.agent.authenticate({ methodId: "cursor_login" });
 
-        const session = yield* acp.createSession({
+        const session = yield* acp.agent.createSession({
           cwd: process.cwd(),
           mcpServers: [],
         });
         assert.equal(session.sessionId, "mock-session-1");
 
-        const prompt = yield* acp.prompt({
+        const prompt = yield* acp.agent.prompt({
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "hello" }],
         });
         assert.equal(prompt.stopReason, "end_turn");
 
-        const streamed = yield* Stream.runCollect(Stream.take(acp.notifications, 2));
+        const streamed = yield* Stream.runCollect(Stream.take(acp.raw.notifications, 2));
         assert.equal(streamed.length, 2);
         assert.equal(streamed[0]?._tag, "SessionUpdate");
         assert.equal(streamed[1]?._tag, "ElicitationComplete");
@@ -122,7 +122,7 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
         assert.deepEqual(yield* Ref.get(typedRequests), [{ message: "hello from typed request" }]);
         assert.deepEqual(yield* Ref.get(typedNotifications), [{ count: 2 }]);
 
-        return yield* acp.request("x/echo", {
+        return yield* acp.raw.request("x/echo", {
           hello: "world",
         });
       }).pipe(Effect.provide(context), Effect.ensuring(Scope.close(scope, Exit.void)));
@@ -142,11 +142,11 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
       Effect.gen(function* () {
         const handle = yield* makeHandle({ ACP_MOCK_BAD_TYPED_REQUEST: "1" });
         const scope = yield* Scope.make();
-        const acpLayer = AcpClient.layerFromChildProcessHandle(handle);
+        const acpLayer = AcpClient.layerChildProcess(handle);
         const context = yield* Layer.buildWithScope(acpLayer, scope);
 
         const result = yield* Effect.gen(function* () {
-          const acp = yield* AcpClient.AcpConnection;
+          const acp = yield* AcpClient.AcpClient;
 
           yield* acp.handleRequestPermission(() =>
             Effect.succeed({
@@ -172,7 +172,7 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
             () => Effect.succeed({ ok: true }),
           );
 
-          yield* acp.initialize({
+          yield* acp.agent.initialize({
             protocolVersion: 1,
             clientCapabilities: {
               fs: { readTextFile: false, writeTextFile: false },
@@ -184,15 +184,15 @@ it.layer(NodeServices.layer)("effect-acp client", (it) => {
             },
           });
 
-          yield* acp.authenticate({ methodId: "cursor_login" });
+          yield* acp.agent.authenticate({ methodId: "cursor_login" });
 
-          const session = yield* acp.createSession({
+          const session = yield* acp.agent.createSession({
             cwd: process.cwd(),
             mcpServers: [],
           });
 
           return yield* Effect.exit(
-            acp.prompt({
+            acp.agent.prompt({
               sessionId: session.sessionId,
               prompt: [{ type: "text", text: "hello" }],
             }),
