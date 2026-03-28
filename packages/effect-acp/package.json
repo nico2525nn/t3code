@@ -27,18 +27,14 @@
       "types": "./src/terminal.ts",
       "import": "./src/terminal.ts"
     },
-    "./child-process": {
-      "types": "./src/child-process.ts",
-      "import": "./src/child-process.ts"
-    },
     "./errors": {
       "types": "./src/errors.ts",
       "import": "./src/errors.ts"
     }
   },
   "scripts": {
-    "dev": "tsdown src/client.ts src/server.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/child-process.ts src/terminal.ts --format esm,cjs --dts --watch --clean",
-    "build": "tsdown src/client.ts src/server.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/child-process.ts src/terminal.ts --format esm,cjs --dts --clean",
+    "dev": "tsdown src/client.ts src/server.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/terminal.ts --format esm,cjs --dts --watch --clean",
+    "build": "tsdown src/client.ts src/server.ts src/_generated/schema.gen.ts src/rpc.ts src/protocol.ts src/terminal.ts --format esm,cjs --dts --clean",
     "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
