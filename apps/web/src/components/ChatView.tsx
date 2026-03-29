@@ -674,7 +674,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [optimisticPhase, setOptimisticPhase] = useOptimistic(phase);
   const isSendBusy = isSendPending;
   const isPreparingWorktree = createWorktreeMutation.isPending;
-  const isWorking = optimisticPhase === "running" || isRevertingCheckpoint;
+  const isWorking =
+    optimisticPhase === "running" || optimisticPhase === "connecting" || isRevertingCheckpoint;
   const nowIso = new Date(nowTick).toISOString();
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
@@ -2159,7 +2160,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       : "local";
 
   useEffect(() => {
-    if (optimisticPhase !== "running") return;
+    if (optimisticPhase !== "running" && optimisticPhase !== "connecting") return;
     const timer = window.setInterval(() => {
       setNowTick(Date.now());
     }, 1000);
@@ -2710,6 +2711,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
           createdAt: messageCreatedAt,
         });
         turnStartSucceeded = true;
+
+        // Sync snapshot before the transition ends so that `phase` reflects
+        // the new session state ("connecting"/"running").  Without this the
+        // optimistic overlay reverts to the stale `phase` (often
+        // "disconnected" for first-turn threads), causing a brief flicker.
+        await api.orchestration
+          .getSnapshot()
+          .then((snapshot) => syncServerReadModel(snapshot))
+          .catch(() => undefined);
       } catch (err: unknown) {
         if (createdServerThreadForLocalDraft && !turnStartSucceeded) {
           await api.orchestration
@@ -3002,6 +3012,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
             planSidebarDismissedForTurnRef.current = null;
             setPlanSidebarOpen(true);
           }
+
+          // Sync snapshot before the transition ends so that `phase` reflects
+          // the session state, preventing a brief flicker.
+          await api.orchestration
+            .getSnapshot()
+            .then((snapshot) => syncServerReadModel(snapshot))
+            .catch(() => undefined);
         } catch (err) {
           setOptimisticUserMessages((existing) =>
             existing.filter((message) => message.id !== messageIdForSend),
@@ -3031,6 +3048,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setThreadError,
       startSendTransition,
       setOptimisticPhase,
+      syncServerReadModel,
       selectedModel,
     ],
   );
