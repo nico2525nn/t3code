@@ -34,6 +34,11 @@ const ElicitationCompleteNotification = jsonRpcNotification(
   "session/elicitation/complete",
   AcpSchema.ElicitationCompleteNotification,
 );
+const RequestPermissionRequest = jsonRpcRequest(
+  "session/request_permission",
+  AcpSchema.RequestPermissionRequest,
+);
+const RequestPermissionResponse = jsonRpcResponse(AcpSchema.RequestPermissionResponse);
 const ExtRequest = jsonRpcRequest("x/test", Schema.Struct({ hello: Schema.String }));
 const ExtResponse = jsonRpcResponse(Schema.Struct({ ok: Schema.Boolean }));
 
@@ -158,7 +163,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
           direction: "outgoing",
           stage: "raw",
           payload:
-            '{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"session-1"},"id":"","headers":[]}\n',
+            '{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"session-1"},"headers":[]}\n',
         },
       ]);
     }),
@@ -219,6 +224,84 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
 
       const resolved = yield* Fiber.join(response);
       assert.deepEqual(resolved, { ok: true });
+    }),
+  );
+
+  it.effect("preserves zero-valued ids for inbound core client requests", () =>
+    Effect.gen(function* () {
+      const { stdio, input, output } = yield* makeInMemoryStdio();
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio,
+        serverRequestMethods: new Set(["session/request_permission"]),
+      });
+      const inboundRequest = yield* Deferred.make<unknown>();
+
+      yield* transport.serverProtocol
+        .run((_clientId, message) => Deferred.succeed(inboundRequest, message).pipe(Effect.asVoid))
+        .pipe(Effect.forkScoped);
+
+      yield* Queue.offer(
+        input,
+        yield* encodeJsonl(RequestPermissionRequest, {
+          jsonrpc: "2.0",
+          id: 0,
+          method: "session/request_permission",
+          params: {
+            sessionId: "session-1",
+            toolCall: {
+              toolCallId: "tool-1",
+              title: "Allow mock action",
+            },
+            options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+          },
+          headers: [],
+        }),
+      );
+
+      const message = yield* Deferred.await(inboundRequest);
+      assert.deepEqual(message, {
+        _tag: "Request",
+        id: "0",
+        tag: "session/request_permission",
+        payload: {
+          sessionId: "session-1",
+          toolCall: {
+            toolCallId: "tool-1",
+            title: "Allow mock action",
+          },
+          options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+        },
+        headers: [],
+      });
+
+      yield* transport.serverProtocol.send(0, {
+        _tag: "Exit",
+        requestId: "0",
+        exit: {
+          _tag: "Success",
+          value: {
+            outcome: {
+              outcome: "selected",
+              optionId: "allow",
+            },
+          },
+        },
+      });
+
+      const outbound = yield* Queue.take(output);
+      assert.deepEqual(
+        yield* Schema.decodeEffect(Schema.fromJsonString(RequestPermissionResponse))(outbound),
+        {
+          jsonrpc: "2.0",
+          id: 0,
+          result: {
+            outcome: {
+              outcome: "selected",
+              optionId: "allow",
+            },
+          },
+        },
+      );
     }),
   );
 

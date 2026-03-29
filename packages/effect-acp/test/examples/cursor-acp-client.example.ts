@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Console from "effect/Console";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -30,7 +31,7 @@ const program = Effect.gen(function* () {
       }),
     );
     yield* acp.handleSessionUpdate((notification) =>
-      Effect.logInfo("session/update", notification),
+      Console.log("session/update", JSON.stringify(notification)),
     );
 
     const initialized = yield* acp.agent.initialize({
@@ -44,7 +45,7 @@ const program = Effect.gen(function* () {
         version: "0.0.0",
       },
     });
-    yield* Effect.logInfo("initialized", initialized);
+    yield* Console.log("initialized", JSON.stringify(initialized));
 
     const session = yield* acp.agent.createSession({
       cwd: process.cwd(),
@@ -67,7 +68,7 @@ const program = Effect.gen(function* () {
       ],
     });
 
-    yield* Effect.logInfo("prompt result", result);
+    yield* Console.log("prompt result", JSON.stringify(result));
     yield* acp.agent.cancel({ sessionId: session.sessionId });
   }).pipe(Effect.provide(acpLayer));
 });

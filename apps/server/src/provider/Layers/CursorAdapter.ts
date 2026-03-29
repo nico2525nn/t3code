@@ -45,6 +45,7 @@ import {
 import { AcpSessionRuntime, type AcpSessionRuntimeShape } from "../acp/AcpSessionRuntime.ts";
 import { acpPermissionOutcome, mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
 import {
+  makeAcpAssistantItemEvent,
   makeAcpContentDeltaEvent,
   makeAcpPlanUpdatedEvent,
   makeAcpRequestOpenedEvent,
@@ -205,6 +206,22 @@ function resolveRequestedModeId(input: {
     modeState.availableModes.find((mode) => !isPlanMode(mode))?.id ??
     modeState.currentModeId
   );
+}
+
+function selectAutoApprovedPermissionOption(
+  request: EffectAcpSchema.RequestPermissionRequest,
+): string | undefined {
+  const allowAlwaysOption = request.options.find((option) => option.kind === "allow_always");
+  if (typeof allowAlwaysOption?.optionId === "string" && allowAlwaysOption.optionId.trim()) {
+    return allowAlwaysOption.optionId.trim();
+  }
+
+  const allowOnceOption = request.options.find((option) => option.kind === "allow_once");
+  if (typeof allowOnceOption?.optionId === "string" && allowOnceOption.optionId.trim()) {
+    return allowOnceOption.optionId.trim();
+  }
+
+  return undefined;
 }
 
 function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
@@ -496,6 +513,17 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
           yield* acp.handleRequestPermission((params) =>
             Effect.gen(function* () {
               yield* logNative(input.threadId, "session/request_permission", params, "acp.jsonrpc");
+              if (ctx?.session.runtimeMode === "full-access") {
+                const autoApprovedOptionId = selectAutoApprovedPermissionOption(params);
+                if (autoApprovedOptionId !== undefined) {
+                  return {
+                    outcome: {
+                      outcome: "selected" as const,
+                      optionId: autoApprovedOptionId,
+                    },
+                  };
+                }
+              }
               const permissionRequest = parsePermissionRequest(params);
               const requestId = ApprovalRequestId.makeUnsafe(crypto.randomUUID());
               const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
@@ -585,6 +613,30 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
               switch (event._tag) {
                 case "ModeChanged":
                   return;
+                case "AssistantItemStarted":
+                  yield* offerRuntimeEvent(
+                    makeAcpAssistantItemEvent({
+                      stamp: yield* makeEventStamp(),
+                      provider: PROVIDER,
+                      threadId: ctx.threadId,
+                      turnId: ctx.activeTurnId,
+                      itemId: event.itemId,
+                      lifecycle: "item.started",
+                    }),
+                  );
+                  return;
+                case "AssistantItemCompleted":
+                  yield* offerRuntimeEvent(
+                    makeAcpAssistantItemEvent({
+                      stamp: yield* makeEventStamp(),
+                      provider: PROVIDER,
+                      threadId: ctx.threadId,
+                      turnId: ctx.activeTurnId,
+                      itemId: event.itemId,
+                      lifecycle: "item.completed",
+                    }),
+                  );
+                  return;
                 case "PlanUpdated":
                   yield* logNative(ctx.threadId, "session/update", event.rawPayload, "acp.jsonrpc");
                   yield* emitPlanUpdate(
@@ -616,6 +668,7 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
                       provider: PROVIDER,
                       threadId: ctx.threadId,
                       turnId: ctx.activeTurnId,
+                      ...(event.itemId ? { itemId: event.itemId } : {}),
                       text: event.text,
                       rawPayload: event.rawPayload,
                     }),
@@ -895,7 +948,9 @@ function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       listSessions,
       hasSession,
       stopAll,
-      streamEvents: Stream.fromQueue(runtimeEventQueue),
+      get streamEvents() {
+        return Stream.fromQueue(runtimeEventQueue);
+      },
     } satisfies CursorAdapterShape;
   });
 }

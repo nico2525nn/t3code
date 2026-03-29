@@ -12,6 +12,9 @@ import type * as AcpSchema from "effect-acp/schema";
 
 const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
+const emitInterleavedAssistantToolCalls =
+  process.env.T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
+const emitGenericToolPlaceholders = process.env.T3_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS === "1";
 const emitAskQuestion = process.env.T3_ACP_EMIT_ASK_QUESTION === "1";
 const failSetConfigOption = process.env.T3_ACP_FAIL_SET_CONFIG_OPTION === "1";
 const exitOnSetConfigOption = process.env.T3_ACP_EXIT_ON_SET_CONFIG_OPTION === "1";
@@ -136,6 +139,56 @@ const program = Effect.gen(function* () {
     Effect.gen(function* () {
       const requestedSessionId = String(request.sessionId ?? sessionId);
 
+      if (emitInterleavedAssistantToolCalls) {
+        const toolCallId = "tool-call-1";
+
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "before tool" },
+          },
+        });
+
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId,
+            title: "Terminal",
+            kind: "execute",
+            status: "pending",
+            rawInput: {
+              command: ["echo", "hello"],
+            },
+          },
+        });
+
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "completed",
+            rawOutput: {
+              exitCode: 0,
+              stdout: "hello",
+              stderr: "",
+            },
+          },
+        });
+
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "after tool" },
+          },
+        });
+
+        return { stopReason: "end_turn" };
+      }
+
       if (emitToolCalls) {
         const toolCallId = "tool-call-1";
 
@@ -215,6 +268,45 @@ const program = Effect.gen(function* () {
         });
 
         return { stopReason: cancelled ? "cancelled" : "end_turn" };
+      }
+
+      if (emitGenericToolPlaceholders) {
+        const toolCallId = "tool-call-generic-1";
+
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId,
+            title: "Read File",
+            kind: "read",
+            status: "pending",
+            rawInput: {},
+          },
+        });
+
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "in_progress",
+          },
+        });
+
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "completed",
+            rawOutput: {
+              content: "package.json\n",
+            },
+          },
+        });
+
+        return { stopReason: "end_turn" };
       }
 
       if (emitAskQuestion) {

@@ -1,4 +1,6 @@
 import type * as EffectAcpSchema from "effect-acp/schema";
+import { deriveToolActivityPresentation } from "@t3tools/shared/toolActivity";
+import type { ToolLifecycleItemType } from "@t3tools/contracts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -45,6 +47,14 @@ export type AcpParsedSessionEvent =
       readonly modeId: string;
     }
   | {
+      readonly _tag: "AssistantItemStarted";
+      readonly itemId: string;
+    }
+  | {
+      readonly _tag: "AssistantItemCompleted";
+      readonly itemId: string;
+    }
+  | {
       readonly _tag: "PlanUpdated";
       readonly payload: AcpPlanUpdate;
       readonly rawPayload: unknown;
@@ -56,6 +66,7 @@ export type AcpParsedSessionEvent =
     }
   | {
       readonly _tag: "ContentDelta";
+      readonly itemId?: string;
       readonly text: string;
       readonly rawPayload: unknown;
     };
@@ -230,6 +241,22 @@ function normalizeToolKind(kind: unknown): string | undefined {
   return typeof kind === "string" && kind.trim().length > 0 ? kind.trim() : undefined;
 }
 
+function canonicalItemTypeFromAcpToolKind(kind: string | undefined): ToolLifecycleItemType {
+  switch (kind) {
+    case "execute":
+      return "command_execution";
+    case "edit":
+    case "delete":
+    case "move":
+      return "file_change";
+    case "search":
+    case "fetch":
+      return "web_search";
+    default:
+      return "dynamic_tool_call";
+  }
+}
+
 function makeToolCallState(
   input: {
     readonly toolCallId: string;
@@ -256,7 +283,6 @@ function makeToolCallState(
     title && title.toLowerCase() !== "terminal" && title.toLowerCase() !== "tool call"
       ? title
       : undefined;
-  const detail = command ?? normalizedTitle ?? textContent;
   const data: Record<string, unknown> = { toolCallId };
   const kind = normalizeToolKind(input.kind);
   if (kind) {
@@ -277,14 +303,30 @@ function makeToolCallState(
   if (input.locations !== undefined) {
     data.locations = input.locations;
   }
+  const fallbackDetail = command ?? normalizedTitle ?? textContent;
+  const hasPresentationSeed =
+    title !== undefined ||
+    kind !== undefined ||
+    command !== undefined ||
+    normalizedTitle !== undefined ||
+    textContent !== undefined;
+  const presentation = hasPresentationSeed
+    ? deriveToolActivityPresentation({
+        itemType: canonicalItemTypeFromAcpToolKind(kind),
+        title,
+        detail: fallbackDetail,
+        data,
+        fallbackSummary: title ?? "Tool",
+      })
+    : undefined;
   const status = normalizeToolCallStatus(input.status, options?.fallbackStatus);
   return {
     toolCallId,
     ...(kind ? { kind } : {}),
-    ...(title ? { title } : {}),
+    ...(presentation?.summary ? { title: presentation.summary } : {}),
     ...(status ? { status } : {}),
     ...(command ? { command } : {}),
-    ...(detail ? { detail } : {}),
+    ...(presentation?.detail ? { detail: presentation.detail } : {}),
     data,
   };
 }

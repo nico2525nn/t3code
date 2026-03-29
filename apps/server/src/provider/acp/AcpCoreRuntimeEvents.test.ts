@@ -2,6 +2,7 @@ import { RuntimeRequestId, TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+  makeAcpAssistantItemEvent,
   makeAcpContentDeltaEvent,
   makeAcpPlanUpdatedEvent,
   makeAcpRequestOpenedEvent,
@@ -121,13 +122,33 @@ describe("AcpCoreRuntimeEvents", () => {
         provider: "cursor",
         threadId: "thread-1" as never,
         turnId,
+        itemId: "assistant:session-1:segment:0",
         text: "hello",
         rawPayload: { sessionId: "session-1" },
       }),
     ).toMatchObject({
       type: "content.delta",
+      itemId: "assistant:session-1:segment:0",
       payload: {
         delta: "hello",
+      },
+    });
+
+    expect(
+      makeAcpAssistantItemEvent({
+        stamp,
+        provider: "cursor",
+        threadId: "thread-1" as never,
+        turnId,
+        itemId: "assistant:session-1:segment:0",
+        lifecycle: "item.started",
+      }),
+    ).toMatchObject({
+      type: "item.started",
+      itemId: "assistant:session-1:segment:0",
+      payload: {
+        itemType: "assistant_message",
+        status: "inProgress",
       },
     });
   });

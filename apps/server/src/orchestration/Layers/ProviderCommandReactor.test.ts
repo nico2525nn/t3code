@@ -13,7 +13,7 @@ import {
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
-import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
+import { Deferred, Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
@@ -1407,6 +1407,60 @@ describe("ProviderCommandReactor", () => {
       requestId: "approval-request-1",
       decision: "accept",
     });
+  });
+
+  it("processes approval responses while a provider turn is still in flight", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const unblockSendTurn = Effect.runSync(Deferred.make<void>());
+
+    harness.sendTurn.mockImplementation(() =>
+      Deferred.await(unblockSendTurn).pipe(
+        Effect.as({
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          turnId: asTurnId("turn-1"),
+        }),
+      ),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-blocked-approval"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-blocked-approval"),
+          role: "user",
+          text: "need approval while turn is running",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.approval.respond",
+        commandId: CommandId.makeUnsafe("cmd-approval-respond-during-send-turn"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        requestId: asApprovalRequestId("approval-request-while-send-turn-blocked"),
+        decision: "acceptForSession",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.respondToRequest.mock.calls.length === 1);
+    expect(harness.respondToRequest.mock.calls[0]?.[0]).toEqual({
+      threadId: "thread-1",
+      requestId: "approval-request-while-send-turn-blocked",
+      decision: "acceptForSession",
+    });
+
+    await Effect.runPromise(Deferred.succeed(unblockSendTurn, undefined));
   });
 
   it("reacts to thread.user-input.respond by forwarding structured user input answers", async () => {

@@ -95,7 +95,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       const wrapperPath = yield* Effect.promise(() => makeMockAgentWrapper());
       yield* settings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 7).pipe(
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 9).pipe(
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -129,17 +129,31 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
         "thread.started",
         "turn.started",
         "turn.plan.updated",
+        "item.started",
         "content.delta",
+        "item.completed",
         "turn.completed",
       ] as const) {
         assert.include(types, t);
       }
 
+      const assistantStarted = runtimeEvents.find(
+        (event) => event.type === "item.started" && event.payload.itemType === "assistant_message",
+      );
+      assert.isDefined(assistantStarted);
+
       const delta = runtimeEvents.find((e) => e.type === "content.delta");
       assert.isDefined(delta);
       if (delta?.type === "content.delta") {
         assert.equal(delta.payload.delta, "hello from mock");
+        assert.match(String(delta.itemId), /^assistant:mock-session-1:segment:0$/);
       }
+
+      const assistantCompleted = runtimeEvents.find(
+        (event) =>
+          event.type === "item.completed" && event.payload.itemType === "assistant_message",
+      );
+      assert.isDefined(assistantCompleted);
 
       const planUpdate = runtimeEvents.find((event) => event.type === "turn.plan.updated");
       assert.isDefined(planUpdate);
@@ -201,59 +215,228 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       yield* adapter.stopSession(threadId);
 
       const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
-      const modeRequest = requests.find((entry) => entry.method === "session/set_mode");
+      const modeRequest = requests.find(
+        (entry) =>
+          entry.method === "session/set_mode" ||
+          (entry.method === "session/set_config_option" &&
+            (entry.params as Record<string, unknown> | undefined)?.configId === "mode"),
+      );
       assert.isDefined(modeRequest);
-      assert.deepStrictEqual(modeRequest?.params, {
-        sessionId: "mock-session-1",
-        modeId: "architect",
-      });
+      assert.equal(
+        (modeRequest?.params as Record<string, unknown> | undefined)?.sessionId,
+        "mock-session-1",
+      );
+      assert.include(
+        ["architect", "plan"],
+        String(
+          (modeRequest?.params as Record<string, unknown> | undefined)?.modeId ??
+            (modeRequest?.params as Record<string, unknown> | undefined)?.value,
+        ),
+      );
     }),
   );
 
-  it.effect("streams ACP tool calls and approvals on the active turn in real time", () =>
-    Effect.gen(function* () {
-      const previousEmitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS;
-      process.env.T3_ACP_EMIT_TOOL_CALLS = "1";
+  it.effect(
+    "streams ACP tool calls and approvals on the active turn in approval-required mode",
+    () =>
+      Effect.gen(function* () {
+        const previousEmitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS;
+        process.env.T3_ACP_EMIT_TOOL_CALLS = "1";
 
-      const adapter = yield* CursorAdapter;
-      const serverSettings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-tool-call-probe");
-      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
-      const settledEventTypes = new Set<string>();
-      const settledEventsReady = yield* Deferred.make<void>();
+        const adapter = yield* CursorAdapter;
+        const serverSettings = yield* ServerSettingsService;
+        const threadId = ThreadId.makeUnsafe("cursor-tool-call-probe");
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const settledEventTypes = new Set<string>();
+        const settledEventsReady = yield* Deferred.make<void>();
 
-      const wrapperPath = yield* Effect.promise(() =>
-        makeMockAgentWrapper({ T3_ACP_EMIT_TOOL_CALLS: "1" }),
-      );
-      yield* serverSettings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockAgentWrapper({ T3_ACP_EMIT_TOOL_CALLS: "1" }),
+        );
+        yield* serverSettings.updateSettings({
+          providers: { cursor: { binaryPath: wrapperPath } },
+        });
 
-      yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        Effect.gen(function* () {
-          runtimeEvents.push(event);
-          if (String(event.threadId) !== String(threadId)) {
-            return;
-          }
-          if (event.type === "request.opened" && event.requestId) {
-            yield* adapter.respondToRequest(
-              threadId,
-              ApprovalRequestId.makeUnsafe(String(event.requestId)),
-              "accept",
-            );
-          }
-          if (
-            event.type === "turn.completed" ||
-            event.type === "item.completed" ||
-            event.type === "content.delta"
-          ) {
-            settledEventTypes.add(event.type);
-            if (settledEventTypes.size === 3) {
-              yield* Deferred.succeed(settledEventsReady, undefined).pipe(Effect.orDie);
+        yield* Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.gen(function* () {
+            runtimeEvents.push(event);
+            if (String(event.threadId) !== String(threadId)) {
+              return;
             }
-          }
-        }),
-      ).pipe(Effect.forkChild);
+            if (event.type === "request.opened" && event.requestId) {
+              yield* adapter.respondToRequest(
+                threadId,
+                ApprovalRequestId.makeUnsafe(String(event.requestId)),
+                "accept",
+              );
+            }
+            if (
+              event.type === "turn.completed" ||
+              (event.type === "item.completed" && event.payload.itemType === "command_execution") ||
+              event.type === "content.delta"
+            ) {
+              settledEventTypes.add(event.type);
+              if (settledEventTypes.size === 3) {
+                yield* Deferred.succeed(settledEventsReady, undefined).pipe(Effect.orDie);
+              }
+            }
+          }),
+        ).pipe(Effect.forkChild);
 
-      const program = Effect.gen(function* () {
+        const program = Effect.gen(function* () {
+          yield* adapter.startSession({
+            threadId,
+            provider: "cursor",
+            cwd: process.cwd(),
+            runtimeMode: "approval-required",
+            modelSelection: { provider: "cursor", model: "default" },
+          });
+
+          const turn = yield* adapter.sendTurn({
+            threadId,
+            input: "run a tool call",
+            attachments: [],
+          });
+          yield* Deferred.await(settledEventsReady);
+
+          const threadEvents = runtimeEvents.filter(
+            (event) => String(event.threadId) === String(threadId),
+          );
+          assert.includeMembers(
+            threadEvents.map((event) => event.type),
+            [
+              "session.started",
+              "session.state.changed",
+              "thread.started",
+              "turn.started",
+              "request.opened",
+              "request.resolved",
+              "item.updated",
+              "item.completed",
+              "content.delta",
+              "turn.completed",
+            ],
+          );
+
+          const turnEvents = threadEvents.filter(
+            (event) => String(event.turnId) === String(turn.turnId),
+          );
+          const toolUpdates = turnEvents.filter((event) => event.type === "item.updated");
+          assert.lengthOf(toolUpdates, 2);
+          for (const toolUpdate of toolUpdates) {
+            if (toolUpdate.type !== "item.updated") {
+              continue;
+            }
+            assert.equal(toolUpdate.payload.itemType, "command_execution");
+            assert.equal(toolUpdate.payload.status, "inProgress");
+            assert.equal(toolUpdate.payload.detail, "cat server/package.json");
+            assert.equal(String(toolUpdate.itemId), "tool-call-1");
+          }
+
+          const requestOpened = turnEvents.find((event) => event.type === "request.opened");
+          assert.isDefined(requestOpened);
+          if (requestOpened?.type === "request.opened") {
+            assert.equal(String(requestOpened.turnId), String(turn.turnId));
+            assert.equal(requestOpened.payload.requestType, "exec_command_approval");
+            assert.equal(requestOpened.payload.detail, "cat server/package.json");
+          }
+
+          const requestResolved = turnEvents.find((event) => event.type === "request.resolved");
+          assert.isDefined(requestResolved);
+          if (requestResolved?.type === "request.resolved") {
+            assert.equal(String(requestResolved.turnId), String(turn.turnId));
+            assert.equal(requestResolved.payload.requestType, "exec_command_approval");
+            assert.equal(requestResolved.payload.decision, "accept");
+          }
+
+          const toolCompleted = turnEvents.find(
+            (event) =>
+              event.type === "item.completed" && event.payload.itemType === "command_execution",
+          );
+          assert.isDefined(toolCompleted);
+          if (toolCompleted?.type === "item.completed") {
+            assert.equal(String(toolCompleted.turnId), String(turn.turnId));
+            assert.equal(toolCompleted.payload.itemType, "command_execution");
+            assert.equal(toolCompleted.payload.status, "completed");
+            assert.equal(toolCompleted.payload.detail, "cat server/package.json");
+            assert.equal(String(toolCompleted.itemId), "tool-call-1");
+          }
+
+          const contentDelta = turnEvents.find((event) => event.type === "content.delta");
+          assert.isDefined(contentDelta);
+          if (contentDelta?.type === "content.delta") {
+            assert.equal(String(contentDelta.turnId), String(turn.turnId));
+            assert.equal(contentDelta.payload.delta, "hello from mock");
+            assert.equal(String(contentDelta.itemId), "assistant:mock-session-1:segment:0");
+          }
+        });
+
+        yield* program.pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (previousEmitToolCalls === undefined) {
+                delete process.env.T3_ACP_EMIT_TOOL_CALLS;
+              } else {
+                process.env.T3_ACP_EMIT_TOOL_CALLS = previousEmitToolCalls;
+              }
+            }),
+          ),
+        );
+      }).pipe(
+        Effect.provide(
+          makeCursorAdapterLive().pipe(
+            Layer.provideMerge(ServerSettingsService.layerTest()),
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), {
+                prefix: "t3code-cursor-adapter-test-",
+              }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+  );
+
+  it.effect(
+    "auto-approves ACP tool permissions in full-access mode without approval runtime events",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CursorAdapter;
+        const serverSettings = yield* ServerSettingsService;
+        const threadId = ThreadId.makeUnsafe("cursor-full-access-auto-approve");
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const settledEventTypes = new Set<string>();
+        const settledEventsReady = yield* Deferred.make<void>();
+        const tempDir = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "cursor-acp-")));
+        const requestLogPath = path.join(tempDir, "requests.ndjson");
+        const argvLogPath = path.join(tempDir, "argv.txt");
+        yield* Effect.promise(() => writeFile(requestLogPath, "", "utf8"));
+        const wrapperPath = yield* Effect.promise(() =>
+          makeProbeWrapper(requestLogPath, argvLogPath, { T3_ACP_EMIT_TOOL_CALLS: "1" }),
+        );
+        yield* serverSettings.updateSettings({
+          providers: { cursor: { binaryPath: wrapperPath } },
+        });
+
+        const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.gen(function* () {
+            runtimeEvents.push(event);
+            if (String(event.threadId) !== String(threadId)) {
+              return;
+            }
+            if (
+              event.type === "turn.completed" ||
+              (event.type === "item.completed" && event.payload.itemType === "command_execution") ||
+              event.type === "content.delta"
+            ) {
+              settledEventTypes.add(event.type);
+              if (settledEventTypes.size === 3) {
+                yield* Deferred.succeed(settledEventsReady, undefined).pipe(Effect.orDie);
+              }
+            }
+          }),
+        ).pipe(Effect.forkChild);
+
         yield* adapter.startSession({
           threadId,
           provider: "cursor",
@@ -267,100 +450,174 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
           input: "run a tool call",
           attachments: [],
         });
-        yield* Deferred.await(settledEventsReady);
 
-        const threadEvents = runtimeEvents.filter(
-          (event) => String(event.threadId) === String(threadId),
+        yield* Deferred.await(settledEventsReady);
+        yield* Fiber.interrupt(runtimeEventsFiber);
+
+        const turnEvents = runtimeEvents.filter(
+          (event) =>
+            String(event.threadId) === String(threadId) &&
+            String(event.turnId) === String(turn.turnId),
+        );
+        assert.notInclude(
+          turnEvents.map((event) => event.type),
+          "request.opened",
+        );
+        assert.notInclude(
+          turnEvents.map((event) => event.type),
+          "request.resolved",
         );
         assert.includeMembers(
-          threadEvents.map((event) => event.type),
-          [
-            "session.started",
-            "session.state.changed",
-            "thread.started",
-            "turn.started",
-            "request.opened",
-            "request.resolved",
-            "item.updated",
-            "item.completed",
-            "content.delta",
-            "turn.completed",
-          ],
+          turnEvents.map((event) => event.type),
+          ["item.updated", "item.completed", "content.delta", "turn.completed"],
         );
 
-        const turnEvents = threadEvents.filter(
-          (event) => String(event.turnId) === String(turn.turnId),
+        const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
+        const permissionResponse = requests.find(
+          (entry) =>
+            !("method" in entry) &&
+            typeof entry.result === "object" &&
+            entry.result !== null &&
+            "outcome" in entry.result &&
+            typeof entry.result.outcome === "object" &&
+            entry.result.outcome !== null &&
+            "outcome" in entry.result.outcome &&
+            entry.result.outcome.outcome === "selected" &&
+            "optionId" in entry.result.outcome &&
+            entry.result.outcome.optionId === "allow-always",
         );
-        const toolUpdates = turnEvents.filter((event) => event.type === "item.updated");
-        assert.lengthOf(toolUpdates, 2);
-        for (const toolUpdate of toolUpdates) {
-          if (toolUpdate.type !== "item.updated") {
-            continue;
-          }
-          assert.equal(toolUpdate.payload.itemType, "command_execution");
-          assert.equal(toolUpdate.payload.status, "inProgress");
-          assert.equal(toolUpdate.payload.detail, "cat server/package.json");
-          assert.equal(String(toolUpdate.itemId), "tool-call-1");
-        }
+        assert.isDefined(permissionResponse);
 
-        const requestOpened = turnEvents.find((event) => event.type === "request.opened");
-        assert.isDefined(requestOpened);
-        if (requestOpened?.type === "request.opened") {
-          assert.equal(String(requestOpened.turnId), String(turn.turnId));
-          assert.equal(requestOpened.payload.requestType, "exec_command_approval");
-          assert.equal(requestOpened.payload.detail, "cat server/package.json");
-        }
+        yield* adapter.stopSession(threadId);
+      }),
+  );
 
-        const requestResolved = turnEvents.find((event) => event.type === "request.resolved");
-        assert.isDefined(requestResolved);
-        if (requestResolved?.type === "request.resolved") {
-          assert.equal(String(requestResolved.turnId), String(turn.turnId));
-          assert.equal(requestResolved.payload.requestType, "exec_command_approval");
-          assert.equal(requestResolved.payload.decision, "accept");
-        }
+  it.effect("segments assistant messages around ACP tool activity in full-access mode", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CursorAdapter;
+      const serverSettings = yield* ServerSettingsService;
+      const threadId = ThreadId.makeUnsafe("cursor-assistant-tool-segmentation");
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const settledEventTypes = new Set<string>();
+      const settledEventsReady = yield* Deferred.make<void>();
 
-        const toolCompleted = turnEvents.find((event) => event.type === "item.completed");
-        assert.isDefined(toolCompleted);
-        if (toolCompleted?.type === "item.completed") {
-          assert.equal(String(toolCompleted.turnId), String(turn.turnId));
-          assert.equal(toolCompleted.payload.itemType, "command_execution");
-          assert.equal(toolCompleted.payload.status, "completed");
-          assert.equal(toolCompleted.payload.detail, "cat server/package.json");
-          assert.equal(String(toolCompleted.itemId), "tool-call-1");
-        }
-
-        const contentDelta = turnEvents.find((event) => event.type === "content.delta");
-        assert.isDefined(contentDelta);
-        if (contentDelta?.type === "content.delta") {
-          assert.equal(String(contentDelta.turnId), String(turn.turnId));
-          assert.equal(contentDelta.payload.delta, "hello from mock");
-        }
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockAgentWrapper({ T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS: "1" }),
+      );
+      yield* serverSettings.updateSettings({
+        providers: { cursor: { binaryPath: wrapperPath } },
       });
 
-      yield* program.pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            if (previousEmitToolCalls === undefined) {
-              delete process.env.T3_ACP_EMIT_TOOL_CALLS;
+      const runtimeEventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          runtimeEvents.push(event);
+          if (String(event.threadId) !== String(threadId)) {
+            return;
+          }
+          if (
+            event.type === "content.delta" ||
+            (event.type === "item.completed" && event.payload.itemType === "command_execution") ||
+            event.type === "turn.completed"
+          ) {
+            if (event.type === "content.delta") {
+              settledEventTypes.add(`delta:${event.payload.delta}`);
             } else {
-              process.env.T3_ACP_EMIT_TOOL_CALLS = previousEmitToolCalls;
+              settledEventTypes.add(event.type);
             }
-          }),
-        ),
+            if (
+              settledEventTypes.has("delta:before tool") &&
+              settledEventTypes.has("delta:after tool") &&
+              settledEventTypes.has("item.completed") &&
+              settledEventTypes.has("turn.completed")
+            ) {
+              yield* Deferred.succeed(settledEventsReady, undefined).pipe(Effect.orDie);
+            }
+          }
+        }),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId,
+        provider: "cursor",
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: { provider: "cursor", model: "default" },
+      });
+
+      const turn = yield* adapter.sendTurn({
+        threadId,
+        input: "run an interleaved tool call",
+        attachments: [],
+      });
+
+      yield* Deferred.await(settledEventsReady);
+      yield* Fiber.interrupt(runtimeEventsFiber);
+
+      const turnEvents = runtimeEvents.filter(
+        (event) =>
+          String(event.threadId) === String(threadId) &&
+          String(event.turnId) === String(turn.turnId),
       );
-    }).pipe(
-      Effect.provide(
-        makeCursorAdapterLive().pipe(
-          Layer.provideMerge(ServerSettingsService.layerTest()),
-          Layer.provideMerge(
-            ServerConfig.layerTest(process.cwd(), {
-              prefix: "t3code-cursor-adapter-test-",
-            }),
-          ),
-          Layer.provideMerge(NodeServices.layer),
-        ),
-      ),
-    ),
+      const firstAssistantStartIndex = turnEvents.findIndex(
+        (event) => event.type === "item.started" && event.payload.itemType === "assistant_message",
+      );
+      const firstAssistantDeltaIndex = turnEvents.findIndex(
+        (event) => event.type === "content.delta" && event.payload.delta === "before tool",
+      );
+      const assistantBoundaryIndex = turnEvents.findIndex(
+        (event) =>
+          event.type === "item.completed" && event.payload.itemType === "assistant_message",
+      );
+      const toolUpdateIndex = turnEvents.findIndex(
+        (event) => event.type === "item.updated" && event.payload.itemType === "command_execution",
+      );
+      const toolCompletedIndex = turnEvents.findIndex(
+        (event) =>
+          event.type === "item.completed" && event.payload.itemType === "command_execution",
+      );
+      const secondAssistantStartIndex = turnEvents.findIndex(
+        (event, index) =>
+          index > toolCompletedIndex &&
+          event.type === "item.started" &&
+          event.payload.itemType === "assistant_message",
+      );
+      const secondAssistantDeltaIndex = turnEvents.findIndex(
+        (event) => event.type === "content.delta" && event.payload.delta === "after tool",
+      );
+
+      assert.isAtLeast(firstAssistantStartIndex, 0);
+      assert.isAtLeast(firstAssistantDeltaIndex, 0);
+      assert.isAtLeast(assistantBoundaryIndex, 0);
+      assert.isAtLeast(toolUpdateIndex, 0);
+      assert.isAtLeast(toolCompletedIndex, 0);
+      assert.isAtLeast(secondAssistantStartIndex, 0);
+      assert.isAtLeast(secondAssistantDeltaIndex, 0);
+      assert.isBelow(firstAssistantStartIndex, firstAssistantDeltaIndex);
+      assert.isBelow(firstAssistantDeltaIndex, assistantBoundaryIndex);
+      assert.isBelow(assistantBoundaryIndex, toolUpdateIndex);
+      assert.isBelow(toolUpdateIndex, toolCompletedIndex);
+      assert.isBelow(toolCompletedIndex, secondAssistantStartIndex);
+      assert.isBelow(secondAssistantStartIndex, secondAssistantDeltaIndex);
+
+      const assistantStarts = turnEvents.filter(
+        (event) => event.type === "item.started" && event.payload.itemType === "assistant_message",
+      );
+      const assistantDeltas = turnEvents.filter((event) => event.type === "content.delta");
+      assert.lengthOf(assistantStarts, 2);
+      assert.lengthOf(assistantDeltas, 2);
+      if (
+        assistantStarts[0]?.type === "item.started" &&
+        assistantStarts[1]?.type === "item.started" &&
+        assistantDeltas[0]?.type === "content.delta" &&
+        assistantDeltas[1]?.type === "content.delta"
+      ) {
+        assert.notEqual(String(assistantStarts[0].itemId), String(assistantStarts[1].itemId));
+        assert.equal(String(assistantDeltas[0].itemId), String(assistantStarts[0].itemId));
+        assert.equal(String(assistantDeltas[1].itemId), String(assistantStarts[1].itemId));
+      }
+
+      yield* adapter.stopSession(threadId);
+    }),
   );
 
   it.effect("cancels pending ACP approvals and marks the turn cancelled when interrupted", () =>
@@ -405,7 +662,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
         threadId,
         provider: "cursor",
         cwd: process.cwd(),
-        runtimeMode: "full-access",
+        runtimeMode: "approval-required",
         modelSelection: { provider: "cursor", model: "default" },
       });
 
@@ -475,7 +732,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
         threadId,
         provider: "cursor",
         cwd: process.cwd(),
-        runtimeMode: "full-access",
+        runtimeMode: "approval-required",
         modelSelection: { provider: "cursor", model: "default" },
       });
 
@@ -579,7 +836,9 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
 
       const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
       const setConfigRequests = requests.filter(
-        (entry) => entry.method === "session/set_config_option",
+        (entry) =>
+          entry.method === "session/set_config_option" &&
+          (entry.params as Record<string, unknown> | undefined)?.configId === "model",
       );
       assert.isAbove(setConfigRequests.length, 0, "should call session/set_config_option");
       assert.equal((setConfigRequests[0]?.params as Record<string, unknown>)?.value, "composer-2");

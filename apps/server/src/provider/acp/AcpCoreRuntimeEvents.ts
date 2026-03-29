@@ -191,11 +191,34 @@ export function makeAcpToolCallEvent(input: {
   };
 }
 
+export function makeAcpAssistantItemEvent(input: {
+  readonly stamp: AcpEventStamp;
+  readonly provider: ProviderKind;
+  readonly threadId: ThreadId;
+  readonly turnId: TurnId | undefined;
+  readonly itemId: string;
+  readonly lifecycle: "item.started" | "item.completed";
+}): ProviderRuntimeEvent {
+  return {
+    type: input.lifecycle,
+    ...input.stamp,
+    provider: input.provider,
+    threadId: input.threadId,
+    turnId: input.turnId,
+    itemId: RuntimeItemId.makeUnsafe(input.itemId),
+    payload: {
+      itemType: "assistant_message",
+      status: input.lifecycle === "item.completed" ? "completed" : "inProgress",
+    },
+  };
+}
+
 export function makeAcpContentDeltaEvent(input: {
   readonly stamp: AcpEventStamp;
   readonly provider: ProviderKind;
   readonly threadId: ThreadId;
   readonly turnId: TurnId | undefined;
+  readonly itemId?: string;
   readonly text: string;
   readonly rawPayload: unknown;
 }): ProviderRuntimeEvent {
@@ -205,6 +228,7 @@ export function makeAcpContentDeltaEvent(input: {
     provider: input.provider,
     threadId: input.threadId,
     turnId: input.turnId,
+    ...(input.itemId ? { itemId: RuntimeItemId.makeUnsafe(input.itemId) } : {}),
     payload: {
       streamKind: "assistant_text",
       delta: input.text,

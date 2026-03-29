@@ -738,8 +738,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {
         itemType: "dynamic_tool_call",
         status: "completed",
-        title: "Read File",
-        detail: "Read File",
+        title: "Read file",
         data: {
           toolCallId: "tool-read-1",
           kind: "read",
@@ -772,11 +771,96 @@ describe("ProviderRuntimeIngestion", () => {
         : undefined;
 
     expect(activity?.kind).toBe("tool.completed");
+    expect(activity?.summary).toBe("Read file");
     expect(payload?.itemType).toBe("dynamic_tool_call");
-    expect(payload?.detail).toBe("Read File");
+    expect(payload?.detail).toBeUndefined();
     expect(data?.toolCallId).toBe("tool-read-1");
     expect(data?.kind).toBe("read");
     expect(rawOutput?.content).toBe('import * as Effect from "effect/Effect"\n');
+  });
+
+  it("normalizes command execution activities to ran-command summaries", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-completed"),
+      provider: "cursor",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-completed"),
+      itemId: asItemId("item-command-completed"),
+      payload: {
+        itemType: "command_execution",
+        status: "completed",
+        title: "Ran command",
+        detail: "bun run lint",
+        data: {
+          toolCallId: "tool-command-1",
+          kind: "execute",
+          command: "bun run lint",
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-command-completed",
+      ),
+    );
+    const activity = thread.activities.find(
+      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-command-completed",
+    );
+    const payload =
+      activity?.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : undefined;
+
+    expect(activity?.summary).toBe("Ran command");
+    expect(payload?.detail).toBe("bun run lint");
+  });
+
+  it("uses structured read-file paths when available", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-read-path-completed"),
+      provider: "cursor",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-read-path"),
+      itemId: asItemId("item-read-path"),
+      payload: {
+        itemType: "dynamic_tool_call",
+        status: "completed",
+        title: "Read file",
+        detail: "/tmp/app.ts",
+        data: {
+          toolCallId: "tool-read-path-1",
+          kind: "read",
+          locations: [{ path: "/tmp/app.ts" }],
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-read-path-completed",
+      ),
+    );
+    const activity = thread.activities.find(
+      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-read-path-completed",
+    );
+    const payload =
+      activity?.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : undefined;
+
+    expect(activity?.summary).toBe("Read file");
+    expect(payload?.detail).toBe("/tmp/app.ts");
   });
 
   it("projects completed plan items into first-class proposed plans", async () => {
@@ -1487,7 +1571,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-buffered-request-flush"),
-      requestId: ApprovalRequestId.make("req-buffered-request-flush"),
+      requestId: ApprovalRequestId.makeUnsafe("req-buffered-request-flush"),
       payload: {
         requestType: "command_execution_approval",
         detail: "pwd",
@@ -1547,7 +1631,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-buffered-user-input-flush"),
-      requestId: ApprovalRequestId.make("req-buffered-user-input-flush"),
+      requestId: ApprovalRequestId.makeUnsafe("req-buffered-user-input-flush"),
       payload: {
         questions: [
           {
@@ -1615,7 +1699,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: pausedAt,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-buffered-whitespace-request"),
-      requestId: ApprovalRequestId.make("req-buffered-whitespace-request"),
+      requestId: ApprovalRequestId.makeUnsafe("req-buffered-whitespace-request"),
       payload: {
         requestType: "command_execution_approval",
         detail: "pwd",
@@ -1677,7 +1761,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: pausedAt,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-buffered-request-append"),
-      requestId: ApprovalRequestId.make("req-buffered-request-append"),
+      requestId: ApprovalRequestId.makeUnsafe("req-buffered-request-append"),
       payload: {
         requestType: "command_execution_approval",
         detail: "pwd",
@@ -1809,7 +1893,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: pausedAt,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-streaming-request-segment"),
-      requestId: ApprovalRequestId.make("req-streaming-request-segment"),
+      requestId: ApprovalRequestId.makeUnsafe("req-streaming-request-segment"),
       payload: {
         requestType: "command_execution_approval",
         detail: "pwd",

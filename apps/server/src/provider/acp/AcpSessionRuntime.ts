@@ -122,6 +122,16 @@ type AcpStartState =
     }
   | { readonly _tag: "Started"; readonly result: AcpStartedState };
 
+interface AcpAssistantSegmentState {
+  readonly nextSegmentIndex: number;
+  readonly activeItemId?: string;
+}
+
+interface EnsureActiveAssistantSegmentResult {
+  readonly itemId: string;
+  readonly startedEvent?: Extract<AcpParsedSessionEvent, { readonly _tag: "AssistantItemStarted" }>;
+}
+
 export class AcpSessionRuntime extends ServiceMap.Service<
   AcpSessionRuntime,
   AcpSessionRuntimeShape
@@ -150,6 +160,7 @@ const makeAcpSessionRuntime = (
     const eventQueue = yield* Queue.unbounded<AcpParsedSessionEvent>();
     const modeStateRef = yield* Ref.make<AcpSessionModeState | undefined>(undefined);
     const toolCallsRef = yield* Ref.make(new Map<string, AcpToolCallState>());
+    const assistantSegmentRef = yield* Ref.make<AcpAssistantSegmentState>({ nextSegmentIndex: 0 });
     const configOptionsRef = yield* Ref.make(sessionConfigOptionsFromSetup(undefined));
     const startStateRef = yield* Ref.make<AcpStartState>({ _tag: "NotStarted" });
 
@@ -222,6 +233,7 @@ const makeAcpSessionRuntime = (
         queue: eventQueue,
         modeStateRef,
         toolCallsRef,
+        assistantSegmentRef,
         params: notification,
       }),
     );
@@ -465,10 +477,23 @@ const makeAcpSessionRuntime = (
               sessionId: started.sessionId,
               ...payload,
             } satisfies EffectAcpSchema.PromptRequest;
-            return runLoggedRequest(
-              "session/prompt",
-              requestPayload,
-              acp.agent.prompt(requestPayload),
+            return closeActiveAssistantSegment({
+              queue: eventQueue,
+              assistantSegmentRef,
+            }).pipe(
+              Effect.andThen(
+                runLoggedRequest(
+                  "session/prompt",
+                  requestPayload,
+                  acp.agent.prompt(requestPayload),
+                ),
+              ),
+              Effect.tap(() =>
+                closeActiveAssistantSegment({
+                  queue: eventQueue,
+                  assistantSegmentRef,
+                }),
+              ),
             );
           }),
         ),
@@ -504,11 +529,13 @@ const handleSessionUpdate = ({
   queue,
   modeStateRef,
   toolCallsRef,
+  assistantSegmentRef,
   params,
 }: {
   readonly queue: Queue.Queue<AcpParsedSessionEvent>;
   readonly modeStateRef: Ref.Ref<AcpSessionModeState | undefined>;
   readonly toolCallsRef: Ref.Ref<Map<string, AcpToolCallState>>;
+  readonly assistantSegmentRef: Ref.Ref<AcpAssistantSegmentState>;
   readonly params: EffectAcpSchema.SessionNotification;
 }): Effect.Effect<void> =>
   Effect.gen(function* () {
@@ -520,7 +547,11 @@ const handleSessionUpdate = ({
     }
     for (const event of parsed.events) {
       if (event._tag === "ToolCallUpdated") {
-        const merged = yield* Ref.modify(toolCallsRef, (current) => {
+        yield* closeActiveAssistantSegment({
+          queue,
+          assistantSegmentRef,
+        });
+        const { previous, merged } = yield* Ref.modify(toolCallsRef, (current) => {
           const previous = current.get(event.toolCall.toolCallId);
           const nextToolCall = mergeToolCallState(previous, event.toolCall);
           const next = new Map(current);
@@ -529,12 +560,33 @@ const handleSessionUpdate = ({
           } else {
             next.set(nextToolCall.toolCallId, nextToolCall);
           }
-          return [nextToolCall, next] as const;
+          return [{ previous, merged: nextToolCall }, next] as const;
         });
+        if (!shouldEmitToolCallUpdate(previous, merged)) {
+          continue;
+        }
         yield* Queue.offer(queue, {
           _tag: "ToolCallUpdated",
           toolCall: merged,
           rawPayload: event.rawPayload,
+        });
+        continue;
+      }
+      if (event._tag === "ContentDelta") {
+        if (event.text.trim().length === 0) {
+          const assistantSegmentState = yield* Ref.get(assistantSegmentRef);
+          if (!assistantSegmentState.activeItemId) {
+            continue;
+          }
+        }
+        const itemId = yield* ensureActiveAssistantSegment({
+          queue,
+          assistantSegmentRef,
+          sessionId: params.sessionId,
+        });
+        yield* Queue.offer(queue, {
+          ...event,
+          itemId,
         });
         continue;
       }
@@ -554,3 +606,79 @@ function updateModeState(modeState: AcpSessionModeState, nextModeId: string): Ac
       }
     : modeState;
 }
+
+function shouldEmitToolCallUpdate(
+  previous: AcpToolCallState | undefined,
+  next: AcpToolCallState,
+): boolean {
+  if (next.status === "completed" || next.status === "failed") {
+    return true;
+  }
+  if (!next.detail) {
+    return false;
+  }
+  return previous === undefined || previous.title !== next.title || previous.detail !== next.detail;
+}
+
+const assistantItemId = (sessionId: string, segmentIndex: number) =>
+  `assistant:${sessionId}:segment:${segmentIndex}`;
+
+const ensureActiveAssistantSegment = ({
+  queue,
+  assistantSegmentRef,
+  sessionId,
+}: {
+  readonly queue: Queue.Queue<AcpParsedSessionEvent>;
+  readonly assistantSegmentRef: Ref.Ref<AcpAssistantSegmentState>;
+  readonly sessionId: string;
+}) =>
+  Ref.modify<AcpAssistantSegmentState, EnsureActiveAssistantSegmentResult>(
+    assistantSegmentRef,
+    (current) => {
+      if (current.activeItemId) {
+        return [{ itemId: current.activeItemId }, current] as const;
+      }
+      const itemId = assistantItemId(sessionId, current.nextSegmentIndex);
+      return [
+        {
+          itemId,
+          startedEvent: {
+            _tag: "AssistantItemStarted",
+            itemId,
+          } satisfies Extract<AcpParsedSessionEvent, { readonly _tag: "AssistantItemStarted" }>,
+        },
+        {
+          nextSegmentIndex: current.nextSegmentIndex + 1,
+          activeItemId: itemId,
+        } satisfies AcpAssistantSegmentState,
+      ] as const;
+    },
+  ).pipe(
+    Effect.flatMap((result) =>
+      result.startedEvent
+        ? Queue.offer(queue, result.startedEvent).pipe(Effect.as(result.itemId))
+        : Effect.succeed(result.itemId),
+    ),
+  );
+
+const closeActiveAssistantSegment = ({
+  queue,
+  assistantSegmentRef,
+}: {
+  readonly queue: Queue.Queue<AcpParsedSessionEvent>;
+  readonly assistantSegmentRef: Ref.Ref<AcpAssistantSegmentState>;
+}) =>
+  Ref.modify(assistantSegmentRef, (current) => {
+    if (!current.activeItemId) {
+      return [undefined, current] as const;
+    }
+    return [
+      {
+        _tag: "AssistantItemCompleted",
+        itemId: current.activeItemId,
+      } satisfies AcpParsedSessionEvent,
+      {
+        nextSegmentIndex: current.nextSegmentIndex,
+      } satisfies AcpAssistantSegmentState,
+    ] as const;
+  }).pipe(Effect.flatMap((event) => (event ? Queue.offer(queue, event) : Effect.void)));
