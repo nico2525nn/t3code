@@ -2152,14 +2152,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
       : "local";
 
   useEffect(() => {
-    if (phase !== "running") return;
+    if (phase !== "running" && sendPhase === "idle") return;
     const timer = window.setInterval(() => {
       setNowTick(Date.now());
     }, 1000);
     return () => {
       window.clearInterval(timer);
     };
-  }, [phase]);
+  }, [phase, sendPhase]);
 
   const beginSendPhase = useCallback((nextPhase: Exclude<SendPhase, "idle">) => {
     setSendStartedAt((current) => current ?? new Date().toISOString());
@@ -2191,6 +2191,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
     resetSendPhase,
     sendPhase,
   ]);
+
+  // Fallback: if the "running" phase transition was missed (e.g. due to React
+  // batching two snapshots, a WebSocket reconnect, or a very fast turn), the
+  // primary auto-reset above never fires and sendPhase stays stuck.  Detect
+  // this by checking whether the turn has settled while sendPhase is still
+  // non-idle — the turn completing is a definitive signal that "sending" is
+  // over.
+  useEffect(() => {
+    if (sendPhase === "idle") return;
+    if (phase !== "running" && phase !== "connecting" && latestTurnSettled) {
+      resetSendPhase();
+    }
+  }, [latestTurnSettled, phase, resetSendPhase, sendPhase]);
 
   useEffect(() => {
     if (!activeThreadId) return;
