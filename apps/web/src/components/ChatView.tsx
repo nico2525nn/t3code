@@ -2161,14 +2161,21 @@ export default function ChatView({ threadId }: ChatViewProps) {
     };
   }, [phase, sendPhase]);
 
-  const beginSendPhase = useCallback((nextPhase: Exclude<SendPhase, "idle">) => {
-    setSendStartedAt((current) => current ?? new Date().toISOString());
-    setSendPhase(nextPhase);
-  }, []);
+  const turnIdAtSendRef = useRef<string | null>(null);
+
+  const beginSendPhase = useCallback(
+    (nextPhase: Exclude<SendPhase, "idle">) => {
+      setSendStartedAt((current) => current ?? new Date().toISOString());
+      turnIdAtSendRef.current = activeLatestTurn?.turnId ?? null;
+      setSendPhase(nextPhase);
+    },
+    [activeLatestTurn?.turnId],
+  );
 
   const resetSendPhase = useCallback(() => {
     setSendPhase("idle");
     setSendStartedAt(null);
+    turnIdAtSendRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -2198,12 +2205,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
   // this by checking whether the turn has settled while sendPhase is still
   // non-idle — the turn completing is a definitive signal that "sending" is
   // over.
+  //
+  // Guard: only reset when the latest turn differs from the one recorded at
+  // send time.  Without this, a follow-up message on a thread whose previous
+  // turn already settled would be immediately reset before the server creates
+  // the new turn.
   useEffect(() => {
     if (sendPhase === "idle") return;
-    if (phase !== "running" && phase !== "connecting" && latestTurnSettled) {
+    const turnChanged = activeLatestTurn?.turnId !== turnIdAtSendRef.current;
+    if (phase !== "running" && phase !== "connecting" && latestTurnSettled && turnChanged) {
       resetSendPhase();
     }
-  }, [latestTurnSettled, phase, resetSendPhase, sendPhase]);
+  }, [activeLatestTurn?.turnId, latestTurnSettled, phase, resetSendPhase, sendPhase]);
 
   useEffect(() => {
     if (!activeThreadId) return;
