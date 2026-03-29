@@ -458,6 +458,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     id: ProjectId.makeUnsafe("project-1"),
     name: "Project",
     cwd: "/tmp/project",
+    workspaceState: "available",
     defaultModelSelection: {
       provider: "codex",
       model: "gpt-5.4",
@@ -494,6 +495,9 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     latestTurn: null,
     branch: null,
     worktreePath: null,
+    effectiveCwd: "/tmp/project",
+    effectiveCwdSource: "project",
+    effectiveCwdState: "available",
     turnDiffSummaries: [],
     activities: [],
     ...overrides,
