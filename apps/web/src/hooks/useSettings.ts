@@ -235,10 +235,9 @@ export function buildLegacyClientSettingsMigrationPatch(
 export function migrateLocalSettingsToServer(): void {
   if (typeof window === "undefined") return;
 
-  const raw = localStorage.getItem(OLD_SETTINGS_KEY);
-  if (!raw) return;
-
-  // Migrate old t3code:theme localStorage key to server colorMode
+  // Migrate old t3code:theme localStorage key to server colorMode.
+  // This runs independently of OLD_SETTINGS_KEY since the old useTheme hook
+  // wrote t3code:theme separately.
   try {
     const oldTheme = localStorage.getItem("t3code:theme");
     if (oldTheme === "light" || oldTheme === "dark" || oldTheme === "system") {
@@ -249,6 +248,9 @@ export function migrateLocalSettingsToServer(): void {
   } catch {
     // Best-effort — don't block startup
   }
+
+  const raw = localStorage.getItem(OLD_SETTINGS_KEY);
+  if (!raw) return;
 
   try {
     const old = JSON.parse(raw);

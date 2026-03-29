@@ -424,7 +424,7 @@ function AboutVersionSection() {
 
 export function useSettingsRestore(onRestored?: () => void) {
   const settings = useSettings();
-  const { updateSettings, resetSettings } = useUpdateSettings();
+  const { resetSettings } = useUpdateSettings();
 
   const isGitWritingModelDirty = !Equal.equals(
     settings.textGenerationModelSelection ?? null,
@@ -487,10 +487,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     );
     if (!confirmed) return;
 
-    updateSettings({ colorMode: "system", activeThemeId: "t3code", accentHue: null });
     resetSettings();
     onRestored?.();
-  }, [changedSettingLabels, onRestored, resetSettings, updateSettings]);
+  }, [changedSettingLabels, onRestored, resetSettings]);
 
   return {
     changedSettingLabels,

@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ColorMode } from "@t3tools/contracts/settings";
 import type { DesktopAppearance } from "@t3tools/contracts";
-import { applyThemeTokens, findThemeById, removeThemeTokens, BUILT_IN_THEMES } from "~/lib/themes";
+import { applyThemeTokens, findThemeById, BUILT_IN_THEMES } from "~/lib/themes";
 import { useSettings, useUpdateSettings } from "./useSettings";
 
 // ── Constants ────────────────────────────────────────────────────
@@ -138,8 +138,6 @@ export function useAppearance() {
 
     // Sync to Electron
     syncDesktopAppearance({ mode: colorMode, themeId: activeThemeId, accentHue });
-
-    return () => removeThemeTokens();
   }, [resolvedTheme, activeTheme, accentHue, colorMode, activeThemeId]);
 
   const setColorMode = useCallback(
