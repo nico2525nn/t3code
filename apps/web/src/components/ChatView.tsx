@@ -486,9 +486,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
               model: DEFAULT_MODEL_BY_PROVIDER.codex,
             },
             localDraftError,
+            fallbackDraftProject?.cwd ?? null,
           )
         : undefined,
-    [draftThread, fallbackDraftProject?.defaultModelSelection, localDraftError, threadId],
+    [
+      draftThread,
+      fallbackDraftProject?.defaultModelSelection,
+      fallbackDraftProject?.cwd,
+      localDraftError,
+      threadId,
+    ],
   );
   const activeThread = serverThread ?? localDraftThread;
   const runtimeMode =

@@ -19,6 +19,7 @@ export function buildLocalDraftThread(
   draftThread: DraftThreadState,
   fallbackModelSelection: ModelSelection,
   error: string | null,
+  projectCwd: string | null,
 ): Thread {
   return {
     id: threadId,
@@ -37,8 +38,8 @@ export function buildLocalDraftThread(
     lastVisitedAt: draftThread.createdAt,
     branch: draftThread.branch,
     worktreePath: draftThread.worktreePath,
-    effectiveCwd: draftThread.worktreePath ?? null,
-    effectiveCwdSource: draftThread.worktreePath ? "worktree" : null,
+    effectiveCwd: draftThread.worktreePath ?? projectCwd,
+    effectiveCwdSource: draftThread.worktreePath ? "worktree" : projectCwd ? "project" : null,
     effectiveCwdState: "available",
     turnDiffSummaries: [],
     activities: [],

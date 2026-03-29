@@ -673,20 +673,6 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       }),
     );
 
-  const ensureGitWorkspace = (operation: string, cwd: string, args: readonly string[] = []) =>
-    assertWorkspaceDirectory(cwd, operation).pipe(
-      Effect.mapError(
-        (error) =>
-          new GitCommandError({
-            operation,
-            command: quoteGitCommand(args),
-            cwd,
-            detail: error.message,
-            cause: error,
-          }),
-      ),
-    );
-
   const runGit = (
     operation: string,
     cwd: string,
@@ -1073,11 +1059,6 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   });
 
   const statusDetails: GitCoreShape["statusDetails"] = Effect.fn("statusDetails")(function* (cwd) {
-    yield* ensureGitWorkspace("GitCore.statusDetails", cwd, [
-      "status",
-      "--porcelain=2",
-      "--branch",
-    ]);
     yield* refreshStatusUpstreamIfStale(cwd).pipe(Effect.ignoreCause({ log: true }));
 
     const [statusStdout, unstagedNumstatStdout, stagedNumstatStdout] = yield* Effect.all(
