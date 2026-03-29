@@ -74,7 +74,7 @@ try {
       cached.colorMode === "dark" || (cached.colorMode === "system" && getSystemDark());
     document.documentElement.classList.toggle("dark", isDark);
     const theme = findThemeById(cached.activeThemeId ?? "t3code");
-    if (theme) applyThemeTokens(theme, cached.accentHue ?? null);
+    if (theme) applyThemeTokens(theme, cached.accentHue ?? null, isDark ? "dark" : "light");
   }
 } catch {
   // Cache unreadable — fall through to React reconciliation.
@@ -127,7 +127,7 @@ export function useAppearance() {
   useEffect(() => {
     suppressTransitions(() => {
       document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
-      applyThemeTokens(activeTheme, accentHue);
+      applyThemeTokens(activeTheme, accentHue, resolvedTheme);
     });
 
     // Write-through cache for FOUC prevention on next load

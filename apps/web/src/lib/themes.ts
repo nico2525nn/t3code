@@ -1,14 +1,11 @@
 /**
  * Theme definitions, CSS injection, and accent color derivation.
  *
- * V1 themes override accent/semantic colors only:
- *   primary, primary-foreground, ring,
- *   destructive, destructive-foreground,
- *   info, info-foreground,
- *   success, success-foreground,
- *   warning, warning-foreground
- *
+ * V1 themes override a focused set of CSS custom properties.
  * Background/surface tokens stay controlled by the CSS baseline in index.css.
+ *
+ * The override targets are the intermediate variables (--primary, --border, etc.)
+ * which feed into Tailwind's --color-* via @theme inline { --color-primary: var(--primary) }.
  */
 
 // ── Token types ──────────────────────────────────────────────────
@@ -28,7 +25,12 @@ export type ThemeToken =
   | "success"
   | "success-foreground"
   | "warning"
-  | "warning-foreground";
+  | "warning-foreground"
+  | "muted-foreground"
+  | "border"
+  | "input"
+  | "diff-addition"
+  | "diff-deletion";
 
 export type ThemeTokenMap = Partial<Record<ThemeToken, string>>;
 
@@ -52,59 +54,47 @@ const T3CODE_THEME: ThemeDefinition = {
   dark: {},
 };
 
+/**
+ * High Contrast — strengthens borders, inputs, and muted text for readability.
+ * Ported from PR #1284 which overrides --muted-foreground, --border, --input.
+ */
 const HIGH_CONTRAST_THEME: ThemeDefinition = {
   id: "high-contrast",
   name: "High Contrast",
-  description: "Boosted contrast for WCAG AAA.",
+  description: "Stronger borders and text for readability.",
   builtIn: true,
   light: {
-    primary: "oklch(0.35 0.25 264)",
-    "primary-foreground": "oklch(1 0 0)",
-    ring: "oklch(0.35 0.25 264)",
-    destructive: "oklch(0.45 0.28 25)",
-    "destructive-foreground": "oklch(0.30 0.22 25)",
-    info: "oklch(0.45 0.22 250)",
-    "info-foreground": "oklch(0.30 0.18 250)",
-    success: "oklch(0.42 0.20 155)",
-    "success-foreground": "oklch(0.28 0.16 155)",
-    warning: "oklch(0.55 0.22 70)",
-    "warning-foreground": "oklch(0.38 0.18 70)",
+    "muted-foreground": "color-mix(in srgb, var(--color-neutral-700) 92%, var(--color-black))",
+    border: "--alpha(var(--color-black) / 45%)",
+    input: "--alpha(var(--color-black) / 50%)",
   },
   dark: {
-    primary: "oklch(0.75 0.22 264)",
-    "primary-foreground": "oklch(0.15 0 0)",
-    ring: "oklch(0.75 0.22 264)",
-    destructive: "oklch(0.72 0.26 25)",
-    "destructive-foreground": "oklch(0.82 0.18 25)",
-    info: "oklch(0.72 0.20 250)",
-    "info-foreground": "oklch(0.82 0.14 250)",
-    success: "oklch(0.72 0.20 155)",
-    "success-foreground": "oklch(0.82 0.14 155)",
-    warning: "oklch(0.78 0.20 70)",
-    "warning-foreground": "oklch(0.86 0.14 70)",
+    "muted-foreground": "color-mix(in srgb, var(--color-neutral-300) 92%, var(--color-white))",
+    border: "--alpha(var(--color-white) / 40%)",
+    input: "--alpha(var(--color-white) / 45%)",
   },
 };
 
+/**
+ * Color Blind — replaces red/green juxtaposition in diffs with blue/orange.
+ * Ported from PR #1535 which uses GitHub Primer @primer/primitives diffBlob palette.
+ *
+ * Only overrides --diff-addition / --diff-deletion (the diff-specific tokens).
+ * Success (green) and destructive (red) are fine in isolation — the problem
+ * is only when they appear side-by-side in diffs.
+ */
 const COLOR_BLIND_THEME: ThemeDefinition = {
   id: "color-blind",
   name: "Color Blind",
-  description: "Deuteranopia-safe palette.",
+  description: "Blue/orange diffs for color vision deficiency.",
   builtIn: true,
   light: {
-    success: "oklch(0.65 0.15 195)",
-    "success-foreground": "oklch(0.45 0.12 195)",
-    warning: "oklch(0.75 0.16 65)",
-    "warning-foreground": "oklch(0.50 0.14 65)",
-    destructive: "oklch(0.55 0.22 350)",
-    "destructive-foreground": "oklch(0.40 0.18 350)",
+    "diff-addition": "#0969da", // blue (replaces green)
+    "diff-deletion": "#bc4c00", // orange (replaces red)
   },
   dark: {
-    success: "oklch(0.70 0.14 195)",
-    "success-foreground": "oklch(0.82 0.10 195)",
-    warning: "oklch(0.78 0.15 65)",
-    "warning-foreground": "oklch(0.86 0.10 65)",
-    destructive: "oklch(0.68 0.20 350)",
-    "destructive-foreground": "oklch(0.82 0.14 350)",
+    "diff-addition": "#388bfd", // blue (replaces green)
+    "diff-deletion": "#db6d28", // orange (replaces red)
   },
 };
 
@@ -157,52 +147,53 @@ export function deriveAccentColors(hue: number): { light: ThemeTokenMap; dark: T
   };
 }
 
-// ── CSS injection ────────────────────────────────────────────────
+// ── CSS injection via inline styles ──────────────────────────────
+//
+// We set CSS custom properties directly on document.documentElement.style
+// (inline styles). This is the highest specificity in the cascade and
+// guarantees our overrides beat any stylesheet — including Vite HMR
+// injections that can reorder <style> elements unpredictably.
 
-const STYLE_ELEMENT_ID = "t3code-theme-tokens";
-
-function buildCssBlock(selector: string, tokens: ThemeTokenMap): string {
-  const entries = Object.entries(tokens) as [ThemeToken, string][];
-  if (entries.length === 0) return "";
-  // Override the intermediate CSS variables (--primary, --ring, etc.)
-  // which feed into Tailwind's --color-* via @theme inline { --color-primary: var(--primary) }.
-  const declarations = entries.map(([token, value]) => `  --${token}: ${value};`).join("\n");
-  return `${selector} {\n${declarations}\n}`;
-}
+/** Track which properties were set so we can clean them up. */
+let appliedProperties: string[] = [];
 
 /**
- * Inject or replace a `<style>` element with theme overrides.
- * When the T3Code default is active with no accent, removes the element entirely.
+ * Apply theme token overrides as inline CSS custom properties on <html>.
+ * Resolves light/dark tokens based on `resolvedTheme` and sets them directly.
+ * When the T3Code default is active with no accent, removes all overrides.
  */
-export function applyThemeTokens(theme: ThemeDefinition, accentHue: number | null): void {
+export function applyThemeTokens(
+  theme: ThemeDefinition,
+  accentHue: number | null,
+  resolvedTheme: "light" | "dark",
+): void {
   const accent = accentHue != null ? deriveAccentColors(accentHue) : null;
 
-  const lightTokens: ThemeTokenMap = { ...theme.light, ...accent?.light };
-  const darkTokens: ThemeTokenMap = { ...theme.dark, ...accent?.dark };
+  const tokens: ThemeTokenMap =
+    resolvedTheme === "dark"
+      ? { ...theme.dark, ...accent?.dark }
+      : { ...theme.light, ...accent?.light };
 
-  const hasOverrides = Object.keys(lightTokens).length > 0 || Object.keys(darkTokens).length > 0;
+  // Clean up previously applied properties
+  removeThemeTokens();
 
-  if (!hasOverrides) {
-    removeThemeTokens();
-    return;
+  const entries = Object.entries(tokens) as [ThemeToken, string][];
+  if (entries.length === 0) return;
+
+  const el = document.documentElement;
+  const props: string[] = [];
+  for (const [token, value] of entries) {
+    const prop = `--${token}`;
+    el.style.setProperty(prop, value);
+    props.push(prop);
   }
-
-  const blocks = [
-    buildCssBlock(":root", lightTokens),
-    buildCssBlock(":root:is(.dark, .dark *)", darkTokens),
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  let style = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
-  if (!style) {
-    style = document.createElement("style");
-    style.id = STYLE_ELEMENT_ID;
-    document.head.appendChild(style);
-  }
-  style.textContent = blocks;
+  appliedProperties = props;
 }
 
 export function removeThemeTokens(): void {
-  document.getElementById(STYLE_ELEMENT_ID)?.remove();
+  const el = document.documentElement;
+  for (const prop of appliedProperties) {
+    el.style.removeProperty(prop);
+  }
+  appliedProperties = [];
 }

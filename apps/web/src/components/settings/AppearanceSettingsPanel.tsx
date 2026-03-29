@@ -29,20 +29,31 @@ const COLOR_MODE_OPTIONS = [
 
 // ── Swatch preview ──────────────────────────────────────────────
 
-const SWATCH_TOKENS: Array<keyof ThemeTokenMap> = [
-  "primary",
-  "destructive",
-  "success",
-  "warning",
-  "info",
-];
+/** Render small color dots showing what the theme overrides. */
+function ThemeSwatch({ theme }: { theme: ThemeDefinition }) {
+  // Show the tokens the theme actually overrides (merge light + dark for preview)
+  const overrideTokens = Object.keys({ ...theme.light, ...theme.dark }) as Array<
+    keyof ThemeTokenMap
+  >;
 
-/** Render 5 small color dots for a theme preview. */
-function ThemeSwatch({ tokens }: { tokens: ThemeTokenMap }) {
+  if (overrideTokens.length === 0) {
+    // Default theme — show placeholder dots
+    return (
+      <div className="flex gap-1.5">
+        {Array.from({ length: 4 }, (_, i) => (
+          <span key={i} className="size-3 rounded-full border border-border/40 bg-muted" />
+        ))}
+      </div>
+    );
+  }
+
+  // For display, prefer light-mode values (more vivid), fall back to dark
+  const displayTokens = overrideTokens.filter((t) => !t.endsWith("-foreground")).slice(0, 5);
+
   return (
     <div className="flex gap-1.5">
-      {SWATCH_TOKENS.map((token) => {
-        const color = tokens[token];
+      {displayTokens.map((token) => {
+        const color = theme.light[token] ?? theme.dark[token];
         return color ? (
           <span
             key={token}
@@ -85,7 +96,7 @@ function ThemeCard({
         {isSelected ? <CheckIcon className="size-4 text-primary" /> : null}
       </div>
       <p className="text-xs text-muted-foreground">{theme.description}</p>
-      <ThemeSwatch tokens={{ ...theme.light, ...theme.dark }} />
+      <ThemeSwatch theme={theme} />
     </button>
   );
 }
