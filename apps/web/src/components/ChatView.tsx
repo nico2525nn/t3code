@@ -256,6 +256,7 @@ interface PendingPullRequestSetupRequest {
 
 interface OptimisticSendPhaseBridge {
   threadId: ThreadId;
+  phase: SessionPhase;
   startedAt: string;
   requestSettled: boolean;
 }
@@ -286,13 +287,17 @@ function useOptimisticSendPhase(input: {
   isSendBusy: boolean;
   markOptimisticSendRequestSettled: (threadId: ThreadId) => void;
   setOptimisticPhase: (phase: SessionPhase) => void;
-  startOptimisticSendPhase: (threadId: ThreadId, startedAt: string) => void;
+  startOptimisticSendPhase: (threadId: ThreadId, startedAt: string, phase: SessionPhase) => void;
 } {
   const [optimisticPhase, setOptimisticPhase] = useOptimistic(input.phase);
   const [sendPhaseBridge, setSendPhaseBridge] = useState<OptimisticSendPhaseBridge | null>(null);
 
   const isSendForActiveThread =
     sendPhaseBridge !== null && sendPhaseBridge.threadId === input.activeThreadId;
+  const authoritativeWorkingPhase =
+    input.phase === "connecting" || input.phase === "running" ? input.phase : null;
+  const bridgedOptimisticPhase =
+    optimisticPhase === input.phase ? (sendPhaseBridge?.phase ?? input.phase) : optimisticPhase;
 
   useEffect(() => {
     if (!sendPhaseBridge || !isSendForActiveThread || !sendPhaseBridge.requestSettled) {
@@ -309,13 +314,17 @@ function useOptimisticSendPhase(input: {
     }
   }, [input.latestTurnRequestedAt, input.phase, isSendForActiveThread, sendPhaseBridge]);
 
-  const startOptimisticSendPhase = useCallback((threadId: ThreadId, startedAt: string) => {
-    setSendPhaseBridge({
-      threadId,
-      startedAt,
-      requestSettled: false,
-    });
-  }, []);
+  const startOptimisticSendPhase = useCallback(
+    (threadId: ThreadId, startedAt: string, phase: SessionPhase) => {
+      setSendPhaseBridge({
+        threadId,
+        phase,
+        startedAt,
+        requestSettled: false,
+      });
+    },
+    [],
+  );
 
   const markOptimisticSendRequestSettled = useCallback((threadId: ThreadId) => {
     setSendPhaseBridge((current) => {
@@ -344,7 +353,9 @@ function useOptimisticSendPhase(input: {
   return {
     activeSendStartedAt: isSendForActiveThread ? sendPhaseBridge.startedAt : null,
     clearOptimisticSendPhase,
-    effectivePhase: isSendForActiveThread ? optimisticPhase : input.phase,
+    effectivePhase: isSendForActiveThread
+      ? (authoritativeWorkingPhase ?? bridgedOptimisticPhase)
+      : input.phase,
     isSendBusy: isSendForActiveThread,
     markOptimisticSendRequestSettled,
     setOptimisticPhase,
@@ -2616,7 +2627,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
 
     sendInFlightRef.current = true;
-    startOptimisticSendPhase(activeThread.id, new Date().toISOString());
+    startOptimisticSendPhase(activeThread.id, new Date().toISOString(), "running");
 
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
@@ -3051,7 +3062,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       });
 
       sendInFlightRef.current = true;
-      startOptimisticSendPhase(activeThread.id, new Date().toISOString());
+      startOptimisticSendPhase(activeThread.id, new Date().toISOString(), "running");
       setThreadError(threadIdForSend, null);
       setOptimisticUserMessages((existing) => [
         ...existing,
@@ -3178,7 +3189,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const nextThreadModelSelection: ModelSelection = selectedModelSelection;
 
     sendInFlightRef.current = true;
-    startOptimisticSendPhase(activeThread.id, new Date().toISOString());
+    startOptimisticSendPhase(activeThread.id, new Date().toISOString(), "running");
 
     startSendTransition(async () => {
       setOptimisticPhase("running");
