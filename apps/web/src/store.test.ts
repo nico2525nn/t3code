@@ -7,7 +7,13 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
-import { markThreadUnread, reorderProjects, syncServerReadModel, type AppState } from "./store";
+import {
+  markThreadUnread,
+  reorderProjects,
+  syncServerReadModel,
+  toggleProjectPinned,
+  type AppState,
+} from "./store";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -49,6 +55,7 @@ function makeState(thread: Thread): AppState {
           model: "gpt-5-codex",
         },
         expanded: true,
+        pinned: false,
         scripts: [],
       },
     ],
@@ -181,6 +188,7 @@ describe("store pure functions", () => {
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
           expanded: true,
+          pinned: false,
           scripts: [],
         },
         {
@@ -192,6 +200,7 @@ describe("store pure functions", () => {
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
           expanded: true,
+          pinned: false,
           scripts: [],
         },
         {
@@ -203,6 +212,7 @@ describe("store pure functions", () => {
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
           expanded: true,
+          pinned: false,
           scripts: [],
         },
       ],
@@ -213,6 +223,16 @@ describe("store pure functions", () => {
     const next = reorderProjects(state, project1, project3);
 
     expect(next.projects.map((project) => project.id)).toEqual([project2, project3, project1]);
+  });
+
+  it("toggleProjectPinned flips the pinned flag for the selected project", () => {
+    const projectId = ProjectId.makeUnsafe("project-1");
+    const initialState = makeState(makeThread());
+
+    const next = toggleProjectPinned(initialState, projectId);
+
+    expect(next.projects[0]?.pinned).toBe(true);
+    expect(initialState.projects[0]?.pinned).toBe(false);
   });
 });
 
@@ -302,6 +322,7 @@ describe("store read model sync", () => {
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
           expanded: true,
+          pinned: true,
           scripts: [],
         },
         {
@@ -313,6 +334,7 @@ describe("store read model sync", () => {
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
           expanded: true,
+          pinned: false,
           scripts: [],
         },
       ],
@@ -345,5 +367,6 @@ describe("store read model sync", () => {
     const next = syncServerReadModel(initialState, readModel);
 
     expect(next.projects.map((project) => project.id)).toEqual([project2, project1, project3]);
+    expect(next.projects.map((project) => project.pinned)).toEqual([true, false, false]);
   });
 });

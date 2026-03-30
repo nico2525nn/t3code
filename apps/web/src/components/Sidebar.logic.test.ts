@@ -553,6 +553,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
       ...defaultModelSelection,
     },
     expanded: true,
+    pinned: false,
     createdAt: "2026-03-09T10:00:00.000Z",
     updatedAt: "2026-03-09T10:00:00.000Z",
     scripts: [],
@@ -884,11 +885,63 @@ describe("sortProjectsForSidebar", () => {
 
   it("preserves manual project ordering", () => {
     const projects = [
-      makeProject({ id: ProjectId.makeUnsafe("project-2"), name: "Second" }),
-      makeProject({ id: ProjectId.makeUnsafe("project-1"), name: "First" }),
+      makeProject({ id: ProjectId.makeUnsafe("project-2"), name: "Second", pinned: true }),
+      makeProject({ id: ProjectId.makeUnsafe("project-1"), name: "First", pinned: false }),
     ];
 
     const sorted = sortProjectsForSidebar(projects, [], "manual");
+
+    expect(sorted.map((project) => project.id)).toEqual([
+      ProjectId.makeUnsafe("project-2"),
+      ProjectId.makeUnsafe("project-1"),
+    ]);
+  });
+
+  it("keeps pinned projects ahead of unpinned projects in auto sort modes", () => {
+    const sorted = sortProjectsForSidebar(
+      [
+        makeProject({
+          id: ProjectId.makeUnsafe("project-1"),
+          name: "Unpinned newer",
+          pinned: false,
+          updatedAt: "2026-03-09T10:05:00.000Z",
+        }),
+        makeProject({
+          id: ProjectId.makeUnsafe("project-2"),
+          name: "Pinned older",
+          pinned: true,
+          updatedAt: "2026-03-09T10:01:00.000Z",
+        }),
+      ],
+      [],
+      "updated_at",
+    );
+
+    expect(sorted.map((project) => project.id)).toEqual([
+      ProjectId.makeUnsafe("project-2"),
+      ProjectId.makeUnsafe("project-1"),
+    ]);
+  });
+
+  it("still sorts pinned projects relative to each other by the active auto sort", () => {
+    const sorted = sortProjectsForSidebar(
+      [
+        makeProject({
+          id: ProjectId.makeUnsafe("project-1"),
+          name: "Pinned older",
+          pinned: true,
+          updatedAt: "2026-03-09T10:01:00.000Z",
+        }),
+        makeProject({
+          id: ProjectId.makeUnsafe("project-2"),
+          name: "Pinned newer",
+          pinned: true,
+          updatedAt: "2026-03-09T10:05:00.000Z",
+        }),
+      ],
+      [],
+      "updated_at",
+    );
 
     expect(sorted.map((project) => project.id)).toEqual([
       ProjectId.makeUnsafe("project-2"),

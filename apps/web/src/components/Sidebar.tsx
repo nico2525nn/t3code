@@ -4,6 +4,7 @@ import {
   ChevronRightIcon,
   FolderIcon,
   GitPullRequestIcon,
+  PinIcon,
   PlusIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -364,6 +365,7 @@ export default function Sidebar() {
   const threads = useStore((store) => store.threads);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const toggleProject = useStore((store) => store.toggleProject);
+  const toggleProjectPinned = useStore((store) => store.toggleProjectPinned);
   const reorderProjects = useStore((store) => store.reorderProjects);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
   const getDraftThreadByProjectId = useComposerDraftStore(
@@ -909,11 +911,16 @@ export default function Sidebar() {
 
       const clicked = await api.contextMenu.show(
         [
+          { id: "toggle-pin", label: project.pinned ? "Unpin project" : "Pin project" },
           { id: "copy-path", label: "Copy Project Path" },
           { id: "delete", label: "Remove project", destructive: true },
         ],
         position,
       );
+      if (clicked === "toggle-pin") {
+        toggleProjectPinned(projectId);
+        return;
+      }
       if (clicked === "copy-path") {
         copyPathToClipboard(project.cwd, { path: project.cwd });
         return;
@@ -961,6 +968,7 @@ export default function Sidebar() {
       getDraftThreadByProjectId,
       projects,
       threads,
+      toggleProjectPinned,
     ],
   );
 
@@ -1559,6 +1567,12 @@ export default function Sidebar() {
             <span className="flex-1 truncate text-xs font-medium text-foreground/90">
               {project.name}
             </span>
+            {project.pinned ? (
+              <PinIcon
+                aria-hidden="true"
+                className="size-3 shrink-0 rotate-45 text-muted-foreground/55"
+              />
+            ) : null}
           </SidebarMenuButton>
           <Tooltip>
             <TooltipTrigger

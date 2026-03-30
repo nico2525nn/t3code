@@ -14,6 +14,7 @@ export type SidebarNewThreadEnvMode = "local" | "worktree";
 type SidebarProject = {
   id: string;
   name: string;
+  pinned: boolean;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 };
@@ -486,6 +487,8 @@ export function sortProjectsForSidebar<TProject extends SidebarProject, TThread 
   }
 
   return [...projects].toSorted((left, right) => {
+    const byPinned = Number(right.pinned) - Number(left.pinned);
+    if (byPinned !== 0) return byPinned;
     const rightTimestamp = getProjectSortTimestamp(
       right,
       threadsByProjectId.get(right.id) ?? [],

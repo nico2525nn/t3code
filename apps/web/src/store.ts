@@ -37,6 +37,7 @@ const initialState: AppState = {
   threadsHydrated: false,
 };
 const persistedExpandedProjectCwds = new Set<string>();
+const persistedPinnedProjectCwds = new Set<string>();
 const persistedProjectOrderCwds: string[] = [];
 
 // ── Persist helpers ──────────────────────────────────────────────────
@@ -48,13 +49,20 @@ function readPersistedState(): AppState {
     if (!raw) return initialState;
     const parsed = JSON.parse(raw) as {
       expandedProjectCwds?: string[];
+      pinnedProjectCwds?: string[];
       projectOrderCwds?: string[];
     };
     persistedExpandedProjectCwds.clear();
+    persistedPinnedProjectCwds.clear();
     persistedProjectOrderCwds.length = 0;
     for (const cwd of parsed.expandedProjectCwds ?? []) {
       if (typeof cwd === "string" && cwd.length > 0) {
         persistedExpandedProjectCwds.add(cwd);
+      }
+    }
+    for (const cwd of parsed.pinnedProjectCwds ?? []) {
+      if (typeof cwd === "string" && cwd.length > 0) {
+        persistedPinnedProjectCwds.add(cwd);
       }
     }
     for (const cwd of parsed.projectOrderCwds ?? []) {
@@ -78,6 +86,9 @@ function persistState(state: AppState): void {
       JSON.stringify({
         expandedProjectCwds: state.projects
           .filter((project) => project.expanded)
+          .map((project) => project.cwd),
+        pinnedProjectCwds: state.projects
+          .filter((project) => project.pinned)
           .map((project) => project.cwd),
         projectOrderCwds: state.projects.map((project) => project.cwd),
       }),
@@ -148,6 +159,7 @@ function mapProjectsFromReadModel(
         (persistedExpandedProjectCwds.size > 0
           ? persistedExpandedProjectCwds.has(project.workspaceRoot)
           : true),
+      pinned: existing?.pinned ?? persistedPinnedProjectCwds.has(project.workspaceRoot),
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
       scripts: project.scripts.map((script) => ({ ...script })),
@@ -379,6 +391,16 @@ export function setProjectExpanded(
   return changed ? { ...state, projects } : state;
 }
 
+export function toggleProjectPinned(state: AppState, projectId: Project["id"]): AppState {
+  let changed = false;
+  const projects = state.projects.map((project) => {
+    if (project.id !== projectId) return project;
+    changed = true;
+    return { ...project, pinned: !project.pinned };
+  });
+  return changed ? { ...state, projects } : state;
+}
+
 export function reorderProjects(
   state: AppState,
   draggedProjectId: Project["id"],
@@ -429,6 +451,7 @@ interface AppStore extends AppState {
   markThreadVisited: (threadId: ThreadId, visitedAt?: string) => void;
   markThreadUnread: (threadId: ThreadId) => void;
   toggleProject: (projectId: Project["id"]) => void;
+  toggleProjectPinned: (projectId: Project["id"]) => void;
   setProjectExpanded: (projectId: Project["id"], expanded: boolean) => void;
   reorderProjects: (draggedProjectId: Project["id"], targetProjectId: Project["id"]) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
@@ -442,6 +465,7 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => markThreadVisited(state, threadId, visitedAt)),
   markThreadUnread: (threadId) => set((state) => markThreadUnread(state, threadId)),
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
+  toggleProjectPinned: (projectId) => set((state) => toggleProjectPinned(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),
   reorderProjects: (draggedProjectId, targetProjectId) =>
