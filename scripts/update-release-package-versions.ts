@@ -2,6 +2,8 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { writeServerSettingsJsonSchemas } from "./lib/server-settings-schema.ts";
+
 export const releasePackageFiles = [
   "apps/server/package.json",
   "apps/desktop/package.json",
@@ -36,6 +38,8 @@ export function updateReleasePackageVersions(
     writeFileSync(filePath, `${JSON.stringify(packageJson, null, 2)}\n`);
     changed = true;
   }
+
+  changed = writeServerSettingsJsonSchemas({ rootDir, version }).changed || changed;
 
   return { changed };
 }
@@ -99,7 +103,7 @@ if (isMain) {
   );
 
   if (!changed) {
-    console.log("All package.json versions already match release version.");
+    console.log("All release version artifacts already match the requested version.");
   }
 
   if (writeGithubOutput) {

@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
+    "build:schemas": "bun ../../scripts/build-server-settings-schema.ts",
+    "dev": "bun run build:schemas && astro dev",
+    "build": "bun run build:schemas && astro build",
     "preview": "astro preview",
     "typecheck": "astro check"
   },

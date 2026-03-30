@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -81,7 +89,7 @@ try {
   copyWorkspaceManifestFixture(tempRoot);
 
   execFileSync(
-    process.execPath,
+    "bun",
     [
       resolve(repoRoot, "scripts/update-release-package-versions.ts"),
       "9.9.9-smoke.0",
@@ -106,9 +114,34 @@ try {
     "Expected bun.lock to contain the smoke version.",
   );
 
+  const latestSchemaPath = resolve(
+    tempRoot,
+    "apps/marketing/public/schemas/server-settings.schema.json",
+  );
+  const versionedSchemaPath = resolve(
+    tempRoot,
+    "apps/marketing/public/schemas/server-settings/9.9.9-smoke.0.schema.json",
+  );
+  if (!existsSync(latestSchemaPath)) {
+    throw new Error(
+      "Expected release version alignment to generate the latest server settings schema.",
+    );
+  }
+  if (!existsSync(versionedSchemaPath)) {
+    throw new Error(
+      "Expected release version alignment to generate the versioned server settings schema.",
+    );
+  }
+  const versionedSchema = readFileSync(versionedSchemaPath, "utf8");
+  assertContains(
+    versionedSchema,
+    '"title": "T3 Code Server Settings"',
+    "Expected versioned server settings schema to contain schema metadata.",
+  );
+
   const { arm64Path, x64Path } = writeMacManifestFixtures(tempRoot);
   execFileSync(
-    process.execPath,
+    "bun",
     [resolve(repoRoot, "scripts/merge-mac-update-manifests.ts"), arm64Path, x64Path],
     {
       cwd: repoRoot,

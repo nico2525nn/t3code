@@ -43,6 +43,15 @@ export const formatSchemaError = (cause: Cause.Cause<Schema.SchemaError>) => {
     : Cause.pretty(cause);
 };
 
+/** Convert an Effect Schema to a flat JSON Schema object, inlining `$defs` when present. */
+export const toJsonSchemaObject = (schema: Schema.Top): unknown => {
+  const document = Schema.toJsonSchemaDocument(schema);
+  if (document.definitions && Object.keys(document.definitions).length > 0) {
+    return { ...document.schema, $defs: document.definitions };
+  }
+  return document.schema;
+};
+
 /**
  * A `Getter` that parses a lenient JSON string (tolerating trailing commas
  * and JS-style comments) into an unknown value.
