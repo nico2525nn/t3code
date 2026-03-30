@@ -2757,9 +2757,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         );
       }
       sendInFlightRef.current = false;
-      if (!turnStartSucceeded) {
-        sendStartedAtRef.current = null;
-      }
+      sendStartedAtRef.current = null;
     });
   };
 
@@ -3027,9 +3025,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
             threadIdForSend,
             err instanceof Error ? err.message : "Failed to send plan follow-up.",
           );
-          sendStartedAtRef.current = null;
         }
         sendInFlightRef.current = false;
+        sendStartedAtRef.current = null;
       });
     },
     [
@@ -3146,9 +3144,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           description:
             err instanceof Error ? err.message : "An error occurred while creating the new thread.",
         });
-        sendStartedAtRef.current = null;
       }
       sendInFlightRef.current = false;
+      sendStartedAtRef.current = null;
     });
   }, [
     activeProject,
