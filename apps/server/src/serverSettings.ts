@@ -228,6 +228,8 @@ const makeServerSettings = Effect.gen(function* () {
           ? valueRecord[SETTINGS_SCHEMA_DECLARATION_KEY]
           : undefined;
       yield* Ref.set(schemaDeclarationRef, schemaDeclaration);
+    } else {
+      yield* Ref.set(schemaDeclarationRef, undefined);
     }
 
     const decoded = Schema.decodeUnknownExit(ServerSettingsJson)(raw);
