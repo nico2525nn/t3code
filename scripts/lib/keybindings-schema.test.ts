@@ -19,10 +19,18 @@ describe("buildKeybindingsJsonSchema", () => {
     expect(schema.title).toBe("T3 Code Keybindings");
     expect(schema.type).toBe("array");
     expect(schema.items).toMatchObject({
+      description: expect.stringContaining("keybinding rule"),
       type: "object",
       properties: {
-        key: expect.any(Object),
-        command: expect.any(Object),
+        key: {
+          description: expect.stringContaining("shortcut"),
+        },
+        command: {
+          description: expect.stringContaining("execute"),
+        },
+        when: {
+          description: expect.stringContaining("active"),
+        },
       },
     });
   });

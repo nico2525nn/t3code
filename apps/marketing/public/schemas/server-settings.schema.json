@@ -1,29 +1,37 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "T3 Code Server Settings",
-  "description": "JSON Schema for the server-authoritative settings.json file consumed by T3 Code.",
+  "description": "Server-authoritative settings persisted in `settings.json`.",
   "type": "object",
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional JSON Schema reference for editor tooling. May point to the stable or versioned T3 Code settings schema URL."
+    },
     "enableAssistantStreaming": {
       "anyOf": [
         {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether server-driven assistant responses should stream incrementally to clients when the active provider supports it."
         },
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Whether server-driven assistant responses should stream incrementally to clients when the active provider supports it."
     },
     "defaultThreadEnvMode": {
       "anyOf": [
         {
           "type": "string",
-          "enum": ["local", "worktree"]
+          "enum": ["local", "worktree"],
+          "description": "Default execution environment to use when creating new threads."
         },
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Default execution environment to use when creating new threads."
     },
     "textGenerationModelSelection": {
       "anyOf": [
@@ -34,10 +42,12 @@
               "properties": {
                 "provider": {
                   "type": "string",
-                  "enum": ["codex"]
+                  "enum": ["codex"],
+                  "description": "The provider used for text generation."
                 },
                 "model": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "The Codex model slug to use for text generation."
                 },
                 "options": {
                   "type": "object",
@@ -51,7 +61,8 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Reasoning depth for Codex text generation. Higher values trade latency and cost for stronger reasoning."
                     },
                     "fastMode": {
                       "anyOf": [
@@ -61,24 +72,29 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Whether to prefer Codex fast mode when the selected model supports it."
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "description": "Optional Codex-specific tuning knobs for the selected model."
                 }
               },
               "required": ["provider", "model"],
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Text generation model selection for the Codex provider."
             },
             {
               "type": "object",
               "properties": {
                 "provider": {
                   "type": "string",
-                  "enum": ["claudeAgent"]
+                  "enum": ["claudeAgent"],
+                  "description": "The provider used for text generation."
                 },
                 "model": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "The Claude model slug to use for text generation."
                 },
                 "options": {
                   "type": "object",
@@ -91,7 +107,8 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Whether Claude should enable extended thinking for the selected model."
                     },
                     "effort": {
                       "anyOf": [
@@ -102,7 +119,8 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Reasoning effort for Claude text generation. Higher values trade latency and cost for stronger reasoning."
                     },
                     "fastMode": {
                       "anyOf": [
@@ -112,7 +130,8 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Whether to prefer Claude fast mode when the selected model supports it."
                     },
                     "contextWindow": {
                       "anyOf": [
@@ -122,21 +141,26 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Optional Claude context window preset to request for the selected model, if supported."
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "description": "Optional Claude-specific tuning knobs for the selected model."
                 }
               },
               "required": ["provider", "model"],
-              "additionalProperties": false
+              "additionalProperties": false,
+              "description": "Text generation model selection for the Claude provider."
             }
-          ]
+          ],
+          "description": "Default provider and model to use for server-side text generation features."
         },
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Default provider and model to use for server-side text generation features."
     },
     "providers": {
       "anyOf": [
@@ -151,17 +175,20 @@
                     "enabled": {
                       "anyOf": [
                         {
-                          "type": "boolean"
+                          "type": "boolean",
+                          "description": "Whether the Codex provider is enabled and available for selection."
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Whether the Codex provider is enabled and available for selection."
                     },
                     "binaryPath": {
                       "anyOf": [
                         {
-                          "type": "string"
+                          "type": "string",
+                          "description": "Path to the Codex executable. Leave blank to resolve the `codex` executable from PATH."
                         },
                         {
                           "type": "null"
@@ -171,7 +198,8 @@
                     "homePath": {
                       "anyOf": [
                         {
-                          "type": "string"
+                          "type": "string",
+                          "description": "Optional Codex home directory. Leave blank to use the default provider-managed location."
                         },
                         {
                           "type": "null"
@@ -184,20 +212,24 @@
                           "type": "array",
                           "items": {
                             "type": "string"
-                          }
+                          },
+                          "description": "Additional Codex model slugs to surface in the UI alongside discovered defaults."
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Additional Codex model slugs to surface in the UI alongside discovered defaults."
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "description": "Configuration for the Codex provider."
                 },
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "description": "Configuration for the Codex provider."
             },
             "claudeAgent": {
               "anyOf": [
@@ -207,17 +239,20 @@
                     "enabled": {
                       "anyOf": [
                         {
-                          "type": "boolean"
+                          "type": "boolean",
+                          "description": "Whether the Claude provider is enabled and available for selection."
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Whether the Claude provider is enabled and available for selection."
                     },
                     "binaryPath": {
                       "anyOf": [
                         {
-                          "type": "string"
+                          "type": "string",
+                          "description": "Path to the Claude executable. Leave blank to resolve the `claude` executable from PATH."
                         },
                         {
                           "type": "null"
@@ -230,28 +265,34 @@
                           "type": "array",
                           "items": {
                             "type": "string"
-                          }
+                          },
+                          "description": "Additional Claude model slugs to surface in the UI alongside discovered defaults."
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Additional Claude model slugs to surface in the UI alongside discovered defaults."
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "description": "Configuration for the Claude provider."
                 },
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "description": "Configuration for the Claude provider."
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "Provider-specific server configuration."
         },
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Provider-specific server configuration."
     }
   },
   "additionalProperties": false

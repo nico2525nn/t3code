@@ -20,10 +20,21 @@ describe("buildServerSettingsJsonSchema", () => {
     expect(schema.type).toBe("object");
     expect(schema.additionalProperties).toBe(false);
     expect(schema.properties).toMatchObject({
-      enableAssistantStreaming: expect.any(Object),
-      defaultThreadEnvMode: expect.any(Object),
-      textGenerationModelSelection: expect.any(Object),
-      providers: expect.any(Object),
+      $schema: {
+        type: "string",
+      },
+      enableAssistantStreaming: {
+        description: expect.stringContaining("stream"),
+      },
+      defaultThreadEnvMode: {
+        description: expect.stringContaining("environment"),
+      },
+      textGenerationModelSelection: {
+        description: expect.stringContaining("provider and model"),
+      },
+      providers: {
+        description: expect.stringContaining("Provider-specific"),
+      },
     });
   });
 

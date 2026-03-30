@@ -1,13 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "T3 Code Keybindings",
-  "description": "JSON Schema for the keybindings.json file consumed by T3 Code.",
+  "description": "Ordered list of custom keybinding rules persisted in `keybindings.json`.",
   "type": "array",
   "items": {
     "type": "object",
     "properties": {
       "key": {
-        "type": "string"
+        "type": "string",
+        "description": "Keyboard shortcut to listen for."
       },
       "command": {
         "anyOf": [
@@ -37,9 +38,11 @@
           },
           {
             "type": "string",
-            "pattern": "^script\\.[\\s\\S]*?\\.run$"
+            "pattern": "^script\\.[\\s\\S]*?\\.run$",
+            "description": "Command identifier for running a project script, formatted as `script.<id>.run`."
           }
-        ]
+        ],
+        "description": "Command to execute when the shortcut matches."
       },
       "when": {
         "anyOf": [
@@ -49,15 +52,18 @@
           {
             "type": "null"
           }
-        ]
+        ],
+        "description": "Optional expression limiting when the shortcut is active."
       }
     },
     "required": ["key", "command"],
-    "additionalProperties": false
+    "additionalProperties": false,
+    "description": "Single keybinding rule entry in `keybindings.json`."
   },
   "allOf": [
     {
-      "maxItems": 256
+      "maxItems": 256,
+      "description": "Ordered list of custom keybinding rules persisted in `keybindings.json`."
     }
   ]
 }

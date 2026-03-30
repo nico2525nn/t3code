@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { encodePrettyJsonEffect } from "./schemaJson";
+import { encodePrettyJsonEffect, toJsonSchemaObject } from "./schemaJson";
 
 it.effect("encodePrettyJsonEffect writes indented JSON", () =>
   Effect.gen(function* () {
@@ -29,5 +29,29 @@ it.effect("encodePrettyJsonEffect writes indented JSON", () =>
   }
 }`,
     );
+  }),
+);
+
+it.effect("toJsonSchemaObject hoists descriptions from wrapper nodes", () =>
+  Effect.sync(() => {
+    const schema = toJsonSchemaObject(
+      Schema.Struct({
+        enabled: Schema.Boolean.annotate({
+          description: "Whether the feature is enabled.",
+        }).pipe(Schema.withDecodingDefault(() => false)),
+        name: Schema.String.annotate({
+          description: "Human-readable display name.",
+        }).check(Schema.isMinLength(1)),
+      }),
+    ) as Record<string, unknown>;
+
+    const properties = schema.properties as Record<string, Record<string, unknown>>;
+    const enabled = properties.enabled;
+    const name = properties.name;
+
+    assert.isDefined(enabled);
+    assert.isDefined(name);
+    assert.strictEqual(enabled.description, "Whether the feature is enabled.");
+    assert.strictEqual(name.description, "Human-readable display name.");
   }),
 );

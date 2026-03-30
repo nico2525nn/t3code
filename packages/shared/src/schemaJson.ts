@@ -57,13 +57,47 @@ export const formatSchemaError = (cause: Cause.Cause<Schema.SchemaError>) => {
     : Cause.pretty(cause);
 };
 
+function hoistJsonSchemaDescriptions(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(hoistJsonSchemaDescriptions);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const record = Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, hoistJsonSchemaDescriptions(entry)]),
+  ) as Record<string, unknown>;
+
+  if (typeof record.description !== "string") {
+    const candidates = ["allOf", "anyOf", "oneOf"]
+      .flatMap((key) => (Array.isArray(record[key]) ? (record[key] as ReadonlyArray<unknown>) : []))
+      .filter((candidate): candidate is Record<string, unknown> => {
+        return !!candidate && typeof candidate === "object" && !Array.isArray(candidate);
+      });
+
+    const description = candidates.find(
+      (candidate) =>
+        typeof candidate.description === "string" &&
+        !(candidate.type === "null" && Object.keys(candidate).length <= 1),
+    )?.description;
+
+    if (typeof description === "string") {
+      record.description = description;
+    }
+  }
+
+  return record;
+}
+
 /** Convert an Effect Schema to a flat JSON Schema object, inlining `$defs` when present. */
 export const toJsonSchemaObject = (schema: Schema.Top): unknown => {
   const document = Schema.toJsonSchemaDocument(schema);
   if (document.definitions && Object.keys(document.definitions).length > 0) {
-    return { ...document.schema, $defs: document.definitions };
+    return hoistJsonSchemaDescriptions({ ...document.schema, $defs: document.definitions });
   }
-  return document.schema;
+  return hoistJsonSchemaDescriptions(document.schema);
 };
 
 /**

@@ -41,7 +41,10 @@ export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientS
 
 // ── Server Settings (server-authoritative) ────────────────────
 
-export const ThreadEnvMode = Schema.Literals(["local", "worktree"]);
+export const ThreadEnvMode = Schema.Literals(["local", "worktree"]).annotate({
+  description:
+    "Default environment mode for new threads. 'local' runs in the current workspace, while 'worktree' runs in a managed git worktree.",
+});
 export type ThreadEnvMode = typeof ThreadEnvMode.Type;
 
 const makeBinaryPathSetting = (fallback: string) =>
@@ -57,26 +60,62 @@ const makeBinaryPathSetting = (fallback: string) =>
   );
 
 export const CodexSettings = Schema.Struct({
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
-  binaryPath: makeBinaryPathSetting("codex"),
-  homePath: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
-  customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  enabled: Schema.Boolean.annotate({
+    description: "Whether the Codex provider is enabled and available for selection.",
+  }).pipe(Schema.withDecodingDefault(() => true)),
+  binaryPath: makeBinaryPathSetting("codex").pipe(
+    Schema.annotate({
+      description:
+        "Path to the Codex executable. Leave blank to resolve the `codex` executable from PATH.",
+    }),
+  ),
+  homePath: TrimmedString.annotate({
+    description:
+      "Optional Codex home directory. Leave blank to use the default provider-managed location.",
+  }).pipe(Schema.withDecodingDefault(() => "")),
+  customModels: Schema.Array(Schema.String)
+    .annotate({
+      description:
+        "Additional Codex model slugs to surface in the UI alongside discovered defaults.",
+    })
+    .pipe(Schema.withDecodingDefault(() => [])),
+}).annotate({
+  description: "Server-side configuration for the Codex provider.",
 });
 export type CodexSettings = typeof CodexSettings.Type;
 
 export const ClaudeSettings = Schema.Struct({
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
-  binaryPath: makeBinaryPathSetting("claude"),
-  customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  enabled: Schema.Boolean.annotate({
+    description: "Whether the Claude provider is enabled and available for selection.",
+  }).pipe(Schema.withDecodingDefault(() => true)),
+  binaryPath: makeBinaryPathSetting("claude").pipe(
+    Schema.annotate({
+      description:
+        "Path to the Claude executable. Leave blank to resolve the `claude` executable from PATH.",
+    }),
+  ),
+  customModels: Schema.Array(Schema.String)
+    .annotate({
+      description:
+        "Additional Claude model slugs to surface in the UI alongside discovered defaults.",
+    })
+    .pipe(Schema.withDecodingDefault(() => [])),
+}).annotate({
+  description: "Server-side configuration for the Claude provider.",
 });
 export type ClaudeSettings = typeof ClaudeSettings.Type;
 
 export const ServerSettings = Schema.Struct({
-  enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
-  defaultThreadEnvMode: ThreadEnvMode.pipe(
-    Schema.withDecodingDefault(() => "local" as const satisfies ThreadEnvMode),
-  ),
-  textGenerationModelSelection: ModelSelection.pipe(
+  enableAssistantStreaming: Schema.Boolean.annotate({
+    description:
+      "Whether server-driven assistant responses should stream incrementally to clients when the active provider supports it.",
+  }).pipe(Schema.withDecodingDefault(() => false)),
+  defaultThreadEnvMode: ThreadEnvMode.annotate({
+    description: "Default execution environment to use when creating new threads.",
+  }).pipe(Schema.withDecodingDefault(() => "local" as const satisfies ThreadEnvMode)),
+  textGenerationModelSelection: ModelSelection.annotate({
+    description: "Default provider and model to use for server-side text generation features.",
+  }).pipe(
     Schema.withDecodingDefault(() => ({
       provider: "codex" as const,
       model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
@@ -85,9 +124,19 @@ export const ServerSettings = Schema.Struct({
 
   // Provider specific settings
   providers: Schema.Struct({
-    codex: CodexSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-    claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-  }).pipe(Schema.withDecodingDefault(() => ({}))),
+    codex: CodexSettings.annotate({
+      description: "Configuration for the Codex provider.",
+    }).pipe(Schema.withDecodingDefault(() => ({}))),
+    claudeAgent: ClaudeSettings.annotate({
+      description: "Configuration for the Claude provider.",
+    }).pipe(Schema.withDecodingDefault(() => ({}))),
+  })
+    .annotate({
+      description: "Provider-specific server configuration.",
+    })
+    .pipe(Schema.withDecodingDefault(() => ({}))),
+}).annotate({
+  description: "Server-authoritative settings persisted in `settings.json`.",
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
