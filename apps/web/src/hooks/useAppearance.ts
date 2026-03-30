@@ -1,45 +1,99 @@
-/**
- * Unified appearance hook — replaces `useTheme`.
- *
- * All appearance state (colorMode, activeThemeId, accentHue) is
- * server-authoritative and pushed to every client via `serverConfigUpdated`.
- *
- * A localStorage write-through cache prevents FOUC: module-scope code below
- * reads the cache synchronously and applies the `.dark` class + theme tokens
- * before React mounts.
- */
-
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
-import type { ColorMode } from "@t3tools/contracts/settings";
+import { Schema } from "effect";
 import type { DesktopAppearance } from "@t3tools/contracts";
-import { applyThemeTokens, findThemeById, removeThemeTokens, BUILT_IN_THEMES } from "~/lib/themes";
+import {
+  ColorMode,
+  ThemeDocumentSchema,
+  type ThemeMode,
+  type ColorMode as AppearanceColorMode,
+} from "@t3tools/contracts";
+import {
+  applyThemeDocumentStyles,
+  applyThemeVariant,
+  clearThemeCssVariables,
+} from "@t3tools/shared/appearance/apply";
+import {
+  type ResolvedThemeMode,
+  type ThemeCssVariableMap,
+} from "@t3tools/shared/appearance/derive";
+import {
+  DEFAULT_DARK_THEME_ID,
+  DEFAULT_LIGHT_THEME_ID,
+  resolveThemeDocument,
+  serializeAppearanceSnapshot,
+} from "@t3tools/shared/appearance/registry";
 import { useSettings, useUpdateSettings } from "./useSettings";
-
-// ── Constants ────────────────────────────────────────────────────
 
 const APPEARANCE_CACHE_KEY = "t3code:appearance-cache";
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
+const AppearanceCacheSchema = Schema.Struct({
+  colorMode: ColorMode,
+  activeLightThemeId: Schema.String,
+  activeDarkThemeId: Schema.String,
+  customThemes: Schema.Array(ThemeDocumentSchema),
+});
+type AppearanceCache = typeof AppearanceCacheSchema.Type;
 
-// ── Helpers ──────────────────────────────────────────────────────
+let appliedVariableNames: ReadonlyArray<keyof ThemeCssVariableMap> = [];
+let lastDesktopAppearance: string | null = null;
 
 function getSystemDark(): boolean {
-  return window.matchMedia(MEDIA_QUERY).matches;
+  return typeof window.matchMedia === "function" ? window.matchMedia(MEDIA_QUERY).matches : false;
+}
+
+export function resolveAppearanceMode(
+  colorMode: AppearanceColorMode,
+  systemDark: boolean,
+): ResolvedThemeMode {
+  if (colorMode === "system") {
+    return systemDark ? "dark" : "light";
+  }
+  return colorMode;
+}
+
+export function parseAppearanceCache(raw: string | null): AppearanceCache | null {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Schema.decodeUnknownSync(AppearanceCacheSchema)(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function resolveActiveThemeId(appearance: AppearanceCache, resolvedTheme: ThemeMode): string {
+  return resolvedTheme === "dark" ? appearance.activeDarkThemeId : appearance.activeLightThemeId;
+}
+
+function applyResolvedAppearance(
+  appearance: AppearanceCache,
+  resolvedTheme: ResolvedThemeMode,
+): void {
+  const themeDocument = resolveThemeDocument(
+    resolveActiveThemeId(appearance, resolvedTheme),
+    appearance.customThemes,
+    resolvedTheme,
+  );
+  const root = document.documentElement;
+
+  root.classList.toggle("dark", resolvedTheme === "dark");
+  root.style.colorScheme = resolvedTheme;
+  root.dataset.sidebarTranslucent = String(themeDocument.sidebarTranslucent);
+  applyThemeDocumentStyles(root.style, themeDocument);
+
+  clearThemeCssVariables(root.style, appliedVariableNames);
+  appliedVariableNames = applyThemeVariant(root.style, themeDocument);
 }
 
 function suppressTransitions(fn: () => void) {
   document.documentElement.classList.add("no-transitions");
   fn();
-  // Force reflow so the no-transitions class takes effect before removal
-  // oxlint-disable-next-line no-unused-expressions
-  document.documentElement.offsetHeight;
+  void document.documentElement.offsetHeight;
   requestAnimationFrame(() => {
     document.documentElement.classList.remove("no-transitions");
   });
 }
-
-// ── Desktop bridge relay ─────────────────────────────────────────
-
-let lastDesktopAppearance: string | null = null;
 
 function syncDesktopAppearance(appearance: DesktopAppearance): void {
   const bridge = window.desktopBridge;
@@ -61,26 +115,24 @@ function syncDesktopAppearance(appearance: DesktopAppearance): void {
   }
 }
 
-// ── FOUC prevention (module scope — runs before React mounts) ───
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+  const cachedAppearance = parseAppearanceCache(localStorage.getItem(APPEARANCE_CACHE_KEY));
+  const initialAppearance =
+    cachedAppearance ??
+    ({
+      colorMode: "system",
+      activeLightThemeId: DEFAULT_LIGHT_THEME_ID,
+      activeDarkThemeId: DEFAULT_DARK_THEME_ID,
+      customThemes: [],
+    } satisfies AppearanceCache);
+  const resolvedTheme = resolveAppearanceMode(initialAppearance.colorMode, getSystemDark());
 
-try {
-  const cached = JSON.parse(localStorage.getItem(APPEARANCE_CACHE_KEY) ?? "null") as {
-    colorMode?: string;
-    activeThemeId?: string;
-    accentHue?: number | null;
-  } | null;
-  if (cached) {
-    const isDark =
-      cached.colorMode === "dark" || (cached.colorMode === "system" && getSystemDark());
-    document.documentElement.classList.toggle("dark", isDark);
-    const theme = findThemeById(cached.activeThemeId ?? "t3code");
-    if (theme) applyThemeTokens(theme, cached.accentHue ?? null, isDark ? "dark" : "light");
+  try {
+    applyResolvedAppearance(initialAppearance, resolvedTheme);
+  } catch {
+    // The cache is best-effort. React will reconcile once settings load.
   }
-} catch {
-  // Cache unreadable — fall through to React reconciliation.
 }
-
-// ── System-dark external store (for "system" mode live updates) ──
 
 let systemDarkListeners: Array<() => void> = [];
 let cachedSystemDark: boolean | null = null;
@@ -104,66 +156,86 @@ function subscribeSystemDark(listener: () => void): () => void {
   };
 }
 
-// ── Hook ─────────────────────────────────────────────────────────
-
 export function useAppearance() {
-  const { colorMode, activeThemeId, accentHue } = useSettings((s) => ({
+  const { colorMode, activeLightThemeId, activeDarkThemeId, customThemes } = useSettings((s) => ({
     colorMode: s.colorMode,
-    activeThemeId: s.activeThemeId,
-    accentHue: s.accentHue,
+    activeLightThemeId: s.activeLightThemeId,
+    activeDarkThemeId: s.activeDarkThemeId,
+    customThemes: s.customThemes,
   }));
   const { updateSettings } = useUpdateSettings();
-  const activeTheme = findThemeById(activeThemeId) ?? BUILT_IN_THEMES[0]!;
-
-  // Track system dark preference reactively
-  const systemDark = useSyncExternalStore(subscribeSystemDark, getSystemDarkSnapshot);
-
-  const resolvedTheme: "light" | "dark" = useMemo(
-    () => (colorMode === "system" ? (systemDark ? "dark" : "light") : colorMode),
-    [colorMode, systemDark],
+  const activeLightTheme = useMemo(
+    () => resolveThemeDocument(activeLightThemeId, customThemes, "light"),
+    [activeLightThemeId, customThemes],
+  );
+  const activeDarkTheme = useMemo(
+    () => resolveThemeDocument(activeDarkThemeId, customThemes, "dark"),
+    [activeDarkThemeId, customThemes],
   );
 
-  // Apply .dark class, theme tokens, cache, and relay to Electron
+  const systemDark = useSyncExternalStore(subscribeSystemDark, getSystemDarkSnapshot);
+
+  const resolvedTheme = useMemo(
+    () => resolveAppearanceMode(colorMode, systemDark),
+    [colorMode, systemDark],
+  );
+  const activeResolvedTheme = resolvedTheme === "dark" ? activeDarkTheme : activeLightTheme;
+
   useEffect(() => {
     suppressTransitions(() => {
-      document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
-      applyThemeTokens(activeTheme, accentHue, resolvedTheme);
+      applyResolvedAppearance(
+        { colorMode, activeLightThemeId, activeDarkThemeId, customThemes },
+        resolvedTheme,
+      );
     });
 
-    // Write-through cache for FOUC prevention on next load
     localStorage.setItem(
       APPEARANCE_CACHE_KEY,
-      JSON.stringify({ colorMode, activeThemeId, accentHue }),
+      serializeAppearanceSnapshot({
+        colorMode,
+        activeLightThemeId,
+        activeDarkThemeId,
+        customThemes,
+      }),
     );
 
-    // Sync to Electron
-    syncDesktopAppearance({ mode: colorMode, themeId: activeThemeId, accentHue });
-
-    return () => removeThemeTokens();
-  }, [resolvedTheme, activeTheme, accentHue, colorMode, activeThemeId]);
+    syncDesktopAppearance({ mode: colorMode, themeId: activeResolvedTheme.id });
+  }, [
+    resolvedTheme,
+    activeResolvedTheme,
+    activeLightThemeId,
+    activeDarkThemeId,
+    colorMode,
+    customThemes,
+  ]);
 
   const setColorMode = useCallback(
-    (mode: ColorMode) => updateSettings({ colorMode: mode }),
+    (mode: AppearanceColorMode) => updateSettings({ colorMode: mode }),
     [updateSettings],
   );
 
   const setThemeId = useCallback(
-    (id: string) => updateSettings({ activeThemeId: id }),
+    (mode: ThemeMode, id: string) =>
+      updateSettings(mode === "dark" ? { activeDarkThemeId: id } : { activeLightThemeId: id }),
     [updateSettings],
   );
 
-  const setAccentHue = useCallback(
-    (hue: number | null) => updateSettings({ accentHue: hue }),
+  const setCustomThemes = useCallback(
+    (themes: AppearanceCache["customThemes"]) => updateSettings({ customThemes: themes }),
     [updateSettings],
   );
 
   return {
     colorMode,
     resolvedTheme,
-    activeTheme,
-    accentHue,
+    activeLightTheme,
+    activeDarkTheme,
+    activeResolvedTheme,
+    activeLightThemeId,
+    activeDarkThemeId,
+    customThemes,
     setColorMode,
     setThemeId,
-    setAccentHue,
+    setCustomThemes,
   } as const;
 }

@@ -179,4 +179,95 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
+
+  it.effect("persists custom themes as part of server-authoritative appearance settings", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+      const serverConfig = yield* ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+
+      const next = yield* serverSettings.updateSettings({
+        activeLightThemeId: "custom-codex-light",
+        activeDarkThemeId: "custom-codex-dark",
+        customThemes: [
+          {
+            id: "custom-codex-light",
+            name: "Custom Codex Light",
+            version: 1,
+            origin: "custom",
+            mode: "light",
+            radius: "0.75rem",
+            fontSize: "15px",
+            accent: "#0169cc",
+            background: "#ffffff",
+            foreground: "#0d0d0d",
+            uiFontFamily: '"IBM Plex Sans", sans-serif',
+            codeFontFamily: '"IBM Plex Mono", monospace',
+            sidebarTranslucent: true,
+            contrast: 46,
+          },
+          {
+            id: "custom-codex-dark",
+            name: "Custom Codex Dark",
+            version: 1,
+            origin: "custom",
+            mode: "dark",
+            radius: "0.75rem",
+            fontSize: "15px",
+            accent: "#0169cc",
+            background: "#111111",
+            foreground: "#fcfcfc",
+            uiFontFamily: '"IBM Plex Sans", sans-serif',
+            codeFontFamily: '"IBM Plex Mono", monospace',
+            sidebarTranslucent: true,
+            contrast: 41,
+          },
+        ],
+      });
+
+      assert.equal(next.activeLightThemeId, "custom-codex-light");
+      assert.equal(next.activeDarkThemeId, "custom-codex-dark");
+      assert.equal(next.customThemes.length, 2);
+
+      const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      assert.deepEqual(JSON.parse(raw), {
+        activeLightThemeId: "custom-codex-light",
+        activeDarkThemeId: "custom-codex-dark",
+        customThemes: [
+          {
+            id: "custom-codex-light",
+            name: "Custom Codex Light",
+            version: 1,
+            origin: "custom",
+            mode: "light",
+            radius: "0.75rem",
+            fontSize: "15px",
+            accent: "#0169cc",
+            background: "#ffffff",
+            foreground: "#0d0d0d",
+            uiFontFamily: '"IBM Plex Sans", sans-serif',
+            codeFontFamily: '"IBM Plex Mono", monospace',
+            sidebarTranslucent: true,
+            contrast: 46,
+          },
+          {
+            id: "custom-codex-dark",
+            name: "Custom Codex Dark",
+            version: 1,
+            origin: "custom",
+            mode: "dark",
+            radius: "0.75rem",
+            fontSize: "15px",
+            accent: "#0169cc",
+            background: "#111111",
+            foreground: "#fcfcfc",
+            uiFontFamily: '"IBM Plex Sans", sans-serif',
+            codeFontFamily: '"IBM Plex Mono", monospace',
+            sidebarTranslucent: true,
+            contrast: 41,
+          },
+        ],
+      });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
 });

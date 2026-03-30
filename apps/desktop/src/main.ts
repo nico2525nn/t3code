@@ -1168,8 +1168,7 @@ function registerIpcHandlers(): void {
     const mode = getSafeTheme(appearance.mode);
     if (!mode) return;
     nativeTheme.themeSource = mode;
-    // themeId and accentHue are stored for future Electron shell styling
-    // (title bar tint, vibrancy, etc.)
+    // themeId is available for future Electron shell styling work.
   });
 
   ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);

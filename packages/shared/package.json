@@ -4,6 +4,18 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./appearance/registry": {
+      "types": "./src/appearance/registry.ts",
+      "import": "./src/appearance/registry.ts"
+    },
+    "./appearance/derive": {
+      "types": "./src/appearance/derive.ts",
+      "import": "./src/appearance/derive.ts"
+    },
+    "./appearance/apply": {
+      "types": "./src/appearance/apply.ts",
+      "import": "./src/appearance/apply.ts"
+    },
     "./model": {
       "types": "./src/model.ts",
       "import": "./src/model.ts"

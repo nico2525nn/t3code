@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
+import { ThemeDocumentSchema } from "./appearanceTheme";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
 import {
   ClaudeModelOptions,
@@ -45,7 +46,8 @@ export const ColorMode = Schema.Literals(["light", "dark", "system"]);
 export type ColorMode = typeof ColorMode.Type;
 export const DEFAULT_COLOR_MODE: ColorMode = "system";
 
-export const DEFAULT_ACTIVE_THEME_ID = "t3code";
+export const DEFAULT_ACTIVE_LIGHT_THEME_ID = "t3code-light";
+export const DEFAULT_ACTIVE_DARK_THEME_ID = "t3code-dark";
 
 // ── Server Settings (server-authoritative) ────────────────────
 
@@ -95,8 +97,13 @@ export const ServerSettings = Schema.Struct({
   colorMode: ColorMode.pipe(
     Schema.withDecodingDefault(() => "system" as const satisfies ColorMode),
   ),
-  activeThemeId: Schema.String.pipe(Schema.withDecodingDefault(() => DEFAULT_ACTIVE_THEME_ID)),
-  accentHue: Schema.NullOr(Schema.Number).pipe(Schema.withDecodingDefault(() => null)),
+  activeLightThemeId: Schema.String.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ACTIVE_LIGHT_THEME_ID),
+  ),
+  activeDarkThemeId: Schema.String.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ACTIVE_DARK_THEME_ID),
+  ),
+  customThemes: Schema.Array(ThemeDocumentSchema).pipe(Schema.withDecodingDefault(() => [])),
 
   // Provider specific settings
   providers: Schema.Struct({
@@ -160,8 +167,9 @@ export const ServerSettingsPatch = Schema.Struct({
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   colorMode: Schema.optionalKey(ColorMode),
-  activeThemeId: Schema.optionalKey(Schema.String),
-  accentHue: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+  activeLightThemeId: Schema.optionalKey(Schema.String),
+  activeDarkThemeId: Schema.optionalKey(Schema.String),
+  customThemes: Schema.optionalKey(Schema.Array(ThemeDocumentSchema)),
   providers: Schema.optionalKey(
     Schema.Struct({
       codex: Schema.optionalKey(CodexSettingsPatch),

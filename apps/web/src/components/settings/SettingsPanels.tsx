@@ -439,8 +439,9 @@ export function useSettingsRestore(onRestored?: () => void) {
   const changedSettingLabels = useMemo(
     () => [
       ...(settings.colorMode !== "system" ? ["Color mode"] : []),
-      ...(settings.activeThemeId !== "t3code" ? ["Appearance theme"] : []),
-      ...(settings.accentHue !== null ? ["Accent color"] : []),
+      ...(settings.activeLightThemeId !== "t3code-light" ? ["Light appearance theme"] : []),
+      ...(settings.activeDarkThemeId !== "t3code-dark" ? ["Dark appearance theme"] : []),
+      ...(settings.customThemes.length > 0 ? ["Custom themes"] : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
@@ -465,11 +466,12 @@ export function useSettingsRestore(onRestored?: () => void) {
     [
       areProviderSettingsDirty,
       isGitWritingModelDirty,
-      settings.accentHue,
-      settings.activeThemeId,
+      settings.activeLightThemeId,
+      settings.activeDarkThemeId,
       settings.colorMode,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
+      settings.customThemes.length,
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
@@ -487,7 +489,12 @@ export function useSettingsRestore(onRestored?: () => void) {
     );
     if (!confirmed) return;
 
-    updateSettings({ colorMode: "system", activeThemeId: "t3code", accentHue: null });
+    updateSettings({
+      colorMode: "system",
+      activeLightThemeId: "t3code-light",
+      activeDarkThemeId: "t3code-dark",
+      customThemes: [],
+    });
     resetSettings();
     onRestored?.();
   }, [changedSettingLabels, onRestored, resetSettings, updateSettings]);

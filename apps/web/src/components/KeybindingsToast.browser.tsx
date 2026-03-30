@@ -61,8 +61,9 @@ function createBaseServerConfig(): ServerConfig {
       defaultThreadEnvMode: "local" as const,
       textGenerationModelSelection: { provider: "codex" as const, model: "gpt-5.4-mini" },
       colorMode: "system" as const,
-      activeThemeId: "t3code",
-      accentHue: null,
+      activeLightThemeId: "t3code-light",
+      activeDarkThemeId: "t3code-dark",
+      customThemes: [],
       providers: {
         codex: { enabled: true, binaryPath: "", homePath: "", customModels: [] },
         claudeAgent: { enabled: true, binaryPath: "", customModels: [] },

@@ -76,7 +76,6 @@ export type DesktopTheme = "light" | "dark" | "system";
 export type DesktopAppearance = {
   mode: DesktopTheme;
   themeId: string;
-  accentHue: number | null;
 };
 
 export interface DesktopRuntimeInfo {
