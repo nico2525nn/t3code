@@ -21,10 +21,10 @@ export function buildServerSettingsJsonSchema(): Record<string, unknown> {
   }
 
   return {
+    ...schema,
     $schema: JSON_SCHEMA_DRAFT_2020_12,
     title: "T3 Code Server Settings",
     description: "JSON Schema for the server-authoritative settings.json file consumed by T3 Code.",
-    ...schema,
   };
 }
 
