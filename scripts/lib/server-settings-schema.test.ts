@@ -24,13 +24,14 @@ describe("buildServerSettingsJsonSchema", () => {
         type: "string",
       },
       enableAssistantStreaming: {
-        description: expect.stringContaining("stream"),
+        description: "Show token-by-token output while a response is in progress.",
       },
       defaultThreadEnvMode: {
-        description: expect.stringContaining("environment"),
+        description: "Pick the default workspace mode for newly created draft threads.",
       },
       textGenerationModelSelection: {
-        description: expect.stringContaining("provider and model"),
+        description:
+          "Configure the model used for generated commit messages, PR titles, and similar Git text.",
       },
       providers: {
         description: expect.stringContaining("Provider-specific"),

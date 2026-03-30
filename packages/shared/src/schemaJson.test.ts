@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { encodePrettyJsonEffect, toJsonSchemaObject } from "./schemaJson";
+import { encodePrettyJsonEffect, getSchemaDescription, toJsonSchemaObject } from "./schemaJson";
 
 it.effect("encodePrettyJsonEffect writes indented JSON", () =>
   Effect.gen(function* () {
@@ -53,5 +53,15 @@ it.effect("toJsonSchemaObject hoists descriptions from wrapper nodes", () =>
     assert.isDefined(name);
     assert.strictEqual(enabled.description, "Whether the feature is enabled.");
     assert.strictEqual(name.description, "Human-readable display name.");
+  }),
+);
+
+it.effect("getSchemaDescription reads hoisted descriptions from wrapped schemas", () =>
+  Effect.sync(() => {
+    const enabled = Schema.Boolean.annotate({
+      description: "Whether the feature is enabled.",
+    }).pipe(Schema.withDecodingDefault(() => false));
+
+    assert.strictEqual(getSchemaDescription(enabled), "Whether the feature is enabled.");
   }),
 );

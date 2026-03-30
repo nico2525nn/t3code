@@ -36,6 +36,8 @@ export const decodeUnknownJsonResult = <S extends Schema.Codec<unknown, unknown,
   };
 };
 
+const schemaDescriptionCache = new WeakMap<object, string | undefined>();
+
 const PrettyJsonString = SchemaGetter.parseJson<string>().compose(
   SchemaGetter.stringifyJson({ space: 2 }),
 );
@@ -98,6 +100,29 @@ export const toJsonSchemaObject = (schema: Schema.Top): unknown => {
     return hoistJsonSchemaDescriptions({ ...document.schema, $defs: document.definitions });
   }
   return hoistJsonSchemaDescriptions(document.schema);
+};
+
+export const getSchemaDescription = (schema: Schema.Top): string | undefined => {
+  if (schema && typeof schema === "object") {
+    const cached = schemaDescriptionCache.get(schema);
+    if (cached !== undefined || schemaDescriptionCache.has(schema)) {
+      return cached;
+    }
+  }
+
+  const jsonSchema = toJsonSchemaObject(schema);
+  const description =
+    jsonSchema && typeof jsonSchema === "object" && !Array.isArray(jsonSchema)
+      ? typeof (jsonSchema as Record<string, unknown>).description === "string"
+        ? ((jsonSchema as Record<string, unknown>).description as string)
+        : undefined
+      : undefined;
+
+  if (schema && typeof schema === "object") {
+    schemaDescriptionCache.set(schema, description);
+  }
+
+  return description;
 };
 
 /**

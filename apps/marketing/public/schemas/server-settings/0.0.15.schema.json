@@ -18,7 +18,7 @@
           "type": "null"
         }
       ],
-      "description": "Whether server-driven assistant responses should stream incrementally to clients when the active provider supports it."
+      "description": "Show token-by-token output while a response is in progress."
     },
     "defaultThreadEnvMode": {
       "anyOf": [
@@ -31,7 +31,7 @@
           "type": "null"
         }
       ],
-      "description": "Default execution environment to use when creating new threads."
+      "description": "Pick the default workspace mode for newly created draft threads."
     },
     "textGenerationModelSelection": {
       "anyOf": [
@@ -160,7 +160,7 @@
           "type": "null"
         }
       ],
-      "description": "Default provider and model to use for server-side text generation features."
+      "description": "Configure the model used for generated commit messages, PR titles, and similar Git text."
     },
     "providers": {
       "anyOf": [
@@ -193,7 +193,8 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Path to the Codex binary"
                     },
                     "homePath": {
                       "anyOf": [
@@ -204,7 +205,8 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Optional custom Codex home and config directory."
                     },
                     "customModels": {
                       "anyOf": [
@@ -257,7 +259,8 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Path to the Claude binary"
                     },
                     "customModels": {
                       "anyOf": [
