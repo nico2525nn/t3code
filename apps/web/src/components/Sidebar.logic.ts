@@ -16,6 +16,7 @@ type SidebarProject = {
   name: string;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
+  pinned?: boolean | undefined;
 };
 type SidebarThreadSortInput = Pick<Thread, "createdAt" | "updatedAt"> & {
   latestUserMessageAt?: string | null;
@@ -526,6 +527,11 @@ export function sortProjectsForSidebar<
   }
 
   return [...projects].toSorted((left, right) => {
+    const leftPinned = left.pinned === true;
+    const rightPinned = right.pinned === true;
+    if (leftPinned !== rightPinned) {
+      return rightPinned ? 1 : -1;
+    }
     const rightTimestamp = getProjectSortTimestamp(
       right,
       threadsByProjectId.get(right.id) ?? [],

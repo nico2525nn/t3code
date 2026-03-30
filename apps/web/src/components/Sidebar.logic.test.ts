@@ -586,7 +586,9 @@ describe("getVisibleThreadsForProject", () => {
   });
 });
 
-function makeProject(overrides: Partial<Project> = {}): Project {
+function makeProject(
+  overrides: Partial<Project> & { pinned?: boolean } = {},
+): Project & { pinned?: boolean } {
   const { defaultModelSelection, ...rest } = overrides;
   return {
     id: ProjectId.makeUnsafe("project-1"),
@@ -897,6 +899,65 @@ describe("sortProjectsForSidebar", () => {
     expect(sorted.map((project) => project.id)).toEqual([
       ProjectId.makeUnsafe("project-2"),
       ProjectId.makeUnsafe("project-1"),
+    ]);
+  });
+
+  it("puts pinned projects ahead of unpinned projects in auto-sort modes", () => {
+    const sorted = sortProjectsForSidebar(
+      [
+        makeProject({
+          id: ProjectId.makeUnsafe("project-1"),
+          name: "Pinned older project",
+          pinned: true,
+          updatedAt: "2026-03-09T10:01:00.000Z",
+        }),
+        makeProject({
+          id: ProjectId.makeUnsafe("project-2"),
+          name: "Unpinned newer project",
+          pinned: false,
+          updatedAt: "2026-03-09T10:05:00.000Z",
+        }),
+      ],
+      [],
+      "updated_at",
+    );
+
+    expect(sorted.map((project) => project.id)).toEqual([
+      ProjectId.makeUnsafe("project-1"),
+      ProjectId.makeUnsafe("project-2"),
+    ]);
+  });
+
+  it("still auto-sorts within the pinned bucket", () => {
+    const sorted = sortProjectsForSidebar(
+      [
+        makeProject({
+          id: ProjectId.makeUnsafe("project-1"),
+          name: "Pinned older project",
+          pinned: true,
+          updatedAt: "2026-03-09T10:01:00.000Z",
+        }),
+        makeProject({
+          id: ProjectId.makeUnsafe("project-2"),
+          name: "Pinned newer project",
+          pinned: true,
+          updatedAt: "2026-03-09T10:05:00.000Z",
+        }),
+        makeProject({
+          id: ProjectId.makeUnsafe("project-3"),
+          name: "Unpinned project",
+          pinned: false,
+          updatedAt: "2026-03-09T10:10:00.000Z",
+        }),
+      ],
+      [],
+      "updated_at",
+    );
+
+    expect(sorted.map((project) => project.id)).toEqual([
+      ProjectId.makeUnsafe("project-2"),
+      ProjectId.makeUnsafe("project-1"),
+      ProjectId.makeUnsafe("project-3"),
     ]);
   });
 

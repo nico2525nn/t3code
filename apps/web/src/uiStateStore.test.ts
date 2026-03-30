@@ -8,6 +8,7 @@ import {
   setProjectExpanded,
   syncProjects,
   syncThreads,
+  toggleProjectPinned,
   type UiState,
 } from "./uiStateStore";
 
@@ -15,6 +16,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    projectPinnedById: {},
     threadLastVisitedAtById: {},
     ...overrides,
   };
@@ -110,6 +112,32 @@ describe("uiStateStore pure functions", () => {
     expect(next.projectExpandedById[recreatedProject2]).toBe(false);
   });
 
+  it("syncProjects preserves pinned state when a project is recreated with the same cwd", () => {
+    const oldProject1 = ProjectId.makeUnsafe("project-1");
+    const oldProject2 = ProjectId.makeUnsafe("project-2");
+    const recreatedProject2 = ProjectId.makeUnsafe("project-2b");
+    const initialState = syncProjects(
+      makeUiState({
+        projectPinnedById: {
+          [oldProject2]: true,
+        },
+      }),
+      [
+        { id: oldProject1, cwd: "/tmp/project-1" },
+        { id: oldProject2, cwd: "/tmp/project-2" },
+      ],
+    );
+
+    const next = syncProjects(initialState, [
+      { id: oldProject1, cwd: "/tmp/project-1" },
+      { id: recreatedProject2, cwd: "/tmp/project-2" },
+    ]);
+
+    expect(next.projectPinnedById).toEqual({
+      [recreatedProject2]: true,
+    });
+  });
+
   it("syncProjects returns a new state when only project cwd changes", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
     const initialState = syncProjects(
@@ -175,6 +203,17 @@ describe("uiStateStore pure functions", () => {
 
     expect(next.projectExpandedById[project1]).toBe(false);
     expect(next.projectOrder).toEqual([project1]);
+  });
+
+  it("toggleProjectPinned adds and removes pinned state", () => {
+    const project1 = ProjectId.makeUnsafe("project-1");
+    const pinned = toggleProjectPinned(makeUiState(), project1);
+
+    expect(pinned.projectPinnedById).toEqual({ [project1]: true });
+
+    const unpinned = toggleProjectPinned(pinned, project1);
+
+    expect(unpinned.projectPinnedById).toEqual({});
   });
 
   it("clearThreadUi removes visit state for deleted threads", () => {

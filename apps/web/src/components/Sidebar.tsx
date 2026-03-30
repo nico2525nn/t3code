@@ -4,6 +4,7 @@ import {
   ChevronRightIcon,
   FolderIcon,
   GitPullRequestIcon,
+  PinIcon,
   PlusIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -165,6 +166,7 @@ type SidebarThreadSnapshot = Pick<
 
 type SidebarProjectSnapshot = Project & {
   expanded: boolean;
+  pinned: boolean;
 };
 
 const sidebarThreadSnapshotCache = new WeakMap<
@@ -440,15 +442,18 @@ function SortableProjectItem({
 export default function Sidebar() {
   const projects = useStore((store) => store.projects);
   const serverThreads = useStore((store) => store.threads);
-  const { projectExpandedById, projectOrder, threadLastVisitedAtById } = useUiStateStore(
-    useShallow((store) => ({
-      projectExpandedById: store.projectExpandedById,
-      projectOrder: store.projectOrder,
-      threadLastVisitedAtById: store.threadLastVisitedAtById,
-    })),
-  );
+  const { projectExpandedById, projectOrder, projectPinnedById, threadLastVisitedAtById } =
+    useUiStateStore(
+      useShallow((store) => ({
+        projectExpandedById: store.projectExpandedById,
+        projectOrder: store.projectOrder,
+        projectPinnedById: store.projectPinnedById,
+        threadLastVisitedAtById: store.threadLastVisitedAtById,
+      })),
+    );
   const markThreadUnread = useUiStateStore((store) => store.markThreadUnread);
   const toggleProject = useUiStateStore((store) => store.toggleProject);
+  const toggleProjectPinned = useUiStateStore((store) => store.toggleProjectPinned);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
   const getDraftThreadByProjectId = useComposerDraftStore(
@@ -515,8 +520,9 @@ export default function Sidebar() {
       orderedProjects.map((project) => ({
         ...project,
         expanded: projectExpandedById[project.id] ?? true,
+        pinned: projectPinnedById[project.id] ?? false,
       })),
-    [orderedProjects, projectExpandedById],
+    [orderedProjects, projectExpandedById, projectPinnedById],
   );
   const threads = useMemo(
     () =>
@@ -1018,11 +1024,19 @@ export default function Sidebar() {
 
       const clicked = await api.contextMenu.show(
         [
+          {
+            id: "toggle-pin",
+            label: projectPinnedById[projectId] ? "Unpin project" : "Pin project",
+          },
           { id: "copy-path", label: "Copy Project Path" },
           { id: "delete", label: "Remove project", destructive: true },
         ],
         position,
       );
+      if (clicked === "toggle-pin") {
+        toggleProjectPinned(projectId);
+        return;
+      }
       if (clicked === "copy-path") {
         copyPathToClipboard(project.cwd, { path: project.cwd });
         return;
@@ -1068,8 +1082,10 @@ export default function Sidebar() {
       clearProjectDraftThreadId,
       copyPathToClipboard,
       getDraftThreadByProjectId,
+      projectPinnedById,
       projects,
       threads,
+      toggleProjectPinned,
     ],
   );
 
@@ -1669,6 +1685,18 @@ export default function Sidebar() {
             <span className="flex-1 truncate text-xs font-medium text-foreground/90">
               {project.name}
             </span>
+            {project.pinned ? (
+              <span
+                className="inline-flex shrink-0"
+                title={
+                  isManualProjectSorting
+                    ? "Pinned project (inactive in manual sorting)"
+                    : "Pinned project"
+                }
+              >
+                <PinIcon className="size-3 text-muted-foreground/55" />
+              </span>
+            ) : null}
           </SidebarMenuButton>
           <Tooltip>
             <TooltipTrigger
