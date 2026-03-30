@@ -22,10 +22,10 @@ export function buildJsonSchemaDocument(
   }
 
   return {
+    ...jsonSchema,
     $schema: JSON_SCHEMA_DRAFT_2020_12,
     title: options.title,
     description: options.description,
-    ...jsonSchema,
   };
 }
 
