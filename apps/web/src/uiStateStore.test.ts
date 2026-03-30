@@ -9,6 +9,7 @@ import {
   syncProjects,
   syncThreads,
   toggleProjectPinned,
+  toggleThreadPinned,
   type UiState,
 } from "./uiStateStore";
 
@@ -18,6 +19,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     projectPinnedById: {},
     threadLastVisitedAtById: {},
+    threadPinnedById: {},
     ...overrides,
   };
 }
@@ -190,6 +192,23 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
+  it("syncThreads preserves pinned state for retained threads", () => {
+    const thread1 = ThreadId.makeUnsafe("thread-1");
+    const thread2 = ThreadId.makeUnsafe("thread-2");
+    const initialState = makeUiState({
+      threadPinnedById: {
+        [thread1]: true,
+        [thread2]: true,
+      },
+    });
+
+    const next = syncThreads(initialState, [{ id: thread1 }]);
+
+    expect(next.threadPinnedById).toEqual({
+      [thread1]: true,
+    });
+  });
+
   it("setProjectExpanded updates expansion without touching order", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
     const initialState = makeUiState({
@@ -216,16 +235,31 @@ describe("uiStateStore pure functions", () => {
     expect(unpinned.projectPinnedById).toEqual({});
   });
 
+  it("toggleThreadPinned adds and removes pinned state", () => {
+    const thread1 = ThreadId.makeUnsafe("thread-1");
+    const pinned = toggleThreadPinned(makeUiState(), thread1);
+
+    expect(pinned.threadPinnedById).toEqual({ [thread1]: true });
+
+    const unpinned = toggleThreadPinned(pinned, thread1);
+
+    expect(unpinned.threadPinnedById).toEqual({});
+  });
+
   it("clearThreadUi removes visit state for deleted threads", () => {
     const thread1 = ThreadId.makeUnsafe("thread-1");
     const initialState = makeUiState({
       threadLastVisitedAtById: {
         [thread1]: "2026-02-25T12:35:00.000Z",
       },
+      threadPinnedById: {
+        [thread1]: true,
+      },
     });
 
     const next = clearThreadUi(initialState, thread1);
 
     expect(next.threadLastVisitedAtById).toEqual({});
+    expect(next.threadPinnedById).toEqual({});
   });
 });

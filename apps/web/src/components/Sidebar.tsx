@@ -162,6 +162,7 @@ type SidebarThreadSnapshot = Pick<
 > & {
   lastVisitedAt?: string | undefined;
   latestUserMessageAt: string | null;
+  pinned: boolean;
 };
 
 type SidebarProjectSnapshot = Project & {
@@ -192,9 +193,10 @@ function getLatestUserMessageAt(thread: Thread): string | null {
 function toSidebarThreadSnapshot(
   thread: Thread,
   lastVisitedAt: string | undefined,
+  pinned: boolean,
 ): SidebarThreadSnapshot {
   const cached = sidebarThreadSnapshotCache.get(thread);
-  if (cached && cached.lastVisitedAt === lastVisitedAt) {
+  if (cached && cached.lastVisitedAt === lastVisitedAt && cached.snapshot.pinned === pinned) {
     return cached.snapshot;
   }
 
@@ -214,6 +216,7 @@ function toSidebarThreadSnapshot(
     activities: thread.activities,
     proposedPlans: thread.proposedPlans,
     latestUserMessageAt: getLatestUserMessageAt(thread),
+    pinned,
   };
   sidebarThreadSnapshotCache.set(thread, { lastVisitedAt, snapshot });
   return snapshot;
@@ -442,16 +445,23 @@ function SortableProjectItem({
 export default function Sidebar() {
   const projects = useStore((store) => store.projects);
   const serverThreads = useStore((store) => store.threads);
-  const { projectExpandedById, projectOrder, projectPinnedById, threadLastVisitedAtById } =
-    useUiStateStore(
-      useShallow((store) => ({
-        projectExpandedById: store.projectExpandedById,
-        projectOrder: store.projectOrder,
-        projectPinnedById: store.projectPinnedById,
-        threadLastVisitedAtById: store.threadLastVisitedAtById,
-      })),
-    );
+  const {
+    projectExpandedById,
+    projectOrder,
+    projectPinnedById,
+    threadLastVisitedAtById,
+    threadPinnedById,
+  } = useUiStateStore(
+    useShallow((store) => ({
+      projectExpandedById: store.projectExpandedById,
+      projectOrder: store.projectOrder,
+      projectPinnedById: store.projectPinnedById,
+      threadLastVisitedAtById: store.threadLastVisitedAtById,
+      threadPinnedById: store.threadPinnedById,
+    })),
+  );
   const markThreadUnread = useUiStateStore((store) => store.markThreadUnread);
+  const toggleThreadPinned = useUiStateStore((store) => store.toggleThreadPinned);
   const toggleProject = useUiStateStore((store) => store.toggleProject);
   const toggleProjectPinned = useUiStateStore((store) => store.toggleProjectPinned);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
@@ -527,9 +537,13 @@ export default function Sidebar() {
   const threads = useMemo(
     () =>
       serverThreads.map((thread) =>
-        toSidebarThreadSnapshot(thread, threadLastVisitedAtById[thread.id]),
+        toSidebarThreadSnapshot(
+          thread,
+          threadLastVisitedAtById[thread.id],
+          threadPinnedById[thread.id] ?? false,
+        ),
       ),
-    [serverThreads, threadLastVisitedAtById],
+    [serverThreads, threadLastVisitedAtById, threadPinnedById],
   );
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
@@ -848,6 +862,7 @@ export default function Sidebar() {
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
       const clicked = await api.contextMenu.show(
         [
+          { id: "toggle-pin", label: threadPinnedById[threadId] ? "Unpin thread" : "Pin thread" },
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
@@ -856,6 +871,11 @@ export default function Sidebar() {
         ],
         position,
       );
+
+      if (clicked === "toggle-pin") {
+        toggleThreadPinned(threadId);
+        return;
+      }
 
       if (clicked === "rename") {
         setRenamingThreadId(threadId);
@@ -905,7 +925,9 @@ export default function Sidebar() {
       deleteThread,
       markThreadUnread,
       projectCwdById,
+      threadPinnedById,
       threads,
+      toggleThreadPinned,
     ],
   );
 
@@ -1459,6 +1481,11 @@ export default function Sidebar() {
             }}
           >
             <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+              {thread.pinned ? (
+                <span className="inline-flex shrink-0" title="Pinned thread">
+                  <PinIcon className="size-3 text-muted-foreground/55" />
+                </span>
+              ) : null}
               {prStatus && (
                 <Tooltip>
                   <TooltipTrigger

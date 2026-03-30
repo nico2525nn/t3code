@@ -760,6 +760,73 @@ describe("sortThreadsForSidebar", () => {
       ThreadId.makeUnsafe("thread-2"),
     ]);
   });
+
+  it("puts pinned threads ahead of unpinned threads in auto-sort modes", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        {
+          ...makeThread({
+            id: ThreadId.makeUnsafe("thread-1"),
+            createdAt: "2026-03-09T10:00:00.000Z",
+            updatedAt: "2026-03-09T10:01:00.000Z",
+          }),
+          pinned: true,
+        },
+        {
+          ...makeThread({
+            id: ThreadId.makeUnsafe("thread-2"),
+            createdAt: "2026-03-09T10:05:00.000Z",
+            updatedAt: "2026-03-09T10:05:00.000Z",
+          }),
+          pinned: false,
+        },
+      ],
+      "updated_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-1"),
+      ThreadId.makeUnsafe("thread-2"),
+    ]);
+  });
+
+  it("still auto-sorts within the pinned thread bucket", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        {
+          ...makeThread({
+            id: ThreadId.makeUnsafe("thread-1"),
+            createdAt: "2026-03-09T10:01:00.000Z",
+            updatedAt: "2026-03-09T10:01:00.000Z",
+          }),
+          pinned: true,
+        },
+        {
+          ...makeThread({
+            id: ThreadId.makeUnsafe("thread-2"),
+            createdAt: "2026-03-09T10:05:00.000Z",
+            updatedAt: "2026-03-09T10:05:00.000Z",
+          }),
+          pinned: true,
+        },
+        {
+          ...makeThread({
+            id: ThreadId.makeUnsafe("thread-3"),
+            createdAt: "2026-03-09T10:10:00.000Z",
+            updatedAt: "2026-03-09T10:10:00.000Z",
+          }),
+          pinned: false,
+        },
+      ],
+      "updated_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-2"),
+      ThreadId.makeUnsafe("thread-1"),
+      ThreadId.makeUnsafe("thread-3"),
+    ]);
+  });
 });
 
 describe("getFallbackThreadIdAfterDelete", () => {
@@ -796,6 +863,41 @@ describe("getFallbackThreadIdAfterDelete", () => {
     });
 
     expect(fallbackThreadId).toBe(ThreadId.makeUnsafe("thread-newest"));
+  });
+
+  it("respects pinning when choosing the fallback thread after delete", () => {
+    const fallbackThreadId = getFallbackThreadIdAfterDelete({
+      threads: [
+        {
+          ...makeThread({
+            id: ThreadId.makeUnsafe("thread-active"),
+            projectId: ProjectId.makeUnsafe("project-1"),
+            updatedAt: "2026-03-09T10:05:00.000Z",
+          }),
+          pinned: false,
+        },
+        {
+          ...makeThread({
+            id: ThreadId.makeUnsafe("thread-pinned"),
+            projectId: ProjectId.makeUnsafe("project-1"),
+            updatedAt: "2026-03-09T10:03:00.000Z",
+          }),
+          pinned: true,
+        },
+        {
+          ...makeThread({
+            id: ThreadId.makeUnsafe("thread-newer"),
+            projectId: ProjectId.makeUnsafe("project-1"),
+            updatedAt: "2026-03-09T10:10:00.000Z",
+          }),
+          pinned: false,
+        },
+      ],
+      deletedThreadId: ThreadId.makeUnsafe("thread-active"),
+      sortOrder: "updated_at",
+    });
+
+    expect(fallbackThreadId).toBe(ThreadId.makeUnsafe("thread-pinned"));
   });
 
   it("skips other threads being deleted in the same action", () => {
