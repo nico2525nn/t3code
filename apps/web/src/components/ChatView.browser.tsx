@@ -1773,6 +1773,36 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("restores the connecting composer state without showing the stop button", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-connecting-state" as MessageId,
+        targetText: "connecting state target",
+        sessionStatus: "starting",
+      }),
+    });
+
+    try {
+      const connectingButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Connecting"]'),
+        "Unable to find connecting send button.",
+      );
+      expect(connectingButton.disabled).toBe(true);
+      expect(
+        document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+      ).toBeNull();
+
+      const composerEditor = await waitForElement(
+        () => document.querySelector<HTMLElement>('[contenteditable="false"]'),
+        "Unable to find disabled composer editor.",
+      );
+      expect(composerEditor).toBeTruthy();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("hides the archive action when the pointer leaves a thread row", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,

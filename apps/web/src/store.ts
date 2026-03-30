@@ -7,12 +7,19 @@ import {
 } from "@t3tools/contracts";
 import { resolveModelSlugForProvider } from "@t3tools/shared/model";
 import { create } from "zustand";
-import { type ChatMessage, type Project, type Thread } from "./types";
+import {
+  type ChatMessage,
+  type PendingThreadSend,
+  type PendingThreadSendPhase,
+  type Project,
+  type Thread,
+} from "./types";
 import { Debouncer } from "@tanstack/react-pacer";
 
 // ── State ────────────────────────────────────────────────────────────
 
 export interface AppState {
+  pendingThreadSendById: Record<ThreadId, PendingThreadSend | undefined>;
   projects: Project[];
   threads: Thread[];
   threadsHydrated: boolean;
@@ -32,6 +39,7 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 ] as const;
 
 const initialState: AppState = {
+  pendingThreadSendById: {},
   projects: [],
   threads: [],
   threadsHydrated: false,
@@ -109,6 +117,68 @@ function updateThread(
     return updated;
   });
   return changed ? next : threads;
+}
+
+function hasLatestTurnCaughtUpToPendingSend(
+  latestTurnRequestedAt: string | null,
+  pendingSendStartedAt: string,
+): boolean {
+  if (latestTurnRequestedAt === null) {
+    return false;
+  }
+  const latestTurnRequestedAtMs = Date.parse(latestTurnRequestedAt);
+  const pendingSendStartedAtMs = Date.parse(pendingSendStartedAt);
+  if (Number.isNaN(latestTurnRequestedAtMs) || Number.isNaN(pendingSendStartedAtMs)) {
+    return false;
+  }
+  return latestTurnRequestedAtMs >= pendingSendStartedAtMs;
+}
+
+function reconcilePendingThreadSends(
+  pendingThreadSendById: AppState["pendingThreadSendById"],
+  readModel: OrchestrationReadModel,
+): AppState["pendingThreadSendById"] {
+  const readModelThreadById = new Map(
+    readModel.threads.map((thread) => [thread.id, thread] as const),
+  );
+  let changed = false;
+  const nextPendingThreadSendById: AppState["pendingThreadSendById"] = {};
+
+  for (const [threadId, pendingSend] of Object.entries(pendingThreadSendById) as Array<
+    [ThreadId, PendingThreadSend | undefined]
+  >) {
+    if (!pendingSend) {
+      continue;
+    }
+    const thread = readModelThreadById.get(threadId);
+    if (!thread) {
+      nextPendingThreadSendById[threadId] = pendingSend;
+      continue;
+    }
+
+    const authoritativeSendStarted =
+      thread.session?.status === "starting" || thread.session?.status === "running";
+    const authoritativeSendFailed = thread.session?.lastError != null;
+    const latestTurnCaughtUp = hasLatestTurnCaughtUpToPendingSend(
+      thread.latestTurn?.requestedAt ?? null,
+      pendingSend.startedAt,
+    );
+
+    if (authoritativeSendStarted || authoritativeSendFailed || latestTurnCaughtUp) {
+      changed = true;
+      continue;
+    }
+
+    nextPendingThreadSendById[threadId] = pendingSend;
+  }
+
+  if (
+    !changed &&
+    Object.keys(nextPendingThreadSendById).length === Object.keys(pendingThreadSendById).length
+  ) {
+    return pendingThreadSendById;
+  }
+  return nextPendingThreadSendById;
 }
 
 function mapProjectsFromReadModel(
@@ -319,9 +389,83 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     });
   return {
     ...state,
+    pendingThreadSendById: reconcilePendingThreadSends(state.pendingThreadSendById, readModel),
     projects,
     threads,
     threadsHydrated: true,
+  };
+}
+
+export function beginThreadSend(
+  state: AppState,
+  threadId: ThreadId,
+  phase: PendingThreadSendPhase,
+  startedAt: string,
+): AppState {
+  const existing = state.pendingThreadSendById[threadId];
+  if (existing?.phase === phase && existing.startedAt === startedAt) {
+    return state;
+  }
+  return {
+    ...state,
+    pendingThreadSendById: {
+      ...state.pendingThreadSendById,
+      [threadId]: { phase, startedAt },
+    },
+  };
+}
+
+export function setThreadSendPhase(
+  state: AppState,
+  threadId: ThreadId,
+  phase: PendingThreadSendPhase,
+): AppState {
+  const existing = state.pendingThreadSendById[threadId];
+  if (!existing || existing.phase === phase) {
+    return state;
+  }
+  return {
+    ...state,
+    pendingThreadSendById: {
+      ...state.pendingThreadSendById,
+      [threadId]: {
+        ...existing,
+        phase,
+      },
+    },
+  };
+}
+
+export function clearThreadSend(state: AppState, threadId: ThreadId): AppState {
+  if (!(threadId in state.pendingThreadSendById)) {
+    return state;
+  }
+  const pendingThreadSendById = { ...state.pendingThreadSendById };
+  delete pendingThreadSendById[threadId];
+  return {
+    ...state,
+    pendingThreadSendById,
+  };
+}
+
+export function moveThreadSend(
+  state: AppState,
+  fromThreadId: ThreadId,
+  toThreadId: ThreadId,
+): AppState {
+  if (fromThreadId === toThreadId) {
+    return state;
+  }
+  const pendingSend = state.pendingThreadSendById[fromThreadId];
+  if (!pendingSend) {
+    return state;
+  }
+  const pendingThreadSendById = { ...state.pendingThreadSendById };
+  delete pendingThreadSendById[fromThreadId];
+  pendingThreadSendById[toThreadId] = pendingSend;
+  return {
+    ...state,
+    pendingThreadSendById,
   };
 }
 
@@ -425,6 +569,9 @@ export function setThreadBranch(
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
+  beginThreadSend: (threadId: ThreadId, phase: PendingThreadSendPhase, startedAt: string) => void;
+  clearThreadSend: (threadId: ThreadId) => void;
+  moveThreadSend: (fromThreadId: ThreadId, toThreadId: ThreadId) => void;
   syncServerReadModel: (readModel: OrchestrationReadModel) => void;
   markThreadVisited: (threadId: ThreadId, visitedAt?: string) => void;
   markThreadUnread: (threadId: ThreadId) => void;
@@ -432,11 +579,17 @@ interface AppStore extends AppState {
   setProjectExpanded: (projectId: Project["id"], expanded: boolean) => void;
   reorderProjects: (draggedProjectId: Project["id"], targetProjectId: Project["id"]) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
+  setThreadSendPhase: (threadId: ThreadId, phase: PendingThreadSendPhase) => void;
   setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
 }
 
 export const useStore = create<AppStore>((set) => ({
   ...readPersistedState(),
+  beginThreadSend: (threadId, phase, startedAt) =>
+    set((state) => beginThreadSend(state, threadId, phase, startedAt)),
+  clearThreadSend: (threadId) => set((state) => clearThreadSend(state, threadId)),
+  moveThreadSend: (fromThreadId, toThreadId) =>
+    set((state) => moveThreadSend(state, fromThreadId, toThreadId)),
   syncServerReadModel: (readModel) => set((state) => syncServerReadModel(state, readModel)),
   markThreadVisited: (threadId, visitedAt) =>
     set((state) => markThreadVisited(state, threadId, visitedAt)),
@@ -447,6 +600,8 @@ export const useStore = create<AppStore>((set) => ({
   reorderProjects: (draggedProjectId, targetProjectId) =>
     set((state) => reorderProjects(state, draggedProjectId, targetProjectId)),
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),
+  setThreadSendPhase: (threadId, phase) =>
+    set((state) => setThreadSendPhase(state, threadId, phase)),
   setThreadBranch: (threadId, branch, worktreePath) =>
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
 }));

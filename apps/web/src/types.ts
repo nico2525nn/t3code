@@ -16,6 +16,7 @@ import type {
 } from "@t3tools/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
+export type PendingThreadSendPhase = "preparing-worktree" | "sending-turn";
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 
 export const DEFAULT_INTERACTION_MODE: ProviderInteractionMode = "default";
@@ -119,4 +120,9 @@ export interface ThreadSession {
   updatedAt: string;
   lastError?: string;
   orchestrationStatus: OrchestrationSessionStatus;
+}
+
+export interface PendingThreadSend {
+  phase: PendingThreadSendPhase;
+  startedAt: string;
 }

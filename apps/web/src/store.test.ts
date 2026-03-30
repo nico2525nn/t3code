@@ -7,7 +7,15 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
-import { markThreadUnread, reorderProjects, syncServerReadModel, type AppState } from "./store";
+import {
+  beginThreadSend,
+  clearThreadSend,
+  markThreadUnread,
+  reorderProjects,
+  setThreadSendPhase,
+  syncServerReadModel,
+  type AppState,
+} from "./store";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -39,6 +47,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
 
 function makeState(thread: Thread): AppState {
   return {
+    pendingThreadSendById: {},
     projects: [
       {
         id: ProjectId.makeUnsafe("project-1"),
@@ -171,6 +180,7 @@ describe("store pure functions", () => {
     const project2 = ProjectId.makeUnsafe("project-2");
     const project3 = ProjectId.makeUnsafe("project-3");
     const state: AppState = {
+      pendingThreadSendById: {},
       projects: [
         {
           id: project1,
@@ -292,6 +302,7 @@ describe("store read model sync", () => {
     const project2 = ProjectId.makeUnsafe("project-2");
     const project3 = ProjectId.makeUnsafe("project-3");
     const initialState: AppState = {
+      pendingThreadSendById: {},
       projects: [
         {
           id: project2,
@@ -345,5 +356,83 @@ describe("store read model sync", () => {
     const next = syncServerReadModel(initialState, readModel);
 
     expect(next.projects.map((project) => project.id)).toEqual([project2, project1, project3]);
+  });
+
+  it("keeps pending sends until the server catches up to the send", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const initialState = beginThreadSend(
+      makeState(makeThread()),
+      threadId,
+      "sending-turn",
+      "2026-02-27T00:01:00.000Z",
+    );
+
+    const next = syncServerReadModel(
+      initialState,
+      makeReadModel(
+        makeReadModelThread({
+          latestTurn: {
+            turnId: TurnId.makeUnsafe("turn-1"),
+            state: "completed",
+            requestedAt: "2026-02-27T00:00:59.000Z",
+            startedAt: "2026-02-27T00:01:01.000Z",
+            completedAt: "2026-02-27T00:01:03.000Z",
+            assistantMessageId: null,
+          },
+        }),
+      ),
+    );
+
+    expect(next.pendingThreadSendById[threadId]).toEqual({
+      phase: "sending-turn",
+      startedAt: "2026-02-27T00:01:00.000Z",
+    });
+  });
+
+  it("clears pending sends once the server session starts running", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const initialState = beginThreadSend(
+      makeState(makeThread()),
+      threadId,
+      "sending-turn",
+      "2026-02-27T00:01:00.000Z",
+    );
+
+    const next = syncServerReadModel(
+      initialState,
+      makeReadModel(
+        makeReadModelThread({
+          session: {
+            threadId,
+            status: "starting",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: TurnId.makeUnsafe("turn-1"),
+            lastError: null,
+            updatedAt: "2026-02-27T00:01:02.000Z",
+          },
+        }),
+      ),
+    );
+
+    expect(next.pendingThreadSendById[threadId]).toBeUndefined();
+  });
+});
+
+describe("store pending thread send helpers", () => {
+  it("updates and clears pending thread send state", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const startedState = beginThreadSend(
+      makeState(makeThread()),
+      threadId,
+      "preparing-worktree",
+      "2026-02-27T00:01:00.000Z",
+    );
+    const sendingState = setThreadSendPhase(startedState, threadId, "sending-turn");
+    const clearedState = clearThreadSend(sendingState, threadId);
+
+    expect(startedState.pendingThreadSendById[threadId]?.phase).toBe("preparing-worktree");
+    expect(sendingState.pendingThreadSendById[threadId]?.phase).toBe("sending-turn");
+    expect(clearedState.pendingThreadSendById[threadId]).toBeUndefined();
   });
 });
