@@ -19,7 +19,7 @@ import {
   type OrchestrationThreadActivity,
   ModelSelection,
 } from "@t3tools/contracts";
-import { Effect, Layer, Schema, SchemaTransformation, Struct } from "effect";
+import { Effect, Layer, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
@@ -46,15 +46,7 @@ import {
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
-    pinned: Schema.Number.pipe(
-      Schema.decodeTo(
-        Schema.Boolean,
-        SchemaTransformation.transformOrFail({
-          decode: (value) => Effect.succeed(value !== 0),
-          encode: (value) => Effect.succeed(value ? 1 : 0),
-        }),
-      ),
-    ),
+    pinned: Schema.BooleanFromBit,
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
   }),
@@ -68,15 +60,7 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
 const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
-    pinned: Schema.Number.pipe(
-      Schema.decodeTo(
-        Schema.Boolean,
-        SchemaTransformation.transformOrFail({
-          decode: (value) => Effect.succeed(value !== 0),
-          encode: (value) => Effect.succeed(value ? 1 : 0),
-        }),
-      ),
-    ),
+    pinned: Schema.BooleanFromBit,
     modelSelection: Schema.fromJsonString(ModelSelection),
   }),
 );

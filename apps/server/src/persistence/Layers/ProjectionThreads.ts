@@ -1,6 +1,6 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer, Schema, SchemaTransformation, Struct } from "effect";
+import { Effect, Layer, Schema, Struct } from "effect";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -15,15 +15,7 @@ import { ModelSelection } from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
-    pinned: Schema.Number.pipe(
-      Schema.decodeTo(
-        Schema.Boolean,
-        SchemaTransformation.transformOrFail({
-          decode: (value) => Effect.succeed(value !== 0),
-          encode: (value) => Effect.succeed(value ? 1 : 0),
-        }),
-      ),
-    ),
+    pinned: Schema.BooleanFromBit,
     modelSelection: Schema.fromJsonString(ModelSelection),
   }),
 );
