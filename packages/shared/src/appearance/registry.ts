@@ -101,7 +101,7 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
       sidebarForeground: "oklch(26.9% 0 0)",
       sidebarAccent: "color-mix(in oklab, #000 4%, transparent)",
       sidebarAccentForeground: "oklch(26.9% 0 0)",
-      sidebarBorder: "color-mix(in oklab, #000 8%, transparent)",
+      sidebarBorder: "transparent",
     },
   }),
   makeThemeDocument({
@@ -146,7 +146,7 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
       sidebarForeground: "oklch(97% 0 0)",
       sidebarAccent: "color-mix(in oklab, #fff 4%, transparent)",
       sidebarAccentForeground: "oklch(97% 0 0)",
-      sidebarBorder: "color-mix(in oklab, #fff 6%, transparent)",
+      sidebarBorder: "transparent",
     },
   }),
   makeThemeDocument({

@@ -20,6 +20,7 @@ describe("deriveThemeTokens", () => {
     expect(tokens.primary).toBe("oklch(0.488 0.217 264)");
     expect(tokens.accent).toBe("color-mix(in oklab, #000 4%, transparent)");
     expect(tokens.border).toBe("color-mix(in oklab, #000 8%, transparent)");
+    expect(tokens["sidebar-border"]).toBe("transparent");
     expect(tokens["sidebar-blur"]).toBe("0px");
   });
 
@@ -31,6 +32,7 @@ describe("deriveThemeTokens", () => {
     expect(tokens.primary).toBe("oklch(0.588 0.217 264)");
     expect(tokens.accent).toBe("color-mix(in oklab, #fff 4%, transparent)");
     expect(tokens.border).toBe("color-mix(in oklab, #fff 6%, transparent)");
+    expect(tokens["sidebar-border"]).toBe("transparent");
     expect(tokens["sidebar-blur"]).toBe("0px");
   });
 
