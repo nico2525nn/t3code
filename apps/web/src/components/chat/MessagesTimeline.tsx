@@ -543,9 +543,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:400ms]" />
             </span>
             <span>
-              {row.createdAt
-                ? `Working for ${formatWorkingTimer(row.createdAt, nowIso) ?? "0s"}`
-                : "Working..."}
+              {(() => {
+                const elapsed = row.createdAt ? formatWorkingTimer(row.createdAt, nowIso) : null;
+                return elapsed ? `Working for ${elapsed}` : "Working...";
+              })()}
             </span>
           </div>
         </div>
@@ -637,6 +638,9 @@ function formatWorkingTimer(startIso: string, endIso: string): string | null {
   }
 
   const elapsedSeconds = Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
+  if (elapsedSeconds < 1) {
+    return null;
+  }
   if (elapsedSeconds < 60) {
     return `${elapsedSeconds}s`;
   }
