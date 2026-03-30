@@ -1741,9 +1741,6 @@ export default function Sidebar() {
               />
             )}
             <ProjectFavicon cwd={project.cwd} />
-            <span className="flex-1 truncate text-xs font-medium text-foreground/90">
-              {project.name}
-            </span>
             {project.pinned ? (
               <span
                 className="inline-flex shrink-0"
@@ -1756,6 +1753,9 @@ export default function Sidebar() {
                 <PinIcon className="size-3 text-muted-foreground/55" />
               </span>
             ) : null}
+            <span className="flex-1 truncate text-xs font-medium text-foreground/90">
+              {project.name}
+            </span>
           </SidebarMenuButton>
           <Tooltip>
             <TooltipTrigger
