@@ -11,6 +11,7 @@ import {
   beginThreadSend,
   clearThreadSend,
   markThreadUnread,
+  markThreadSendSettled,
   reorderProjects,
   setThreadSendPhase,
   syncServerReadModel,
@@ -386,6 +387,39 @@ describe("store read model sync", () => {
     expect(next.pendingThreadSendById[threadId]).toEqual({
       phase: "sending-turn",
       startedAt: "2026-02-27T00:01:00.000Z",
+      requestSettled: false,
+    });
+  });
+
+  it("does not clear pending sends when the turn appears before the request settles", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const initialState = beginThreadSend(
+      makeState(makeThread()),
+      threadId,
+      "sending-turn",
+      "2026-02-27T00:01:00.000Z",
+    );
+
+    const next = syncServerReadModel(
+      initialState,
+      makeReadModel(
+        makeReadModelThread({
+          latestTurn: {
+            turnId: TurnId.makeUnsafe("turn-1"),
+            state: "completed",
+            requestedAt: "2026-02-27T00:01:01.000Z",
+            startedAt: "2026-02-27T00:01:02.000Z",
+            completedAt: "2026-02-27T00:01:03.000Z",
+            assistantMessageId: null,
+          },
+        }),
+      ),
+    );
+
+    expect(next.pendingThreadSendById[threadId]).toEqual({
+      phase: "sending-turn",
+      startedAt: "2026-02-27T00:01:00.000Z",
+      requestSettled: false,
     });
   });
 
@@ -404,12 +438,43 @@ describe("store read model sync", () => {
         makeReadModelThread({
           session: {
             threadId,
-            status: "starting",
+            status: "running",
             providerName: "codex",
             runtimeMode: "full-access",
             activeTurnId: TurnId.makeUnsafe("turn-1"),
             lastError: null,
             updatedAt: "2026-02-27T00:01:02.000Z",
+          },
+        }),
+      ),
+    );
+
+    expect(next.pendingThreadSendById[threadId]).toBeUndefined();
+  });
+
+  it("clears settled pending sends once the turn has caught up", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const initialState = markThreadSendSettled(
+      beginThreadSend(
+        makeState(makeThread()),
+        threadId,
+        "sending-turn",
+        "2026-02-27T00:01:00.000Z",
+      ),
+      threadId,
+    );
+
+    const next = syncServerReadModel(
+      initialState,
+      makeReadModel(
+        makeReadModelThread({
+          latestTurn: {
+            turnId: TurnId.makeUnsafe("turn-1"),
+            state: "completed",
+            requestedAt: "2026-02-27T00:01:01.000Z",
+            startedAt: "2026-02-27T00:01:02.000Z",
+            completedAt: "2026-02-27T00:01:03.000Z",
+            assistantMessageId: null,
           },
         }),
       ),
@@ -429,10 +494,13 @@ describe("store pending thread send helpers", () => {
       "2026-02-27T00:01:00.000Z",
     );
     const sendingState = setThreadSendPhase(startedState, threadId, "sending-turn");
-    const clearedState = clearThreadSend(sendingState, threadId);
+    const settledState = markThreadSendSettled(sendingState, threadId);
+    const clearedState = clearThreadSend(settledState, threadId);
 
     expect(startedState.pendingThreadSendById[threadId]?.phase).toBe("preparing-worktree");
+    expect(startedState.pendingThreadSendById[threadId]?.requestSettled).toBe(false);
     expect(sendingState.pendingThreadSendById[threadId]?.phase).toBe("sending-turn");
+    expect(settledState.pendingThreadSendById[threadId]?.requestSettled).toBe(true);
     expect(clearedState.pendingThreadSendById[threadId]).toBeUndefined();
   });
 });

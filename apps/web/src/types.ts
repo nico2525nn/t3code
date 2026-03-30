@@ -125,4 +125,5 @@ export interface ThreadSession {
 export interface PendingThreadSend {
   phase: PendingThreadSendPhase;
   startedAt: string;
+  requestSettled: boolean;
 }

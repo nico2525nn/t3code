@@ -247,6 +247,7 @@ interface PendingPullRequestSetupRequest {
 export default function ChatView({ threadId }: ChatViewProps) {
   const beginThreadSend = useStore((store) => store.beginThreadSend);
   const clearThreadSend = useStore((store) => store.clearThreadSend);
+  const markThreadSendSettled = useStore((store) => store.markThreadSendSettled);
   const moveThreadSend = useStore((store) => store.moveThreadSend);
   const threads = useStore((store) => store.threads);
   const projects = useStore((store) => store.projects);
@@ -2717,6 +2718,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         createdAt: messageCreatedAt,
       });
       turnStartSucceeded = true;
+      markThreadSendSettled(threadIdForSend);
     } catch (err: unknown) {
       if (createdServerThreadForLocalDraft && !turnStartSucceeded) {
         await api.orchestration
@@ -2997,6 +2999,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             : {}),
           createdAt: messageCreatedAt,
         });
+        markThreadSendSettled(threadIdForSend);
         // Optimistically open the plan sidebar when implementing (not refining).
         // "default" mode here means the agent is executing the plan, which produces
         // step-tracking activities that the sidebar will display.
@@ -3030,6 +3033,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       selectedProviderModels,
       beginThreadSend,
       clearThreadSend,
+      markThreadSendSettled,
       setComposerDraftInteractionMode,
       setThreadError,
       selectedModel,
@@ -3100,6 +3104,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       });
 
       moveThreadSend(activeThread.id, nextThreadId);
+      markThreadSendSettled(nextThreadId);
       const snapshot = await api.orchestration.getSnapshot();
       syncServerReadModel(snapshot);
       // Signal that the plan sidebar should open on the new thread.
@@ -3146,6 +3151,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     selectedProviderModels,
     beginThreadSend,
     clearThreadSend,
+    markThreadSendSettled,
     moveThreadSend,
     syncServerReadModel,
     selectedModel,

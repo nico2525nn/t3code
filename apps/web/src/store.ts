@@ -156,15 +156,18 @@ function reconcilePendingThreadSends(
       continue;
     }
 
-    const authoritativeSendStarted =
-      thread.session?.status === "starting" || thread.session?.status === "running";
+    const authoritativeSendStarted = thread.session?.status === "running";
     const authoritativeSendFailed = thread.session?.lastError != null;
     const latestTurnCaughtUp = hasLatestTurnCaughtUpToPendingSend(
       thread.latestTurn?.requestedAt ?? null,
       pendingSend.startedAt,
     );
 
-    if (authoritativeSendStarted || authoritativeSendFailed || latestTurnCaughtUp) {
+    if (
+      authoritativeSendStarted ||
+      authoritativeSendFailed ||
+      (pendingSend.requestSettled && latestTurnCaughtUp)
+    ) {
       changed = true;
       continue;
     }
@@ -403,14 +406,18 @@ export function beginThreadSend(
   startedAt: string,
 ): AppState {
   const existing = state.pendingThreadSendById[threadId];
-  if (existing?.phase === phase && existing.startedAt === startedAt) {
+  if (
+    existing?.phase === phase &&
+    existing.startedAt === startedAt &&
+    existing.requestSettled === false
+  ) {
     return state;
   }
   return {
     ...state,
     pendingThreadSendById: {
       ...state.pendingThreadSendById,
-      [threadId]: { phase, startedAt },
+      [threadId]: { phase, startedAt, requestSettled: false },
     },
   };
 }
@@ -431,6 +438,37 @@ export function setThreadSendPhase(
       [threadId]: {
         ...existing,
         phase,
+      },
+    },
+  };
+}
+
+export function markThreadSendSettled(state: AppState, threadId: ThreadId): AppState {
+  const existing = state.pendingThreadSendById[threadId];
+  if (!existing) {
+    return state;
+  }
+  const thread = state.threads.find((candidate) => candidate.id === threadId) ?? null;
+  const authoritativeSendStarted = thread?.session?.orchestrationStatus === "running";
+  const authoritativeSendFailed = thread?.session?.lastError != null;
+  const latestTurnCaughtUp = hasLatestTurnCaughtUpToPendingSend(
+    thread?.latestTurn?.requestedAt ?? null,
+    existing.startedAt,
+  );
+
+  if (authoritativeSendStarted || authoritativeSendFailed || latestTurnCaughtUp) {
+    return clearThreadSend(state, threadId);
+  }
+  if (existing.requestSettled) {
+    return state;
+  }
+  return {
+    ...state,
+    pendingThreadSendById: {
+      ...state.pendingThreadSendById,
+      [threadId]: {
+        ...existing,
+        requestSettled: true,
       },
     },
   };
@@ -571,6 +609,7 @@ export function setThreadBranch(
 interface AppStore extends AppState {
   beginThreadSend: (threadId: ThreadId, phase: PendingThreadSendPhase, startedAt: string) => void;
   clearThreadSend: (threadId: ThreadId) => void;
+  markThreadSendSettled: (threadId: ThreadId) => void;
   moveThreadSend: (fromThreadId: ThreadId, toThreadId: ThreadId) => void;
   syncServerReadModel: (readModel: OrchestrationReadModel) => void;
   markThreadVisited: (threadId: ThreadId, visitedAt?: string) => void;
@@ -588,6 +627,7 @@ export const useStore = create<AppStore>((set) => ({
   beginThreadSend: (threadId, phase, startedAt) =>
     set((state) => beginThreadSend(state, threadId, phase, startedAt)),
   clearThreadSend: (threadId) => set((state) => clearThreadSend(state, threadId)),
+  markThreadSendSettled: (threadId) => set((state) => markThreadSendSettled(state, threadId)),
   moveThreadSend: (fromThreadId, toThreadId) =>
     set((state) => moveThreadSend(state, fromThreadId, toThreadId)),
   syncServerReadModel: (readModel) => set((state) => syncServerReadModel(state, readModel)),
