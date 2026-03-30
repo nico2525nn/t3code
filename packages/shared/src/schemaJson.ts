@@ -36,6 +36,20 @@ export const decodeUnknownJsonResult = <S extends Schema.Codec<unknown, unknown,
   };
 };
 
+const PrettyJsonString = SchemaGetter.parseJson<string>().compose(
+  SchemaGetter.stringifyJson({ space: 2 }),
+);
+
+export const encodePrettyJsonEffect = <S extends Schema.Top>(schema: S) =>
+  Schema.encodeEffect(
+    Schema.fromJsonString(schema).pipe(
+      Schema.encode({
+        decode: PrettyJsonString,
+        encode: PrettyJsonString,
+      }),
+    ),
+  );
+
 export const formatSchemaError = (cause: Cause.Cause<Schema.SchemaError>) => {
   const squashed = Cause.squash(cause);
   return Schema.isSchemaError(squashed)

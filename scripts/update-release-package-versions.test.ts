@@ -10,7 +10,7 @@ import {
 } from "./update-release-package-versions";
 
 describe("updateReleasePackageVersions", () => {
-  it("updates package versions and writes latest plus versioned server settings schemas", () => {
+  it("updates package versions and writes latest plus versioned config schemas", () => {
     const rootDir = mkdtempSync(join(tmpdir(), "t3-release-version-bump-"));
 
     try {
@@ -50,6 +50,24 @@ describe("updateReleasePackageVersions", () => {
           ),
         ),
       ).toMatchObject({ title: "T3 Code Server Settings" });
+
+      expect(
+        JSON.parse(
+          readFileSync(
+            resolve(rootDir, "apps/marketing/public/schemas/keybindings.schema.json"),
+            "utf8",
+          ),
+        ),
+      ).toMatchObject({ title: "T3 Code Keybindings" });
+
+      expect(
+        JSON.parse(
+          readFileSync(
+            resolve(rootDir, "apps/marketing/public/schemas/keybindings/1.2.3.schema.json"),
+            "utf8",
+          ),
+        ),
+      ).toMatchObject({ title: "T3 Code Keybindings" });
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "T3 Code Keybindings",
+  "description": "JSON Schema for the keybindings.json file consumed by T3 Code.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "key": {
+        "type": "string"
+      },
+      "command": {
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "terminal.toggle",
+              "terminal.split",
+              "terminal.new",
+              "terminal.close",
+              "diff.toggle",
+              "chat.new",
+              "chat.newLocal",
+              "editor.openFavorite",
+              "thread.previous",
+              "thread.next",
+              "thread.jump.1",
+              "thread.jump.2",
+              "thread.jump.3",
+              "thread.jump.4",
+              "thread.jump.5",
+              "thread.jump.6",
+              "thread.jump.7",
+              "thread.jump.8",
+              "thread.jump.9"
+            ]
+          },
+          {
+            "type": "string",
+            "pattern": "^script\\.[\\s\\S]*?\\.run$"
+          }
+        ]
+      },
+      "when": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": ["key", "command"],
+    "additionalProperties": false
+  },
+  "allOf": [
+    {
+      "maxItems": 256
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { writeKeybindingsJsonSchemas } from "./lib/keybindings-schema.ts";
 import { writeServerSettingsJsonSchemas } from "./lib/server-settings-schema.ts";
 
 export const releasePackageFiles = [
@@ -40,6 +41,7 @@ export function updateReleasePackageVersions(
   }
 
   changed = writeServerSettingsJsonSchemas({ rootDir, version }).changed || changed;
+  changed = writeKeybindingsJsonSchemas({ rootDir, version }).changed || changed;
 
   return { changed };
 }

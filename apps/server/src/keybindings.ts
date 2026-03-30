@@ -34,7 +34,6 @@ import {
   Predicate,
   PubSub,
   Schema,
-  SchemaGetter,
   SchemaIssue,
   SchemaTransformation,
   Ref,
@@ -44,7 +43,7 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
-import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import { encodePrettyJsonEffect, fromLenientJson } from "@t3tools/shared/schemaJson";
 
 export class KeybindingsConfigError extends Schema.TaggedErrorClass<KeybindingsConfigError>()(
   "KeybindingsConfigParseError",
@@ -418,16 +417,7 @@ function encodeWhenAst(node: KeybindingWhenNode): string {
 const DEFAULT_RESOLVED_KEYBINDINGS = compileResolvedKeybindingsConfig(DEFAULT_KEYBINDINGS);
 
 const RawKeybindingsEntries = fromLenientJson(Schema.Array(Schema.Unknown));
-const KeybindingsConfigJson = Schema.fromJsonString(KeybindingsConfig);
-const PrettyJsonString = SchemaGetter.parseJson<string>().compose(
-  SchemaGetter.stringifyJson({ space: 2 }),
-);
-const KeybindingsConfigPrettyJson = KeybindingsConfigJson.pipe(
-  Schema.encode({
-    decode: PrettyJsonString,
-    encode: PrettyJsonString,
-  }),
-);
+const encodeKeybindingsConfigPrettyJson = encodePrettyJsonEffect(KeybindingsConfig);
 
 export interface KeybindingsConfigState {
   readonly keybindings: ResolvedKeybindingsConfig;
@@ -676,7 +666,7 @@ const makeKeybindings = Effect.gen(function* () {
   const writeConfigAtomically = (rules: readonly KeybindingRule[]) => {
     const tempPath = `${keybindingsConfigPath}.${process.pid}.${Date.now()}.tmp`;
 
-    return Schema.encodeEffect(KeybindingsConfigPrettyJson)(rules).pipe(
+    return encodeKeybindingsConfigPrettyJson(rules).pipe(
       Effect.map((encoded) => `${encoded}\n`),
       Effect.tap(() => fs.makeDirectory(path.dirname(keybindingsConfigPath), { recursive: true })),
       Effect.tap((encoded) => fs.writeFileString(tempPath, encoded)),

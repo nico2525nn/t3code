@@ -122,6 +122,14 @@ try {
     tempRoot,
     "apps/marketing/public/schemas/server-settings/9.9.9-smoke.0.schema.json",
   );
+  const latestKeybindingsSchemaPath = resolve(
+    tempRoot,
+    "apps/marketing/public/schemas/keybindings.schema.json",
+  );
+  const versionedKeybindingsSchemaPath = resolve(
+    tempRoot,
+    "apps/marketing/public/schemas/keybindings/9.9.9-smoke.0.schema.json",
+  );
   if (!existsSync(latestSchemaPath)) {
     throw new Error(
       "Expected release version alignment to generate the latest server settings schema.",
@@ -132,11 +140,27 @@ try {
       "Expected release version alignment to generate the versioned server settings schema.",
     );
   }
+  if (!existsSync(latestKeybindingsSchemaPath)) {
+    throw new Error(
+      "Expected release version alignment to generate the latest keybindings schema.",
+    );
+  }
+  if (!existsSync(versionedKeybindingsSchemaPath)) {
+    throw new Error(
+      "Expected release version alignment to generate the versioned keybindings schema.",
+    );
+  }
   const versionedSchema = readFileSync(versionedSchemaPath, "utf8");
   assertContains(
     versionedSchema,
     '"title": "T3 Code Server Settings"',
     "Expected versioned server settings schema to contain schema metadata.",
+  );
+  const versionedKeybindingsSchema = readFileSync(versionedKeybindingsSchemaPath, "utf8");
+  assertContains(
+    versionedKeybindingsSchema,
+    '"title": "T3 Code Keybindings"',
+    "Expected versioned keybindings schema to contain schema metadata.",
   );
 
   const { arm64Path, x64Path } = writeMacManifestFixtures(tempRoot);
