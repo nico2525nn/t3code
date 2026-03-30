@@ -282,6 +282,7 @@ describe("CheckpointReactor", () => {
         projectId: asProjectId("project-1"),
         title: "Test Project",
         workspaceRoot: options?.projectWorkspaceRoot ?? cwd,
+        pinned: false,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -296,6 +297,7 @@ describe("CheckpointReactor", () => {
         threadId: ThreadId.makeUnsafe("thread-1"),
         projectId: asProjectId("project-1"),
         title: "Thread",
+        pinned: false,
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",

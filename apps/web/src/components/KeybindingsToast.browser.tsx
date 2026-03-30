@@ -76,6 +76,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         id: PROJECT_ID,
         title: "Project",
         workspaceRoot: "/repo/project",
+        pinned: false,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -91,6 +92,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         id: THREAD_ID,
         projectId: PROJECT_ID,
         title: "Test thread",
+        pinned: false,
         modelSelection: {
           provider: "codex",
           model: "gpt-5",

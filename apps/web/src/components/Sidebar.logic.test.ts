@@ -586,14 +586,13 @@ describe("getVisibleThreadsForProject", () => {
   });
 });
 
-function makeProject(
-  overrides: Partial<Project> & { pinned?: boolean } = {},
-): Project & { pinned?: boolean } {
+function makeProject(overrides: Partial<Project> = {}): Project {
   const { defaultModelSelection, ...rest } = overrides;
   return {
     id: ProjectId.makeUnsafe("project-1"),
     name: "Project",
     cwd: "/tmp/project",
+    pinned: false,
     defaultModelSelection: {
       provider: "codex",
       model: "gpt-5.4",
@@ -612,6 +611,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     codexThreadId: null,
     projectId: ProjectId.makeUnsafe("project-1"),
     title: "Thread",
+    pinned: false,
     modelSelection: {
       provider: "codex",
       model: "gpt-5.4",

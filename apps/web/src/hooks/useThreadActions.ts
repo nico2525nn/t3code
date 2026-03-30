@@ -11,7 +11,6 @@ import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
-import { useUiStateStore } from "../uiStateStore";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { toastManager } from "../components/ui/toast";
 import { useSettings } from "./useSettings";
@@ -113,11 +112,8 @@ export function useThreadActions() {
 
       const deletedThreadIds = opts.deletedThreadIds ?? new Set<ThreadId>();
       const shouldNavigateToFallback = routeThreadId === threadId;
-      const threadPinnedById = useUiStateStore.getState().threadPinnedById;
       const fallbackThreadId = getFallbackThreadIdAfterDelete({
-        threads: threads.map((entry) =>
-          Object.assign({}, entry, { pinned: threadPinnedById[entry.id] ?? false }),
-        ),
+        threads,
         deletedThreadId: threadId,
         deletedThreadIds,
         sortOrder: appSettings.sidebarThreadSortOrder,

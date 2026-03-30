@@ -1,6 +1,6 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer, Schema, Struct } from "effect";
+import { Effect, Layer, Schema, SchemaTransformation, Struct } from "effect";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -15,6 +15,15 @@ import { ModelSelection } from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
+    pinned: Schema.Number.pipe(
+      Schema.decodeTo(
+        Schema.Boolean,
+        SchemaTransformation.transformOrFail({
+          decode: (value) => Effect.succeed(value !== 0),
+          encode: (value) => Effect.succeed(value ? 1 : 0),
+        }),
+      ),
+    ),
     modelSelection: Schema.fromJsonString(ModelSelection),
   }),
 );
@@ -31,6 +40,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           thread_id,
           project_id,
           title,
+          pinned,
           model_selection_json,
           runtime_mode,
           interaction_mode,
@@ -46,6 +56,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.threadId},
           ${row.projectId},
           ${row.title},
+          ${row.pinned ? 1 : 0},
           ${JSON.stringify(row.modelSelection)},
           ${row.runtimeMode},
           ${row.interactionMode},
@@ -61,6 +72,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         DO UPDATE SET
           project_id = excluded.project_id,
           title = excluded.title,
+          pinned = excluded.pinned,
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,
           interaction_mode = excluded.interaction_mode,
@@ -83,6 +95,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           title,
+          pinned,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
@@ -107,6 +120,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           title,
+          pinned,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",

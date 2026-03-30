@@ -1221,6 +1221,7 @@ describe("WebSocket Server", () => {
       projectId: "project-diff",
       title: "Diff Project",
       workspaceRoot,
+      pinned: false,
       defaultModelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
@@ -1234,6 +1235,7 @@ describe("WebSocket Server", () => {
       threadId: "thread-diff",
       projectId: "project-diff",
       title: "Diff Thread",
+      pinned: false,
       modelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
@@ -1306,6 +1308,7 @@ describe("WebSocket Server", () => {
       projectId: "project-1",
       title: "WS Project",
       workspaceRoot,
+      pinned: false,
       defaultModelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
@@ -1319,6 +1322,7 @@ describe("WebSocket Server", () => {
       threadId: "thread-1",
       projectId: "project-1",
       title: "Thread 1",
+      pinned: false,
       modelSelection: {
         provider: "codex",
         model: "gpt-5-codex",

@@ -153,6 +153,7 @@ type SidebarThreadSnapshot = Pick<
   | "id"
   | "interactionMode"
   | "latestTurn"
+  | "pinned"
   | "projectId"
   | "proposedPlans"
   | "session"
@@ -162,13 +163,9 @@ type SidebarThreadSnapshot = Pick<
 > & {
   lastVisitedAt?: string | undefined;
   latestUserMessageAt: string | null;
-  pinned: boolean;
 };
 
-type SidebarProjectSnapshot = Project & {
-  expanded: boolean;
-  pinned: boolean;
-};
+type SidebarProjectSnapshot = Project & { expanded: boolean };
 
 const sidebarThreadSnapshotCache = new WeakMap<
   Thread,
@@ -193,10 +190,9 @@ function getLatestUserMessageAt(thread: Thread): string | null {
 function toSidebarThreadSnapshot(
   thread: Thread,
   lastVisitedAt: string | undefined,
-  pinned: boolean,
 ): SidebarThreadSnapshot {
   const cached = sidebarThreadSnapshotCache.get(thread);
-  if (cached && cached.lastVisitedAt === lastVisitedAt && cached.snapshot.pinned === pinned) {
+  if (cached && cached.lastVisitedAt === lastVisitedAt) {
     return cached.snapshot;
   }
 
@@ -210,13 +206,13 @@ function toSidebarThreadSnapshot(
     updatedAt: thread.updatedAt,
     archivedAt: thread.archivedAt,
     latestTurn: thread.latestTurn,
+    pinned: thread.pinned,
     lastVisitedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
     activities: thread.activities,
     proposedPlans: thread.proposedPlans,
     latestUserMessageAt: getLatestUserMessageAt(thread),
-    pinned,
   };
   sidebarThreadSnapshotCache.set(thread, { lastVisitedAt, snapshot });
   return snapshot;
@@ -445,25 +441,15 @@ function SortableProjectItem({
 export default function Sidebar() {
   const projects = useStore((store) => store.projects);
   const serverThreads = useStore((store) => store.threads);
-  const {
-    projectExpandedById,
-    projectOrder,
-    projectPinnedById,
-    threadLastVisitedAtById,
-    threadPinnedById,
-  } = useUiStateStore(
+  const { projectExpandedById, projectOrder, threadLastVisitedAtById } = useUiStateStore(
     useShallow((store) => ({
       projectExpandedById: store.projectExpandedById,
       projectOrder: store.projectOrder,
-      projectPinnedById: store.projectPinnedById,
       threadLastVisitedAtById: store.threadLastVisitedAtById,
-      threadPinnedById: store.threadPinnedById,
     })),
   );
   const markThreadUnread = useUiStateStore((store) => store.markThreadUnread);
-  const toggleThreadPinned = useUiStateStore((store) => store.toggleThreadPinned);
   const toggleProject = useUiStateStore((store) => store.toggleProject);
-  const toggleProjectPinned = useUiStateStore((store) => store.toggleProjectPinned);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
   const getDraftThreadByProjectId = useComposerDraftStore(
@@ -530,20 +516,15 @@ export default function Sidebar() {
       orderedProjects.map((project) => ({
         ...project,
         expanded: projectExpandedById[project.id] ?? true,
-        pinned: projectPinnedById[project.id] ?? false,
       })),
-    [orderedProjects, projectExpandedById, projectPinnedById],
+    [orderedProjects, projectExpandedById],
   );
   const threads = useMemo(
     () =>
       serverThreads.map((thread) =>
-        toSidebarThreadSnapshot(
-          thread,
-          threadLastVisitedAtById[thread.id],
-          threadPinnedById[thread.id] ?? false,
-        ),
+        toSidebarThreadSnapshot(thread, threadLastVisitedAtById[thread.id]),
       ),
-    [serverThreads, threadLastVisitedAtById, threadPinnedById],
+    [serverThreads, threadLastVisitedAtById],
   );
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
@@ -695,6 +676,7 @@ export default function Sidebar() {
           projectId,
           title,
           workspaceRoot: cwd,
+          pinned: false,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
@@ -852,6 +834,42 @@ export default function Sidebar() {
       });
     },
   });
+  const setThreadPinned = useCallback(async (thread: SidebarThreadSnapshot, pinned: boolean) => {
+    const api = readNativeApi();
+    if (!api) return;
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.meta.update",
+        commandId: newCommandId(),
+        threadId: thread.id,
+        pinned,
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: `${pinned ? "Pin" : "Unpin"} thread failed`,
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    }
+  }, []);
+  const setProjectPinned = useCallback(async (project: Project, pinned: boolean) => {
+    const api = readNativeApi();
+    if (!api) return;
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "project.meta.update",
+        commandId: newCommandId(),
+        projectId: project.id,
+        pinned,
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: `${pinned ? "Pin" : "Unpin"} project failed`,
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    }
+  }, []);
   const handleThreadContextMenu = useCallback(
     async (threadId: ThreadId, position: { x: number; y: number }) => {
       const api = readNativeApi();
@@ -862,7 +880,7 @@ export default function Sidebar() {
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
       const clicked = await api.contextMenu.show(
         [
-          { id: "toggle-pin", label: threadPinnedById[threadId] ? "Unpin thread" : "Pin thread" },
+          { id: "toggle-pin", label: thread.pinned ? "Unpin thread" : "Pin thread" },
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
@@ -873,7 +891,7 @@ export default function Sidebar() {
       );
 
       if (clicked === "toggle-pin") {
-        toggleThreadPinned(threadId);
+        await setThreadPinned(thread, !thread.pinned);
         return;
       }
 
@@ -925,9 +943,8 @@ export default function Sidebar() {
       deleteThread,
       markThreadUnread,
       projectCwdById,
-      threadPinnedById,
       threads,
-      toggleThreadPinned,
+      setThreadPinned,
     ],
   );
 
@@ -1048,7 +1065,7 @@ export default function Sidebar() {
         [
           {
             id: "toggle-pin",
-            label: projectPinnedById[projectId] ? "Unpin project" : "Pin project",
+            label: project.pinned ? "Unpin project" : "Pin project",
           },
           { id: "copy-path", label: "Copy Project Path" },
           { id: "delete", label: "Remove project", destructive: true },
@@ -1056,7 +1073,7 @@ export default function Sidebar() {
         position,
       );
       if (clicked === "toggle-pin") {
-        toggleProjectPinned(projectId);
+        await setProjectPinned(project, !project.pinned);
         return;
       }
       if (clicked === "copy-path") {
@@ -1104,10 +1121,9 @@ export default function Sidebar() {
       clearProjectDraftThreadId,
       copyPathToClipboard,
       getDraftThreadByProjectId,
-      projectPinnedById,
       projects,
+      setProjectPinned,
       threads,
-      toggleProjectPinned,
     ],
   );
 
@@ -1426,6 +1442,11 @@ export default function Sidebar() {
         : !isThreadRunning
           ? "pointer-events-none transition-opacity duration-150 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0"
           : "pointer-events-none";
+      const hoverActionClassName =
+        "inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring";
+      const hoverActionGroupClassName =
+        "pointer-events-none absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100";
+      const pinActionLabel = thread.pinned ? "Unpin" : "Pin";
 
       return (
         <SidebarMenuSubItem
@@ -1583,58 +1604,69 @@ export default function Sidebar() {
                   >
                     Confirm
                   </button>
-                ) : !isThreadRunning ? (
-                  appSettings.confirmThreadArchive ? (
-                    <div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
-                      <button
-                        type="button"
-                        data-thread-selection-safe
-                        data-testid={`thread-archive-${thread.id}`}
-                        aria-label={`Archive ${thread.title}`}
-                        className="inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setConfirmingArchiveThreadId(thread.id);
-                          requestAnimationFrame(() => {
-                            confirmArchiveButtonRefs.current.get(thread.id)?.focus();
-                          });
-                        }}
-                      >
-                        <ArchiveIcon className="size-3.5" />
-                      </button>
-                    </div>
-                  ) : (
+                ) : null}
+                {!isConfirmingArchive ? (
+                  <div className={hoverActionGroupClassName}>
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
+                          <button
+                            type="button"
+                            data-thread-selection-safe
+                            data-testid={`thread-pin-${thread.id}`}
+                            aria-label={`${pinActionLabel} ${thread.title}`}
+                            className={hoverActionClassName}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void setThreadPinned(thread, !thread.pinned);
+                            }}
+                          >
+                            <PinIcon className="size-3.5" />
+                          </button>
+                        }
+                      />
+                      <TooltipPopup side="top">{pinActionLabel}</TooltipPopup>
+                    </Tooltip>
+                    {!isThreadRunning ? (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
                             <button
                               type="button"
                               data-thread-selection-safe
                               data-testid={`thread-archive-${thread.id}`}
                               aria-label={`Archive ${thread.title}`}
-                              className="inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                              className={hoverActionClassName}
                               onPointerDown={(event) => {
+                                event.preventDefault();
                                 event.stopPropagation();
                               }}
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
+                                if (appSettings.confirmThreadArchive) {
+                                  setConfirmingArchiveThreadId(thread.id);
+                                  requestAnimationFrame(() => {
+                                    confirmArchiveButtonRefs.current.get(thread.id)?.focus();
+                                  });
+                                  return;
+                                }
                                 void attemptArchiveThread(thread.id);
                               }}
                             >
                               <ArchiveIcon className="size-3.5" />
                             </button>
-                          </div>
-                        }
-                      />
-                      <TooltipPopup side="top">Archive</TooltipPopup>
-                    </Tooltip>
-                  )
+                          }
+                        />
+                        <TooltipPopup side="top">Archive</TooltipPopup>
+                      </Tooltip>
+                    ) : null}
+                  </div>
                 ) : null}
                 <span className={threadMetaClassName}>
                   {showThreadJumpHints && jumpLabel ? (
@@ -1738,6 +1770,10 @@ export default function Sidebar() {
                   }
                   showOnHover
                   className="top-1 right-1.5 size-5 rounded-md p-0 text-muted-foreground/70 hover:bg-secondary hover:text-foreground"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();

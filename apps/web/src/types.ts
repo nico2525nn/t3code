@@ -82,6 +82,7 @@ export interface Project {
   id: ProjectId;
   name: string;
   cwd: string;
+  pinned: boolean;
   defaultModelSelection: ModelSelection | null;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
@@ -93,6 +94,7 @@ export interface Thread {
   codexThreadId: string | null;
   projectId: ProjectId;
   title: string;
+  pinned: boolean;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;

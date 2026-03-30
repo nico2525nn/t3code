@@ -675,6 +675,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           projectId: bootstrapProjectId,
           title: bootstrapProjectTitle,
           workspaceRoot: cwd,
+          pinned: false,
           defaultModelSelection: bootstrapProjectDefaultModelSelection,
           createdAt,
         });
@@ -698,6 +699,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           threadId,
           projectId: bootstrapProjectId,
           title: "New thread",
+          pinned: false,
           modelSelection: bootstrapProjectDefaultModelSelection,
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "full-access",
