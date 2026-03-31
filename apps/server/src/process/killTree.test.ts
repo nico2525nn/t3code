@@ -5,7 +5,7 @@ import { killChildProcessTree } from "./killTree";
 describe("killChildProcessTree", () => {
   it("uses taskkill on Windows when a pid is available", () => {
     const kill = vi.fn();
-    const spawnSyncImpl = vi.fn();
+    const spawnSyncImpl = vi.fn(() => ({ status: 0 }));
 
     killChildProcessTree({ pid: 123, kill } as never, "SIGTERM", {
       platform: "win32",
@@ -20,9 +20,7 @@ describe("killChildProcessTree", () => {
 
   it("falls back to direct kill when taskkill fails", () => {
     const kill = vi.fn();
-    const spawnSyncImpl = vi.fn(() => {
-      throw new Error("taskkill unavailable");
-    });
+    const spawnSyncImpl = vi.fn(() => ({ status: 1 }));
 
     killChildProcessTree({ pid: 456, kill } as never, "SIGKILL", {
       platform: "win32",
@@ -30,6 +28,18 @@ describe("killChildProcessTree", () => {
     });
 
     expect(kill).toHaveBeenCalledWith("SIGKILL");
+  });
+
+  it("falls back to direct kill when taskkill cannot be spawned", () => {
+    const kill = vi.fn();
+    const spawnSyncImpl = vi.fn(() => ({ status: null, error: new Error("ENOENT") }));
+
+    killChildProcessTree({ pid: 654, kill } as never, "SIGTERM", {
+      platform: "win32",
+      spawnSyncImpl,
+    });
+
+    expect(kill).toHaveBeenCalledWith("SIGTERM");
   });
 
   it("kills directly on non-Windows platforms", () => {

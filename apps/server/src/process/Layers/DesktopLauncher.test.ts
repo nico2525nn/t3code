@@ -620,6 +620,74 @@ it.effect("openBrowser falls back from WSL PowerShell to xdg-open", () =>
   }).pipe(Effect.provide(NodeFileSystem.layer)),
 );
 
+it.effect("openBrowser skips WSL PowerShell when process env marks a container", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-browser-wsl-container-" });
+    yield* fs.makeDirectory(`${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0`, {
+      recursive: true,
+    });
+    yield* writeExecutable(`${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`);
+    yield* writeExecutable(`${dir}/xdg-open`);
+
+    const calls: Array<SpawnCall> = [];
+    const originalValues = new Map<string, string | undefined>();
+    const setEnv = (key: string, value: string | undefined) => {
+      if (!originalValues.has(key)) {
+        originalValues.set(key, process.env[key]);
+      }
+
+      if (value === undefined) {
+        delete process.env[key];
+        return;
+      }
+
+      process.env[key] = value;
+    };
+    const restoreEnv = () => {
+      for (const [key, value] of originalValues) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    };
+
+    try {
+      setEnv("PATH", `${dir}:${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0`);
+      setEnv("WSL_DISTRO_NAME", "Ubuntu");
+      setEnv("CONTAINER", "docker");
+
+      const open = yield* runOpen(
+        {
+          platform: "linux",
+          isWsl: true,
+          powerShellCommand: `${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`,
+        },
+        spawnHarness(calls),
+        readOpen,
+      );
+
+      yield* open.openBrowser("https://example.com");
+    } finally {
+      restoreEnv();
+    }
+
+    assert.deepEqual(calls, [
+      {
+        command: `${dir}/xdg-open`,
+        args: ["https://example.com"],
+        detached: true,
+        shell: false,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    ]);
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
 it.effect("openInEditor uses xdg-open first for WSL file-manager paths", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

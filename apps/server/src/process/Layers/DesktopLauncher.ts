@@ -524,29 +524,30 @@ export const make = Effect.fn("makeDesktopLauncher")(function* (
   const fileSystem = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const runtimeEnv = options.env ?? process.env;
+  const runtimePlatform = options.platform ?? process.platform;
+  const isWsl = options.isWsl ?? detectWsl(runtimePlatform, runtimeEnv);
 
   const isInsideContainer =
     options.isInsideContainer ??
-    (typeof options.env?.CONTAINER === "string" ||
-    typeof options.env?.container === "string" ||
-    typeof options.env?.KUBERNETES_SERVICE_HOST === "string"
+    (typeof runtimeEnv.CONTAINER === "string" ||
+    typeof runtimeEnv.container === "string" ||
+    typeof runtimeEnv.KUBERNETES_SERVICE_HOST === "string"
       ? true
       : yield* fileSystem.exists("/.dockerenv").pipe(Effect.catch(() => Effect.succeed(false))));
 
   const runtime: LaunchRuntime = {
-    platform: options.platform ?? process.platform,
-    env: options.env ?? process.env,
-    isWsl:
-      options.isWsl ?? detectWsl(options.platform ?? process.platform, options.env ?? process.env),
+    platform: runtimePlatform,
+    env: runtimeEnv,
+    isWsl,
     isInsideContainer,
     powerShellCandidates:
       options.powerShellCommand !== undefined
         ? [options.powerShellCommand]
-        : (options.isWsl ??
-            detectWsl(options.platform ?? process.platform, options.env ?? process.env))
+        : isWsl
           ? WSL_POWERSHELL_CANDIDATES
           : WINDOWS_POWERSHELL_CANDIDATES,
-    windowsPathExtensions: resolveWindowsPathExtensions(options.env ?? process.env),
+    windowsPathExtensions: resolveWindowsPathExtensions(runtimeEnv),
   };
 
   const resolveCommand = Effect.fn("resolveCommand")(function* (

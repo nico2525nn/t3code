@@ -1,10 +1,19 @@
 import { spawnSync, type ChildProcess as NodeChildProcess } from "node:child_process";
 
 type KillableChildProcess = Pick<NodeChildProcess, "kill" | "pid">;
+type TaskkillResult = {
+  readonly status: number | null;
+  readonly error?: Error;
+};
+type TaskkillRunner = (
+  command: string,
+  args: ReadonlyArray<string>,
+  options: { readonly stdio: "ignore" },
+) => TaskkillResult;
 
 interface KillChildProcessTreeOptions {
   readonly platform?: NodeJS.Platform;
-  readonly spawnSyncImpl?: typeof spawnSync;
+  readonly spawnSyncImpl?: TaskkillRunner;
 }
 
 /**
@@ -19,10 +28,16 @@ export function killChildProcessTree(
   const platform = options.platform ?? process.platform;
   if (platform === "win32" && child.pid !== undefined) {
     try {
-      (options.spawnSyncImpl ?? spawnSync)("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-        stdio: "ignore",
-      });
-      return;
+      const result = (options.spawnSyncImpl ?? spawnSync)(
+        "taskkill",
+        ["/pid", String(child.pid), "/T", "/F"],
+        {
+          stdio: "ignore",
+        },
+      );
+      if (!result.error && result.status === 0) {
+        return;
+      }
     } catch {
       // Fall through to direct kill when taskkill is unavailable.
     }
