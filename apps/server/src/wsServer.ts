@@ -214,8 +214,8 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     logWebSocketEvents,
     autoBootstrapProjectFromCwd,
   } = serverConfig;
-  const open = yield* DesktopLauncher;
-  const availableEditors = yield* open.getAvailableEditors.pipe(
+  const desktopLauncher = yield* DesktopLauncher;
+  const availableEditors = yield* desktopLauncher.getAvailableEditors.pipe(
     Effect.mapError((cause) => new ServerLifecycleError({ operation: "availableEditors", cause })),
   );
 
@@ -747,7 +747,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.shellOpenInEditor: {
         const body = stripRequestTag(request.body);
-        return yield* open.openInEditor(body);
+        return yield* desktopLauncher.openInEditor(body);
       }
 
       case WS_METHODS.gitStatus: {
