@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { readCodexAccountSnapshot, type CodexAccountSnapshot } from "./codexAccount";
 import { killChildProcessTree } from "../process/killTree";
@@ -28,10 +28,6 @@ export function buildCodexInitializeParams() {
   } as const;
 }
 
-export function killCodexChildProcess(child: ChildProcessWithoutNullStreams): void {
-  killChildProcessTree(child);
-}
-
 export async function probeCodexAccount(input: {
   readonly binaryPath: string;
   readonly homePath?: string;
@@ -55,7 +51,7 @@ export async function probeCodexAccount(input: {
       output.close();
       child.removeAllListeners();
       if (!child.killed) {
-        killCodexChildProcess(child);
+        killChildProcessTree(child);
       }
     };
 

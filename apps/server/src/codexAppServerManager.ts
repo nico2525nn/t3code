@@ -31,7 +31,8 @@ import {
   resolveCodexModelForAccount,
   type CodexAccountSnapshot,
 } from "./provider/codexAccount";
-import { buildCodexInitializeParams, killCodexChildProcess } from "./provider/codexAppServer";
+import { buildCodexInitializeParams } from "./provider/codexAppServer";
+import { killChildProcessTree } from "./process/killTree";
 
 export { buildCodexInitializeParams } from "./provider/codexAppServer";
 export { readCodexAccountSnapshot, resolveCodexModelForAccount } from "./provider/codexAccount";
@@ -304,15 +305,6 @@ function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
     approvalPolicy: "never",
     sandbox: "danger-full-access",
   };
-}
-
-/**
- * On Windows with `shell: true`, `child.kill()` only terminates the `cmd.exe`
- * wrapper, leaving the actual command running. Use `taskkill /T` to kill the
- * entire process tree instead.
- */
-function killChildTree(child: ChildProcessWithoutNullStreams): void {
-  killCodexChildProcess(child);
 }
 
 export function normalizeCodexModelSlug(
@@ -908,7 +900,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context.output.close();
 
     if (!context.child.killed) {
-      killChildTree(context.child);
+      killChildProcessTree(context.child);
     }
 
     this.updateSession(context, {
