@@ -547,6 +547,39 @@ it.effect("openBrowser detaches direct app launches on win32 when not waiting", 
   }).pipe(Effect.provide(NodeFileSystem.layer)),
 );
 
+it.effect("openBrowser preserves non-zero exit errors for waited direct app launches", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-browser-linux-app-wait-" });
+    yield* writeExecutable(`${dir}/firefox`);
+
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "linux",
+        env: { PATH: dir },
+      },
+      spawnHarness(calls, () => ({ code: 23 })),
+      readOpen,
+    );
+
+    const error = yield* open
+      .openBrowser("https://example.com", {
+        wait: true,
+        app: { name: "firefox" },
+      })
+      .pipe(Effect.flip);
+
+    assert.equal(error._tag, "DesktopLauncherNonZeroExitError");
+    if (error._tag !== "DesktopLauncherNonZeroExitError") {
+      throw new Error(`Unexpected error tag: ${error._tag}`);
+    }
+    assert.equal(error.exitCode, 23);
+    assert.equal(error.command, `${dir}/firefox`);
+    assert.deepEqual(error.args, ["https://example.com"]);
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
 it.effect("openBrowser falls back from WSL PowerShell to xdg-open", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

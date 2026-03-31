@@ -703,15 +703,15 @@ export const make = Effect.fn("makeDesktopLauncher")(function* (
     handle: ChildProcessSpawner.ChildProcessHandle,
   ) =>
     handle.exitCode.pipe(
+      Effect.mapError((cause) =>
+        makeSpawnError(context, spawnInput.command, spawnInput.args, cause),
+      ),
       Effect.flatMap((exitCode) =>
         !plan.allowNonzeroExitCode && exitCode !== 0
           ? Effect.fail(
               makeNonZeroExitError(context, spawnInput.command, spawnInput.args, exitCode),
             )
           : Effect.void,
-      ),
-      Effect.mapError((cause) =>
-        makeSpawnError(context, spawnInput.command, spawnInput.args, cause),
       ),
     );
 
