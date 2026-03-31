@@ -8,25 +8,25 @@
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.mts",
   "exports": {
     "./settings": {
-      "types": "./src/settings.ts",
-      "import": "./src/settings.ts",
-      "require": "./src/settings.ts"
+      "types": "./dist/settings.d.mts",
+      "import": "./dist/settings.mjs",
+      "require": "./dist/settings.cjs"
     },
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     }
   },
   "scripts": {
-    "dev": "tsdown src/index.ts --format esm,cjs --dts --watch --clean",
-    "build": "tsdown src/index.ts --format esm,cjs --dts --clean",
+    "dev": "vp pack --watch",
+    "build": "vp pack",
     "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vp test run"
   },
   "dependencies": {
     "effect": "catalog:"
@@ -34,8 +34,7 @@
   "devDependencies": {
     "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
-    "tsdown": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vite-plus": "catalog:"
   }
 }

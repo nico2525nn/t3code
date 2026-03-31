@@ -1345,7 +1345,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     if (options?.manager) {
       return options.manager;
     }
-    const services = yield* Effect.services<never>();
+    const services = yield* Effect.services();
     return options?.makeManager?.(services) ?? new CodexAppServerManager(services);
   });
 
@@ -1564,7 +1564,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   });
 
   const registerListener = Effect.fn("registerListener")(function* () {
-    const services = yield* Effect.services<never>();
+    const services = yield* Effect.services();
     const listenerEffect = Effect.fn("listener")(function* (event: ProviderEvent) {
       yield* writeNativeEvent(event);
       const runtimeEvents = mapToRuntimeEvents(event, event.threadId);

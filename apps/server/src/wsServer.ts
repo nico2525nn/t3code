@@ -98,7 +98,7 @@ export interface ServerShape {
   /**
    * Wait for process shutdown signals.
    */
-  readonly stopSignal: Effect.Effect<void, never>;
+  readonly stopSignal: Effect.Effect<void>;
 }
 
 /**

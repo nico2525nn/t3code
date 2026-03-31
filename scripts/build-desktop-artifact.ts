@@ -9,7 +9,7 @@ import desktopPackageJson from "../apps/desktop/package.json" with { type: "json
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
-import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
+import { getWorkspaceCatalog, resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -39,6 +39,7 @@ const ProductionWindowsIconSource = Effect.zipWith(
   (repoRoot, path) => path.join(repoRoot, BRAND_ASSET_PATHS.productionWindowsIconIco),
 );
 const encodeJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
+const workspaceCatalog = getWorkspaceCatalog(rootPackageJson);
 
 interface PlatformConfig {
   readonly cliFlag: "--mac" | "--linux" | "--win";
@@ -565,12 +566,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   }
 
   const resolvedServerDependencies = yield* Effect.try({
-    try: () =>
-      resolveCatalogDependencies(
-        serverDependencies,
-        rootPackageJson.workspaces.catalog,
-        "apps/server",
-      ),
+    try: () => resolveCatalogDependencies(serverDependencies, workspaceCatalog, "apps/server"),
     catch: (cause) =>
       new BuildScriptError({
         message: "Could not resolve production dependencies from apps/server/package.json.",
@@ -578,11 +574,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       }),
   });
   const resolvedDesktopRuntimeDependencies = yield* Effect.try({
-    try: () =>
-      resolveDesktopRuntimeDependencies(
-        desktopPackageJson.dependencies,
-        rootPackageJson.workspaces.catalog,
-      ),
+    try: () => resolveDesktopRuntimeDependencies(desktopPackageJson.dependencies, workspaceCatalog),
     catch: (cause) =>
       new BuildScriptError({
         message: "Could not resolve desktop runtime dependencies from apps/desktop/package.json.",

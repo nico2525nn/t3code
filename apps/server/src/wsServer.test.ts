@@ -15,7 +15,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { describe, expect, it, afterEach, vi } from "vitest";
+import { describe, expect, it, afterEach, vi } from "vite-plus/test";
 import { createServer } from "./wsServer";
 import WebSocket from "ws";
 import { deriveServerPaths, ServerConfig, type ServerConfigShape } from "./config";
@@ -281,7 +281,7 @@ function dequeue<T>(channel: MessageChannel<T>, timeoutMs: number): Promise<T> {
         const index = channel.waiters.indexOf(waiter);
         if (index >= 0) channel.waiters.splice(index, 1);
         reject(new Error(`Timed out waiting for WebSocket message after ${timeoutMs}ms`));
-      }, timeoutMs) as ReturnType<typeof setTimeout>,
+      }, timeoutMs),
     };
     channel.waiters.push(waiter);
   });
@@ -508,7 +508,7 @@ describe("WebSocket Server", () => {
       authToken?: string;
       baseDir?: string;
       staticDir?: string;
-      providerLayer?: Layer.Layer<ProviderService, never>;
+      providerLayer?: Layer.Layer<ProviderService>;
       providerRegistry?: ProviderRegistryShape;
       open?: OpenShape;
       gitManager?: GitManagerShape;
@@ -1505,7 +1505,7 @@ describe("WebSocket Server", () => {
     const push = await waitForPush(
       ws,
       WS_CHANNELS.terminalEvent,
-      (candidate) => (candidate.data as TerminalEvent).type === "output",
+      (candidate) => candidate.data.type === "output",
     );
     expect(push.type).toBe("push");
     expect(push.channel).toBe(WS_CHANNELS.terminalEvent);

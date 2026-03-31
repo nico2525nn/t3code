@@ -1812,9 +1812,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
   const toggleRuntimeMode = useCallback(() => {
-    void handleRuntimeModeChange(
-      runtimeMode === "full-access" ? "approval-required" : "full-access",
-    );
+    handleRuntimeModeChange(runtimeMode === "full-access" ? "approval-required" : "full-access");
   }, [handleRuntimeModeChange, runtimeMode]);
   const togglePlanSidebar = useCallback(() => {
     setPlanSidebarOpen((open) => {
@@ -3488,7 +3486,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           }
           return;
         }
-        void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
+        handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
         const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
         });
@@ -4063,7 +4061,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               size="sm"
                               type="button"
                               onClick={() =>
-                                void handleRuntimeModeChange(
+                                handleRuntimeModeChange(
                                   runtimeMode === "full-access"
                                     ? "approval-required"
                                     : "full-access",

@@ -2,53 +2,58 @@
   "name": "@t3tools/shared",
   "version": "0.0.0-alpha.1",
   "private": true,
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
     "./model": {
-      "types": "./src/model.ts",
-      "import": "./src/model.ts"
+      "types": "./dist/model.d.mts",
+      "import": "./dist/model.mjs"
     },
     "./git": {
-      "types": "./src/git.ts",
-      "import": "./src/git.ts"
+      "types": "./dist/git.d.mts",
+      "import": "./dist/git.mjs"
     },
     "./logging": {
-      "types": "./src/logging.ts",
-      "import": "./src/logging.ts"
+      "types": "./dist/logging.d.mts",
+      "import": "./dist/logging.mjs"
     },
     "./shell": {
-      "types": "./src/shell.ts",
-      "import": "./src/shell.ts"
+      "types": "./dist/shell.d.mts",
+      "import": "./dist/shell.mjs"
     },
     "./Net": {
-      "types": "./src/Net.ts",
-      "import": "./src/Net.ts"
+      "types": "./dist/Net.d.mts",
+      "import": "./dist/Net.mjs"
     },
     "./DrainableWorker": {
-      "types": "./src/DrainableWorker.ts",
-      "import": "./src/DrainableWorker.ts"
+      "types": "./dist/DrainableWorker.d.mts",
+      "import": "./dist/DrainableWorker.mjs"
     },
     "./KeyedCoalescingWorker": {
-      "types": "./src/KeyedCoalescingWorker.ts",
-      "import": "./src/KeyedCoalescingWorker.ts"
+      "types": "./dist/KeyedCoalescingWorker.d.mts",
+      "import": "./dist/KeyedCoalescingWorker.mjs"
     },
     "./schemaJson": {
-      "types": "./src/schemaJson.ts",
-      "import": "./src/schemaJson.ts"
+      "types": "./dist/schemaJson.d.mts",
+      "import": "./dist/schemaJson.mjs"
     },
     "./Struct": {
-      "types": "./src/Struct.ts",
-      "import": "./src/Struct.ts"
+      "types": "./dist/Struct.d.mts",
+      "import": "./dist/Struct.mjs"
     },
     "./String": {
-      "types": "./src/String.ts",
-      "import": "./src/String.ts"
+      "types": "./dist/String.d.mts",
+      "import": "./dist/String.mjs"
     }
   },
   "scripts": {
+    "dev": "vp pack --watch",
+    "build": "vp pack",
     "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vp test run"
   },
   "dependencies": {
     "@t3tools/contracts": "workspace:*",
@@ -59,6 +64,6 @@
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vite-plus": "catalog:"
   }
 }

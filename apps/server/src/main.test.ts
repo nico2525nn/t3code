@@ -8,7 +8,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Command from "effect/unstable/cli/Command";
 import { FetchHttpClient } from "effect/unstable/http";
-import { beforeEach } from "vitest";
+import { beforeEach } from "vite-plus/test";
 import { NetService } from "@t3tools/shared/Net";
 
 import { CliConfig, recordStartupHeartbeat, t3Cli, type CliConfigShape } from "./main";

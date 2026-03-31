@@ -4,6 +4,22 @@
  * Pure function: returns a new record with every `catalog:…` value replaced by
  * the concrete version string found in `catalog`. Throws on missing entries.
  */
+export function getWorkspaceCatalog(rootPackageJson: {
+  readonly catalog?: Record<string, unknown>;
+  readonly workspaces?:
+    | {
+        readonly catalog?: Record<string, unknown>;
+      }
+    | ReadonlyArray<string>;
+}): Record<string, unknown> {
+  const workspaceCatalog =
+    rootPackageJson.workspaces && !Array.isArray(rootPackageJson.workspaces)
+      ? (rootPackageJson.workspaces as { readonly catalog?: Record<string, unknown> }).catalog
+      : undefined;
+
+  return rootPackageJson.catalog ?? workspaceCatalog ?? {};
+}
+
 export function resolveCatalogDependencies(
   dependencies: Record<string, unknown>,
   catalog: Record<string, unknown>,

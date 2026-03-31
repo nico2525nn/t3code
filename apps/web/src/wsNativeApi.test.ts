@@ -15,7 +15,7 @@ import {
   type WsPush,
   type ServerProvider,
 } from "@t3tools/contracts";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const requestMock = vi.fn<(...args: Array<unknown>) => Promise<unknown>>();
 const showContextMenuFallbackMock =

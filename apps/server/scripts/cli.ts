@@ -10,7 +10,10 @@ import {
   DEVELOPMENT_ICON_OVERRIDES,
   PUBLISH_ICON_OVERRIDES,
 } from "../../../scripts/lib/brand-assets.ts";
-import { resolveCatalogDependencies } from "../../../scripts/lib/resolve-catalog.ts";
+import {
+  getWorkspaceCatalog,
+  resolveCatalogDependencies,
+} from "../../../scripts/lib/resolve-catalog.ts";
 import rootPackageJson from "../../../package.json" with { type: "json" };
 import serverPackageJson from "../package.json" with { type: "json" };
 
@@ -22,6 +25,7 @@ class CliError extends Data.TaggedError("CliError")<{
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("../../..", import.meta.url))),
 );
+const workspaceCatalog = getWorkspaceCatalog(rootPackageJson);
 
 const runCommand = Effect.fn("runCommand")(function* (command: ChildProcess.Command) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -129,7 +133,7 @@ const buildCmd = Command.make(
       const repoRoot = yield* RepoRoot;
       const serverDir = path.join(repoRoot, "apps/server");
 
-      yield* Effect.log("[cli] Running tsdown...");
+      yield* Effect.log("[cli] Running vp pack...");
       yield* runCommand(
         ChildProcess.make({
           cwd: serverDir,
@@ -137,7 +141,7 @@ const buildCmd = Command.make(
           stderr: "inherit",
           // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
           shell: process.platform === "win32",
-        })`bun tsdown`,
+        })`vp pack`,
       );
 
       const webDist = path.join(repoRoot, "apps/web/dist");
@@ -151,7 +155,7 @@ const buildCmd = Command.make(
         yield* Effect.logWarning("[cli] Web dist not found — skipping client bundle.");
       }
     }),
-).pipe(Command.withDescription("Build the server package (tsdown + bundle web client)."));
+).pipe(Command.withDescription("Build the server package (vp pack + bundle web client)."));
 
 // ---------------------------------------------------------------------------
 // publish subcommand
@@ -205,7 +209,7 @@ const publishCmd = Command.make(
 
           pkg.dependencies = resolveCatalogDependencies(
             pkg.dependencies,
-            rootPackageJson.workspaces.catalog,
+            workspaceCatalog,
             "apps/server dependencies",
           );
 

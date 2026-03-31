@@ -1,8 +1,10 @@
+import * as path from "node:path";
+
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
-import { defineConfig } from "vite";
+import { defineConfig } from "vite-plus";
 import pkg from "./package.json" with { type: "json" };
 
 const port = Number(process.env.PORT ?? 5733);
@@ -39,6 +41,24 @@ export default defineConfig({
   },
   resolve: {
     tsconfigPaths: true,
+    alias: [
+      {
+        find: /^~\/(.*)$/,
+        replacement: path.resolve(import.meta.dirname, "./src/$1"),
+      },
+      {
+        find: /^@t3tools\/contracts$/,
+        replacement: path.resolve(import.meta.dirname, "../../packages/contracts/src/index.ts"),
+      },
+      {
+        find: /^@t3tools\/contracts\/settings$/,
+        replacement: path.resolve(import.meta.dirname, "../../packages/contracts/src/settings.ts"),
+      },
+      {
+        find: /^@t3tools\/shared\/(.*)$/,
+        replacement: path.resolve(import.meta.dirname, "../../packages/shared/src/$1.ts"),
+      },
+    ],
   },
   server: {
     port,
