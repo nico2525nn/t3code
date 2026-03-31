@@ -52,9 +52,11 @@ export const CodexModelSelection = Schema.Struct({
     }),
   ),
   model: TrimmedNonEmptyString.pipe(
+    Schema.flip,
     Schema.annotate({
       description: "The Codex model slug to use for text generation.",
     }),
+    Schema.flip,
   ),
   options: Schema.optionalKey(CodexModelOptions).pipe(
     Schema.annotate({
@@ -73,9 +75,11 @@ export const ClaudeModelSelection = Schema.Struct({
     }),
   ),
   model: TrimmedNonEmptyString.pipe(
+    Schema.flip,
     Schema.annotate({
       description: "The Claude model slug to use for text generation.",
     }),
+    Schema.flip,
   ),
   options: Schema.optionalKey(ClaudeModelOptions).pipe(
     Schema.annotate({

@@ -12,7 +12,7 @@
       "anyOf": [
         {
           "type": "boolean",
-          "description": "Whether server-driven assistant responses should stream incrementally to clients when the active provider supports it."
+          "description": "Show token-by-token output while a response is in progress."
         },
         {
           "type": "null"
@@ -25,7 +25,7 @@
         {
           "type": "string",
           "enum": ["local", "worktree"],
-          "description": "Default execution environment to use when creating new threads."
+          "description": "Pick the default workspace mode for newly created draft threads."
         },
         {
           "type": "null"
@@ -154,7 +154,7 @@
               "description": "Text generation model selection for the Claude provider."
             }
           ],
-          "description": "Default provider and model to use for server-side text generation features."
+          "description": "Configure the model used for generated commit messages, PR titles, and similar Git text."
         },
         {
           "type": "null"
@@ -188,7 +188,7 @@
                       "anyOf": [
                         {
                           "type": "string",
-                          "description": "Path to the Codex executable. Leave blank to resolve the `codex` executable from PATH."
+                          "description": "Path to the Codex binary"
                         },
                         {
                           "type": "null"
@@ -200,7 +200,7 @@
                       "anyOf": [
                         {
                           "type": "string",
-                          "description": "Optional Codex home directory. Leave blank to use the default provider-managed location."
+                          "description": "Optional custom Codex home and config directory."
                         },
                         {
                           "type": "null"
@@ -254,7 +254,7 @@
                       "anyOf": [
                         {
                           "type": "string",
-                          "description": "Path to the Claude executable. Leave blank to resolve the `claude` executable from PATH."
+                          "description": "Path to the Claude binary"
                         },
                         {
                           "type": "null"

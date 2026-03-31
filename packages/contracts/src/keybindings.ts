@@ -69,9 +69,11 @@ const KeybindingWhen = TrimmedString.annotate({
 }).check(Schema.isMinLength(1), Schema.isMaxLength(MAX_KEYBINDING_WHEN_LENGTH));
 export const KeybindingRule = Schema.Struct({
   key: KeybindingValue.pipe(
+    Schema.flip,
     Schema.annotate({
       description: "Keyboard shortcut to listen for.",
     }),
+    Schema.flip,
   ),
   command: KeybindingCommand.pipe(
     Schema.annotate({
