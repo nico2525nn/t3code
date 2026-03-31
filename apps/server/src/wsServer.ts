@@ -58,7 +58,7 @@ import { ProviderService } from "./provider/Services/ProviderService";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
 import { clamp } from "effect/Number";
-import { Open } from "./open";
+import { DesktopLauncher } from "./process/Services/DesktopLauncher";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore.ts";
 import { tryHandleProjectFaviconRequest } from "./projectFaviconRoute";
@@ -218,7 +218,7 @@ export type ServerRuntimeServices =
   | TerminalManager
   | Keybindings
   | ServerSettingsService
-  | Open
+  | DesktopLauncher
   | AnalyticsService;
 
 export class ServerLifecycleError extends Schema.TaggedErrorClass<ServerLifecycleError>()(
@@ -250,7 +250,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     logWebSocketEvents,
     autoBootstrapProjectFromCwd,
   } = serverConfig;
-  const open = yield* Open;
+  const open = yield* DesktopLauncher;
   const availableEditors = yield* open.getAvailableEditors.pipe(
     Effect.mapError((cause) => new ServerLifecycleError({ operation: "availableEditors", cause })),
   );
@@ -618,7 +618,6 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
   const checkpointDiffQuery = yield* CheckpointDiffQuery;
   const orchestrationReactor = yield* OrchestrationReactor;
-  const { openInEditor } = open;
 
   const subscriptionsScope = yield* Scope.make("sequential");
   yield* Effect.addFinalizer(() => Scope.close(subscriptionsScope, Exit.void));
@@ -810,7 +809,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.shellOpenInEditor: {
         const body = stripRequestTag(request.body);
-        return yield* openInEditor(body);
+        return yield* open.openInEditor(body);
       }
 
       case WS_METHODS.gitStatus: {

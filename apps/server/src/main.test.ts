@@ -13,7 +13,7 @@ import { NetService } from "@t3tools/shared/Net";
 
 import { CliConfig, recordStartupHeartbeat, t3Cli, type CliConfigShape } from "./main";
 import { ServerConfig, type ServerConfigShape } from "./config";
-import { Open, type OpenShape } from "./open";
+import { DesktopLauncher, type DesktopLauncherShape } from "./process/Services/DesktopLauncher";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { Server, type ServerShape } from "./wsServer";
@@ -50,12 +50,12 @@ const testLayer = Layer.mergeAll(
     start: serverStart,
     stopSignal: Effect.void,
   } satisfies ServerShape),
-  Layer.succeed(Open, {
+  Layer.succeed(DesktopLauncher, {
     getAvailableEditors: Effect.succeed([]),
     openExternal: () => Effect.void,
     openBrowser: (_target: string) => Effect.void,
     openInEditor: () => Effect.void,
-  } satisfies OpenShape),
+  } satisfies DesktopLauncherShape),
   ServerSettingsService.layerTest(),
   AnalyticsService.layerTest,
   FetchHttpClient.layer,

@@ -18,7 +18,7 @@ import {
   type ServerConfigShape,
 } from "./config";
 import { fixPath, resolveBaseDir } from "./os-jank";
-import { Open } from "./open";
+import { DesktopLauncher } from "./process/Services/DesktopLauncher";
 import * as SqlitePersistence from "./persistence/Layers/Sqlite";
 import { makeServerProviderLayer, makeServerRuntimeServicesLayer } from "./serverLayers";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
@@ -336,7 +336,7 @@ export const recordStartupHeartbeat = Effect.gen(function* () {
 const makeServerRuntimeProgram = (input: CliInput) =>
   Effect.gen(function* () {
     const { start, stopSignal } = yield* Server;
-    const openDeps = yield* Open;
+    const desktopLauncher = yield* DesktopLauncher;
 
     const config = yield* ServerConfig;
 
@@ -366,7 +366,7 @@ const makeServerRuntimeProgram = (input: CliInput) =>
 
     if (!config.noBrowser) {
       const target = config.devUrl?.toString() ?? bindUrl;
-      yield* openDeps.openBrowser(target).pipe(
+      yield* desktopLauncher.openBrowser(target).pipe(
         Effect.catch(() =>
           Effect.logInfo("browser auto-open unavailable", {
             hint: `Open ${target} in your browser.`,

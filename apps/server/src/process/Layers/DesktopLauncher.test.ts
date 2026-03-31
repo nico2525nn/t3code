@@ -14,7 +14,12 @@ import {
 } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { makeOpenLayer, Open } from "./open";
+import {
+  make as makeDesktopLauncher,
+  type DetachedSpawnInput,
+  type LaunchRuntimeOptions,
+} from "./DesktopLauncher";
+import { DesktopLauncher, DesktopLauncherSpawnError } from "../Services/DesktopLauncher";
 
 const encoder = new TextEncoder();
 
@@ -121,21 +126,90 @@ function spawnerLayer(
   );
 }
 
+function spawnHarness(
+  calls: Array<SpawnCall>,
+  handler: (call: SpawnCall) => {
+    readonly code?: number;
+    readonly fail?: string;
+    readonly awaitExit?: Deferred.Deferred<void>;
+    readonly onKill?: () => void;
+  } = () => ({
+    code: 0,
+  }),
+) {
+  return {
+    layer: spawnerLayer(calls, handler),
+    spawnDetached: (
+      input: DetachedSpawnInput,
+      context: {
+        readonly operation: string;
+        readonly target?: string;
+        readonly editor?: string;
+      },
+    ) => {
+      const call: SpawnCall = {
+        command: input.command,
+        args: [...input.args],
+        detached: input.detached,
+        shell: input.shell,
+        stdin: input.stdin,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      };
+      calls.push(call);
+
+      const result = handler(call);
+      return result.fail
+        ? Effect.fail(
+            new DesktopLauncherSpawnError({
+              operation: context.operation,
+              command: input.command,
+              args: [...input.args],
+              ...(context.target !== undefined ? { target: context.target } : {}),
+              ...(context.editor !== undefined ? { editor: context.editor } : {}),
+            }),
+          )
+        : Effect.void;
+    },
+  } as const;
+}
+
 const provideOpen = (
-  options: Parameters<typeof makeOpenLayer>[0],
-  spawnLayer: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>,
+  options: LaunchRuntimeOptions,
+  harness: {
+    readonly layer: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>;
+    readonly spawnDetached: (
+      input: DetachedSpawnInput,
+      context: {
+        readonly operation: string;
+        readonly target?: string;
+        readonly editor?: string;
+      },
+    ) => Effect.Effect<void, DesktopLauncherSpawnError>;
+  },
 ) =>
-  makeOpenLayer(options).pipe(
-    Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, spawnLayer)),
-  );
+  Layer.effect(
+    DesktopLauncher,
+    makeDesktopLauncher({ ...options, spawnDetached: harness.spawnDetached }),
+  ).pipe(Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, harness.layer)));
 
 const runOpen = <A>(
-  options: Parameters<typeof makeOpenLayer>[0],
-  spawnLayer: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>,
-  effect: Effect.Effect<A, Error, Open>,
-) => effect.pipe(Effect.provide(provideOpen(options, spawnLayer)));
+  options: LaunchRuntimeOptions,
+  harness: {
+    readonly layer: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>;
+    readonly spawnDetached: (
+      input: DetachedSpawnInput,
+      context: {
+        readonly operation: string;
+        readonly target?: string;
+        readonly editor?: string;
+      },
+    ) => Effect.Effect<void, DesktopLauncherSpawnError>;
+  },
+  effect: Effect.Effect<A, never, DesktopLauncher>,
+) => effect.pipe(Effect.provide(provideOpen(options, harness)));
 
-const readOpen = Effect.service(Open);
+const readOpen = Effect.service(DesktopLauncher);
 
 const writeExecutable = (filePath: string) =>
   Effect.gen(function* () {
@@ -161,7 +235,7 @@ it.effect("getAvailableEditors detects installed editors through the service", (
           PATHEXT: ".COM;.EXE;.BAT;.CMD",
         },
       },
-      spawnerLayer(calls),
+      spawnHarness(calls),
       readOpen,
     );
 
@@ -192,7 +266,7 @@ it.effect("getAvailableEditors does not advertise WSL file-manager from PowerShe
         isInsideContainer: false,
         powerShellCommand: `${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`,
       },
-      spawnerLayer(calls),
+      spawnHarness(calls),
       readOpen,
     );
 
@@ -214,7 +288,7 @@ it.effect("openInEditor uses --goto for editors that support it", () =>
         platform: "darwin",
         env: { PATH: dir },
       },
-      spawnerLayer(calls),
+      spawnHarness(calls),
       readOpen,
     );
 
@@ -252,7 +326,7 @@ it.effect("openInEditor launches Windows batch shims through cmd.exe without she
           PATHEXT: ".COM;.EXE;.BAT;.CMD",
         },
       },
-      spawnerLayer(calls),
+      spawnHarness(calls),
       readOpen,
     );
 
@@ -275,15 +349,14 @@ it.effect("openInEditor launches Windows batch shims through cmd.exe without she
   }).pipe(Effect.provide(NodeFileSystem.layer)),
 );
 
-it.effect("openInEditor detached launches survive service scope shutdown", () =>
+it.effect("openInEditor detached launches bypass the scoped child-process spawner", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-zed-detached-" });
     yield* writeExecutable(`${dir}/zed`);
 
     const calls: Array<SpawnCall> = [];
-    const exitDeferred = yield* Deferred.make<void>();
-    let killCount = 0;
+    const harness = spawnHarness(calls);
 
     yield* Effect.acquireUseRelease(
       Scope.make("sequential"),
@@ -295,12 +368,7 @@ it.effect("openInEditor detached launches survive service scope shutdown", () =>
                 platform: "darwin",
                 env: { PATH: dir },
               },
-              spawnerLayer(calls, () => ({
-                awaitExit: exitDeferred,
-                onKill: () => {
-                  killCount += 1;
-                },
-              })),
+              harness,
             ),
           ).pipe(Scope.provide(scope));
 
@@ -313,7 +381,6 @@ it.effect("openInEditor detached launches survive service scope shutdown", () =>
       (scope) => Scope.close(scope, Exit.void),
     );
 
-    assert.equal(killCount, 0);
     assert.deepEqual(calls, [
       {
         command: `${dir}/zed`,
@@ -325,10 +392,6 @@ it.effect("openInEditor detached launches survive service scope shutdown", () =>
         stderr: "ignore",
       },
     ]);
-
-    yield* Deferred.succeed(exitDeferred, void 0);
-    yield* Effect.yieldNow;
-    assert.equal(killCount, 0);
   }).pipe(Effect.provide(NodeFileSystem.layer)),
 );
 
@@ -344,7 +407,7 @@ it.effect("openInEditor uses the default opener for file-manager on macOS", () =
         platform: "darwin",
         env: { PATH: dir },
       },
-      spawnerLayer(calls),
+      spawnHarness(calls),
       readOpen,
     );
 
@@ -379,7 +442,7 @@ it.effect("openBrowser uses macOS open flags and app arguments", () =>
         platform: "darwin",
         env: { PATH: dir },
       },
-      spawnerLayer(calls),
+      spawnHarness(calls),
       readOpen,
     );
 
@@ -431,7 +494,7 @@ it.effect("openBrowser uses PowerShell on win32", () =>
           PATHEXT: ".COM;.EXE;.BAT;.CMD",
         },
       },
-      spawnerLayer(calls),
+      spawnHarness(calls),
       readOpen,
     );
 
@@ -469,7 +532,7 @@ it.effect("openBrowser falls back from WSL PowerShell to xdg-open", () =>
         isInsideContainer: false,
         powerShellCommand: `${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`,
       },
-      spawnerLayer(calls, (call) =>
+      spawnHarness(calls, (call) =>
         call.command.includes("powershell")
           ? { fail: "powershell unavailable" }
           : {
@@ -509,7 +572,7 @@ it.effect("openInEditor uses xdg-open first for WSL file-manager paths", () =>
         isInsideContainer: false,
         powerShellCommand: `${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`,
       },
-      spawnerLayer(calls),
+      spawnHarness(calls),
       readOpen,
     );
 
@@ -540,7 +603,7 @@ it.effect("openInEditor fails when the editor command is unavailable", () =>
         platform: "darwin",
         env: { PATH: "" },
       },
-      spawnerLayer(calls),
+      spawnHarness(calls),
       readOpen,
     );
 
@@ -551,8 +614,80 @@ it.effect("openInEditor fails when the editor command is unavailable", () =>
       })
       .pipe(Effect.flip);
 
-    assert.equal(error._tag, "OpenError");
-    assert.equal(error.message, "Command not found: cursor");
+    assert.equal(error._tag, "DesktopLauncherCommandNotFoundError");
+    assert.equal(
+      error.message,
+      "Desktop launcher command not found in openInEditor: cursor for editor cursor",
+    );
     assert.deepEqual(calls, []);
   }),
+);
+
+it.effect("openBrowser rejects an empty target with a validation error", () =>
+  Effect.gen(function* () {
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "darwin",
+        env: { PATH: "" },
+      },
+      spawnHarness(calls),
+      readOpen,
+    );
+
+    const error = yield* open.openBrowser("   ").pipe(Effect.flip);
+
+    assert.equal(error._tag, "DesktopLauncherValidationError");
+    assert.equal(
+      error.message,
+      "Desktop launcher validation failed in openBrowser: target must not be empty",
+    );
+    assert.deepEqual(calls, []);
+  }),
+);
+
+it.effect("openBrowser reports exhausted fallback attempts when multiple launchers fail", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-browser-fallback-errors-" });
+    yield* fs.makeDirectory(`${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0`, {
+      recursive: true,
+    });
+    yield* writeExecutable(`${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`);
+    yield* writeExecutable(`${dir}/xdg-open`);
+
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "linux",
+        env: {
+          PATH: `${dir}:${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0`,
+          WSL_DISTRO_NAME: "Ubuntu",
+        },
+        isWsl: true,
+        isInsideContainer: false,
+        powerShellCommand: `${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`,
+      },
+      spawnHarness(calls, () => ({ fail: "launcher unavailable" })),
+      readOpen,
+    );
+
+    const error = yield* open.openBrowser("https://example.com").pipe(Effect.flip);
+    assert.equal(error._tag, "DesktopLauncherLaunchAttemptsExhaustedError");
+    if (error._tag !== "DesktopLauncherLaunchAttemptsExhaustedError") {
+      throw new Error(`Unexpected error tag: ${error._tag}`);
+    }
+    assert.deepEqual(
+      error.attempts.map((attempt) => attempt.reason),
+      ["spawnFailed", "spawnFailed"],
+    );
+    assert.deepEqual(
+      error.attempts.map((attempt) => attempt.command.includes("powershell")),
+      [true, false],
+    );
+    assert.deepEqual(
+      calls.map((call) => call.command.includes("powershell")),
+      [true, false],
+    );
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
 );
