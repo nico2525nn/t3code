@@ -185,7 +185,6 @@ function shouldPreferWindowsOpenerOnWsl(input: OpenExternalInput, runtime: OpenR
 }
 
 function makeLaunchPlan(
-  runtime: OpenRuntime,
   command: string,
   args: ReadonlyArray<string>,
   options: {
@@ -207,7 +206,7 @@ function makeLaunchPlan(
   };
 }
 
-function makeDarwinDefaultPlan(input: OpenExternalInput, runtime: OpenRuntime): LaunchPlan {
+function makeDarwinDefaultPlan(input: OpenExternalInput): LaunchPlan {
   const args: string[] = [];
   const wait = input.wait ?? false;
 
@@ -216,7 +215,7 @@ function makeDarwinDefaultPlan(input: OpenExternalInput, runtime: OpenRuntime): 
   if (input.newInstance) args.push("--new");
   args.push(input.target);
 
-  return makeLaunchPlan(runtime, "open", args, {
+  return makeLaunchPlan("open", args, {
     wait,
     allowNonzeroExitCode: input.allowNonzeroExitCode ?? false,
     shell: false,
@@ -226,7 +225,6 @@ function makeDarwinDefaultPlan(input: OpenExternalInput, runtime: OpenRuntime): 
 function makeDarwinApplicationPlan(
   input: OpenExternalInput,
   app: { readonly name: string; readonly arguments: ReadonlyArray<string> },
-  runtime: OpenRuntime,
 ): LaunchPlan {
   const args: string[] = [];
   const wait = input.wait ?? false;
@@ -240,18 +238,14 @@ function makeDarwinApplicationPlan(
     args.push("--args", ...app.arguments);
   }
 
-  return makeLaunchPlan(runtime, "open", args, {
+  return makeLaunchPlan("open", args, {
     wait,
     allowNonzeroExitCode: input.allowNonzeroExitCode ?? false,
     shell: false,
   });
 }
 
-function makePowerShellPlan(
-  input: OpenExternalInput,
-  runtime: OpenRuntime,
-  powerShellCommand: string,
-): LaunchPlan {
+function makePowerShellPlan(input: OpenExternalInput, powerShellCommand: string): LaunchPlan {
   const encodedParts = ["Start"];
   const wait = input.wait ?? false;
 
@@ -259,7 +253,6 @@ function makePowerShellPlan(
   encodedParts.push(quotePowerShellValue(input.target));
 
   return makeLaunchPlan(
-    runtime,
     powerShellCommand,
     [
       "-NoProfile",
@@ -277,9 +270,9 @@ function makePowerShellPlan(
   );
 }
 
-function makeLinuxDefaultPlan(input: OpenExternalInput, runtime: OpenRuntime): LaunchPlan {
+function makeLinuxDefaultPlan(input: OpenExternalInput): LaunchPlan {
   const wait = input.wait ?? false;
-  return makeLaunchPlan(runtime, "xdg-open", [input.target], {
+  return makeLaunchPlan("xdg-open", [input.target], {
     wait,
     allowNonzeroExitCode: input.allowNonzeroExitCode ?? false,
     detached: !wait,
@@ -288,8 +281,8 @@ function makeLinuxDefaultPlan(input: OpenExternalInput, runtime: OpenRuntime): L
   });
 }
 
-function makeWindowsExplorerPlan(input: OpenExternalInput, runtime: OpenRuntime): LaunchPlan {
-  return makeLaunchPlan(runtime, "explorer", [input.target], {
+function makeWindowsExplorerPlan(input: OpenExternalInput): LaunchPlan {
+  return makeLaunchPlan("explorer", [input.target], {
     wait: false,
     allowNonzeroExitCode: false,
     shell: false,
@@ -299,9 +292,8 @@ function makeWindowsExplorerPlan(input: OpenExternalInput, runtime: OpenRuntime)
 function makeDirectApplicationPlan(
   input: OpenExternalInput,
   app: { readonly name: string; readonly arguments: ReadonlyArray<string> },
-  runtime: OpenRuntime,
 ): LaunchPlan {
-  return makeLaunchPlan(runtime, app.name, [...app.arguments, input.target], {
+  return makeLaunchPlan(app.name, [...app.arguments, input.target], {
     wait: input.wait ?? false,
     allowNonzeroExitCode: input.allowNonzeroExitCode ?? false,
     shell: false,
@@ -319,32 +311,32 @@ function resolveExternalPlans(
   for (const app of appCandidates) {
     if (app) {
       if (runtime.platform === "darwin") {
-        plans.push(makeDarwinApplicationPlan(input, app, runtime));
+        plans.push(makeDarwinApplicationPlan(input, app));
       } else {
-        plans.push(makeDirectApplicationPlan(input, app, runtime));
+        plans.push(makeDirectApplicationPlan(input, app));
       }
       continue;
     }
 
     if (runtime.platform === "darwin") {
-      plans.push(makeDarwinDefaultPlan(input, runtime));
+      plans.push(makeDarwinDefaultPlan(input));
       continue;
     }
 
     if (runtime.platform === "win32" || preferWindowsOpenerOnWsl) {
       for (const powerShellCommand of runtime.powerShellCandidates) {
-        plans.push(makePowerShellPlan(input, runtime, powerShellCommand));
+        plans.push(makePowerShellPlan(input, powerShellCommand));
       }
     }
 
     if (runtime.platform === "win32") {
       if (!(input.wait ?? false)) {
-        plans.push(makeWindowsExplorerPlan(input, runtime));
+        plans.push(makeWindowsExplorerPlan(input));
       }
       continue;
     }
 
-    plans.push(makeLinuxDefaultPlan(input, runtime));
+    plans.push(makeLinuxDefaultPlan(input));
   }
 
   return plans;
@@ -654,7 +646,6 @@ const makeOpen = (options: OpenRuntimeOptions = {}) =>
         return runFirstAvailablePlan(
           [
             makeLaunchPlan(
-              runtime,
               editor.command,
               shouldUseGotoFlag(editor, input.cwd) ? ["--goto", input.cwd] : [input.cwd],
               {
