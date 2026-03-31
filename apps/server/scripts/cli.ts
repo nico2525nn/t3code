@@ -10,10 +10,7 @@ import {
   DEVELOPMENT_ICON_OVERRIDES,
   PUBLISH_ICON_OVERRIDES,
 } from "../../../scripts/lib/brand-assets.ts";
-import {
-  getWorkspaceCatalog,
-  resolveCatalogDependencies,
-} from "../../../scripts/lib/resolve-catalog.ts";
+import { resolveCatalogDependencies } from "../../../scripts/lib/resolve-catalog.ts";
 import rootPackageJson from "../../../package.json" with { type: "json" };
 import serverPackageJson from "../package.json" with { type: "json" };
 
@@ -25,7 +22,6 @@ class CliError extends Data.TaggedError("CliError")<{
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("../../..", import.meta.url))),
 );
-const workspaceCatalog = getWorkspaceCatalog(rootPackageJson);
 
 const runCommand = Effect.fn("runCommand")(function* (command: ChildProcess.Command) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -209,7 +205,7 @@ const publishCmd = Command.make(
 
           pkg.dependencies = resolveCatalogDependencies(
             pkg.dependencies,
-            workspaceCatalog,
+            rootPackageJson.catalog,
             "apps/server dependencies",
           );
 

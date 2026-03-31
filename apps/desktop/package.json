@@ -22,6 +22,7 @@
     "@t3tools/contracts": "workspace:*",
     "@t3tools/shared": "workspace:*",
     "@types/node": "catalog:",
+    "electron-builder": "26.8.1",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   },
