@@ -63,6 +63,8 @@ const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
 const defaultOpenService: OpenShape = {
+  getAvailableEditors: Effect.succeed([]),
+  openExternal: () => Effect.void,
   openBrowser: () => Effect.void,
   openInEditor: () => Effect.void,
 };
@@ -1030,6 +1032,8 @@ describe("WebSocket Server", () => {
   it("routes shell.openInEditor through the injected open service", async () => {
     const openCalls: Array<{ cwd: string; editor: string }> = [];
     const openService: OpenShape = {
+      getAvailableEditors: Effect.succeed([]),
+      openExternal: () => Effect.void,
       openBrowser: () => Effect.void,
       openInEditor: (input) => {
         openCalls.push({ cwd: input.cwd, editor: input.editor });
@@ -1531,6 +1535,8 @@ describe("WebSocket Server", () => {
     process.on("unhandledRejection", onUnhandledRejection);
 
     const brokenOpenService: OpenShape = {
+      getAvailableEditors: Effect.succeed([]),
+      openExternal: () => Effect.void,
       openBrowser: () => Effect.void,
       openInEditor: () =>
         Effect.sync(() => BigInt(1)).pipe(Effect.map((result) => result as unknown as void)),

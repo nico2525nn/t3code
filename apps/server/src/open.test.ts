@@ -1,269 +1,558 @@
-import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as NodePath from "@effect/platform-node/NodePath";
 import { assert, it } from "@effect/vitest";
-import { assertSuccess } from "@effect/vitest/utils";
-import { FileSystem, Path, Effect } from "effect";
-
 import {
-  isCommandAvailable,
-  launchDetached,
-  resolveAvailableEditors,
-  resolveEditorLaunch,
-} from "./open";
+  Deferred,
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  PlatformError,
+  Scope,
+  Sink,
+  Stream,
+} from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
-it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
-  it.effect("returns commands for command-based editors", () =>
-    Effect.gen(function* () {
-      const antigravityLaunch = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "antigravity" },
-        "darwin",
-      );
-      assert.deepEqual(antigravityLaunch, {
-        command: "agy",
-        args: ["/tmp/workspace"],
-      });
+import { makeOpenLayer, Open } from "./open";
 
-      const cursorLaunch = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "cursor" },
-        "darwin",
-      );
-      assert.deepEqual(cursorLaunch, {
-        command: "cursor",
-        args: ["/tmp/workspace"],
-      });
+const encoder = new TextEncoder();
 
-      const vscodeLaunch = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "vscode" },
-        "darwin",
-      );
-      assert.deepEqual(vscodeLaunch, {
-        command: "code",
-        args: ["/tmp/workspace"],
-      });
+interface SpawnCall {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly detached?: boolean | undefined;
+  readonly shell?: boolean | string | undefined;
+  readonly stdin?: unknown;
+  readonly stdout?: unknown;
+  readonly stderr?: unknown;
+}
 
-      const vscodeInsidersLaunch = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "vscode-insiders" },
-        "darwin",
-      );
-      assert.deepEqual(vscodeInsidersLaunch, {
-        command: "code-insiders",
-        args: ["/tmp/workspace"],
-      });
+function decodePowerShellCommand(encoded: string): string {
+  return Buffer.from(encoded, "base64").toString("utf16le");
+}
 
-      const vscodiumLaunch = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "vscodium" },
-        "darwin",
-      );
-      assert.deepEqual(vscodiumLaunch, {
-        command: "codium",
-        args: ["/tmp/workspace"],
-      });
+function platformSpawnError(message: string) {
+  return PlatformError.systemError({
+    _tag: "Unknown",
+    module: "ChildProcess",
+    method: "spawn",
+    description: message,
+  });
+}
 
-      const zedLaunch = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "zed" },
-        "darwin",
+function spawnerLayer(
+  calls: Array<SpawnCall>,
+  handler: (call: SpawnCall) => {
+    readonly code?: number;
+    readonly fail?: string;
+    readonly awaitExit?: Deferred.Deferred<void>;
+    readonly onKill?: () => void;
+  } = () => ({
+    code: 0,
+  }),
+) {
+  return Layer.succeed(
+    ChildProcessSpawner.ChildProcessSpawner,
+    ChildProcessSpawner.make((command) => {
+      const standardCommand = command as unknown as {
+        readonly command: string;
+        readonly args: ReadonlyArray<string>;
+        readonly options: {
+          readonly detached?: boolean;
+          readonly shell?: boolean | string;
+          readonly stdin?: unknown;
+          readonly stdout?: unknown;
+          readonly stderr?: unknown;
+        };
+      };
+
+      const call: SpawnCall = {
+        command: standardCommand.command,
+        args: [...standardCommand.args],
+        detached: standardCommand.options.detached,
+        shell: standardCommand.options.shell,
+        stdin: standardCommand.options.stdin,
+        stdout: standardCommand.options.stdout,
+        stderr: standardCommand.options.stderr,
+      };
+      calls.push(call);
+
+      const result = handler(call);
+      if (result.fail) {
+        return Effect.fail(platformSpawnError(result.fail));
+      }
+
+      let exited = false;
+      const exitCode = result.awaitExit
+        ? Deferred.await(result.awaitExit).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                exited = true;
+              }),
+            ),
+            Effect.andThen(Effect.succeed(ChildProcessSpawner.ExitCode(result.code ?? 0))),
+          )
+        : Effect.sync(() => {
+            exited = true;
+            return ChildProcessSpawner.ExitCode(result.code ?? 0);
+          });
+
+      return Effect.succeed(
+        ChildProcessSpawner.makeHandle({
+          pid: ChildProcessSpawner.ProcessId(calls.length),
+          exitCode,
+          isRunning: Effect.succeed(false),
+          kill: () =>
+            Effect.sync(() => {
+              if (!exited) {
+                result.onKill?.();
+              }
+            }),
+          stdin: Sink.drain,
+          stdout: Stream.make(encoder.encode("")),
+          stderr: Stream.make(encoder.encode("")),
+          all: Stream.empty,
+          getInputFd: () => Sink.drain,
+          getOutputFd: () => Stream.empty,
+        }),
       );
-      assert.deepEqual(zedLaunch, {
-        command: "zed",
-        args: ["/tmp/workspace"],
-      });
     }),
   );
+}
 
-  it.effect("uses --goto when editor supports line/column suffixes", () =>
-    Effect.gen(function* () {
-      const lineOnly = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace/AGENTS.md:48", editor: "cursor" },
-        "darwin",
-      );
-      assert.deepEqual(lineOnly, {
-        command: "cursor",
-        args: ["--goto", "/tmp/workspace/AGENTS.md:48"],
-      });
-
-      const lineAndColumn = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace/src/open.ts:71:5", editor: "cursor" },
-        "darwin",
-      );
-      assert.deepEqual(lineAndColumn, {
-        command: "cursor",
-        args: ["--goto", "/tmp/workspace/src/open.ts:71:5"],
-      });
-
-      const vscodeLineAndColumn = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace/src/open.ts:71:5", editor: "vscode" },
-        "darwin",
-      );
-      assert.deepEqual(vscodeLineAndColumn, {
-        command: "code",
-        args: ["--goto", "/tmp/workspace/src/open.ts:71:5"],
-      });
-
-      const vscodeInsidersLineAndColumn = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace/src/open.ts:71:5", editor: "vscode-insiders" },
-        "darwin",
-      );
-      assert.deepEqual(vscodeInsidersLineAndColumn, {
-        command: "code-insiders",
-        args: ["--goto", "/tmp/workspace/src/open.ts:71:5"],
-      });
-
-      const vscodiumLineAndColumn = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace/src/open.ts:71:5", editor: "vscodium" },
-        "darwin",
-      );
-      assert.deepEqual(vscodiumLineAndColumn, {
-        command: "codium",
-        args: ["--goto", "/tmp/workspace/src/open.ts:71:5"],
-      });
-
-      const zedLineAndColumn = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace/src/open.ts:71:5", editor: "zed" },
-        "darwin",
-      );
-      assert.deepEqual(zedLineAndColumn, {
-        command: "zed",
-        args: ["/tmp/workspace/src/open.ts:71:5"],
-      });
-    }),
+const provideOpen = (
+  options: Parameters<typeof makeOpenLayer>[0],
+  spawnLayer: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>,
+) =>
+  makeOpenLayer(options).pipe(
+    Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, spawnLayer)),
   );
 
-  it.effect("maps file-manager editor to OS open commands", () =>
-    Effect.gen(function* () {
-      const launch1 = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "file-manager" },
-        "darwin",
-      );
-      assert.deepEqual(launch1, {
-        command: "open",
-        args: ["/tmp/workspace"],
-      });
+const runOpen = <A>(
+  options: Parameters<typeof makeOpenLayer>[0],
+  spawnLayer: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>,
+  effect: Effect.Effect<A, Error, Open>,
+) => effect.pipe(Effect.provide(provideOpen(options, spawnLayer)));
 
-      const launch2 = yield* resolveEditorLaunch(
-        { cwd: "C:\\workspace", editor: "file-manager" },
-        "win32",
-      );
-      assert.deepEqual(launch2, {
-        command: "explorer",
-        args: ["C:\\workspace"],
-      });
+const readOpen = Effect.service(Open);
 
-      const launch3 = yield* resolveEditorLaunch(
-        { cwd: "/tmp/workspace", editor: "file-manager" },
-        "linux",
-      );
-      assert.deepEqual(launch3, {
-        command: "xdg-open",
-        args: ["/tmp/workspace"],
-      });
-    }),
-  );
-});
-
-it.layer(NodeServices.layer)("launchDetached", (it) => {
-  it.effect("resolves when command can be spawned", () =>
-    Effect.gen(function* () {
-      const result = yield* launchDetached({
-        command: process.execPath,
-        args: ["-e", "process.exit(0)"],
-      }).pipe(Effect.result);
-      assertSuccess(result, undefined);
-    }),
-  );
-
-  it.effect("rejects when command does not exist", () =>
-    Effect.gen(function* () {
-      const result = yield* launchDetached({
-        command: `t3code-no-such-command-${Date.now()}`,
-        args: [],
-      }).pipe(Effect.result);
-      assert.equal(result._tag, "Failure");
-    }),
-  );
-});
-
-it.layer(NodeServices.layer)("isCommandAvailable", (it) => {
-  it.effect("resolves win32 commands with PATHEXT", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-test-" });
-      yield* fs.writeFileString(path.join(dir, "code.CMD"), "@echo off\r\n");
-      const env = {
-        PATH: dir,
-        PATHEXT: ".COM;.EXE;.BAT;.CMD",
-      } satisfies NodeJS.ProcessEnv;
-      assert.equal(isCommandAvailable("code", { platform: "win32", env }), true);
-    }),
-  );
-
-  it("returns false when a command is not on PATH", () => {
-    const env = {
-      PATH: "",
-      PATHEXT: ".COM;.EXE;.BAT;.CMD",
-    } satisfies NodeJS.ProcessEnv;
-    assert.equal(isCommandAvailable("definitely-not-installed", { platform: "win32", env }), false);
+const writeExecutable = (filePath: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs.writeFileString(filePath, "#!/bin/sh\nexit 0\n");
+    yield* fs.chmod(filePath, 0o755);
   });
 
-  it.effect("does not treat bare files without executable extension as available on win32", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-test-" });
-      yield* fs.writeFileString(path.join(dir, "npm"), "echo nope\r\n");
-      const env = {
-        PATH: dir,
-        PATHEXT: ".COM;.EXE;.BAT;.CMD",
-      } satisfies NodeJS.ProcessEnv;
-      assert.equal(isCommandAvailable("npm", { platform: "win32", env }), false);
-    }),
-  );
+it.effect("getAvailableEditors detects installed editors through the service", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-editors-" });
+    yield* fs.writeFileString(`${dir}/code-insiders.CMD`, "@echo off\r\n");
+    yield* fs.writeFileString(`${dir}/codium.CMD`, "@echo off\r\n");
+    yield* fs.writeFileString(`${dir}/explorer.CMD`, "@echo off\r\n");
 
-  it.effect("appends PATHEXT for commands with non-executable extensions on win32", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-test-" });
-      yield* fs.writeFileString(path.join(dir, "my.tool.CMD"), "@echo off\r\n");
-      const env = {
-        PATH: dir,
-        PATHEXT: ".COM;.EXE;.BAT;.CMD",
-      } satisfies NodeJS.ProcessEnv;
-      assert.equal(isCommandAvailable("my.tool", { platform: "win32", env }), true);
-    }),
-  );
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "win32",
+        env: {
+          PATH: dir,
+          PATHEXT: ".COM;.EXE;.BAT;.CMD",
+        },
+      },
+      spawnerLayer(calls),
+      readOpen,
+    );
 
-  it.effect("uses platform-specific PATH delimiter for platform overrides", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const firstDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-test-" });
-      const secondDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-test-" });
-      yield* fs.writeFileString(path.join(firstDir, "code.CMD"), "@echo off\r\n");
-      yield* fs.writeFileString(path.join(secondDir, "code.CMD"), "MZ");
-      const env = {
-        PATH: `${firstDir};${secondDir}`,
-        PATHEXT: ".COM;.EXE;.BAT;.CMD",
-      } satisfies NodeJS.ProcessEnv;
-      assert.equal(isCommandAvailable("code", { platform: "win32", env }), true);
-    }),
-  );
-});
+    const editors = yield* open.getAvailableEditors;
+    assert.deepEqual(editors, ["vscode-insiders", "vscodium", "file-manager"]);
+    assert.deepEqual(calls, []);
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
 
-it.layer(NodeServices.layer)("resolveAvailableEditors", (it) => {
-  it.effect("returns installed editors for command launches", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-editors-" });
+it.effect("getAvailableEditors does not advertise WSL file-manager from PowerShell alone", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-wsl-editors-" });
+    yield* fs.makeDirectory(`${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0`, {
+      recursive: true,
+    });
+    yield* writeExecutable(`${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`);
 
-      yield* fs.writeFileString(path.join(dir, "code-insiders.CMD"), "@echo off\r\n");
-      yield* fs.writeFileString(path.join(dir, "codium.CMD"), "@echo off\r\n");
-      yield* fs.writeFileString(path.join(dir, "explorer.CMD"), "MZ");
-      const editors = resolveAvailableEditors("win32", {
-        PATH: dir,
-        PATHEXT: ".COM;.EXE;.BAT;.CMD",
-      });
-      assert.deepEqual(editors, ["vscode-insiders", "vscodium", "file-manager"]);
-    }),
-  );
-});
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "linux",
+        env: {
+          PATH: `${dir}:${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0`,
+          WSL_DISTRO_NAME: "Ubuntu",
+        },
+        isWsl: true,
+        isInsideContainer: false,
+        powerShellCommand: `${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`,
+      },
+      spawnerLayer(calls),
+      readOpen,
+    );
+
+    const editors = yield* open.getAvailableEditors;
+    assert.equal(editors.includes("file-manager"), false);
+    assert.deepEqual(calls, []);
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
+it.effect("openInEditor uses --goto for editors that support it", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-cursor-" });
+    yield* writeExecutable(`${dir}/cursor`);
+
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "darwin",
+        env: { PATH: dir },
+      },
+      spawnerLayer(calls),
+      readOpen,
+    );
+
+    yield* open.openInEditor({
+      cwd: "/tmp/workspace/src/open.ts:71:5",
+      editor: "cursor",
+    });
+
+    assert.deepEqual(calls, [
+      {
+        command: `${dir}/cursor`,
+        args: ["--goto", "/tmp/workspace/src/open.ts:71:5"],
+        detached: true,
+        shell: false,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    ]);
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
+it.effect("openInEditor launches Windows batch shims through cmd.exe without shell mode", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-vscode-win32-" });
+    yield* fs.writeFileString(`${dir}/code.cmd`, "@echo off\r\n");
+
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "win32",
+        env: {
+          PATH: dir,
+          PATHEXT: ".COM;.EXE;.BAT;.CMD",
+        },
+      },
+      spawnerLayer(calls),
+      readOpen,
+    );
+
+    yield* open.openInEditor({
+      cwd: "C:\\work\\100% real\\file.ts:12:4",
+      editor: "vscode",
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.command, "cmd.exe");
+    assert.deepEqual(calls[0]?.args.slice(0, 4), ["/d", "/v:off", "/s", "/c"]);
+    assert.equal(calls[0]?.args[4]?.toLowerCase().includes(`${dir}/code.cmd`.toLowerCase()), true);
+    assert.equal(calls[0]?.args[4]?.includes('"--goto"'), true);
+    assert.equal(calls[0]?.args[4]?.includes("100%% real"), true);
+    assert.equal(calls[0]?.detached, true);
+    assert.equal(calls[0]?.shell, false);
+    assert.equal(calls[0]?.stdin, "ignore");
+    assert.equal(calls[0]?.stdout, "ignore");
+    assert.equal(calls[0]?.stderr, "ignore");
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
+it.effect("openInEditor detached launches survive service scope shutdown", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-zed-detached-" });
+    yield* writeExecutable(`${dir}/zed`);
+
+    const calls: Array<SpawnCall> = [];
+    const exitDeferred = yield* Deferred.make<void>();
+    let killCount = 0;
+
+    yield* Effect.acquireUseRelease(
+      Scope.make("sequential"),
+      (scope) =>
+        Effect.gen(function* () {
+          const runtimeServices = yield* Layer.build(
+            provideOpen(
+              {
+                platform: "darwin",
+                env: { PATH: dir },
+              },
+              spawnerLayer(calls, () => ({
+                awaitExit: exitDeferred,
+                onKill: () => {
+                  killCount += 1;
+                },
+              })),
+            ),
+          ).pipe(Scope.provide(scope));
+
+          const open = yield* readOpen.pipe(Effect.provide(runtimeServices), Scope.provide(scope));
+          yield* open.openInEditor({
+            cwd: "/tmp/workspace",
+            editor: "zed",
+          });
+        }),
+      (scope) => Scope.close(scope, Exit.void),
+    );
+
+    assert.equal(killCount, 0);
+    assert.deepEqual(calls, [
+      {
+        command: `${dir}/zed`,
+        args: ["/tmp/workspace"],
+        detached: true,
+        shell: false,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    ]);
+
+    yield* Deferred.succeed(exitDeferred, void 0);
+    yield* Effect.yieldNow;
+    assert.equal(killCount, 0);
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
+it.effect("openInEditor uses the default opener for file-manager on macOS", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-macos-" });
+    yield* writeExecutable(`${dir}/open`);
+
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "darwin",
+        env: { PATH: dir },
+      },
+      spawnerLayer(calls),
+      readOpen,
+    );
+
+    yield* open.openInEditor({
+      cwd: "/tmp/workspace",
+      editor: "file-manager",
+    });
+
+    assert.deepEqual(calls, [
+      {
+        command: `${dir}/open`,
+        args: ["/tmp/workspace"],
+        detached: undefined,
+        shell: false,
+        stdin: undefined,
+        stdout: undefined,
+        stderr: undefined,
+      },
+    ]);
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
+it.effect("openBrowser uses macOS open flags and app arguments", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-browser-macos-" });
+    yield* writeExecutable(`${dir}/open`);
+
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "darwin",
+        env: { PATH: dir },
+      },
+      spawnerLayer(calls),
+      readOpen,
+    );
+
+    yield* open.openBrowser("https://example.com", {
+      wait: true,
+      background: true,
+      newInstance: true,
+      app: {
+        name: "google chrome",
+        arguments: ["--profile-directory=Work"],
+      },
+    });
+
+    assert.deepEqual(calls, [
+      {
+        command: `${dir}/open`,
+        args: [
+          "--wait-apps",
+          "--background",
+          "--new",
+          "-a",
+          "google chrome",
+          "https://example.com",
+          "--args",
+          "--profile-directory=Work",
+        ],
+        detached: undefined,
+        shell: false,
+        stdin: undefined,
+        stdout: undefined,
+        stderr: undefined,
+      },
+    ]);
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
+it.effect("openBrowser uses PowerShell on win32", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-browser-win32-" });
+    yield* fs.writeFileString(`${dir}/powershell.exe`, "MZ");
+
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "win32",
+        env: {
+          PATH: dir,
+          PATHEXT: ".COM;.EXE;.BAT;.CMD",
+        },
+      },
+      spawnerLayer(calls),
+      readOpen,
+    );
+
+    yield* open.openBrowser("https://example.com");
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.command, `${dir}/powershell.exe`);
+    assert.equal(calls[0]?.args.at(-2), "-EncodedCommand");
+    assert.equal(
+      decodePowerShellCommand(calls[0]?.args.at(-1) ?? ""),
+      "Start 'https://example.com'",
+    );
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
+it.effect("openBrowser falls back from WSL PowerShell to xdg-open", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-browser-wsl-" });
+    yield* fs.makeDirectory(`${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0`, {
+      recursive: true,
+    });
+    yield* writeExecutable(`${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`);
+    yield* writeExecutable(`${dir}/xdg-open`);
+
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "linux",
+        env: {
+          PATH: `${dir}:${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0`,
+          WSL_DISTRO_NAME: "Ubuntu",
+        },
+        isWsl: true,
+        isInsideContainer: false,
+        powerShellCommand: `${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`,
+      },
+      spawnerLayer(calls, (call) =>
+        call.command.includes("powershell")
+          ? { fail: "powershell unavailable" }
+          : {
+              code: 0,
+            },
+      ),
+      readOpen,
+    );
+
+    yield* open.openBrowser("https://example.com");
+
+    assert.equal(calls[0]?.command.includes("powershell"), true);
+    assert.equal(calls[1]?.command, `${dir}/xdg-open`);
+    assert.deepEqual(calls[1]?.args, ["https://example.com"]);
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
+it.effect("openInEditor uses xdg-open first for WSL file-manager paths", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-wsl-file-manager-" });
+    yield* fs.makeDirectory(`${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0`, {
+      recursive: true,
+    });
+    yield* writeExecutable(`${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`);
+    yield* writeExecutable(`${dir}/xdg-open`);
+
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "linux",
+        env: {
+          PATH: `${dir}:${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0`,
+          WSL_DISTRO_NAME: "Ubuntu",
+        },
+        isWsl: true,
+        isInsideContainer: false,
+        powerShellCommand: `${dir}/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`,
+      },
+      spawnerLayer(calls),
+      readOpen,
+    );
+
+    yield* open.openInEditor({
+      cwd: "/home/julius/workspace",
+      editor: "file-manager",
+    });
+
+    assert.deepEqual(calls, [
+      {
+        command: `${dir}/xdg-open`,
+        args: ["/home/julius/workspace"],
+        detached: true,
+        shell: false,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    ]);
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
+it.effect("openInEditor fails when the editor command is unavailable", () =>
+  Effect.gen(function* () {
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "darwin",
+        env: { PATH: "" },
+      },
+      spawnerLayer(calls),
+      readOpen,
+    );
+
+    const error = yield* open
+      .openInEditor({
+        cwd: "/tmp/workspace",
+        editor: "cursor",
+      })
+      .pipe(Effect.flip);
+
+    assert.equal(error._tag, "OpenError");
+    assert.equal(error.message, "Command not found: cursor");
+    assert.deepEqual(calls, []);
+  }),
+);

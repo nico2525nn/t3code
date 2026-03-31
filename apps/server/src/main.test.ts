@@ -51,6 +51,8 @@ const testLayer = Layer.mergeAll(
     stopSignal: Effect.void,
   } satisfies ServerShape),
   Layer.succeed(Open, {
+    getAvailableEditors: Effect.succeed([]),
+    openExternal: () => Effect.void,
     openBrowser: (_target: string) => Effect.void,
     openInEditor: () => Effect.void,
   } satisfies OpenShape),
