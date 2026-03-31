@@ -118,7 +118,7 @@ it.effect("decodes historical project.created payloads with a default provider",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.defaultModelSelection?.provider, "codex");
-    assert.strictEqual(parsed.pinned, false);
+    assert.strictEqual(parsed.pinnedAt, null);
   }),
 );
 
@@ -216,7 +216,7 @@ it.effect("decodes thread.created runtime mode for historical events", () =>
 
     assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
     assert.strictEqual(parsed.modelSelection.provider, "codex");
-    assert.strictEqual(parsed.pinned, false);
+    assert.strictEqual(parsed.pinnedAt, null);
   }),
 );
 

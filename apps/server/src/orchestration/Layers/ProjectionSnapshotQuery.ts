@@ -46,7 +46,7 @@ import {
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
-    pinned: Schema.BooleanFromBit,
+    pinnedAt: Schema.NullOr(IsoDateTime),
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
   }),
@@ -60,7 +60,7 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
 const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
-    pinned: Schema.BooleanFromBit,
+    pinnedAt: Schema.NullOr(IsoDateTime),
     modelSelection: Schema.fromJsonString(ModelSelection),
   }),
 );
@@ -149,7 +149,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           project_id AS "projectId",
           title,
           workspace_root AS "workspaceRoot",
-          pinned,
+          pinned_at AS "pinnedAt",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           created_at AS "createdAt",
@@ -169,7 +169,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           title,
-          pinned,
+          pinned_at AS "pinnedAt",
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
@@ -546,7 +546,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             id: row.projectId,
             title: row.title,
             workspaceRoot: row.workspaceRoot,
-            pinned: row.pinned,
+            pinnedAt: row.pinnedAt,
             defaultModelSelection: row.defaultModelSelection,
             scripts: row.scripts,
             createdAt: row.createdAt,
@@ -558,7 +558,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             id: row.threadId,
             projectId: row.projectId,
             title: row.title,
-            pinned: row.pinned,
+            pinnedAt: row.pinnedAt,
             modelSelection: row.modelSelection,
             runtimeMode: row.runtimeMode,
             interactionMode: row.interactionMode,

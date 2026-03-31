@@ -76,7 +76,7 @@ describe("orchestration projector", () => {
         id: "thread-1",
         projectId: "project-1",
         title: "demo",
-        pinned: false,
+        pinnedAt: null,
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -136,13 +136,13 @@ describe("orchestration projector", () => {
           commandId: "cmd-project-pin",
           payload: {
             projectId: "project-1",
-            pinned: true,
+            pinnedAt: later,
             updatedAt: later,
           },
         }),
       ),
     );
-    expect(withPinnedProject.projects[0]?.pinned).toBe(true);
+    expect(withPinnedProject.projects[0]?.pinnedAt).toBe(later);
 
     const withThread = await Effect.runPromise(
       projectEvent(
@@ -183,13 +183,13 @@ describe("orchestration projector", () => {
           commandId: "cmd-thread-pin",
           payload: {
             threadId: "thread-1",
-            pinned: true,
+            pinnedAt: later,
             updatedAt: later,
           },
         }),
       ),
     );
-    expect(withPinnedThread.threads[0]?.pinned).toBe(true);
+    expect(withPinnedThread.threads[0]?.pinnedAt).toBe(later);
   });
 
   it("fails when event payload cannot be decoded by runtime schema", async () => {

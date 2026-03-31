@@ -592,7 +592,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     id: ProjectId.makeUnsafe("project-1"),
     name: "Project",
     cwd: "/tmp/project",
-    pinned: false,
+    pinnedAt: null,
     defaultModelSelection: {
       provider: "codex",
       model: "gpt-5.4",
@@ -611,7 +611,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     codexThreadId: null,
     projectId: ProjectId.makeUnsafe("project-1"),
     title: "Thread",
-    pinned: false,
+    pinnedAt: null,
     modelSelection: {
       provider: "codex",
       model: "gpt-5.4",
@@ -770,7 +770,7 @@ describe("sortThreadsForSidebar", () => {
             createdAt: "2026-03-09T10:00:00.000Z",
             updatedAt: "2026-03-09T10:01:00.000Z",
           }),
-          pinned: true,
+          pinnedAt: "2026-03-09T10:20:00.000Z",
         },
         {
           ...makeThread({
@@ -778,7 +778,7 @@ describe("sortThreadsForSidebar", () => {
             createdAt: "2026-03-09T10:05:00.000Z",
             updatedAt: "2026-03-09T10:05:00.000Z",
           }),
-          pinned: false,
+          pinnedAt: null,
         },
       ],
       "updated_at",
@@ -790,7 +790,7 @@ describe("sortThreadsForSidebar", () => {
     ]);
   });
 
-  it("still auto-sorts within the pinned thread bucket", () => {
+  it("sorts pinned threads by latest pin timestamp before activity recency", () => {
     const sorted = sortThreadsForSidebar(
       [
         {
@@ -799,7 +799,7 @@ describe("sortThreadsForSidebar", () => {
             createdAt: "2026-03-09T10:01:00.000Z",
             updatedAt: "2026-03-09T10:01:00.000Z",
           }),
-          pinned: true,
+          pinnedAt: "2026-03-09T10:10:00.000Z",
         },
         {
           ...makeThread({
@@ -807,7 +807,7 @@ describe("sortThreadsForSidebar", () => {
             createdAt: "2026-03-09T10:05:00.000Z",
             updatedAt: "2026-03-09T10:05:00.000Z",
           }),
-          pinned: true,
+          pinnedAt: "2026-03-09T10:20:00.000Z",
         },
         {
           ...makeThread({
@@ -815,7 +815,7 @@ describe("sortThreadsForSidebar", () => {
             createdAt: "2026-03-09T10:10:00.000Z",
             updatedAt: "2026-03-09T10:10:00.000Z",
           }),
-          pinned: false,
+          pinnedAt: null,
         },
       ],
       "updated_at",
@@ -874,7 +874,7 @@ describe("getFallbackThreadIdAfterDelete", () => {
             projectId: ProjectId.makeUnsafe("project-1"),
             updatedAt: "2026-03-09T10:05:00.000Z",
           }),
-          pinned: false,
+          pinnedAt: null,
         },
         {
           ...makeThread({
@@ -882,7 +882,7 @@ describe("getFallbackThreadIdAfterDelete", () => {
             projectId: ProjectId.makeUnsafe("project-1"),
             updatedAt: "2026-03-09T10:03:00.000Z",
           }),
-          pinned: true,
+          pinnedAt: "2026-03-09T10:20:00.000Z",
         },
         {
           ...makeThread({
@@ -890,7 +890,7 @@ describe("getFallbackThreadIdAfterDelete", () => {
             projectId: ProjectId.makeUnsafe("project-1"),
             updatedAt: "2026-03-09T10:10:00.000Z",
           }),
-          pinned: false,
+          pinnedAt: null,
         },
       ],
       deletedThreadId: ThreadId.makeUnsafe("thread-active"),
@@ -1010,13 +1010,13 @@ describe("sortProjectsForSidebar", () => {
         makeProject({
           id: ProjectId.makeUnsafe("project-1"),
           name: "Pinned older project",
-          pinned: true,
+          pinnedAt: "2026-03-09T10:20:00.000Z",
           updatedAt: "2026-03-09T10:01:00.000Z",
         }),
         makeProject({
           id: ProjectId.makeUnsafe("project-2"),
           name: "Unpinned newer project",
-          pinned: false,
+          pinnedAt: null,
           updatedAt: "2026-03-09T10:05:00.000Z",
         }),
       ],
@@ -1030,25 +1030,25 @@ describe("sortProjectsForSidebar", () => {
     ]);
   });
 
-  it("still auto-sorts within the pinned bucket", () => {
+  it("sorts pinned projects by latest pin timestamp before project recency", () => {
     const sorted = sortProjectsForSidebar(
       [
         makeProject({
           id: ProjectId.makeUnsafe("project-1"),
           name: "Pinned older project",
-          pinned: true,
+          pinnedAt: "2026-03-09T10:10:00.000Z",
           updatedAt: "2026-03-09T10:01:00.000Z",
         }),
         makeProject({
           id: ProjectId.makeUnsafe("project-2"),
           name: "Pinned newer project",
-          pinned: true,
+          pinnedAt: "2026-03-09T10:20:00.000Z",
           updatedAt: "2026-03-09T10:05:00.000Z",
         }),
         makeProject({
           id: ProjectId.makeUnsafe("project-3"),
           name: "Unpinned project",
-          pinned: false,
+          pinnedAt: null,
           updatedAt: "2026-03-09T10:10:00.000Z",
         }),
       ],

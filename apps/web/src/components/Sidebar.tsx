@@ -4,6 +4,7 @@ import {
   ChevronRightIcon,
   FolderIcon,
   GitPullRequestIcon,
+  PinIcon,
   PlusIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -152,7 +153,7 @@ type SidebarThreadSnapshot = Pick<
   | "id"
   | "interactionMode"
   | "latestTurn"
-  | "pinned"
+  | "pinnedAt"
   | "projectId"
   | "proposedPlans"
   | "session"
@@ -205,7 +206,7 @@ function toSidebarThreadSnapshot(
     updatedAt: thread.updatedAt,
     archivedAt: thread.archivedAt,
     latestTurn: thread.latestTurn,
-    pinned: thread.pinned,
+    pinnedAt: thread.pinnedAt,
     lastVisitedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
@@ -879,7 +880,10 @@ export default function Sidebar() {
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
       const clicked = await api.contextMenu.show(
         [
-          { id: "toggle-pin", label: thread.pinned ? "Unpin thread" : "Pin thread" },
+          {
+            id: "toggle-pin",
+            label: thread.pinnedAt !== null ? "Unpin thread" : "Pin thread",
+          },
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
@@ -890,7 +894,7 @@ export default function Sidebar() {
       );
 
       if (clicked === "toggle-pin") {
-        await setThreadPinned(thread, !thread.pinned);
+        await setThreadPinned(thread, thread.pinnedAt === null);
         return;
       }
 
@@ -1064,7 +1068,7 @@ export default function Sidebar() {
         [
           {
             id: "toggle-pin",
-            label: project.pinned ? "Unpin project" : "Pin project",
+            label: project.pinnedAt !== null ? "Unpin project" : "Pin project",
           },
           { id: "copy-path", label: "Copy Project Path" },
           { id: "delete", label: "Remove project", destructive: true },
@@ -1072,7 +1076,7 @@ export default function Sidebar() {
         position,
       );
       if (clicked === "toggle-pin") {
-        await setProjectPinned(project, !project.pinned);
+        await setProjectPinned(project, project.pinnedAt === null);
         return;
       }
       if (clicked === "copy-path") {
@@ -1230,7 +1234,7 @@ export default function Sidebar() {
   const globalPinnedThreads = useMemo(
     () =>
       sortThreadsForSidebar(
-        visibleThreads.filter((thread) => thread.pinned),
+        visibleThreads.filter((thread) => thread.pinnedAt !== null),
         appSettings.sidebarThreadSortOrder,
       ),
     [appSettings.sidebarThreadSortOrder, visibleThreads],
@@ -1252,7 +1256,7 @@ export default function Sidebar() {
           visibleThreads.filter((thread) => thread.projectId === project.id),
           appSettings.sidebarThreadSortOrder,
         );
-        const projectThreads = allProjectThreads.filter((thread) => !thread.pinned);
+        const projectThreads = allProjectThreads.filter((thread) => thread.pinnedAt === null);
         const projectStatus = resolveProjectStatusIndicator(
           allProjectThreads.map((thread) => threadStatusById.get(thread.id) ?? null),
         );
@@ -1734,6 +1738,15 @@ export default function Sidebar() {
               {project.name}
             </span>
           </SidebarMenuButton>
+          {project.pinnedAt !== null ? (
+            <span
+              aria-hidden="true"
+              title="Pinned project"
+              className="pointer-events-none absolute top-1 right-1.5 inline-flex size-5 items-center justify-center text-muted-foreground/65 transition-opacity duration-150 group-hover/project-header:opacity-0 group-focus-within/project-header:opacity-0"
+            >
+              <PinIcon className="size-3.5" />
+            </span>
+          ) : null}
           <Tooltip>
             <TooltipTrigger
               render={

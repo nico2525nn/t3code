@@ -289,7 +289,7 @@ describe("wsNativeApi", () => {
         projectId: ProjectId.makeUnsafe("project-1"),
         title: "Project",
         workspaceRoot: "/tmp/workspace",
-        pinned: false,
+        pinnedAt: null,
         defaultModelSelection: null,
         scripts: [],
         createdAt: "2026-02-24T00:00:00.000Z",

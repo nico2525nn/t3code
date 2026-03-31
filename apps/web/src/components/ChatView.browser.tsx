@@ -237,7 +237,7 @@ function createSnapshotForTargetUser(options: {
         id: PROJECT_ID,
         title: "Project",
         workspaceRoot: "/repo/project",
-        pinned: false,
+        pinnedAt: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -253,7 +253,7 @@ function createSnapshotForTargetUser(options: {
         id: THREAD_ID,
         projectId: PROJECT_ID,
         title: "Browser test thread",
-        pinned: false,
+        pinnedAt: null,
         modelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -312,7 +312,7 @@ function addThreadToSnapshot(
         id: threadId,
         projectId: PROJECT_ID,
         title: "New thread",
-        pinned: false,
+        pinnedAt: null,
         modelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -360,7 +360,7 @@ function createThreadCreatedEvent(threadId: ThreadId, sequence: number): Orchest
       threadId,
       projectId: PROJECT_ID,
       title: "New thread",
-      pinned: false,
+      pinnedAt: null,
       modelSelection: {
         provider: "codex",
         model: "gpt-5",

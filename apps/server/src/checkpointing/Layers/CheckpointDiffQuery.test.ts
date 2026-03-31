@@ -31,7 +31,7 @@ function makeSnapshot(input: {
         id: input.projectId,
         title: "Project",
         workspaceRoot: input.workspaceRoot,
-        pinned: false,
+        pinnedAt: null,
         defaultModelSelection: null,
         scripts: [],
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -44,7 +44,7 @@ function makeSnapshot(input: {
         id: input.threadId,
         projectId: input.projectId,
         title: "Thread",
-        pinned: false,
+        pinnedAt: null,
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",

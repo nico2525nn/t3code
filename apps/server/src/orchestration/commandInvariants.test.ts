@@ -28,7 +28,7 @@ const readModel: OrchestrationReadModel = {
       id: ProjectId.makeUnsafe("project-a"),
       title: "Project A",
       workspaceRoot: "/tmp/project-a",
-      pinned: false,
+      pinnedAt: null,
       defaultModelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
@@ -42,7 +42,7 @@ const readModel: OrchestrationReadModel = {
       id: ProjectId.makeUnsafe("project-b"),
       title: "Project B",
       workspaceRoot: "/tmp/project-b",
-      pinned: false,
+      pinnedAt: null,
       defaultModelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
@@ -58,7 +58,7 @@ const readModel: OrchestrationReadModel = {
       id: ThreadId.makeUnsafe("thread-1"),
       projectId: ProjectId.makeUnsafe("project-a"),
       title: "Thread A",
-      pinned: false,
+      pinnedAt: null,
       modelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
@@ -82,7 +82,7 @@ const readModel: OrchestrationReadModel = {
       id: ThreadId.makeUnsafe("thread-2"),
       projectId: ProjectId.makeUnsafe("project-b"),
       title: "Thread B",
-      pinned: false,
+      pinnedAt: null,
       modelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
