@@ -1,4 +1,4 @@
-import { KeybindingsConfig } from "@t3tools/contracts/keybindings";
+import { KeybindingsConfig } from "../../packages/contracts/src/keybindings.ts";
 import { buildJsonSchemaDocument, writeJsonSchemaArtifacts } from "./json-schema";
 
 export const KEYBINDINGS_SCHEMA_RELATIVE_PATH = "apps/marketing/public/schemas/keybindings.json";
