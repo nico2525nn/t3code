@@ -749,6 +749,9 @@ export const make = Effect.fn("makeDesktopLauncher")(function* (
         ChildProcess.make(input.command, [...input.args], {
           detached: plan.detached,
           shell: plan.shell,
+          ...(input.windowsVerbatimArguments !== undefined
+            ? { windowsVerbatimArguments: input.windowsVerbatimArguments }
+            : {}),
           ...(plan.stdio === "ignore"
             ? {
                 stdin: "ignore",

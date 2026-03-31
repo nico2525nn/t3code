@@ -67,6 +67,7 @@ function spawnerLayer(
         readonly options: {
           readonly detached?: boolean;
           readonly shell?: boolean | string;
+          readonly windowsVerbatimArguments?: boolean;
           readonly stdin?: unknown;
           readonly stdout?: unknown;
           readonly stderr?: unknown;
@@ -78,6 +79,9 @@ function spawnerLayer(
         args: [...standardCommand.args],
         detached: standardCommand.options.detached,
         shell: standardCommand.options.shell,
+        ...(standardCommand.options.windowsVerbatimArguments !== undefined
+          ? { windowsVerbatimArguments: standardCommand.options.windowsVerbatimArguments }
+          : {}),
         stdin: standardCommand.options.stdin,
         stdout: standardCommand.options.stdout,
         stderr: standardCommand.options.stderr,
@@ -153,7 +157,9 @@ function spawnHarness(
         args: [...input.args],
         detached: input.detached,
         shell: input.shell,
-        windowsVerbatimArguments: input.windowsVerbatimArguments,
+        ...(input.windowsVerbatimArguments !== undefined
+          ? { windowsVerbatimArguments: input.windowsVerbatimArguments }
+          : {}),
         stdin: input.stdin,
         stdout: input.stdout,
         stderr: input.stderr,

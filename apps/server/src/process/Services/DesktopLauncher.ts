@@ -127,16 +127,6 @@ export class DesktopLauncherLaunchAttemptsExhaustedError extends Schema.TaggedEr
   }
 }
 
-export const DesktopLauncherError = Schema.Union([
-  DesktopLauncherCommandNotFoundError,
-  DesktopLauncherDiscoveryError,
-  DesktopLauncherLaunchAttemptsExhaustedError,
-  DesktopLauncherNonZeroExitError,
-  DesktopLauncherSpawnError,
-  DesktopLauncherUnknownEditorError,
-  DesktopLauncherValidationError,
-]);
-
 export interface OpenInEditorInput {
   readonly cwd: string;
   readonly editor: EditorId;
