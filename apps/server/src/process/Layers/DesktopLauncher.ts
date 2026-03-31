@@ -326,9 +326,12 @@ function makeDirectApplicationPlan(
   input: OpenExternalInput,
   app: OpenApplicationCandidate,
 ): LaunchPlan {
+  const wait = input.wait ?? false;
   return makeLaunchPlan(app.name, [...app.arguments, input.target], {
-    wait: input.wait ?? false,
+    wait,
     allowNonzeroExitCode: input.allowNonzeroExitCode ?? false,
+    detached: !wait,
+    ...(wait ? {} : { stdio: "ignore" as const }),
     shell: false,
   });
 }

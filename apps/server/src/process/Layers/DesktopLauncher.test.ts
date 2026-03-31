@@ -510,6 +510,43 @@ it.effect("openBrowser uses PowerShell on win32", () =>
   }).pipe(Effect.provide(NodeFileSystem.layer)),
 );
 
+it.effect("openBrowser detaches direct app launches on win32 when not waiting", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-open-browser-win32-app-" });
+    yield* fs.writeFileString(`${dir}/chrome.exe`, "MZ");
+
+    const calls: Array<SpawnCall> = [];
+    const open = yield* runOpen(
+      {
+        platform: "win32",
+        env: {
+          PATH: dir,
+          PATHEXT: ".COM;.EXE;.BAT;.CMD",
+        },
+      },
+      spawnHarness(calls),
+      readOpen,
+    );
+
+    yield* open.openBrowser("https://example.com", {
+      app: {
+        name: "chrome",
+        arguments: ["--profile-directory=Work"],
+      },
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.command.toLowerCase(), `${dir}/chrome.exe`.toLowerCase());
+    assert.deepEqual(calls[0]?.args, ["--profile-directory=Work", "https://example.com"]);
+    assert.equal(calls[0]?.detached, true);
+    assert.equal(calls[0]?.shell, false);
+    assert.equal(calls[0]?.stdin, "ignore");
+    assert.equal(calls[0]?.stdout, "ignore");
+    assert.equal(calls[0]?.stderr, "ignore");
+  }).pipe(Effect.provide(NodeFileSystem.layer)),
+);
+
 it.effect("openBrowser falls back from WSL PowerShell to xdg-open", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
