@@ -32,7 +32,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           thread_id,
           project_id,
           title,
-          pinned,
           pinned_at,
           model_selection_json,
           runtime_mode,
@@ -49,7 +48,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.threadId},
           ${row.projectId},
           ${row.title},
-          ${row.pinnedAt !== null ? 1 : 0},
           ${row.pinnedAt},
           ${JSON.stringify(row.modelSelection)},
           ${row.runtimeMode},
@@ -66,7 +64,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         DO UPDATE SET
           project_id = excluded.project_id,
           title = excluded.title,
-          pinned = excluded.pinned,
           pinned_at = excluded.pinned_at,
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,

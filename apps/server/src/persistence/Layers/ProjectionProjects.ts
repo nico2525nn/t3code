@@ -32,7 +32,6 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           project_id,
           title,
           workspace_root,
-          pinned,
           pinned_at,
           default_model_selection_json,
           scripts_json,
@@ -44,7 +43,6 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           ${row.projectId},
           ${row.title},
           ${row.workspaceRoot},
-          ${row.pinnedAt !== null ? 1 : 0},
           ${row.pinnedAt},
           ${row.defaultModelSelection !== null ? JSON.stringify(row.defaultModelSelection) : null},
           ${JSON.stringify(row.scripts)},
@@ -56,7 +54,6 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
         DO UPDATE SET
           title = excluded.title,
           workspace_root = excluded.workspace_root,
-          pinned = excluded.pinned,
           pinned_at = excluded.pinned_at,
           default_model_selection_json = excluded.default_model_selection_json,
           scripts_json = excluded.scripts_json,

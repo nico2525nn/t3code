@@ -1742,7 +1742,7 @@ export default function Sidebar() {
             <span
               aria-hidden="true"
               title="Pinned project"
-              className="pointer-events-none absolute top-1 right-1.5 inline-flex size-5 items-center justify-center text-muted-foreground/65 transition-opacity duration-150 group-hover/project-header:opacity-0 group-focus-within/project-header:opacity-0"
+              className="pointer-events-none absolute top-1 right-1.5 inline-flex size-5 items-center justify-center text-muted-foreground/65 transition-opacity duration-150 group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0"
             >
               <PinIcon className="size-3.5" />
             </span>
