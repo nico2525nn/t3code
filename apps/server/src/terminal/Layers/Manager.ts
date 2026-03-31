@@ -23,7 +23,8 @@ import {
 } from "effect";
 
 import { ServerConfig } from "../../config";
-import { runProcess } from "../../processRunner";
+import { runProbeProcess } from "../../process/runProbeProcess";
+import { resolveWindowsCommandShell } from "../../process/windowsCommand";
 import {
   TerminalCwdError,
   TerminalHistoryError,
@@ -174,7 +175,7 @@ function enqueueProcessEvent(
 
 function defaultShellResolver(): string {
   if (process.platform === "win32") {
-    return process.env.ComSpec ?? "cmd.exe";
+    return resolveWindowsCommandShell(process.env);
   }
   return process.env.SHELL ?? "bash";
 }
@@ -226,7 +227,7 @@ function resolveShellCandidates(shellResolver: () => string): ShellCandidate[] {
   if (process.platform === "win32") {
     return uniqueShellCandidates([
       requested,
-      shellCandidateFromCommand(process.env.ComSpec ?? null),
+      shellCandidateFromCommand(resolveWindowsCommandShell(process.env)),
       shellCandidateFromCommand("powershell.exe"),
       shellCandidateFromCommand("cmd.exe"),
     ]);
@@ -301,11 +302,10 @@ function checkWindowsSubprocessActivity(
   ].join("; ");
   return Effect.tryPromise({
     try: () =>
-      runProcess("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], {
+      runProbeProcess("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], {
         timeoutMs: 1_500,
         allowNonZeroExit: true,
         maxBufferBytes: 32_768,
-        outputMode: "truncate",
       }),
     catch: (cause) =>
       new TerminalSubprocessCheckError({
@@ -322,11 +322,10 @@ const checkPosixSubprocessActivity = Effect.fn("terminal.checkPosixSubprocessAct
 ): Effect.fn.Return<boolean, TerminalSubprocessCheckError> {
   const runPgrep = Effect.tryPromise({
     try: () =>
-      runProcess("pgrep", ["-P", String(terminalPid)], {
+      runProbeProcess("pgrep", ["-P", String(terminalPid)], {
         timeoutMs: 1_000,
         allowNonZeroExit: true,
         maxBufferBytes: 32_768,
-        outputMode: "truncate",
       }),
     catch: (cause) =>
       new TerminalSubprocessCheckError({
@@ -339,11 +338,10 @@ const checkPosixSubprocessActivity = Effect.fn("terminal.checkPosixSubprocessAct
 
   const runPs = Effect.tryPromise({
     try: () =>
-      runProcess("ps", ["-eo", "pid=,ppid="], {
+      runProbeProcess("ps", ["-eo", "pid=,ppid="], {
         timeoutMs: 1_000,
         allowNonZeroExit: true,
         maxBufferBytes: 262_144,
-        outputMode: "truncate",
       }),
     catch: (cause) =>
       new TerminalSubprocessCheckError({

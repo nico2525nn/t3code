@@ -29,6 +29,7 @@ import {
 } from "../Services/GitCore.ts";
 import { ServerConfig } from "../../config.ts";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
+import { limitChunkToByteLimit } from "../../process/outputBuffer";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
@@ -520,8 +521,8 @@ const collectOutput = Effect.fn("collectOutput")(function* <E>(
     if (truncateOutputAtMaxBytes && truncated) {
       return;
     }
-    const nextBytes = bytes + chunk.byteLength;
-    if (!truncateOutputAtMaxBytes && nextBytes > maxOutputBytes) {
+    const limitedChunk = limitChunkToByteLimit(chunk, bytes, maxOutputBytes);
+    if (!truncateOutputAtMaxBytes && limitedChunk.overflow) {
       return yield* new GitCommandError({
         operation: input.operation,
         command: quoteGitCommand(input.args),
@@ -530,12 +531,9 @@ const collectOutput = Effect.fn("collectOutput")(function* <E>(
       });
     }
 
-    const chunkToDecode =
-      truncateOutputAtMaxBytes && nextBytes > maxOutputBytes
-        ? chunk.subarray(0, Math.max(0, maxOutputBytes - bytes))
-        : chunk;
-    bytes += chunkToDecode.byteLength;
-    truncated = truncateOutputAtMaxBytes && nextBytes > maxOutputBytes;
+    const chunkToDecode = truncateOutputAtMaxBytes ? limitedChunk.chunk : chunk;
+    bytes = truncateOutputAtMaxBytes ? limitedChunk.nextBytes : bytes + chunk.byteLength;
+    truncated = truncateOutputAtMaxBytes && limitedChunk.truncated;
 
     const decoded = decoder.decode(chunkToDecode, { stream: !truncated });
     text += decoded;

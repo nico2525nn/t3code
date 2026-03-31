@@ -14,6 +14,11 @@ import { EDITORS, type EditorId } from "@t3tools/contracts";
 import { Array, Effect, FileSystem, Layer, Option, Path, Scope } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import {
+  isWindowsBatchShim,
+  makeWindowsCmdSpawnArguments,
+  resolveWindowsCommandShell,
+} from "../windowsCommand";
+import {
   DesktopLauncherCommandNotFoundError,
   DesktopLauncherDiscoveryError,
   DesktopLauncherLaunchAttemptsExhaustedError,
@@ -113,7 +118,6 @@ const WSL_POWERSHELL_CANDIDATES = [
   "powershell.exe",
   "pwsh.exe",
 ] as const;
-const WINDOWS_BATCH_EXTENSIONS = [".CMD", ".BAT"] as const;
 
 function shouldUseGotoFlag(editor: (typeof EDITORS)[number], target: string): boolean {
   return editor.supportsGoto && LINE_COLUMN_SUFFIX_PATTERN.test(target);
@@ -139,10 +143,6 @@ function resolveWindowsPathExtensions(env: NodeJS.ProcessEnv): ReadonlyArray<str
     .map((entry) => (entry.startsWith(".") ? entry.toUpperCase() : `.${entry.toUpperCase()}`));
 
   return parsed.length > 0 ? Array.dedupe(parsed) : fallback;
-}
-
-function resolveWindowsCommandShell(env: NodeJS.ProcessEnv): string {
-  return env.ComSpec ?? env.COMSPEC ?? "cmd.exe";
 }
 
 function resolveCommandCandidates(
@@ -378,18 +378,6 @@ function resolveExternalPlans(
   return plans;
 }
 
-function isWindowsBatchShim(pathService: Path.Path, filePath: string): boolean {
-  return WINDOWS_BATCH_EXTENSIONS.includes(pathService.extname(filePath).toUpperCase() as never);
-}
-
-function quoteForWindowsCmd(value: string): string {
-  return `"${value.replaceAll("%", "%%").replaceAll('"', '""')}"`;
-}
-
-function makeWindowsCmdCommandLine(commandPath: string, args: ReadonlyArray<string>): string {
-  return `"${[commandPath, ...args].map(quoteForWindowsCmd).join(" ")}"`;
-}
-
 function resolveSpawnInput(
   runtime: LaunchRuntime,
   plan: LaunchPlan,
@@ -400,7 +388,7 @@ function resolveSpawnInput(
       ? resolveWindowsCommandShell(runtime.env)
       : resolvedCommand.path,
     args: resolvedCommand.usesCmdWrapper
-      ? ["/d", "/v:off", "/s", "/c", makeWindowsCmdCommandLine(resolvedCommand.path, plan.args)]
+      ? makeWindowsCmdSpawnArguments(resolvedCommand.path, plan.args)
       : [...plan.args],
     ...(plan.detached !== undefined ? { detached: plan.detached } : {}),
     ...(plan.shell !== undefined ? { shell: plan.shell } : {}),
@@ -583,7 +571,7 @@ export const make = Effect.fn("makeDesktopLauncher")(function* (
 
         return Option.some({
           path: filePath,
-          usesCmdWrapper: isWindowsBatchShim(pathService, filePath),
+          usesCmdWrapper: isWindowsBatchShim(filePath),
         } satisfies ResolvedCommand);
       }
 
