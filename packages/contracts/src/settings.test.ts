@@ -24,7 +24,6 @@ describe("ThemeDocumentSchema", () => {
       foreground: "#0d0d0d",
       uiFontFamily: '"IBM Plex Sans", sans-serif',
       codeFontFamily: '"IBM Plex Mono", monospace',
-      sidebarTranslucent: true,
       contrast: 44,
       overrides: {
         diffAddition: "#0969da",
@@ -51,7 +50,6 @@ describe("ThemeDocumentSchema", () => {
         foreground: "#0d0d0d",
         uiFontFamily: "sans-serif",
         codeFontFamily: "monospace",
-        sidebarTranslucent: false,
         contrast: 40,
       }),
     ).toThrow();
@@ -77,7 +75,6 @@ describe("ServerSettingsPatch", () => {
           foreground: "#0d0d0d",
           uiFontFamily: '"IBM Plex Sans", sans-serif',
           codeFontFamily: '"IBM Plex Mono", monospace',
-          sidebarTranslucent: false,
           contrast: 38,
         },
       ],

@@ -34,7 +34,6 @@ describe("parseAppearanceCache", () => {
             foreground: "#0d0d0d",
             uiFontFamily: '"IBM Plex Sans", sans-serif',
             codeFontFamily: '"IBM Plex Mono", monospace',
-            sidebarTranslucent: true,
             contrast: 46,
           },
           {
@@ -50,7 +49,6 @@ describe("parseAppearanceCache", () => {
             foreground: "#fcfcfc",
             uiFontFamily: '"IBM Plex Sans", sans-serif',
             codeFontFamily: '"IBM Plex Mono", monospace',
-            sidebarTranslucent: true,
             contrast: 41,
           },
         ],

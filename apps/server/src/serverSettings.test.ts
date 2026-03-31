@@ -203,7 +203,6 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             foreground: "#0d0d0d",
             uiFontFamily: '"IBM Plex Sans", sans-serif',
             codeFontFamily: '"IBM Plex Mono", monospace',
-            sidebarTranslucent: true,
             contrast: 46,
           },
           {
@@ -219,7 +218,6 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             foreground: "#fcfcfc",
             uiFontFamily: '"IBM Plex Sans", sans-serif',
             codeFontFamily: '"IBM Plex Mono", monospace',
-            sidebarTranslucent: true,
             contrast: 41,
           },
         ],
@@ -247,7 +245,6 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             foreground: "#0d0d0d",
             uiFontFamily: '"IBM Plex Sans", sans-serif',
             codeFontFamily: '"IBM Plex Mono", monospace',
-            sidebarTranslucent: true,
             contrast: 46,
           },
           {
@@ -263,7 +260,6 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             foreground: "#fcfcfc",
             uiFontFamily: '"IBM Plex Sans", sans-serif',
             codeFontFamily: '"IBM Plex Mono", monospace',
-            sidebarTranslucent: true,
             contrast: 41,
           },
         ],

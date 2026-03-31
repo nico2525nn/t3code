@@ -31,7 +31,6 @@ import { toastManager } from "../ui/toast";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 import { Input } from "../ui/input";
-import { Switch } from "../ui/switch";
 import { SettingsPageContainer, SettingsSection } from "./SettingsPanels";
 import {
   createDuplicateTheme,
@@ -246,36 +245,25 @@ function ThemeEditor({
         </label>
       </div>
 
-      {/* Contrast + translucent sidebar */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <label className="flex min-w-0 flex-1 items-center gap-3">
-          <span className="text-[11px] font-medium text-muted-foreground">Contrast</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={theme.contrast}
-            onChange={(event) =>
-              onChange((currentTheme) => ({
-                ...currentTheme,
-                contrast: Number.parseInt(event.target.value, 10),
-              }))
-            }
-            className="h-1.5 min-w-24 flex-1 cursor-pointer accent-primary"
-          />
-          <code className="text-[11px] tabular-nums text-muted-foreground">{theme.contrast}</code>
-        </label>
-        <label className="flex items-center gap-2">
-          <Switch
-            checked={theme.sidebarTranslucent}
-            onCheckedChange={(checked) =>
-              onChange((currentTheme) => ({ ...currentTheme, sidebarTranslucent: checked }))
-            }
-          />
-          <span className="text-[11px] font-medium text-muted-foreground">Translucent sidebar</span>
-        </label>
-      </div>
+      {/* Contrast */}
+      <label className="flex items-center gap-3">
+        <span className="text-[11px] font-medium text-muted-foreground">Contrast</span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={theme.contrast}
+          onChange={(event) =>
+            onChange((currentTheme) => ({
+              ...currentTheme,
+              contrast: Number.parseInt(event.target.value, 10),
+            }))
+          }
+          className="h-1.5 min-w-24 flex-1 cursor-pointer accent-primary"
+        />
+        <code className="text-[11px] tabular-nums text-muted-foreground">{theme.contrast}</code>
+      </label>
 
       {/* Advanced overrides */}
       <Collapsible defaultOpen={false}>

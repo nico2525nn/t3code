@@ -30,7 +30,6 @@ type ThemeDocumentInput = {
   foreground: string;
   uiFontFamily: string;
   codeFontFamily: string;
-  sidebarTranslucent: boolean;
   contrast: number;
   overrides?: ThemeDocument["overrides"];
 };
@@ -51,7 +50,6 @@ function makeThemeDocument(input: ThemeDocumentInput): BuiltinThemePreset {
       foreground: input.foreground,
       uiFontFamily: input.uiFontFamily,
       codeFontFamily: input.codeFontFamily,
-      sidebarTranslucent: input.sidebarTranslucent,
       contrast: input.contrast,
       ...(input.overrides ? { overrides: input.overrides } : {}),
     },
@@ -69,7 +67,6 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
     foreground: "#262626",
     uiFontFamily: DEFAULT_UI_FONT,
     codeFontFamily: DEFAULT_CODE_FONT,
-    sidebarTranslucent: false,
     contrast: 46,
     overrides: {
       background: "#fff",
@@ -114,7 +111,6 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
     foreground: "#f5f5f5",
     uiFontFamily: DEFAULT_UI_FONT,
     codeFontFamily: DEFAULT_CODE_FONT,
-    sidebarTranslucent: false,
     contrast: 41,
     overrides: {
       background: "color-mix(in srgb, oklch(14.5% 0 0) 95%, #fff)",
@@ -159,7 +155,6 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
     foreground: "#201814",
     uiFontFamily: '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif',
     codeFontFamily: DEFAULT_CODE_FONT,
-    sidebarTranslucent: false,
     contrast: 56,
   }),
   makeThemeDocument({
@@ -172,7 +167,6 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
     foreground: "#f5ede6",
     uiFontFamily: '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif',
     codeFontFamily: DEFAULT_CODE_FONT,
-    sidebarTranslucent: true,
     contrast: 52,
   }),
   makeThemeDocument({
@@ -185,7 +179,6 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
     foreground: "#11232b",
     uiFontFamily: '"Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif',
     codeFontFamily: DEFAULT_CODE_FONT,
-    sidebarTranslucent: true,
     contrast: 40,
   }),
   makeThemeDocument({
@@ -198,7 +191,6 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
     foreground: "#ebfbff",
     uiFontFamily: '"Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif',
     codeFontFamily: DEFAULT_CODE_FONT,
-    sidebarTranslucent: true,
     contrast: 48,
   }),
   makeThemeDocument({
@@ -211,7 +203,6 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
     foreground: "#121212",
     uiFontFamily: '"Charter", "Bitstream Charter", "Sitka Text", Cambria, serif',
     codeFontFamily: DEFAULT_CODE_FONT,
-    sidebarTranslucent: false,
     contrast: 64,
   }),
   makeThemeDocument({
@@ -224,7 +215,6 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
     foreground: "#f7f4ef",
     uiFontFamily: '"Charter", "Bitstream Charter", "Sitka Text", Cambria, serif',
     codeFontFamily: DEFAULT_CODE_FONT,
-    sidebarTranslucent: false,
     contrast: 58,
   }),
   makeThemeDocument({
@@ -237,7 +227,6 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
     foreground: "#101828",
     uiFontFamily: DEFAULT_UI_FONT,
     codeFontFamily: DEFAULT_CODE_FONT,
-    sidebarTranslucent: false,
     contrast: 68,
     overrides: {
       diffAddition: "#0969da",
@@ -254,7 +243,6 @@ export const BUILTIN_THEME_PRESETS: readonly BuiltinThemePreset[] = [
     foreground: "#f0f6fc",
     uiFontFamily: DEFAULT_UI_FONT,
     codeFontFamily: DEFAULT_CODE_FONT,
-    sidebarTranslucent: false,
     contrast: 64,
     overrides: {
       diffAddition: "#388bfd",
@@ -330,7 +318,6 @@ export function canonicalizeThemeDocument(
     foreground: themeDocument.foreground,
     uiFontFamily: themeDocument.uiFontFamily,
     codeFontFamily: themeDocument.codeFontFamily,
-    sidebarTranslucent: themeDocument.sidebarTranslucent,
     contrast: themeDocument.contrast,
     ...(overrides ? { overrides } : {}),
   };

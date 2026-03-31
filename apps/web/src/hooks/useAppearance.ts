@@ -79,7 +79,6 @@ function applyResolvedAppearance(
 
   root.classList.toggle("dark", resolvedTheme === "dark");
   root.style.colorScheme = resolvedTheme;
-  root.dataset.sidebarTranslucent = String(themeDocument.sidebarTranslucent);
   applyThemeDocumentStyles(root.style, themeDocument);
 
   clearThemeCssVariables(root.style, appliedVariableNames);

@@ -284,16 +284,14 @@ export function deriveThemeTokens(themeVariant: ThemeVariant): ThemeTokenMap {
     "warning-foreground": warningForeground,
     "diff-addition": statusPalette.success,
     "diff-deletion": statusPalette.destructive,
-    sidebar: themeVariant.sidebarTranslucent
-      ? withAlpha(sidebarBase, isDark ? 0.84 : 0.94)
-      : sidebarBase,
+    sidebar: sidebarBase,
     "sidebar-foreground": themeVariant.foreground,
     "sidebar-accent": mixColors(sidebarBase, themeVariant.accent, 0.16 + contrastFactor * 0.1),
     "sidebar-accent-foreground": accentForeground,
     "sidebar-border": border,
     "ui-font-family": themeVariant.uiFontFamily,
     "code-font-family": themeVariant.codeFontFamily,
-    "sidebar-blur": themeVariant.sidebarTranslucent ? "18px" : "0px",
+    "sidebar-blur": "0px",
   };
 
   if (themeVariant.overrides) {

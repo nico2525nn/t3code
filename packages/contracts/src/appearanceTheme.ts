@@ -198,14 +198,6 @@ export const ThemeVariantSchema = Schema.Struct({
     title: "Code font family",
     description: "Font family used for code, terminal, and monospace surfaces.",
   }),
-  sidebarTranslucent: Schema.Boolean.annotate({
-    title: "Translucent sidebar",
-    description: "Whether the sidebar should render with translucency.",
-    examples: [true, false],
-  }).annotateKey({
-    title: "Translucent sidebar",
-    description: "Whether the sidebar should render with translucency.",
-  }),
   contrast: ThemeContrast.annotateKey({
     title: "Contrast",
     description: "A normalized contrast modifier from 0 to 100.",
@@ -305,7 +297,6 @@ export const ThemeDocumentSchema = Schema.Struct({
       foreground: "#0d0d0d",
       uiFontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       codeFontFamily: '"SF Mono", Menlo, monospace',
-      sidebarTranslucent: true,
       contrast: 46,
     },
   ],

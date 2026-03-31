@@ -125,10 +125,6 @@ input {
   );
 }
 
-html[data-sidebar-translucent="true"] [data-sidebar="sidebar"] {
-  backdrop-filter: blur(var(--sidebar-blur, 0px));
-}
-
 /* Window drag region (frameless titlebar) */
 .drag-region {
   -webkit-app-region: drag;
