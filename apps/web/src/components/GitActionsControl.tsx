@@ -18,6 +18,7 @@ import {
   type DefaultBranchConfirmableAction,
   requiresDefaultBranchConfirmation,
   resolveDefaultBranchActionDialogCopy,
+  resolveLiveThreadBranchUpdate,
   resolveQuickAction,
   resolveThreadBranchUpdate,
   summarizeGitResult,
@@ -238,18 +239,13 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     });
   }, [threadToastData]);
 
-  const syncThreadBranchAfterGitAction = useCallback(
-    (result: GitRunStackedActionResult) => {
-      const branchUpdate = resolveThreadBranchUpdate(result);
-      if (!branchUpdate || !activeThreadId || !activeServerThread) {
+  const persistThreadBranchSync = useCallback(
+    (branch: string | null) => {
+      if (!activeThreadId || !activeServerThread || activeServerThread.branch === branch) {
         return;
       }
 
       const worktreePath = activeServerThread.worktreePath;
-      if (activeServerThread.branch === branchUpdate.branch) {
-        return;
-      }
-
       const api = readNativeApi();
       if (api) {
         void api.orchestration
@@ -257,15 +253,27 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
             type: "thread.meta.update",
             commandId: newCommandId(),
             threadId: activeThreadId,
-            branch: branchUpdate.branch,
+            branch,
             worktreePath,
           })
           .catch(() => undefined);
       }
 
-      setThreadBranch(activeThreadId, branchUpdate.branch, worktreePath);
+      setThreadBranch(activeThreadId, branch, worktreePath);
     },
     [activeServerThread, activeThreadId, setThreadBranch],
+  );
+
+  const syncThreadBranchAfterGitAction = useCallback(
+    (result: GitRunStackedActionResult) => {
+      const branchUpdate = resolveThreadBranchUpdate(result);
+      if (!branchUpdate) {
+        return;
+      }
+
+      persistThreadBranchSync(branchUpdate.branch);
+    },
+    [persistThreadBranchSync],
   );
 
   const { data: gitStatus = null, error: gitStatusError } = useQuery(gitStatusQueryOptions(gitCwd));
@@ -304,6 +312,28 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     useIsMutating({ mutationKey: gitMutationKeys.runStackedAction(gitCwd) }) > 0;
   const isPullRunning = useIsMutating({ mutationKey: gitMutationKeys.pull(gitCwd) }) > 0;
   const isGitActionRunning = isRunStackedActionRunning || isPullRunning;
+
+  useEffect(() => {
+    if (isGitActionRunning) {
+      return;
+    }
+
+    const branchUpdate = resolveLiveThreadBranchUpdate({
+      threadBranch: activeServerThread?.branch ?? null,
+      gitStatus: gitStatusForActions,
+    });
+    if (!branchUpdate) {
+      return;
+    }
+
+    persistThreadBranchSync(branchUpdate.branch);
+  }, [
+    activeServerThread?.branch,
+    gitStatusForActions,
+    isGitActionRunning,
+    persistThreadBranchSync,
+  ]);
+
   const isDefaultBranch = useMemo(() => {
     const branchName = gitStatusForActions?.branch;
     if (!branchName) return false;

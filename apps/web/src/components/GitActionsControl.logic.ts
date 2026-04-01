@@ -358,5 +358,22 @@ export function resolveThreadBranchUpdate(
   };
 }
 
+export function resolveLiveThreadBranchUpdate(input: {
+  threadBranch: string | null;
+  gitStatus: GitStatusResult | null;
+}): { branch: string | null } | null {
+  if (!input.gitStatus) {
+    return null;
+  }
+
+  if (input.threadBranch === input.gitStatus.branch) {
+    return null;
+  }
+
+  return {
+    branch: input.gitStatus.branch,
+  };
+}
+
 // Re-export from shared for backwards compatibility in this module's exports
 export { resolveAutoFeatureBranchName } from "@t3tools/shared/git";

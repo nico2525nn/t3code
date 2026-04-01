@@ -6,6 +6,7 @@ import {
   requiresDefaultBranchConfirmation,
   resolveAutoFeatureBranchName,
   resolveDefaultBranchActionDialogCopy,
+  resolveLiveThreadBranchUpdate,
   resolveQuickAction,
   resolveThreadBranchUpdate,
   summarizeGitResult,
@@ -1022,6 +1023,37 @@ describe("resolveThreadBranchUpdate", () => {
       },
       push: { status: "pushed", branch: "feature/fix-toast-copy" },
       pr: { status: "skipped_not_requested" },
+    });
+
+    assert.equal(update, null);
+  });
+});
+
+describe("resolveLiveThreadBranchUpdate", () => {
+  it("returns a branch update when live git status differs from stored thread metadata", () => {
+    const update = resolveLiveThreadBranchUpdate({
+      threadBranch: "feature/old-branch",
+      gitStatus: status({ branch: "effect-atom" }),
+    });
+
+    assert.deepEqual(update, {
+      branch: "effect-atom",
+    });
+  });
+
+  it("returns null when live git status is unavailable", () => {
+    const update = resolveLiveThreadBranchUpdate({
+      threadBranch: "feature/old-branch",
+      gitStatus: null,
+    });
+
+    assert.equal(update, null);
+  });
+
+  it("returns null when the stored thread branch already matches git status", () => {
+    const update = resolveLiveThreadBranchUpdate({
+      threadBranch: "effect-atom",
+      gitStatus: status({ branch: "effect-atom" }),
     });
 
     assert.equal(update, null);
