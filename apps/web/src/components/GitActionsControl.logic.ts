@@ -31,7 +31,11 @@ export interface DefaultBranchActionDialogCopy {
   continueLabel: string;
 }
 
-export type DefaultBranchConfirmableAction = "commit_push" | "commit_push_pr";
+export type DefaultBranchConfirmableAction =
+  | "push"
+  | "create_pr"
+  | "commit_push"
+  | "commit_push_pr";
 
 export function buildGitActionProgressStages(input: {
   action: GitStackedAction;
@@ -272,7 +276,12 @@ export function requiresDefaultBranchConfirmation(
   isDefaultBranch: boolean,
 ): boolean {
   if (!isDefaultBranch) return false;
-  return action === "commit_push" || action === "commit_push_pr";
+  return (
+    action === "push" ||
+    action === "create_pr" ||
+    action === "commit_push" ||
+    action === "commit_push_pr"
+  );
 }
 
 export function resolveDefaultBranchActionDialogCopy(input: {
@@ -283,7 +292,7 @@ export function resolveDefaultBranchActionDialogCopy(input: {
   const branchLabel = input.branchName;
   const suffix = ` on "${branchLabel}". You can continue on this branch or create a feature branch and run the same action there.`;
 
-  if (input.action === "commit_push") {
+  if (input.action === "push" || input.action === "commit_push") {
     if (input.includesCommit) {
       return {
         title: "Commit & push to default branch?",

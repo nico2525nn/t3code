@@ -802,9 +802,12 @@ describe("when: branch has no upstream configured", () => {
 describe("requiresDefaultBranchConfirmation", () => {
   it("requires confirmation for push actions on default branch", () => {
     assert.isFalse(requiresDefaultBranchConfirmation("commit", true));
+    assert.isTrue(requiresDefaultBranchConfirmation("push", true));
+    assert.isTrue(requiresDefaultBranchConfirmation("create_pr", true));
     assert.isTrue(requiresDefaultBranchConfirmation("commit_push", true));
     assert.isTrue(requiresDefaultBranchConfirmation("commit_push_pr", true));
     assert.isFalse(requiresDefaultBranchConfirmation("commit_push", false));
+    assert.isFalse(requiresDefaultBranchConfirmation("push", false));
   });
 });
 

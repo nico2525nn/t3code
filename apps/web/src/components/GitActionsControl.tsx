@@ -425,7 +425,12 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         requiresDefaultBranchConfirmation(action, actionIsDefaultBranch) &&
         actionBranch
       ) {
-        if (action !== "commit_push" && action !== "commit_push_pr") {
+        if (
+          action !== "push" &&
+          action !== "create_pr" &&
+          action !== "commit_push" &&
+          action !== "commit_push_pr"
+        ) {
           return;
         }
         setPendingDefaultBranchAction({
