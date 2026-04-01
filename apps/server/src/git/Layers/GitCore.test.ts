@@ -59,6 +59,23 @@ function git(
   });
 }
 
+function addRemoteWithFetchNamespace(
+  cwd: string,
+  remoteName: string,
+  remotePath: string,
+  fetchNamespace: string,
+): Effect.Effect<string, GitCommandError, GitCore> {
+  return Effect.gen(function* () {
+    yield* git(cwd, ["remote", "add", remoteName, remotePath]);
+    return yield* git(cwd, [
+      "config",
+      "--replace-all",
+      `remote.${remoteName}.fetch`,
+      `+refs/heads/*:refs/remotes/${fetchNamespace}/*`,
+    ]);
+  });
+}
+
 function runShellCommand(input: {
   command: string;
   cwd: string;
@@ -718,6 +735,7 @@ it.layer(TestLayer)("git integration", (it) => {
         const remote = yield* makeTmpDir();
         const prefixRemote = yield* makeTmpDir();
         const source = yield* makeTmpDir();
+        const prefixFetchNamespace = "prefix-my-org";
         const prefixRemoteName = "my-org";
         const remoteName = "my-org/upstream";
         const featureBranch = "feature";
@@ -728,6 +746,12 @@ it.layer(TestLayer)("git integration", (it) => {
         const defaultBranch = (yield* (yield* GitCore).listBranches({ cwd: source })).branches.find(
           (branch) => branch.current,
         )!.name;
+        yield* addRemoteWithFetchNamespace(
+          source,
+          prefixRemoteName,
+          prefixRemote,
+          prefixFetchNamespace,
+        );
         yield* git(source, ["remote", "add", remoteName, remote]);
         yield* git(source, ["push", "-u", remoteName, defaultBranch]);
 
@@ -743,7 +767,6 @@ it.layer(TestLayer)("git integration", (it) => {
           cwd: source,
           branch: `${remoteName}/${featureBranch}`,
         });
-        yield* git(source, ["remote", "add", prefixRemoteName, prefixRemote]);
 
         expect(yield* git(source, ["branch", "--show-current"])).toBe("upstream/feature");
         const realGitCore = yield* GitCore;
@@ -1663,6 +1686,7 @@ it.layer(TestLayer)("git integration", (it) => {
         const tmp = yield* makeTmpDir();
         const remote = yield* makeTmpDir();
         const prefixRemote = yield* makeTmpDir();
+        const prefixFetchNamespace = "prefix-my-org";
         const prefixRemoteName = "my-org";
         const remoteName = "my-org/upstream";
         const featureBranch = "feature/slash-remote-push";
@@ -1670,6 +1694,12 @@ it.layer(TestLayer)("git integration", (it) => {
         yield* git(prefixRemote, ["init", "--bare"]);
 
         const { initialBranch } = yield* initRepoWithCommit(tmp);
+        yield* addRemoteWithFetchNamespace(
+          tmp,
+          prefixRemoteName,
+          prefixRemote,
+          prefixFetchNamespace,
+        );
         yield* git(tmp, ["remote", "add", remoteName, remote]);
         yield* git(tmp, ["push", "-u", remoteName, initialBranch]);
 
@@ -1678,7 +1708,6 @@ it.layer(TestLayer)("git integration", (it) => {
         yield* git(tmp, ["add", "feature.txt"]);
         yield* git(tmp, ["commit", "-m", "feature base"]);
         yield* git(tmp, ["push", "-u", remoteName, featureBranch]);
-        yield* git(tmp, ["remote", "add", prefixRemoteName, prefixRemote]);
 
         yield* writeTextFile(path.join(tmp, "feature.txt"), "second revision\n");
         yield* git(tmp, ["add", "feature.txt"]);
