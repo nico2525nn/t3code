@@ -8,13 +8,17 @@ import {
   TurnId,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
-import { Effect, Layer, ManagedRuntime, Queue, Stream } from "effect";
+import { Effect, Layer, ManagedRuntime, Option, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import {
+  OrchestrationCommandReceiptRepository,
+  type OrchestrationCommandReceiptRepositoryShape,
+} from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import {
   OrchestrationEventStore,
   type OrchestrationEventStoreShape,
@@ -471,6 +475,101 @@ describe("OrchestrationEngine", () => {
         threadId: ThreadId.makeUnsafe("thread-flaky-ok"),
         projectId: asProjectId("project-flaky"),
         title: "flaky-ok",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    expect(result.sequence).toBe(2);
+    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(2);
+    await runtime.dispose();
+  });
+
+  it("keeps processing queued commands after a receipt lookup failure", async () => {
+    const failingReceiptRepository: OrchestrationCommandReceiptRepositoryShape = {
+      upsert: () => Effect.void,
+      getByCommandId: ({ commandId }) => {
+        if (commandId === CommandId.makeUnsafe("cmd-receipt-fail")) {
+          return Effect.fail(
+            new PersistenceSqlError({
+              operation: "test.getByCommandId",
+              detail: "receipt lookup failed",
+            }),
+          );
+        }
+        return Effect.succeed(Option.none());
+      },
+    };
+
+    const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
+      prefix: "t3-orchestration-engine-test-",
+    });
+
+    const runtime = ManagedRuntime.make(
+      OrchestrationEngineLive.pipe(
+        Layer.provide(OrchestrationProjectionPipelineLive),
+        Layer.provide(OrchestrationEventStoreLive),
+        Layer.provide(
+          Layer.succeed(OrchestrationCommandReceiptRepository, failingReceiptRepository),
+        ),
+        Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(ServerConfigLayer),
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    );
+    const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const createdAt = now();
+
+    await runtime.runPromise(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-project-receipt-create"),
+        projectId: asProjectId("project-receipt"),
+        title: "Receipt Project",
+        workspaceRoot: "/tmp/project-receipt",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        createdAt,
+      }),
+    );
+
+    await expect(
+      runtime.runPromise(
+        engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("cmd-receipt-fail"),
+          threadId: ThreadId.makeUnsafe("thread-receipt-fail"),
+          projectId: asProjectId("project-receipt"),
+          title: "receipt-fail",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        }),
+      ),
+    ).rejects.toThrow("receipt lookup failed");
+
+    const result = await runtime.runPromise(
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-receipt-ok"),
+        threadId: ThreadId.makeUnsafe("thread-receipt-ok"),
+        projectId: asProjectId("project-receipt"),
+        title: "receipt-ok",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
