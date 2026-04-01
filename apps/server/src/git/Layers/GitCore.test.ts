@@ -587,7 +587,7 @@ it.layer(TestLayer)("git integration", (it) => {
       }),
     );
 
-    it.effect("keeps checkout successful when upstream refresh fails", () =>
+    it.effect("statusDetails remains successful when upstream refresh fails after checkout", () =>
       Effect.gen(function* () {
         const remote = yield* makeTmpDir();
         const source = yield* makeTmpDir();
@@ -626,16 +626,15 @@ it.layer(TestLayer)("git integration", (it) => {
           return realGitCore.execute(input);
         });
         yield* core.checkoutBranch({ cwd: source, branch: featureBranch });
-        yield* Effect.promise(() =>
-          vi.waitFor(() => {
-            expect(refreshFetchAttempts).toBe(1);
-          }),
-        );
+        const status = yield* core.statusDetails(source);
+        expect(refreshFetchAttempts).toBe(1);
+        expect(status.branch).toBe(featureBranch);
+        expect(status.upstreamRef).toBe(`origin/${featureBranch}`);
         expect(yield* git(source, ["branch", "--show-current"])).toBe(featureBranch);
       }),
     );
 
-    it.effect("refresh fetch is scoped to the checked out branch upstream refspec", () =>
+    it.effect("defers upstream refresh until statusDetails is requested", () =>
       Effect.gen(function* () {
         const remote = yield* makeTmpDir();
         const source = yield* makeTmpDir();
@@ -657,10 +656,10 @@ it.layer(TestLayer)("git integration", (it) => {
         yield* git(source, ["checkout", defaultBranch]);
 
         const realGitCore = yield* GitCore;
-        let fetchArgs: readonly string[] | null = null;
+        let refreshFetchAttempts = 0;
         const core = yield* makeIsolatedGitCore((input) => {
           if (input.args[0] === "fetch") {
-            fetchArgs = [...input.args];
+            refreshFetchAttempts += 1;
             return Effect.succeed({
               code: 0,
               stdout: "",
@@ -672,73 +671,11 @@ it.layer(TestLayer)("git integration", (it) => {
           return realGitCore.execute(input);
         });
         yield* core.checkoutBranch({ cwd: source, branch: featureBranch });
-        yield* Effect.promise(() =>
-          vi.waitFor(() => {
-            expect(fetchArgs).not.toBeNull();
-          }),
-        );
-
-        expect(yield* git(source, ["branch", "--show-current"])).toBe(featureBranch);
-        expect(fetchArgs).toEqual([
-          "fetch",
-          "--quiet",
-          "--no-tags",
-          "origin",
-          `+refs/heads/${featureBranch}:refs/remotes/origin/${featureBranch}`,
-        ]);
-      }),
-    );
-
-    it.effect("returns checkout result before background upstream refresh completes", () =>
-      Effect.gen(function* () {
-        const remote = yield* makeTmpDir();
-        const source = yield* makeTmpDir();
-        yield* git(remote, ["init", "--bare"]);
-
-        yield* initRepoWithCommit(source);
-        const defaultBranch = (yield* (yield* GitCore).listBranches({ cwd: source })).branches.find(
-          (branch) => branch.current,
-        )!.name;
-        yield* git(source, ["remote", "add", "origin", remote]);
-        yield* git(source, ["push", "-u", "origin", defaultBranch]);
-
-        const featureBranch = "feature/background-refresh";
-        yield* git(source, ["checkout", "-b", featureBranch]);
-        yield* writeTextFile(path.join(source, "feature.txt"), "feature base\n");
-        yield* git(source, ["add", "feature.txt"]);
-        yield* git(source, ["commit", "-m", "feature base"]);
-        yield* git(source, ["push", "-u", "origin", featureBranch]);
-        yield* git(source, ["checkout", defaultBranch]);
-
-        const realGitCore = yield* GitCore;
-        let fetchStarted = false;
-        let releaseFetch!: () => void;
-        const waitForReleasePromise = new Promise<void>((resolve) => {
-          releaseFetch = resolve;
-        });
-        const core = yield* makeIsolatedGitCore((input) => {
-          if (input.args[0] === "fetch") {
-            fetchStarted = true;
-            return Effect.promise(() =>
-              waitForReleasePromise.then(() => ({
-                code: 0,
-                stdout: "",
-                stderr: "",
-                stdoutTruncated: false,
-                stderrTruncated: false,
-              })),
-            );
-          }
-          return realGitCore.execute(input);
-        });
-        yield* core.checkoutBranch({ cwd: source, branch: featureBranch });
-        yield* Effect.promise(() =>
-          vi.waitFor(() => {
-            expect(fetchStarted).toBe(true);
-          }),
-        );
-        expect(yield* git(source, ["branch", "--show-current"])).toBe(featureBranch);
-        releaseFetch();
+        yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 50)));
+        expect(refreshFetchAttempts).toBe(0);
+        const status = yield* core.statusDetails(source);
+        expect(status.branch).toBe(featureBranch);
+        expect(refreshFetchAttempts).toBe(1);
       }),
     );
 
@@ -805,6 +742,32 @@ it.layer(TestLayer)("git integration", (it) => {
         });
 
         expect(yield* git(source, ["branch", "--show-current"])).toBe("upstream/feature");
+        const realGitCore = yield* GitCore;
+        let fetchArgs: readonly string[] | null = null;
+        const core = yield* makeIsolatedGitCore((input) => {
+          if (input.args[0] === "fetch") {
+            fetchArgs = [...input.args];
+            return Effect.succeed({
+              code: 0,
+              stdout: "",
+              stderr: "",
+              stdoutTruncated: false,
+              stderrTruncated: false,
+            });
+          }
+          return realGitCore.execute(input);
+        });
+
+        const status = yield* core.statusDetails(source);
+        expect(status.branch).toBe("upstream/feature");
+        expect(status.upstreamRef).toBe(`${remoteName}/${featureBranch}`);
+        expect(fetchArgs).toEqual([
+          "fetch",
+          "--quiet",
+          "--no-tags",
+          remoteName,
+          `+refs/heads/${featureBranch}:refs/remotes/${remoteName}/${featureBranch}`,
+        ]);
       }),
     );
 
@@ -1689,6 +1652,42 @@ it.layer(TestLayer)("git integration", (it) => {
             yield* git(tmp, ["ls-remote", "--heads", "jasonLaster", "t3code/pr-488/statemachine"]),
           ).toBe("");
         }),
+    );
+
+    it.effect("pushes to the tracked upstream when the remote name contains slashes", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const remote = yield* makeTmpDir();
+        const remoteName = "my-org/upstream";
+        const featureBranch = "feature/slash-remote-push";
+        yield* git(remote, ["init", "--bare"]);
+
+        const { initialBranch } = yield* initRepoWithCommit(tmp);
+        yield* git(tmp, ["remote", "add", remoteName, remote]);
+        yield* git(tmp, ["push", "-u", remoteName, initialBranch]);
+
+        yield* git(tmp, ["checkout", "-b", featureBranch]);
+        yield* writeTextFile(path.join(tmp, "feature.txt"), "first revision\n");
+        yield* git(tmp, ["add", "feature.txt"]);
+        yield* git(tmp, ["commit", "-m", "feature base"]);
+        yield* git(tmp, ["push", "-u", remoteName, featureBranch]);
+
+        yield* writeTextFile(path.join(tmp, "feature.txt"), "second revision\n");
+        yield* git(tmp, ["add", "feature.txt"]);
+        yield* git(tmp, ["commit", "-m", "feature update"]);
+
+        const core = yield* GitCore;
+        const pushed = yield* core.pushCurrentBranch(tmp, null);
+        expect(pushed.status).toBe("pushed");
+        expect(pushed.setUpstream).toBe(false);
+        expect(pushed.upstreamBranch).toBe(`${remoteName}/${featureBranch}`);
+        expect(yield* git(tmp, ["rev-parse", "--abbrev-ref", "@{upstream}"])).toBe(
+          `${remoteName}/${featureBranch}`,
+        );
+        expect(yield* git(tmp, ["ls-remote", "--heads", remoteName, featureBranch])).toContain(
+          featureBranch,
+        );
+      }),
     );
 
     it.effect("includes command context when worktree removal fails", () =>
