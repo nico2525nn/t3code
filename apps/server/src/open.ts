@@ -220,37 +220,38 @@ export const resolveEditorLaunch = Effect.fnUntraced(function* (
   return { command: fileManagerCommandForPlatform(platform), args: [input.cwd] };
 });
 
-export const launchDetached = (launch: EditorLaunch) =>
-  Effect.gen(function* () {
-    if (!isCommandAvailable(launch.command)) {
-      return yield* new OpenError({ message: `Editor command not found: ${launch.command}` });
+export const launchDetached = Effect.fn("launchDetached")(function* (
+  launch: EditorLaunch,
+): Effect.fn.Return<void, OpenError> {
+  if (!isCommandAvailable(launch.command)) {
+    return yield* new OpenError({ message: `Editor command not found: ${launch.command}` });
+  }
+
+  yield* Effect.callback<void, OpenError>((resume) => {
+    let child;
+    try {
+      child = spawn(launch.command, [...launch.args], {
+        detached: true,
+        stdio: "ignore",
+        shell: process.platform === "win32",
+      });
+    } catch (error) {
+      return resume(
+        Effect.fail(new OpenError({ message: "failed to spawn detached process", cause: error })),
+      );
     }
 
-    yield* Effect.callback<void, OpenError>((resume) => {
-      let child;
-      try {
-        child = spawn(launch.command, [...launch.args], {
-          detached: true,
-          stdio: "ignore",
-          shell: process.platform === "win32",
-        });
-      } catch (error) {
-        return resume(
-          Effect.fail(new OpenError({ message: "failed to spawn detached process", cause: error })),
-        );
-      }
+    const handleSpawn = () => {
+      child.unref();
+      resume(Effect.void);
+    };
 
-      const handleSpawn = () => {
-        child.unref();
-        resume(Effect.void);
-      };
-
-      child.once("spawn", handleSpawn);
-      child.once("error", (cause) =>
-        resume(Effect.fail(new OpenError({ message: "failed to spawn detached process", cause }))),
-      );
-    });
+    child.once("spawn", handleSpawn);
+    child.once("error", (cause) =>
+      resume(Effect.fail(new OpenError({ message: "failed to spawn detached process", cause }))),
+    );
   });
+});
 
 const make = Effect.gen(function* () {
   const open = yield* Effect.tryPromise({
