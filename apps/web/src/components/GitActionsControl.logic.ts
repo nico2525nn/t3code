@@ -346,5 +346,17 @@ export function resolveDefaultBranchActionDialogCopy(input: {
   };
 }
 
+export function resolveThreadBranchUpdate(
+  result: GitRunStackedActionResult,
+): { branch: string } | null {
+  if (result.branch.status !== "created" || !result.branch.name) {
+    return null;
+  }
+
+  return {
+    branch: result.branch.name,
+  };
+}
+
 // Re-export from shared for backwards compatibility in this module's exports
 export { resolveAutoFeatureBranchName } from "@t3tools/shared/git";

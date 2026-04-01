@@ -27,6 +27,11 @@ import {
   type ExecuteGitInput,
   type ExecuteGitResult,
 } from "../Services/GitCore.ts";
+import {
+  parseRemoteNames,
+  parseRemoteNamesInGitOrder,
+  parseRemoteRefWithRemoteNames,
+} from "../remoteRefs.ts";
 import { ServerConfig } from "../../config.ts";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 
@@ -177,14 +182,6 @@ function parseBranchLine(line: string): { name: string; current: boolean } | nul
   };
 }
 
-function parseRemoteNames(stdout: string): ReadonlyArray<string> {
-  return stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .toSorted((a, b) => b.length - a.length);
-}
-
 function sanitizeRemoteName(value: string): string {
   const sanitized = value
     .trim()
@@ -217,32 +214,6 @@ function parseRemoteFetchUrls(stdout: string): Map<string, string> {
   return remotes;
 }
 
-function parseRemoteRefWithRemoteNames(
-  branchName: string,
-  remoteNames: ReadonlyArray<string>,
-): { remoteRef: string; remoteName: string; localBranch: string } | null {
-  const trimmedBranchName = branchName.trim();
-  if (trimmedBranchName.length === 0) return null;
-
-  for (const remoteName of remoteNames) {
-    const remotePrefix = `${remoteName}/`;
-    if (!trimmedBranchName.startsWith(remotePrefix)) {
-      continue;
-    }
-    const localBranch = trimmedBranchName.slice(remotePrefix.length).trim();
-    if (localBranch.length === 0) {
-      return null;
-    }
-    return {
-      remoteRef: trimmedBranchName,
-      remoteName,
-      localBranch,
-    };
-  }
-
-  return null;
-}
-
 function parseUpstreamRefWithRemoteNames(
   upstreamRef: string,
   remoteNames: ReadonlyArray<string>,
@@ -255,7 +226,7 @@ function parseUpstreamRefWithRemoteNames(
   return {
     upstreamRef,
     remoteName: parsed.remoteName,
-    upstreamBranch: parsed.localBranch,
+    upstreamBranch: parsed.branchName,
   };
 }
 
@@ -928,7 +899,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
 
   const listRemoteNames = (cwd: string): Effect.Effect<ReadonlyArray<string>, GitCommandError> =>
     runGitStdout("GitCore.listRemoteNames", cwd, ["remote"]).pipe(
-      Effect.map((stdout) => parseRemoteNames(stdout).toReversed()),
+      Effect.map(parseRemoteNamesInGitOrder),
     );
 
   const resolvePrimaryRemoteName = Effect.fn("resolvePrimaryRemoteName")(function* (cwd: string) {

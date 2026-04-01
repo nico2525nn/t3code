@@ -24,6 +24,7 @@ import {
 import { GitCore } from "../Services/GitCore.ts";
 import { GitHubCli } from "../Services/GitHubCli.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
+import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
 
@@ -260,25 +261,6 @@ function parseCustomCommitMessage(raw: string): { subject: string; body: string 
     subject,
     body: rest.join("\n").trim(),
   };
-}
-
-function extractBranchFromRef(ref: string): string {
-  const normalized = ref.trim();
-
-  if (normalized.startsWith("refs/remotes/")) {
-    const withoutPrefix = normalized.slice("refs/remotes/".length);
-    const firstSlash = withoutPrefix.indexOf("/");
-    if (firstSlash === -1) {
-      return withoutPrefix.trim();
-    }
-    return withoutPrefix.slice(firstSlash + 1).trim();
-  }
-
-  const firstSlash = normalized.indexOf("/");
-  if (firstSlash === -1) {
-    return normalized;
-  }
-  return normalized.slice(firstSlash + 1).trim();
 }
 
 function appendUnique(values: string[], next: string | null | undefined): void {
@@ -534,9 +516,11 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   ) {
     const remoteName = yield* readConfigValueNullable(cwd, `branch.${details.branch}.remote`);
     const headBranchFromUpstream = details.upstreamRef
-      ? extractBranchFromRef(details.upstreamRef)
+      ? extractBranchNameFromRemoteRef(details.upstreamRef, { remoteName })
       : "";
     const headBranch = headBranchFromUpstream.length > 0 ? headBranchFromUpstream : details.branch;
+    const shouldProbeLocalBranchSelector =
+      headBranchFromUpstream.length === 0 || headBranch === details.branch;
 
     const [remoteRepository, originRepository] = yield* Effect.all(
       [
@@ -572,7 +556,9 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         remoteAliasHeadSelector !== ownerHeadSelector ? remoteAliasHeadSelector : null,
       );
     }
-    appendUnique(headSelectors, details.branch);
+    if (shouldProbeLocalBranchSelector) {
+      appendUnique(headSelectors, details.branch);
+    }
     appendUnique(headSelectors, headBranch !== details.branch ? headBranch : null);
     if (!isCrossRepository && shouldProbeRemoteOwnedSelectors) {
       appendUnique(headSelectors, ownerHeadSelector);
@@ -682,13 +668,15 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     cwd: string,
     branch: string,
     upstreamRef: string | null,
-    headContext: Pick<BranchHeadContext, "isCrossRepository">,
+    headContext: Pick<BranchHeadContext, "isCrossRepository" | "remoteName">,
   ) {
     const configured = yield* gitCore.readConfigValue(cwd, `branch.${branch}.gh-merge-base`);
     if (configured) return configured;
 
     if (upstreamRef && !headContext.isCrossRepository) {
-      const upstreamBranch = extractBranchFromRef(upstreamRef);
+      const upstreamBranch = extractBranchNameFromRemoteRef(upstreamRef, {
+        remoteName: headContext.remoteName,
+      });
       if (upstreamBranch.length > 0 && upstreamBranch !== branch) {
         return upstreamBranch;
       }

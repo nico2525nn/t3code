@@ -7,6 +7,7 @@ import {
   resolveAutoFeatureBranchName,
   resolveDefaultBranchActionDialogCopy,
   resolveQuickAction,
+  resolveThreadBranchUpdate,
   summarizeGitResult,
 } from "./GitActionsControl.logic";
 
@@ -983,6 +984,47 @@ describe("summarizeGitResult", () => {
       title: "Created PR #99",
       description: "feat: this title is intentionally extremely long so we can validate t...",
     });
+  });
+});
+
+describe("resolveThreadBranchUpdate", () => {
+  it("returns a branch update when the action created a new branch", () => {
+    const update = resolveThreadBranchUpdate({
+      action: "commit_push_pr",
+      branch: {
+        status: "created",
+        name: "feature/fix-toast-copy",
+      },
+      commit: {
+        status: "created",
+        commitSha: "89abcdef01234567",
+        subject: "feat: add branch sync",
+      },
+      push: { status: "pushed", branch: "feature/fix-toast-copy" },
+      pr: { status: "skipped_not_requested" },
+    });
+
+    assert.deepEqual(update, {
+      branch: "feature/fix-toast-copy",
+    });
+  });
+
+  it("returns null when the action stayed on the existing branch", () => {
+    const update = resolveThreadBranchUpdate({
+      action: "commit_push",
+      branch: {
+        status: "skipped_not_requested",
+      },
+      commit: {
+        status: "created",
+        commitSha: "89abcdef01234567",
+        subject: "feat: add branch sync",
+      },
+      push: { status: "pushed", branch: "feature/fix-toast-copy" },
+      pr: { status: "skipped_not_requested" },
+    });
+
+    assert.equal(update, null);
   });
 });
 

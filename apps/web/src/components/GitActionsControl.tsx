@@ -1,5 +1,6 @@
 import type {
   GitActionProgressEvent,
+  GitRunStackedActionResult,
   GitStackedAction,
   GitStatusResult,
   ThreadId,
@@ -18,6 +19,7 @@ import {
   requiresDefaultBranchConfirmation,
   resolveDefaultBranchActionDialogCopy,
   resolveQuickAction,
+  resolveThreadBranchUpdate,
   summarizeGitResult,
 } from "./GitActionsControl.logic";
 import { Button } from "~/components/ui/button";
@@ -47,9 +49,10 @@ import {
   gitStatusQueryOptions,
   invalidateGitQueries,
 } from "~/lib/gitReactQuery";
-import { randomUUID } from "~/lib/utils";
+import { newCommandId, randomUUID } from "~/lib/utils";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { readNativeApi } from "~/nativeApi";
+import { useStore } from "~/store";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -208,6 +211,10 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     () => (activeThreadId ? { threadId: activeThreadId } : undefined),
     [activeThreadId],
   );
+  const activeServerThread = useStore((store) =>
+    activeThreadId ? store.threads.find((thread) => thread.id === activeThreadId) : undefined,
+  );
+  const setThreadBranch = useStore((store) => store.setThreadBranch);
   const queryClient = useQueryClient();
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
@@ -230,6 +237,36 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       data: threadToastData,
     });
   }, [threadToastData]);
+
+  const syncThreadBranchAfterGitAction = useCallback(
+    (result: GitRunStackedActionResult) => {
+      const branchUpdate = resolveThreadBranchUpdate(result);
+      if (!branchUpdate || !activeThreadId || !activeServerThread) {
+        return;
+      }
+
+      const worktreePath = activeServerThread.worktreePath;
+      if (activeServerThread.branch === branchUpdate.branch) {
+        return;
+      }
+
+      const api = readNativeApi();
+      if (api) {
+        void api.orchestration
+          .dispatchCommand({
+            type: "thread.meta.update",
+            commandId: newCommandId(),
+            threadId: activeThreadId,
+            branch: branchUpdate.branch,
+            worktreePath,
+          })
+          .catch(() => undefined);
+      }
+
+      setThreadBranch(activeThreadId, branchUpdate.branch, worktreePath);
+    },
+    [activeServerThread, activeThreadId, setThreadBranch],
+  );
 
   const { data: gitStatus = null, error: gitStatusError } = useQuery(gitStatusQueryOptions(gitCwd));
 
@@ -483,6 +520,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       try {
         const result = await promise;
         activeGitActionProgressRef.current = null;
+        syncThreadBranchAfterGitAction(result);
         const resultToast = summarizeGitResult(result);
 
         const existingOpenPrUrl =
