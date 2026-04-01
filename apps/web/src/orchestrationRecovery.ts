@@ -62,10 +62,14 @@ export function createOrchestrationRecoveryCoordinator() {
       return "apply";
     },
 
-    markEventBatchApplied<T extends SequencedEvent>(events: ReadonlyArray<T>): ReadonlyArray<T> {
-      const nextEvents = events
+    filterNewEvents<T extends SequencedEvent>(events: ReadonlyArray<T>): ReadonlyArray<T> {
+      return events
         .filter((event) => event.sequence > state.latestSequence)
         .toSorted((left, right) => left.sequence - right.sequence);
+    },
+
+    markEventBatchApplied<T extends SequencedEvent>(events: ReadonlyArray<T>): ReadonlyArray<T> {
+      const nextEvents = this.filterNewEvents(events);
       if (nextEvents.length === 0) {
         return [];
       }

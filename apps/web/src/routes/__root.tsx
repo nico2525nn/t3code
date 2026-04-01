@@ -313,7 +313,7 @@ function EventRouter() {
     const applyEventBatch = (
       events: ReadonlyArray<OrchestrationEvent>,
     ): "applied" | "snapshot-recovery-needed" => {
-      const nextEvents = recovery.markEventBatchApplied(events);
+      const nextEvents = recovery.filterNewEvents(events);
       if (nextEvents.length === 0) {
         return "applied";
       }
@@ -326,6 +326,8 @@ function EventRouter() {
       if (needsActiveSnapshotRecovery) {
         return "snapshot-recovery-needed";
       }
+
+      recovery.markEventBatchApplied(nextEvents);
 
       const batchEffects = deriveOrchestrationBatchEffects(nextEvents);
       const needsProjectUiSync = nextEvents.some(
@@ -417,6 +419,9 @@ function EventRouter() {
         if (!disposed) {
           syncServerReadModel(snapshot);
           reconcileSnapshotDerivedState();
+          void queryClient.invalidateQueries({
+            queryKey: orchestrationQueryKeys.archivedThreads(),
+          });
           if (recovery.completeSnapshotRecovery(snapshot.snapshotSequence)) {
             void recoverFromSequenceGap();
           }
