@@ -38,7 +38,11 @@ export interface DrainableWorker<A> {
 export const makeDrainableWorker = <A, E, R>(
   process: (item: A) => Effect.Effect<void, E, R>,
 ): Effect.Effect<DrainableWorker<A>, never, Scope.Scope | R> =>
-  Effect.gen(function* () {
+  Effect.fn("makeDrainableWorker")(function* (): Effect.fn.Return<
+    DrainableWorker<A>,
+    never,
+    Scope.Scope | R
+  > {
     const queue = yield* Effect.acquireRelease(TxQueue.unbounded<A>(), TxQueue.shutdown);
     const outstanding = yield* TxRef.make(0);
 
@@ -65,4 +69,4 @@ export const makeDrainableWorker = <A, E, R>(
       );
 
     return { enqueue, drain } satisfies DrainableWorker<A>;
-  });
+  })();
