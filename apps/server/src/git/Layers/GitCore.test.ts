@@ -716,10 +716,13 @@ it.layer(TestLayer)("git integration", (it) => {
     it.effect("checks out a remote tracking branch when remote name contains slashes", () =>
       Effect.gen(function* () {
         const remote = yield* makeTmpDir();
+        const prefixRemote = yield* makeTmpDir();
         const source = yield* makeTmpDir();
+        const prefixRemoteName = "my-org";
         const remoteName = "my-org/upstream";
         const featureBranch = "feature";
         yield* git(remote, ["init", "--bare"]);
+        yield* git(prefixRemote, ["init", "--bare"]);
 
         yield* initRepoWithCommit(source);
         const defaultBranch = (yield* (yield* GitCore).listBranches({ cwd: source })).branches.find(
@@ -740,6 +743,7 @@ it.layer(TestLayer)("git integration", (it) => {
           cwd: source,
           branch: `${remoteName}/${featureBranch}`,
         });
+        yield* git(source, ["remote", "add", prefixRemoteName, prefixRemote]);
 
         expect(yield* git(source, ["branch", "--show-current"])).toBe("upstream/feature");
         const realGitCore = yield* GitCore;
@@ -1658,9 +1662,12 @@ it.layer(TestLayer)("git integration", (it) => {
       Effect.gen(function* () {
         const tmp = yield* makeTmpDir();
         const remote = yield* makeTmpDir();
+        const prefixRemote = yield* makeTmpDir();
+        const prefixRemoteName = "my-org";
         const remoteName = "my-org/upstream";
         const featureBranch = "feature/slash-remote-push";
         yield* git(remote, ["init", "--bare"]);
+        yield* git(prefixRemote, ["init", "--bare"]);
 
         const { initialBranch } = yield* initRepoWithCommit(tmp);
         yield* git(tmp, ["remote", "add", remoteName, remote]);
@@ -1671,6 +1678,7 @@ it.layer(TestLayer)("git integration", (it) => {
         yield* git(tmp, ["add", "feature.txt"]);
         yield* git(tmp, ["commit", "-m", "feature base"]);
         yield* git(tmp, ["push", "-u", remoteName, featureBranch]);
+        yield* git(tmp, ["remote", "add", prefixRemoteName, prefixRemote]);
 
         yield* writeTextFile(path.join(tmp, "feature.txt"), "second revision\n");
         yield* git(tmp, ["add", "feature.txt"]);

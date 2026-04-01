@@ -829,7 +829,8 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       return null;
     }
 
-    const remoteNames = yield* listRemoteNames(cwd).pipe(
+    const remoteNames = yield* runGitStdout("GitCore.listRemoteNames", cwd, ["remote"]).pipe(
+      Effect.map(parseRemoteNames),
       Effect.catch(() => Effect.succeed<ReadonlyArray<string>>([])),
     );
     return (
