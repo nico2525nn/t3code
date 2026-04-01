@@ -122,35 +122,34 @@ const buildCmd = Command.make(
   {
     verbose: Flag.boolean("verbose").pipe(Flag.withDefault(false)),
   },
-  (config) =>
-    Effect.gen(function* () {
-      const path = yield* Path.Path;
-      const fs = yield* FileSystem.FileSystem;
-      const repoRoot = yield* RepoRoot;
-      const serverDir = path.join(repoRoot, "apps/server");
+  Effect.fn("buildCmd")(function* (config) {
+    const path = yield* Path.Path;
+    const fs = yield* FileSystem.FileSystem;
+    const repoRoot = yield* RepoRoot;
+    const serverDir = path.join(repoRoot, "apps/server");
 
-      yield* Effect.log("[cli] Running tsdown...");
-      yield* runCommand(
-        ChildProcess.make({
-          cwd: serverDir,
-          stdout: config.verbose ? "inherit" : "ignore",
-          stderr: "inherit",
-          // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
-          shell: process.platform === "win32",
-        })`bun tsdown`,
-      );
+    yield* Effect.log("[cli] Running tsdown...");
+    yield* runCommand(
+      ChildProcess.make({
+        cwd: serverDir,
+        stdout: config.verbose ? "inherit" : "ignore",
+        stderr: "inherit",
+        // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
+        shell: process.platform === "win32",
+      })`bun tsdown`,
+    );
 
-      const webDist = path.join(repoRoot, "apps/web/dist");
-      const clientTarget = path.join(serverDir, "dist/client");
+    const webDist = path.join(repoRoot, "apps/web/dist");
+    const clientTarget = path.join(serverDir, "dist/client");
 
-      if (yield* fs.exists(webDist)) {
-        yield* fs.copy(webDist, clientTarget);
-        yield* applyDevelopmentIconOverrides(repoRoot, serverDir);
-        yield* Effect.log("[cli] Bundled web app into dist/client");
-      } else {
-        yield* Effect.logWarning("[cli] Web dist not found — skipping client bundle.");
-      }
-    }),
+    if (yield* fs.exists(webDist)) {
+      yield* fs.copy(webDist, clientTarget);
+      yield* applyDevelopmentIconOverrides(repoRoot, serverDir);
+      yield* Effect.log("[cli] Bundled web app into dist/client");
+    } else {
+      yield* Effect.logWarning("[cli] Web dist not found — skipping client bundle.");
+    }
+  }),
 ).pipe(Command.withDescription("Build the server package (tsdown + bundle web client)."));
 
 // ---------------------------------------------------------------------------
@@ -167,87 +166,87 @@ const publishCmd = Command.make(
     dryRun: Flag.boolean("dry-run").pipe(Flag.withDefault(false)),
     verbose: Flag.boolean("verbose").pipe(Flag.withDefault(false)),
   },
-  (config) =>
-    Effect.gen(function* () {
-      const path = yield* Path.Path;
-      const fs = yield* FileSystem.FileSystem;
-      const repoRoot = yield* RepoRoot;
-      const serverDir = path.join(repoRoot, "apps/server");
-      const packageJsonPath = path.join(serverDir, "package.json");
-      const backupPath = `${packageJsonPath}.bak`;
+  Effect.fn("publishCmd")(function* (config) {
+    const path = yield* Path.Path;
+    const fs = yield* FileSystem.FileSystem;
+    const repoRoot = yield* RepoRoot;
+    const serverDir = path.join(repoRoot, "apps/server");
+    const packageJsonPath = path.join(serverDir, "package.json");
+    const backupPath = `${packageJsonPath}.bak`;
 
-      // Assert build assets exist
-      for (const relPath of ["dist/index.mjs", "dist/client/index.html"]) {
-        const abs = path.join(serverDir, relPath);
-        if (!(yield* fs.exists(abs))) {
-          return yield* new CliError({
-            message: `Missing build asset: ${abs}. Run the build subcommand first.`,
-          });
-        }
+    // Assert build assets exist
+    for (const relPath of ["dist/index.mjs", "dist/client/index.html"]) {
+      const abs = path.join(serverDir, relPath);
+      if (!(yield* fs.exists(abs))) {
+        return yield* new CliError({
+          message: `Missing build asset: ${abs}. Run the build subcommand first.`,
+        });
       }
+    }
 
       yield* Effect.acquireUseRelease(
         // Acquire: backup package.json, resolve catalog: deps, strip devDependencies/scripts
-        Effect.gen(function* () {
-          // Resolve catalog dependencies before any file mutations. If this throws,
-          // acquire fails and no release hook runs, so filesystem must still be untouched.
-          const version = Option.getOrElse(config.appVersion, () => serverPackageJson.version);
-          const pkg = {
-            name: serverPackageJson.name,
-            repository: serverPackageJson.repository,
-            bin: serverPackageJson.bin,
-            type: serverPackageJson.type,
-            version,
-            engines: serverPackageJson.engines,
-            files: serverPackageJson.files,
-            dependencies: serverPackageJson.dependencies as Record<string, unknown>,
-          };
+        Effect.fn("publishCmd.acquire")(function* () {
+        // Resolve catalog dependencies before any file mutations. If this throws,
+        // acquire fails and no release hook runs, so filesystem must still be untouched.
+        const version = Option.getOrElse(config.appVersion, () => serverPackageJson.version);
+        const pkg = {
+          name: serverPackageJson.name,
+          repository: serverPackageJson.repository,
+          bin: serverPackageJson.bin,
+          type: serverPackageJson.type,
+          version,
+          engines: serverPackageJson.engines,
+          files: serverPackageJson.files,
+          dependencies: serverPackageJson.dependencies as Record<string, unknown>,
+        };
 
-          pkg.dependencies = resolveCatalogDependencies(
-            pkg.dependencies,
-            rootPackageJson.workspaces.catalog,
-            "apps/server dependencies",
-          );
+        pkg.dependencies = resolveCatalogDependencies(
+          pkg.dependencies,
+          rootPackageJson.workspaces.catalog,
+          "apps/server dependencies",
+        );
 
-          const original = yield* fs.readFileString(packageJsonPath);
-          yield* fs.writeFileString(backupPath, original);
-          yield* fs.writeFileString(packageJsonPath, `${JSON.stringify(pkg, null, 2)}\n`);
-          yield* Effect.log("[cli] Resolved package.json for publish");
+        const original = yield* fs.readFileString(packageJsonPath);
+        yield* fs.writeFileString(backupPath, original);
+        yield* fs.writeFileString(packageJsonPath, `${JSON.stringify(pkg, null, 2)}\n`);
+        yield* Effect.log("[cli] Resolved package.json for publish");
 
-          const iconBackups = yield* applyPublishIconOverrides(repoRoot, serverDir);
-          return { iconBackups };
-        }),
+        const iconBackups = yield* applyPublishIconOverrides(repoRoot, serverDir);
+        return { iconBackups };
+        })(),
         // Use: npm publish
         () =>
-          Effect.gen(function* () {
+          Effect.fn("publishCmd.use")(function* () {
             const args = ["publish", "--access", config.access, "--tag", config.tag];
             if (config.provenance) args.push("--provenance");
             if (config.dryRun) args.push("--dry-run");
 
-            yield* Effect.log(`[cli] Running: npm ${args.join(" ")}`);
-            yield* runCommand(
-              ChildProcess.make("npm", [...args], {
-                cwd: serverDir,
-                stdout: config.verbose ? "inherit" : "ignore",
-                stderr: "inherit",
-                // Windows needs shell mode to resolve .cmd shims.
-                shell: process.platform === "win32",
+        yield* Effect.log(`[cli] Running: npm ${args.join(" ")}`);
+        yield* runCommand(
+          ChildProcess.make("npm", [...args], {
+            cwd: serverDir,
+            stdout: config.verbose ? "inherit" : "ignore",
+            stderr: "inherit",
+            // Windows needs shell mode to resolve .cmd shims.
+            shell: process.platform === "win32",
               }),
             );
-          }),
+          })(),
         // Release: restore
-        (resource: { readonly iconBackups: ReadonlyArray<PublishIconBackup> }) =>
-          Effect.gen(function* () {
-            yield* restorePublishIconOverrides(resource.iconBackups).pipe(
-              Effect.catch((error) =>
-                Effect.logError(`[cli] Failed to restore publish icon overrides: ${String(error)}`),
-              ),
-            );
-            yield* fs.rename(backupPath, packageJsonPath);
-            if (config.verbose) yield* Effect.log("[cli] Restored original package.json");
-          }),
+        Effect.fn("publishCmd.release")(function* (resource: {
+          readonly iconBackups: ReadonlyArray<PublishIconBackup>;
+        }) {
+        yield* restorePublishIconOverrides(resource.iconBackups).pipe(
+          Effect.catch((error) =>
+            Effect.logError(`[cli] Failed to restore publish icon overrides: ${String(error)}`),
+          ),
+          );
+          yield* fs.rename(backupPath, packageJsonPath);
+          if (config.verbose) yield* Effect.log("[cli] Restored original package.json");
+        }),
       );
-    }),
+  }),
 ).pipe(Command.withDescription("Publish the server package to npm."));
 
 // ---------------------------------------------------------------------------
