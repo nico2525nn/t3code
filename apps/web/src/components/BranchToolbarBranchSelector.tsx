@@ -1,6 +1,8 @@
-import type { GitBranch } from "@t3tools/contracts";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { type GitBranch } from "@t3tools/contracts";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import * as Option from "effect/Option";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { ChevronDownIcon } from "lucide-react";
 import {
   type CSSProperties,
@@ -14,14 +16,14 @@ import {
   useTransition,
 } from "react";
 
-import {
-  gitBranchesQueryOptions,
-  gitQueryKeys,
-  gitStatusQueryOptions,
-  invalidateGitQueries,
-} from "../lib/gitReactQuery";
-import { readNativeApi } from "../nativeApi";
 import { parsePullRequestReference } from "../pullRequestReference";
+import { REACTIVITY_KEYS } from "../rpc/client";
+import {
+  gitBranchesAtom,
+  gitCheckoutMutationAtom,
+  gitCreateBranchMutationAtom,
+  gitStatusAtom,
+} from "../rpc/gitAtoms";
 import {
   dedupeRemoteBranchesWithLocalMatches,
   deriveLocalBranchNameFromRemoteRef,
@@ -84,19 +86,23 @@ export function BranchToolbarBranchSelector({
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
-  const queryClient = useQueryClient();
   const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
   const deferredBranchQuery = useDeferredValue(branchQuery);
-
-  const branchesQuery = useQuery(gitBranchesQueryOptions(branchCwd));
-  const branchStatusQuery = useQuery(gitStatusQueryOptions(branchCwd));
+  const branchesResult = useAtomValue(gitBranchesAtom(branchCwd));
+  const branchStatusResult = useAtomValue(gitStatusAtom(branchCwd));
+  const refreshBranches = useAtomRefresh(gitBranchesAtom(branchCwd));
+  const refreshBranchStatus = useAtomRefresh(gitStatusAtom(branchCwd));
+  const checkoutBranch = useAtomSet(gitCheckoutMutationAtom, { mode: "promise" });
+  const createGitBranch = useAtomSet(gitCreateBranchMutationAtom, { mode: "promise" });
+  const branchesData = Option.getOrUndefined(AsyncResult.value(branchesResult));
+  const branchStatus = Option.getOrUndefined(AsyncResult.value(branchStatusResult));
   const branches = useMemo(
-    () => dedupeRemoteBranchesWithLocalMatches(branchesQuery.data?.branches ?? []),
-    [branchesQuery.data?.branches],
+    () => dedupeRemoteBranchesWithLocalMatches(branchesData?.branches ?? []),
+    [branchesData?.branches],
   );
   const currentGitBranch =
-    branchStatusQuery.data?.branch ?? branches.find((branch) => branch.current)?.name ?? null;
+    branchStatus?.branch ?? branches.find((branch) => branch.current)?.name ?? null;
   const canonicalActiveBranch = resolveBranchToolbarValue({
     envMode: effectiveEnvMode,
     activeWorktreePath,
@@ -155,18 +161,18 @@ export function BranchToolbarBranchSelector({
     (_currentBranch: string | null, optimisticBranch: string | null) => optimisticBranch,
   );
   const [isBranchActionPending, startBranchActionTransition] = useTransition();
+  const isBranchesLoading =
+    branches.length === 0 && (AsyncResult.isInitial(branchesResult) || branchesResult.waiting);
   const shouldVirtualizeBranchList = filteredBranchPickerItems.length > 40;
 
   const runBranchAction = (action: () => Promise<void>) => {
     startBranchActionTransition(async () => {
       await action().catch(() => undefined);
-      await invalidateGitQueries(queryClient).catch(() => undefined);
     });
   };
 
   const selectBranch = (branch: GitBranch) => {
-    const api = readNativeApi();
-    if (!api || !branchCwd || isBranchActionPending) return;
+    if (!branchCwd || isBranchActionPending) return;
 
     // In new-worktree mode, selecting a branch sets the base branch.
     if (isSelectingWorktreeBase) {
@@ -200,8 +206,13 @@ export function BranchToolbarBranchSelector({
     runBranchAction(async () => {
       setOptimisticBranch(selectedBranchName);
       try {
-        await api.git.checkout({ cwd: selectionTarget.checkoutCwd, branch: branch.name });
-        await invalidateGitQueries(queryClient);
+        await checkoutBranch({
+          payload: {
+            cwd: selectionTarget.checkoutCwd,
+            branch: branch.name,
+          },
+          reactivityKeys: [REACTIVITY_KEYS.git(selectionTarget.checkoutCwd)],
+        });
       } catch (error) {
         toastManager.add({
           type: "error",
@@ -211,23 +222,14 @@ export function BranchToolbarBranchSelector({
         return;
       }
 
-      let nextBranchName = selectedBranchName;
-      if (branch.isRemote) {
-        const status = await api.git.status({ cwd: branchCwd }).catch(() => null);
-        if (status?.branch) {
-          nextBranchName = status.branch;
-        }
-      }
-
-      setOptimisticBranch(nextBranchName);
-      onSetThreadBranch(nextBranchName, selectionTarget.nextWorktreePath);
+      setOptimisticBranch(selectedBranchName);
+      onSetThreadBranch(selectedBranchName, selectionTarget.nextWorktreePath);
     });
   };
 
   const createBranch = (rawName: string) => {
     const name = rawName.trim();
-    const api = readNativeApi();
-    if (!api || !branchCwd || !name || isBranchActionPending) return;
+    if (!branchCwd || !name || isBranchActionPending) return;
 
     setIsBranchMenuOpen(false);
     onComposerFocusRequest?.();
@@ -236,9 +238,14 @@ export function BranchToolbarBranchSelector({
       setOptimisticBranch(name);
 
       try {
-        await api.git.createBranch({ cwd: branchCwd, branch: name });
+        await createGitBranch({
+          payload: { cwd: branchCwd, branch: name },
+        });
         try {
-          await api.git.checkout({ cwd: branchCwd, branch: name });
+          await checkoutBranch({
+            payload: { cwd: branchCwd, branch: name },
+            reactivityKeys: [REACTIVITY_KEYS.git(branchCwd)],
+          });
         } catch (error) {
           toastManager.add({
             type: "error",
@@ -287,11 +294,12 @@ export function BranchToolbarBranchSelector({
         setBranchQuery("");
         return;
       }
-      void queryClient.invalidateQueries({
-        queryKey: gitQueryKeys.branches(branchCwd),
-      });
+      if (branchCwd) {
+        refreshBranches();
+        refreshBranchStatus();
+      }
     },
-    [branchCwd, queryClient],
+    [branchCwd, refreshBranchStatus, refreshBranches],
   );
 
   const branchListScrollElementRef = useRef<HTMLDivElement | null>(null);
@@ -425,7 +433,7 @@ export function BranchToolbarBranchSelector({
       <ComboboxTrigger
         render={<Button variant="ghost" size="xs" />}
         className="text-muted-foreground/70 hover:text-foreground/80"
-        disabled={(branchesQuery.isLoading && branches.length === 0) || isBranchActionPending}
+        disabled={isBranchesLoading || isBranchActionPending}
       >
         <span className="max-w-[240px] truncate">{triggerLabel}</span>
         <ChevronDownIcon />

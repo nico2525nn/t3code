@@ -32,6 +32,7 @@ import {
 import { isMacPlatform } from "../lib/utils";
 import { __resetNativeApiForTests } from "../nativeApi";
 import { getRouter } from "../router";
+import { resetAppAtomRegistryForTests } from "../rpc/atomRegistry";
 import { useStore } from "../store";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
@@ -1121,6 +1122,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       },
     });
     __resetNativeApiForTests();
+    resetAppAtomRegistryForTests();
     await setViewport(DEFAULT_VIEWPORT);
     localStorage.clear();
     document.body.innerHTML = "";
@@ -1143,6 +1145,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   afterEach(() => {
     customWsRpcResolver = null;
     document.body.innerHTML = "";
+    resetAppAtomRegistryForTests();
   });
 
   it.each(TEXT_VIEWPORT_MATRIX)(

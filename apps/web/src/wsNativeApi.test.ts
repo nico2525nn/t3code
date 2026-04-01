@@ -55,7 +55,6 @@ const rpcClientMock = {
   git: {
     pull: vi.fn(),
     status: vi.fn(),
-    runStackedAction: vi.fn(),
     listBranches: vi.fn(),
     createWorktree: vi.fn(),
     removeWorktree: vi.fn(),

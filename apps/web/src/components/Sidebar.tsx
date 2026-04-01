@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { autoAnimate } from "@formkit/auto-animate";
+import { Option } from "effect";
+import { AsyncResult } from "effect/unstable/reactivity";
 import {
   useCallback,
   useEffect,
@@ -44,7 +46,6 @@ import {
   ThreadId,
   type GitStatusResult,
 } from "@t3tools/contracts";
-import { useQueries } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
   type SidebarProjectSortOrder,
@@ -65,8 +66,8 @@ import {
   threadTraversalDirectionFromCommand,
 } from "../keybindings";
 import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
-import { gitStatusQueryOptions } from "../lib/gitReactQuery";
 import { readNativeApi } from "../nativeApi";
+import { useGitStatuses } from "../rpc/gitAtoms";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 
@@ -556,19 +557,15 @@ export default function Sidebar() {
     ],
     [threadGitTargets],
   );
-  const threadGitStatusQueries = useQueries({
-    queries: threadGitStatusCwds.map((cwd) => ({
-      ...gitStatusQueryOptions(cwd),
-      staleTime: 30_000,
-      refetchInterval: 60_000,
-    })),
-  });
+  const threadGitStatusResults = useGitStatuses(threadGitStatusCwds);
   const prByThreadId = useMemo(() => {
     const statusByCwd = new Map<string, GitStatusResult>();
     for (let index = 0; index < threadGitStatusCwds.length; index += 1) {
       const cwd = threadGitStatusCwds[index];
       if (!cwd) continue;
-      const status = threadGitStatusQueries[index]?.data;
+      const status = threadGitStatusResults[index]
+        ? Option.getOrUndefined(AsyncResult.value(threadGitStatusResults[index]!))
+        : undefined;
       if (status) {
         statusByCwd.set(cwd, status);
       }
@@ -582,7 +579,7 @@ export default function Sidebar() {
       map.set(target.threadId, branchMatches ? (status?.pr ?? null) : null);
     }
     return map;
-  }, [threadGitStatusCwds, threadGitStatusQueries, threadGitTargets]);
+  }, [threadGitStatusCwds, threadGitStatusResults, threadGitTargets]);
 
   const openPrLink = useCallback((event: React.MouseEvent<HTMLElement>, prUrl: string) => {
     event.preventDefault();

@@ -2,7 +2,7 @@ import { DEFAULT_SERVER_SETTINGS, WS_METHODS } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
 
-import { __resetWsRpcAtomClientForTests, runRpc, WsRpcAtomClient } from "./client";
+import { WsRpcAtomClient } from "./client";
 
 type WsEventType = "open" | "message" | "close" | "error";
 type WsEvent = { code?: number; data?: unknown; reason?: string; type?: string };
@@ -110,62 +110,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  __resetWsRpcAtomClientForTests();
   globalThis.WebSocket = originalWebSocket;
   vi.restoreAllMocks();
 });
 
 describe("WsRpcAtomClient", () => {
-  it("runs unary requests through the AtomRpc service", async () => {
-    const expectedSettings = {
-      ...DEFAULT_SERVER_SETTINGS,
-      enableAssistantStreaming: true,
-      defaultThreadEnvMode: "worktree" as const,
-      textGenerationModelSelection: {
-        provider: "codex" as const,
-        model: "gpt-5.4",
-      },
-      providers: {
-        codex: {
-          ...DEFAULT_SERVER_SETTINGS.providers.codex,
-          homePath: "/tmp/codex-home",
-        },
-        claudeAgent: {
-          ...DEFAULT_SERVER_SETTINGS.providers.claudeAgent,
-          enabled: false,
-        },
-      },
-    };
-    const requestPromise = runRpc((client) => client(WS_METHODS.serverGetSettings, {}));
-
-    await waitFor(() => {
-      expect(sockets).toHaveLength(1);
-    });
-
-    const socket = getSocket();
-    socket.open();
-
-    await waitFor(() => {
-      expect(socket.sent).toHaveLength(1);
-    });
-
-    const requestMessage = JSON.parse(socket.sent[0] ?? "{}") as { id: string; tag: string };
-    expect(requestMessage.tag).toBe(WS_METHODS.serverGetSettings);
-
-    socket.serverMessage(
-      JSON.stringify({
-        _tag: "Exit",
-        requestId: requestMessage.id,
-        exit: {
-          _tag: "Success",
-          value: expectedSettings,
-        },
-      }),
-    );
-
-    await expect(requestPromise).resolves.toEqual(expectedSettings);
-  });
-
   it("exposes atom-backed query state for unary RPC methods", async () => {
     const expectedSettings = {
       ...DEFAULT_SERVER_SETTINGS,

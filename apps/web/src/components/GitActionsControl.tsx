@@ -1,10 +1,13 @@
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type {
-  GitActionProgressEvent,
+  GitRunStackedActionInput,
   GitStackedAction,
   GitStatusResult,
   ThreadId,
 } from "@t3tools/contracts";
-import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Cause } from "effect";
+import * as Option from "effect/Option";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
 import { GitHubIcon } from "./Icons";
@@ -38,18 +41,18 @@ import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
 import { openInPreferredEditor } from "~/editorPreferences";
-import {
-  gitBranchesQueryOptions,
-  gitInitMutationOptions,
-  gitMutationKeys,
-  gitPullMutationOptions,
-  gitRunStackedActionMutationOptions,
-  gitStatusQueryOptions,
-  invalidateGitQueries,
-} from "~/lib/gitReactQuery";
 import { randomUUID } from "~/lib/utils";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { readNativeApi } from "~/nativeApi";
+import {
+  gitBranchesAtom,
+  gitInitMutationAtom,
+  gitPullMutationAtom,
+  gitRunStackedActionMutationAtom,
+  gitRunStackedActionProgressAtom,
+  gitStatusAtom,
+} from "~/rpc/gitAtoms";
+import { REACTIVITY_KEYS } from "~/rpc/client";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -110,6 +113,13 @@ function resolveProgressDescription(progress: ActiveGitActionProgress): string |
     return progress.lastOutputLine;
   }
   return formatElapsedDescription(progress.hookStartedAtMs ?? progress.phaseStartedAtMs);
+}
+
+function toError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(typeof error === "string" ? error : "Unknown error");
 }
 
 function getMenuActionDisabledReason({
@@ -208,7 +218,6 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     () => (activeThreadId ? { threadId: activeThreadId } : undefined),
     [activeThreadId],
   );
-  const queryClient = useQueryClient();
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
@@ -231,9 +240,22 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     });
   }, [threadToastData]);
 
-  const { data: gitStatus = null, error: gitStatusError } = useQuery(gitStatusQueryOptions(gitCwd));
-
-  const { data: branchList = null } = useQuery(gitBranchesQueryOptions(gitCwd));
+  const gitStatusResult = useAtomValue(gitStatusAtom(gitCwd));
+  const branchesResult = useAtomValue(gitBranchesAtom(gitCwd));
+  const refreshGitStatus = useAtomRefresh(gitStatusAtom(gitCwd));
+  const refreshGitBranches = useAtomRefresh(gitBranchesAtom(gitCwd));
+  const initGit = useAtomSet(gitInitMutationAtom, { mode: "promise" });
+  const pullGit = useAtomSet(gitPullMutationAtom, { mode: "promise" });
+  const runStackedAction = useAtomSet(gitRunStackedActionMutationAtom, { mode: "promise" });
+  const runStackedActionResult = useAtomValue(gitRunStackedActionMutationAtom);
+  const stackedActionProgressEvent = useAtomValue(gitRunStackedActionProgressAtom);
+  const [isInitPending, setIsInitPending] = useState(false);
+  const [isPullRunning, setIsPullRunning] = useState(false);
+  const gitStatus = Option.getOrNull(AsyncResult.value(gitStatusResult));
+  const gitStatusError = Option.getOrNull(
+    Option.map(AsyncResult.cause(gitStatusResult), (cause) => toError(Cause.squash(cause))),
+  );
+  const branchList = Option.getOrNull(AsyncResult.value(branchesResult));
   // Default to true while loading so we don't flash init controls.
   const isRepo = branchList?.isRepo ?? true;
   const hasOriginRemote = branchList?.hasOriginRemote ?? false;
@@ -242,9 +264,10 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     !!gitStatus?.branch && !!currentBranch && gitStatus.branch !== currentBranch;
 
   useEffect(() => {
-    if (!isGitStatusOutOfSync) return;
-    void invalidateGitQueries(queryClient);
-  }, [isGitStatusOutOfSync, queryClient]);
+    if (!isGitStatusOutOfSync || !gitCwd) return;
+    refreshGitStatus();
+    refreshGitBranches();
+  }, [gitCwd, isGitStatusOutOfSync, refreshGitBranches, refreshGitStatus]);
 
   const gitStatusForActions = isGitStatusOutOfSync ? null : gitStatus;
 
@@ -252,21 +275,40 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
   const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));
   const allSelected = excludedFiles.size === 0;
   const noneSelected = selectedFiles.length === 0;
-
-  const initMutation = useMutation(gitInitMutationOptions({ cwd: gitCwd, queryClient }));
-
-  const runImmediateGitActionMutation = useMutation(
-    gitRunStackedActionMutationOptions({
-      cwd: gitCwd,
-      queryClient,
-    }),
-  );
-  const pullMutation = useMutation(gitPullMutationOptions({ cwd: gitCwd, queryClient }));
-
-  const isRunStackedActionRunning =
-    useIsMutating({ mutationKey: gitMutationKeys.runStackedAction(gitCwd) }) > 0;
-  const isPullRunning = useIsMutating({ mutationKey: gitMutationKeys.pull(gitCwd) }) > 0;
+  const isRunStackedActionRunning = runStackedActionResult.waiting;
   const isGitActionRunning = isRunStackedActionRunning || isPullRunning;
+  const runImmediateGitAction = useCallback(
+    (input: GitRunStackedActionInput) => runStackedAction(input),
+    [runStackedAction],
+  );
+  const pullCurrentBranch = useCallback(
+    async (cwd: string) => {
+      setIsPullRunning(true);
+      try {
+        return await pullGit({
+          payload: { cwd },
+          reactivityKeys: [REACTIVITY_KEYS.git(cwd)],
+        });
+      } finally {
+        setIsPullRunning(false);
+      }
+    },
+    [pullGit],
+  );
+  const initializeGit = useCallback(
+    async (cwd: string) => {
+      setIsInitPending(true);
+      try {
+        await initGit({
+          payload: { cwd },
+          reactivityKeys: [REACTIVITY_KEYS.git(cwd)],
+        });
+      } finally {
+        setIsInitPending(false);
+      }
+    },
+    [initGit],
+  );
   const isDefaultBranch = useMemo(() => {
     const branchName = gitStatusForActions?.branch;
     if (!branchName) return false;
@@ -306,6 +348,59 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       window.clearInterval(interval);
     };
   }, [updateActiveProgressToast]);
+
+  useEffect(() => {
+    const event = stackedActionProgressEvent;
+    const progress = activeGitActionProgressRef.current;
+    if (!event || !progress) {
+      return;
+    }
+    if (gitCwd && event.cwd !== gitCwd) {
+      return;
+    }
+    if (progress.actionId !== event.actionId) {
+      return;
+    }
+
+    const now = Date.now();
+    switch (event.kind) {
+      case "action_started":
+        progress.phaseStartedAtMs = now;
+        progress.hookStartedAtMs = null;
+        progress.hookName = null;
+        progress.lastOutputLine = null;
+        break;
+      case "phase_started":
+        progress.title = event.label;
+        progress.currentPhaseLabel = event.label;
+        progress.phaseStartedAtMs = now;
+        progress.hookStartedAtMs = null;
+        progress.hookName = null;
+        progress.lastOutputLine = null;
+        break;
+      case "hook_started":
+        progress.title = `Running ${event.hookName}...`;
+        progress.hookName = event.hookName;
+        progress.hookStartedAtMs = now;
+        progress.lastOutputLine = null;
+        break;
+      case "hook_output":
+        progress.lastOutputLine = event.text;
+        break;
+      case "hook_finished":
+        progress.title = progress.currentPhaseLabel ?? "Committing...";
+        progress.hookName = null;
+        progress.hookStartedAtMs = null;
+        progress.lastOutputLine = null;
+        break;
+      case "action_finished":
+        return;
+      case "action_failed":
+        return;
+    }
+
+    updateActiveProgressToast();
+  }, [gitCwd, stackedActionProgressEvent, updateActiveProgressToast]);
 
   const openExistingPr = useCallback(async () => {
     const api = readNativeApi();
@@ -415,69 +510,17 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         });
       }
 
-      const applyProgressEvent = (event: GitActionProgressEvent) => {
-        const progress = activeGitActionProgressRef.current;
-        if (!progress) {
-          return;
-        }
-        if (gitCwd && event.cwd !== gitCwd) {
-          return;
-        }
-        if (progress.actionId !== event.actionId) {
-          return;
-        }
+      if (!gitCwd) {
+        return;
+      }
 
-        const now = Date.now();
-        switch (event.kind) {
-          case "action_started":
-            progress.phaseStartedAtMs = now;
-            progress.hookStartedAtMs = null;
-            progress.hookName = null;
-            progress.lastOutputLine = null;
-            break;
-          case "phase_started":
-            progress.title = event.label;
-            progress.currentPhaseLabel = event.label;
-            progress.phaseStartedAtMs = now;
-            progress.hookStartedAtMs = null;
-            progress.hookName = null;
-            progress.lastOutputLine = null;
-            break;
-          case "hook_started":
-            progress.title = `Running ${event.hookName}...`;
-            progress.hookName = event.hookName;
-            progress.hookStartedAtMs = now;
-            progress.lastOutputLine = null;
-            break;
-          case "hook_output":
-            progress.lastOutputLine = event.text;
-            break;
-          case "hook_finished":
-            progress.title = progress.currentPhaseLabel ?? "Committing...";
-            progress.hookName = null;
-            progress.hookStartedAtMs = null;
-            progress.lastOutputLine = null;
-            break;
-          case "action_finished":
-            // Let the resolved mutation update the toast so we keep the
-            // elapsed description visible until the final success state renders.
-            return;
-          case "action_failed":
-            // Let the rejected mutation publish the error toast to avoid a
-            // transient intermediate state before the final failure message.
-            return;
-        }
-
-        updateActiveProgressToast();
-      };
-
-      const promise = runImmediateGitActionMutation.mutateAsync({
+      const promise = runImmediateGitAction({
         actionId,
+        cwd: gitCwd,
         action,
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
         ...(filePaths ? { filePaths } : {}),
-        onProgress: applyProgressEvent,
       });
 
       try {
@@ -624,7 +667,10 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       return;
     }
     if (quickAction.kind === "run_pull") {
-      const promise = pullMutation.mutateAsync();
+      if (!gitCwd) {
+        return;
+      }
+      const promise = pullCurrentBranch(gitCwd);
       toastManager.promise(promise, {
         loading: { title: "Pulling...", data: threadToastData },
         success: (result) => ({
@@ -656,7 +702,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     if (quickAction.action) {
       void runGitActionWithToast({ action: quickAction.action });
     }
-  }, [openExistingPr, pullMutation, quickAction, threadToastData]);
+  }, [gitCwd, openExistingPr, pullCurrentBranch, quickAction, threadToastData]);
 
   const openDialogForMenuItem = useCallback(
     (item: GitActionMenuItem) => {
@@ -733,10 +779,15 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         <Button
           variant="outline"
           size="xs"
-          disabled={initMutation.isPending}
-          onClick={() => initMutation.mutate()}
+          disabled={isInitPending}
+          onClick={() => {
+            if (!gitCwd) {
+              return;
+            }
+            void initializeGit(gitCwd).catch(() => undefined);
+          }}
         >
-          {initMutation.isPending ? "Initializing..." : "Initialize Git"}
+          {isInitPending ? "Initializing..." : "Initialize Git"}
         </Button>
       ) : (
         <Group aria-label="Git actions" className="shrink-0">
@@ -778,7 +829,10 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
           <GroupSeparator className="hidden @3xl/header-actions:block" />
           <Menu
             onOpenChange={(open) => {
-              if (open) void invalidateGitQueries(queryClient);
+              if (open && gitCwd) {
+                refreshGitStatus();
+                refreshGitBranches();
+              }
             }}
           >
             <MenuTrigger

@@ -1,14 +1,15 @@
+import { useAtomSet } from "@effect/atom-react";
 import { ThreadId } from "@t3tools/contracts";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
 
 import { getFallbackThreadIdAfterDelete } from "../components/Sidebar.logic";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewThread } from "./useHandleNewThread";
-import { gitRemoveWorktreeMutationOptions } from "../lib/gitReactQuery";
 import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
+import { gitRemoveWorktreeMutationAtom } from "../rpc/gitAtoms";
+import { REACTIVITY_KEYS } from "../rpc/client";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
@@ -28,8 +29,7 @@ export function useThreadActions() {
   });
   const navigate = useNavigate();
   const { handleNewThread } = useHandleNewThread();
-  const queryClient = useQueryClient();
-  const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
+  const removeWorktree = useAtomSet(gitRemoveWorktreeMutationAtom, { mode: "promise" });
 
   const archiveThread = useCallback(
     async (threadId: ThreadId) => {
@@ -144,10 +144,16 @@ export function useThreadActions() {
       }
 
       try {
-        await removeWorktreeMutation.mutateAsync({
-          cwd: threadProject.cwd,
-          path: orphanedWorktreePath,
-          force: true,
+        await removeWorktree({
+          payload: {
+            cwd: threadProject.cwd,
+            path: orphanedWorktreePath,
+            force: true,
+          },
+          reactivityKeys: [
+            REACTIVITY_KEYS.git(threadProject.cwd),
+            REACTIVITY_KEYS.project(threadProject.cwd),
+          ],
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error removing worktree.";
@@ -170,7 +176,7 @@ export function useThreadActions() {
       clearTerminalState,
       appSettings.sidebarThreadSortOrder,
       navigate,
-      removeWorktreeMutation,
+      removeWorktree,
       routeThreadId,
     ],
   );

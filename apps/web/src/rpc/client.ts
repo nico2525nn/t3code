@@ -1,33 +1,31 @@
 import { WsRpcGroup } from "@t3tools/contracts";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Layer } from "effect";
 import { AtomRpc } from "effect/unstable/reactivity";
 
 import { createWsRpcProtocolLayer } from "./protocol";
+
+import { Atom } from "effect/unstable/reactivity";
+import { Duration } from "effect";
+
+export const REACTIVITY_KEYS = {
+  git: (cwd: string) => `git:${cwd}` as const,
+  project: (cwd: string) => `project:${cwd}` as const,
+} as const;
+
+export const refreshIntervalSignalAtom = Atom.family((interval: Duration.Duration) =>
+  Atom.readable((get) => {
+    let count = 0;
+    const intervalId = window.setInterval(() => {
+      get.setSelf(++count);
+    }, Duration.toMillis(interval));
+    get.addFinalizer(() => {
+      window.clearInterval(intervalId);
+    });
+    return count;
+  }),
+);
 
 export class WsRpcAtomClient extends AtomRpc.Service<WsRpcAtomClient>()("WsRpcAtomClient", {
   group: WsRpcGroup,
   protocol: Layer.suspend(() => createWsRpcProtocolLayer()),
 }) {}
-
-let sharedRuntime: ManagedRuntime.ManagedRuntime<WsRpcAtomClient, never> | null = null;
-
-function getRuntime() {
-  if (sharedRuntime !== null) {
-    return sharedRuntime;
-  }
-
-  sharedRuntime = ManagedRuntime.make(WsRpcAtomClient.layer);
-  return sharedRuntime;
-}
-
-export function runRpc<TSuccess, TError = never>(
-  execute: (client: typeof WsRpcAtomClient.Service) => Effect.Effect<TSuccess, TError, never>,
-): Promise<TSuccess> {
-  return getRuntime().runPromise(WsRpcAtomClient.use(execute));
-}
-
-export async function __resetWsRpcAtomClientForTests() {
-  const runtime = sharedRuntime;
-  sharedRuntime = null;
-  await runtime?.dispose();
-}
