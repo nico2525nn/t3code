@@ -16,7 +16,6 @@ import {
 } from "./baseSchemas";
 
 export const ORCHESTRATION_WS_METHODS = {
-  getSnapshot: "orchestration.getSnapshot",
   getActiveSnapshot: "orchestration.getActiveSnapshot",
   dispatchCommand: "orchestration.dispatchCommand",
   getTurnDiff: "orchestration.getTurnDiff",
@@ -982,11 +981,6 @@ export const DispatchResult = Schema.Struct({
 });
 export type DispatchResult = typeof DispatchResult.Type;
 
-export const OrchestrationGetSnapshotInput = Schema.Struct({});
-export type OrchestrationGetSnapshotInput = typeof OrchestrationGetSnapshotInput.Type;
-const OrchestrationGetSnapshotResult = OrchestrationReadModel;
-export type OrchestrationGetSnapshotResult = typeof OrchestrationGetSnapshotResult.Type;
-
 export const OrchestrationGetActiveSnapshotInput = Schema.Struct({});
 export type OrchestrationGetActiveSnapshotInput = typeof OrchestrationGetActiveSnapshotInput.Type;
 const OrchestrationGetActiveSnapshotResult = OrchestrationReadModel;
@@ -1039,10 +1033,6 @@ const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
 export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
 
 export const OrchestrationRpcSchemas = {
-  getSnapshot: {
-    input: OrchestrationGetSnapshotInput,
-    output: OrchestrationGetSnapshotResult,
-  },
   getActiveSnapshot: {
     input: OrchestrationGetActiveSnapshotInput,
     output: OrchestrationGetActiveSnapshotResult,
@@ -1068,14 +1058,6 @@ export const OrchestrationRpcSchemas = {
     output: OrchestrationReplayEventsResult,
   },
 } as const;
-
-export class OrchestrationGetSnapshotError extends Schema.TaggedErrorClass<OrchestrationGetSnapshotError>()(
-  "OrchestrationGetSnapshotError",
-  {
-    message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Defect),
-  },
-) {}
 
 export class OrchestrationGetActiveSnapshotError extends Schema.TaggedErrorClass<OrchestrationGetActiveSnapshotError>()(
   "OrchestrationGetActiveSnapshotError",

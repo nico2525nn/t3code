@@ -7,7 +7,6 @@ import {
   OrchestrationGetActiveSnapshotError,
   OrchestrationGetFullThreadDiffError,
   OrchestrationListArchivedThreadsError,
-  OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
   ProjectSearchEntriesError,
@@ -74,16 +73,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     });
 
     return WsRpcGroup.of({
-      [ORCHESTRATION_WS_METHODS.getSnapshot]: (_input) =>
-        projectionSnapshotQuery.getSnapshot().pipe(
-          Effect.mapError(
-            (cause) =>
-              new OrchestrationGetSnapshotError({
-                message: "Failed to load orchestration snapshot",
-                cause,
-              }),
-          ),
-        ),
       [ORCHESTRATION_WS_METHODS.getActiveSnapshot]: (_input) =>
         projectionSnapshotQuery.getActiveSnapshot().pipe(
           Effect.mapError(

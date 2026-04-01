@@ -174,7 +174,6 @@ export interface NativeApi {
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
   };
   orchestration: {
-    getSnapshot: () => Promise<OrchestrationReadModel>;
     getActiveSnapshot: () => Promise<OrchestrationReadModel>;
     listArchivedThreads: () => Promise<OrchestrationListArchivedThreadsResult>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;

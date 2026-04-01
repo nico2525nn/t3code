@@ -75,7 +75,6 @@ const rpcClientMock = {
     subscribeLifecycle: vi.fn(),
   },
   orchestration: {
-    getSnapshot: vi.fn(),
     getActiveSnapshot: vi.fn(),
     listArchivedThreads: vi.fn(),
     dispatchCommand: vi.fn(),

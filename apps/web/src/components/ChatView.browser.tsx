@@ -622,10 +622,7 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
     return customResult;
   }
   const tag = body._tag;
-  if (
-    tag === ORCHESTRATION_WS_METHODS.getSnapshot ||
-    tag === ORCHESTRATION_WS_METHODS.getActiveSnapshot
-  ) {
+  if (tag === ORCHESTRATION_WS_METHODS.getActiveSnapshot) {
     return fixture.snapshot;
   }
   if (tag === WS_METHODS.serverGetConfig) {

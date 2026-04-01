@@ -1145,11 +1145,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       });
 
       const wsUrl = yield* getWsServerUrl("/ws");
-      const snapshotResult = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[ORCHESTRATION_WS_METHODS.getSnapshot]({})),
-      );
-      assert.equal(snapshotResult.snapshotSequence, 1);
-
       const activeSnapshotResult = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) => client[ORCHESTRATION_WS_METHODS.getActiveSnapshot]({})),
       );
@@ -1266,15 +1261,15 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("routes websocket rpc orchestration.getSnapshot errors", () =>
+  it.effect("routes websocket rpc orchestration.getActiveSnapshot errors", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest({
         layers: {
           projectionSnapshotQuery: {
-            getSnapshot: () =>
+            getActiveSnapshot: () =>
               Effect.fail(
                 new PersistenceSqlError({
-                  operation: "ProjectionSnapshotQuery.getSnapshot",
+                  operation: "ProjectionSnapshotQuery.getActiveSnapshot",
                   detail: "projection unavailable",
                 }),
               ),
@@ -1284,14 +1279,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       const wsUrl = yield* getWsServerUrl("/ws");
       const result = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[ORCHESTRATION_WS_METHODS.getSnapshot]({})).pipe(
-          Effect.result,
-        ),
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.getActiveSnapshot]({}),
+        ).pipe(Effect.result),
       );
 
       assertTrue(result._tag === "Failure");
-      assertTrue(result.failure._tag === "OrchestrationGetSnapshotError");
-      assertInclude(result.failure.message, "Failed to load orchestration snapshot");
+      assertTrue(result.failure._tag === "OrchestrationGetActiveSnapshotError");
+      assertInclude(result.failure.message, "Failed to load active orchestration snapshot");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

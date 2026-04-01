@@ -35,8 +35,6 @@ import {
   OrchestrationGetActiveSnapshotInput,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetFullThreadDiffInput,
-  OrchestrationGetSnapshotError,
-  OrchestrationGetSnapshotInput,
   OrchestrationGetTurnDiffError,
   OrchestrationGetTurnDiffInput,
   OrchestrationListArchivedThreadsError,
@@ -261,12 +259,6 @@ export const WsTerminalCloseRpc = Rpc.make(WS_METHODS.terminalClose, {
   error: TerminalError,
 });
 
-export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getSnapshot, {
-  payload: OrchestrationGetSnapshotInput,
-  success: OrchestrationRpcSchemas.getSnapshot.output,
-  error: OrchestrationGetSnapshotError,
-});
-
 export const WsOrchestrationGetActiveSnapshotRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.getActiveSnapshot,
   {
@@ -369,15 +361,14 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalClearRpc,
   WsTerminalRestartRpc,
   WsTerminalCloseRpc,
-  WsSubscribeOrchestrationDomainEventsRpc,
-  WsSubscribeTerminalEventsRpc,
-  WsSubscribeServerConfigRpc,
-  WsSubscribeServerLifecycleRpc,
-  WsOrchestrationGetSnapshotRpc,
   WsOrchestrationGetActiveSnapshotRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationListArchivedThreadsRpc,
   WsOrchestrationReplayEventsRpc,
+  WsSubscribeOrchestrationDomainEventsRpc,
+  WsSubscribeTerminalEventsRpc,
+  WsSubscribeServerConfigRpc,
+  WsSubscribeServerLifecycleRpc,
 );
