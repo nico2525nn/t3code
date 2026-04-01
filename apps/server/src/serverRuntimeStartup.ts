@@ -117,7 +117,7 @@ export const makeCommandGate = Effect.gen(function* () {
   } satisfies CommandGate;
 });
 
-const recordStartupHeartbeat = Effect.gen(function* () {
+export const recordStartupHeartbeat = Effect.gen(function* () {
   const analytics = yield* AnalyticsService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
@@ -139,6 +139,12 @@ const recordStartupHeartbeat = Effect.gen(function* () {
     projectCount,
   });
 });
+
+export const launchStartupHeartbeat = recordStartupHeartbeat.pipe(
+  Effect.ignoreCause({ log: true }),
+  Effect.forkScoped,
+  Effect.asVoid,
+);
 
 const autoBootstrapWelcome = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
@@ -322,7 +328,7 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
       });
 
       yield* Effect.logDebug("startup phase: recording startup heartbeat");
-      yield* recordStartupHeartbeat;
+      yield* launchStartupHeartbeat;
       yield* Effect.logDebug("startup phase: browser open check");
       yield* maybeOpenBrowser;
       yield* Effect.logDebug("startup phase: complete");
