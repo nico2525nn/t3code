@@ -22,7 +22,7 @@ import {
   type GitRunStackedActionOptions,
 } from "../Services/GitManager.ts";
 import { GitCore } from "../Services/GitCore.ts";
-import { GitHubCli } from "../Services/GitHubCli.ts";
+import { GitHubCli, type GitHubPullRequestSummary } from "../Services/GitHubCli.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
 import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -305,6 +305,27 @@ function parsePullRequestList(raw: unknown): PullRequestInfo[] {
     });
   }
   return parsed;
+}
+
+function toPullRequestInfo(summary: GitHubPullRequestSummary): PullRequestInfo {
+  return {
+    number: summary.number,
+    title: summary.title,
+    url: summary.url,
+    baseRefName: summary.baseRefName,
+    headRefName: summary.headRefName,
+    state: summary.state ?? "open",
+    updatedAt: null,
+    ...(summary.isCrossRepository !== undefined
+      ? { isCrossRepository: summary.isCrossRepository }
+      : {}),
+    ...(summary.headRepositoryNameWithOwner !== undefined
+      ? { headRepositoryNameWithOwner: summary.headRepositoryNameWithOwner }
+      : {}),
+    ...(summary.headRepositoryOwnerLogin !== undefined
+      ? { headRepositoryOwnerLogin: summary.headRepositoryOwnerLogin }
+      : {}),
+  };
 }
 
 function gitManagerError(operation: string, detail: string, cause?: unknown): GitManagerError {
@@ -801,7 +822,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         headSelector,
         limit: 1,
       });
-      const normalizedPullRequests = parsePullRequestList(pullRequests);
+      const normalizedPullRequests = pullRequests.map(toPullRequestInfo);
 
       const firstPullRequest = normalizedPullRequests.find((pullRequest) =>
         matchesBranchHeadContext(pullRequest, headContext),
