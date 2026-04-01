@@ -5,7 +5,19 @@ import {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import { Data, Deferred, Effect, Exit, Layer, Path, Queue, Ref, Scope, ServiceMap } from "effect";
+import {
+  Data,
+  Deferred,
+  Effect,
+  Exit,
+  Layer,
+  Option,
+  Path,
+  Queue,
+  Ref,
+  Scope,
+  ServiceMap,
+} from "effect";
 
 import { ServerConfig } from "./config";
 import { Keybindings } from "./keybindings";
@@ -109,13 +121,11 @@ const recordStartupHeartbeat = Effect.gen(function* () {
   const analytics = yield* AnalyticsService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
-  const { threadCount, projectCount } = yield* projectionSnapshotQuery.getSnapshot().pipe(
-    Effect.map((snapshot) => ({
-      threadCount: snapshot.threads.length,
-      projectCount: snapshot.projects.length,
-    })),
+  const { threadCount, projectCount } = yield* projectionSnapshotQuery.getCounts().pipe(
     Effect.catch((cause) =>
-      Effect.logWarning("failed to gather startup snapshot for telemetry", { cause }).pipe(
+      Effect.logWarning("failed to gather startup projection counts for telemetry", {
+        cause,
+      }).pipe(
         Effect.as({
           threadCount: 0,
           projectCount: 0,
@@ -141,14 +151,13 @@ const autoBootstrapWelcome = Effect.gen(function* () {
 
   if (serverConfig.autoBootstrapProjectFromCwd) {
     yield* Effect.gen(function* () {
-      const snapshot = yield* projectionReadModelQuery.getSnapshot();
-      const existingProject = snapshot.projects.find(
-        (project) => project.workspaceRoot === serverConfig.cwd && project.deletedAt === null,
+      const existingProject = yield* projectionReadModelQuery.getActiveProjectByWorkspaceRoot(
+        serverConfig.cwd,
       );
       let nextProjectId: ProjectId;
       let nextProjectDefaultModelSelection: ModelSelection;
 
-      if (!existingProject) {
+      if (Option.isNone(existingProject)) {
         const createdAt = new Date().toISOString();
         nextProjectId = ProjectId.makeUnsafe(crypto.randomUUID());
         const bootstrapProjectTitle = path.basename(serverConfig.cwd) || "project";
@@ -166,17 +175,16 @@ const autoBootstrapWelcome = Effect.gen(function* () {
           createdAt,
         });
       } else {
-        nextProjectId = existingProject.id;
-        nextProjectDefaultModelSelection = existingProject.defaultModelSelection ?? {
+        nextProjectId = existingProject.value.id;
+        nextProjectDefaultModelSelection = existingProject.value.defaultModelSelection ?? {
           provider: "codex",
           model: "gpt-5-codex",
         };
       }
 
-      const existingThread = snapshot.threads.find(
-        (thread) => thread.projectId === nextProjectId && thread.deletedAt === null,
-      );
-      if (!existingThread) {
+      const existingThreadId =
+        yield* projectionReadModelQuery.getFirstActiveThreadIdByProjectId(nextProjectId);
+      if (Option.isNone(existingThreadId)) {
         const createdAt = new Date().toISOString();
         const createdThreadId = ThreadId.makeUnsafe(crypto.randomUUID());
         yield* orchestrationEngine.dispatch({
@@ -196,7 +204,7 @@ const autoBootstrapWelcome = Effect.gen(function* () {
         bootstrapThreadId = createdThreadId;
       } else {
         bootstrapProjectId = nextProjectId;
-        bootstrapThreadId = existingThread.id;
+        bootstrapThreadId = existingThreadId.value;
       }
     });
   }
