@@ -37,24 +37,26 @@ export function buildGitActionProgressStages(input: {
   action: GitStackedAction;
   hasCustomCommitMessage: boolean;
   hasWorkingTreeChanges: boolean;
-  forcePushOnly?: boolean;
   pushTarget?: string;
   featureBranch?: boolean;
-  prOnlyIfReady?: boolean;
+  shouldPushBeforePr?: boolean;
 }): string[] {
-  if (input.action === "commit_push_pr" && input.prOnlyIfReady) {
-    return ["Creating PR..."];
+  const branchStages = input.featureBranch ? ["Preparing feature branch..."] : [];
+  const pushStage = input.pushTarget ? `Pushing to ${input.pushTarget}...` : "Pushing...";
+
+  if (input.action === "push") {
+    return [pushStage];
+  }
+  if (input.action === "create_pr") {
+    return input.shouldPushBeforePr ? [pushStage, "Creating PR..."] : ["Creating PR..."];
   }
 
-  const branchStages = input.featureBranch ? ["Preparing feature branch..."] : [];
-  const shouldIncludeCommitStages =
-    !input.forcePushOnly && (input.action === "commit" || input.hasWorkingTreeChanges);
+  const shouldIncludeCommitStages = input.action === "commit" || input.hasWorkingTreeChanges;
   const commitStages = !shouldIncludeCommitStages
     ? []
     : input.hasCustomCommitMessage
       ? ["Committing..."]
       : ["Generating commit message...", "Committing..."];
-  const pushStage = input.pushTarget ? `Pushing to ${input.pushTarget}...` : "Pushing...";
   if (input.action === "commit") {
     return [...branchStages, ...commitStages];
   }
@@ -204,13 +206,18 @@ export function resolveQuickAction(
       };
     }
     if (hasOpenPr || isDefaultBranch) {
-      return { label: "Push", disabled: false, kind: "run_action", action: "commit_push" };
+      return {
+        label: "Push",
+        disabled: false,
+        kind: "run_action",
+        action: isDefaultBranch ? "commit_push" : "push",
+      };
     }
     return {
       label: "Push & create PR",
       disabled: false,
       kind: "run_action",
-      action: "commit_push_pr",
+      action: "create_pr",
     };
   }
 
@@ -233,13 +240,18 @@ export function resolveQuickAction(
 
   if (isAhead) {
     if (hasOpenPr || isDefaultBranch) {
-      return { label: "Push", disabled: false, kind: "run_action", action: "commit_push" };
+      return {
+        label: "Push",
+        disabled: false,
+        kind: "run_action",
+        action: isDefaultBranch ? "commit_push" : "push",
+      };
     }
     return {
       label: "Push & create PR",
       disabled: false,
       kind: "run_action",
-      action: "commit_push_pr",
+      action: "create_pr",
     };
   }
 

@@ -6,6 +6,7 @@ import {
   GitActionProgressEvent,
   GitActionProgressPhase,
   GitRunStackedActionResult,
+  GitStackedAction,
   ModelSelection,
 } from "@t3tools/contracts";
 import {
@@ -429,6 +430,12 @@ interface CommitAndBranchSuggestion {
   commitMessage: string;
 }
 
+function isCommitAction(
+  action: GitStackedAction,
+): action is "commit" | "commit_push" | "commit_push_pr" {
+  return action === "commit" || action === "commit_push" || action === "commit_push_pr";
+}
+
 function formatCommitMessage(subject: string, body: string): string {
   const trimmedBody = body.trim();
   if (trimmedBody.length === 0) {
@@ -542,7 +549,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const serverSettingsService = yield* ServerSettingsService;
 
   const createProgressEmitter = (
-    input: { cwd: string; action: "commit" | "commit_push" | "commit_push_pr" },
+    input: { cwd: string; action: GitStackedAction },
     options?: GitRunStackedActionOptions,
   ) => {
     const actionId = options?.actionId ?? randomUUID();
@@ -944,7 +951,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
           }
         : null;
     const shouldLookupExistingOpenPr =
-      result.action === "commit_push" &&
+      (result.action === "commit_push" || result.action === "push") &&
       result.push.status === "pushed" &&
       result.branch.status !== "created" &&
       !currentBranchIsDefault &&
@@ -968,10 +975,12 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         ? {
             kind: "run_action" as const,
             label: "Push",
-            action: "commit_push" as const,
-            forcePushOnlyProgress: true,
+            action: { kind: "push" as const },
           }
-        : (result.action === "commit_push" || result.action === "commit_push_pr") &&
+        : (result.action === "push" ||
+              result.action === "create_pr" ||
+              result.action === "commit_push" ||
+              result.action === "commit_push_pr") &&
             openPr?.url &&
             (!currentBranchIsDefault ||
               result.pr.status === "created" ||
@@ -981,15 +990,13 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
               label: "View PR",
               url: openPr.url,
             }
-          : result.action === "commit_push" &&
+          : (result.action === "push" || result.action === "commit_push") &&
               result.push.status === "pushed" &&
               !currentBranchIsDefault
             ? {
                 kind: "run_action" as const,
                 label: "Create PR",
-                action: "commit_push_pr" as const,
-                prOnlyIfReady: true,
-                isDefaultBranch: false,
+                action: { kind: "create_pr" as const },
               }
             : {
                 kind: "none" as const,
@@ -1484,19 +1491,37 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         GitManagerServiceError
       > {
         const initialStatus = yield* gitCore.statusDetails(input.cwd);
-        const prOnlyIfReady =
-          input.action === "commit_push_pr" &&
-          input.prOnlyIfReady === true &&
-          !input.featureBranch &&
-          initialStatus.branch !== null &&
-          !initialStatus.hasWorkingTreeChanges &&
-          initialStatus.hasUpstream &&
-          initialStatus.aheadCount === 0;
-        const wantsPush = input.action !== "commit" && !prOnlyIfReady;
-        const wantsPr = input.action === "commit_push_pr";
+        const wantsCommit = isCommitAction(input.action);
+        const wantsPush =
+          input.action === "push" ||
+          input.action === "commit_push" ||
+          input.action === "commit_push_pr" ||
+          (input.action === "create_pr" &&
+            (!initialStatus.hasUpstream || initialStatus.aheadCount > 0));
+        const wantsPr = input.action === "create_pr" || input.action === "commit_push_pr";
+
+        if (input.featureBranch && !wantsCommit) {
+          return yield* gitManagerError(
+            "runStackedAction",
+            "Feature-branch checkout is only supported for commit actions.",
+          );
+        }
+        if (input.action === "push" && initialStatus.hasWorkingTreeChanges) {
+          return yield* gitManagerError(
+            "runStackedAction",
+            "Commit or stash local changes before pushing.",
+          );
+        }
+        if (input.action === "create_pr" && initialStatus.hasWorkingTreeChanges) {
+          return yield* gitManagerError(
+            "runStackedAction",
+            "Commit local changes before creating a PR.",
+          );
+        }
+
         const phases: GitActionProgressPhase[] = [
           ...(input.featureBranch ? (["branch"] as const) : []),
-          ...(prOnlyIfReady ? [] : (["commit"] as const)),
+          ...(wantsCommit ? (["commit"] as const) : []),
           ...(wantsPush ? (["push"] as const) : []),
           ...(wantsPr ? (["pr"] as const) : []),
         ];
@@ -1549,15 +1574,15 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         }
 
         const currentBranch = branchStep.name ?? initialStatus.branch;
+        const commitAction = isCommitAction(input.action) ? input.action : null;
 
-        const commit = prOnlyIfReady
-          ? { status: "skipped_no_changes" as const }
-          : yield* Ref.set(currentPhase, Option.some("commit")).pipe(
+        const commit = commitAction
+          ? yield* Ref.set(currentPhase, Option.some("commit")).pipe(
               Effect.flatMap(() =>
                 runCommitStep(
                   modelSelection,
                   input.cwd,
-                  input.action,
+                  commitAction,
                   currentBranch,
                   commitMessageForStep,
                   preResolvedCommitSuggestion,
@@ -1566,7 +1591,8 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
                   progress.actionId,
                 ),
               ),
-            );
+            )
+          : { status: "skipped_no_changes" as const };
 
         const push = wantsPush
           ? yield* progress

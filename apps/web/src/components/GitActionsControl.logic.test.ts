@@ -163,7 +163,7 @@ describe("when: branch is clean, ahead, and has an open PR", () => {
       }),
       false,
     );
-    assert.deepInclude(quick, { kind: "run_action", action: "commit_push", label: "Push" });
+    assert.deepInclude(quick, { kind: "run_action", action: "push", label: "Push" });
   });
 
   it("buildMenuItems enables push and keeps open PR available", () => {
@@ -214,7 +214,7 @@ describe("when: branch is clean, ahead, and has no open PR", () => {
     const quick = resolveQuickAction(status({ aheadCount: 2, pr: null }), false);
     assert.deepInclude(quick, {
       kind: "run_action",
-      action: "commit_push_pr",
+      action: "create_pr",
       label: "Push & create PR",
     });
   });
@@ -586,7 +586,7 @@ describe("when: branch has no upstream configured", () => {
     );
     assert.deepInclude(quick, {
       kind: "run_action",
-      action: "commit_push",
+      action: "push",
       label: "Push",
       disabled: false,
     });
@@ -633,7 +633,7 @@ describe("when: branch has no upstream configured", () => {
     );
     assert.deepInclude(quick, {
       kind: "run_action",
-      action: "commit_push_pr",
+      action: "create_pr",
       label: "Push & create PR",
       disabled: false,
     });
@@ -856,34 +856,33 @@ describe("resolveDefaultBranchActionDialogCopy", () => {
 });
 
 describe("buildGitActionProgressStages", () => {
-  it("shows only push progress when push-only is forced", () => {
+  it("shows only push progress for explicit push actions", () => {
     const stages = buildGitActionProgressStages({
-      action: "commit_push",
+      action: "push",
       hasCustomCommitMessage: false,
-      hasWorkingTreeChanges: true,
-      forcePushOnly: true,
+      hasWorkingTreeChanges: false,
       pushTarget: "origin/feature/test",
     });
     assert.deepEqual(stages, ["Pushing to origin/feature/test..."]);
   });
 
-  it("skips commit stages for create-pr flow when push-only is forced", () => {
+  it("shows push and PR progress for create-pr actions that still need a push", () => {
     const stages = buildGitActionProgressStages({
-      action: "commit_push_pr",
+      action: "create_pr",
       hasCustomCommitMessage: false,
-      hasWorkingTreeChanges: true,
-      forcePushOnly: true,
+      hasWorkingTreeChanges: false,
       pushTarget: "origin/feature/test",
+      shouldPushBeforePr: true,
     });
     assert.deepEqual(stages, ["Pushing to origin/feature/test...", "Creating PR..."]);
   });
 
-  it("shows only PR progress when the follow-up action is already PR-ready", () => {
+  it("shows only PR progress when create-pr can skip the push", () => {
     const stages = buildGitActionProgressStages({
-      action: "commit_push_pr",
+      action: "create_pr",
       hasCustomCommitMessage: false,
       hasWorkingTreeChanges: false,
-      prOnlyIfReady: true,
+      shouldPushBeforePr: false,
     });
     assert.deepEqual(stages, ["Creating PR..."]);
   });

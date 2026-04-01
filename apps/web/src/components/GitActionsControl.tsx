@@ -64,7 +64,6 @@ interface PendingDefaultBranchAction {
   branchName: string;
   includesCommit: boolean;
   commitMessage?: string;
-  forcePushOnlyProgress: boolean;
   onConfirmed?: () => void;
   filePaths?: string[];
 }
@@ -85,13 +84,10 @@ interface ActiveGitActionProgress {
 interface RunGitActionWithToastInput {
   action: GitStackedAction;
   commitMessage?: string;
-  forcePushOnlyProgress?: boolean;
   onConfirmed?: () => void;
   skipDefaultBranchPrompt?: boolean;
   statusOverride?: GitStatusResult | null;
   featureBranch?: boolean;
-  prOnlyIfReady?: boolean;
-  isDefaultBranchOverride?: boolean;
   progressToastId?: GitActionToastId;
   filePaths?: string[];
 }
@@ -200,7 +196,9 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   if (quickAction.kind === "run_pull") return <InfoIcon className={iconClassName} />;
   if (quickAction.kind === "run_action") {
     if (quickAction.action === "commit") return <GitCommitIcon className={iconClassName} />;
-    if (quickAction.action === "commit_push") return <CloudUploadIcon className={iconClassName} />;
+    if (quickAction.action === "push" || quickAction.action === "commit_push") {
+      return <CloudUploadIcon className={iconClassName} />;
+    }
     return <GitHubIcon className={iconClassName} />;
   }
   if (quickAction.label === "Commit") return <GitCommitIcon className={iconClassName} />;
@@ -407,22 +405,21 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     async ({
       action,
       commitMessage,
-      forcePushOnlyProgress = false,
       onConfirmed,
       skipDefaultBranchPrompt = false,
       statusOverride,
       featureBranch = false,
-      prOnlyIfReady = false,
-      isDefaultBranchOverride,
       progressToastId,
       filePaths,
     }: RunGitActionWithToastInput) => {
       const actionStatus = statusOverride ?? gitStatusForActions;
       const actionBranch = actionStatus?.branch ?? null;
-      const actionIsDefaultBranch =
-        isDefaultBranchOverride ?? (featureBranch ? false : isDefaultBranch);
+      const actionIsDefaultBranch = featureBranch ? false : isDefaultBranch;
+      const actionCanCommit =
+        action === "commit" || action === "commit_push" || action === "commit_push_pr";
       const includesCommit =
-        !forcePushOnlyProgress && (action === "commit" || !!actionStatus?.hasWorkingTreeChanges);
+        actionCanCommit &&
+        (action === "commit" || !!actionStatus?.hasWorkingTreeChanges || featureBranch);
       if (
         !skipDefaultBranchPrompt &&
         requiresDefaultBranchConfirmation(action, actionIsDefaultBranch) &&
@@ -436,7 +433,6 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
           branchName: actionBranch,
           includesCommit,
           ...(commitMessage ? { commitMessage } : {}),
-          forcePushOnlyProgress,
           ...(onConfirmed ? { onConfirmed } : {}),
           ...(filePaths ? { filePaths } : {}),
         });
@@ -448,9 +444,10 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         action,
         hasCustomCommitMessage: !!commitMessage?.trim(),
         hasWorkingTreeChanges: !!actionStatus?.hasWorkingTreeChanges,
-        forcePushOnly: forcePushOnlyProgress,
         featureBranch,
-        prOnlyIfReady,
+        shouldPushBeforePr:
+          action === "create_pr" &&
+          (!actionStatus?.hasUpstream || (actionStatus?.aheadCount ?? 0) > 0),
       });
       const actionId = randomUUID();
       const resolvedProgressToastId =
@@ -545,7 +542,6 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         action,
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
-        ...(prOnlyIfReady ? { prOnlyIfReady } : {}),
         ...(filePaths ? { filePaths } : {}),
         onProgress: applyProgressEvent,
       });
@@ -569,16 +565,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
             onClick: () => {
               closeResultToast();
               void runGitActionWithToast({
-                action: toastCta.action,
-                ...(toastCta.forcePushOnlyProgress !== undefined
-                  ? { forcePushOnlyProgress: toastCta.forcePushOnlyProgress }
-                  : {}),
-                ...(toastCta.prOnlyIfReady !== undefined
-                  ? { prOnlyIfReady: toastCta.prOnlyIfReady }
-                  : {}),
-                ...(toastCta.isDefaultBranch !== undefined
-                  ? { isDefaultBranchOverride: toastCta.isDefaultBranch }
-                  : {}),
+                action: toastCta.action.kind,
               });
             },
           };
@@ -619,13 +606,11 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
 
   const continuePendingDefaultBranchAction = useCallback(() => {
     if (!pendingDefaultBranchAction) return;
-    const { action, commitMessage, forcePushOnlyProgress, onConfirmed, filePaths } =
-      pendingDefaultBranchAction;
+    const { action, commitMessage, onConfirmed, filePaths } = pendingDefaultBranchAction;
     setPendingDefaultBranchAction(null);
     void runGitActionWithToast({
       action,
       ...(commitMessage ? { commitMessage } : {}),
-      forcePushOnlyProgress,
       ...(onConfirmed ? { onConfirmed } : {}),
       ...(filePaths ? { filePaths } : {}),
       skipDefaultBranchPrompt: true,
@@ -634,13 +619,11 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
 
   const checkoutFeatureBranchAndContinuePendingAction = useCallback(() => {
     if (!pendingDefaultBranchAction) return;
-    const { action, commitMessage, forcePushOnlyProgress, onConfirmed, filePaths } =
-      pendingDefaultBranchAction;
+    const { action, commitMessage, onConfirmed, filePaths } = pendingDefaultBranchAction;
     setPendingDefaultBranchAction(null);
     void runGitActionWithToast({
       action,
       ...(commitMessage ? { commitMessage } : {}),
-      forcePushOnlyProgress,
       ...(onConfirmed ? { onConfirmed } : {}),
       ...(filePaths ? { filePaths } : {}),
       featureBranch: true,
@@ -714,11 +697,11 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         return;
       }
       if (item.dialogAction === "push") {
-        void runGitActionWithToast({ action: "commit_push", forcePushOnlyProgress: true });
+        void runGitActionWithToast({ action: "push" });
         return;
       }
       if (item.dialogAction === "create_pr") {
-        void runGitActionWithToast({ action: "commit_push_pr" });
+        void runGitActionWithToast({ action: "create_pr" });
         return;
       }
       setExcludedFiles(new Set());

@@ -62,17 +62,15 @@ describe("GitResolvePullRequestResult", () => {
 });
 
 describe("GitRunStackedActionInput", () => {
-  it("requires a client-provided actionId for progress correlation", () => {
+  it("accepts explicit stacked actions and requires a client-provided actionId", () => {
     const parsed = decodeRunStackedActionInput({
       actionId: "action-1",
       cwd: "/repo",
-      action: "commit_push_pr",
-      prOnlyIfReady: true,
+      action: "create_pr",
     });
 
     expect(parsed.actionId).toBe("action-1");
-    expect(parsed.action).toBe("commit_push_pr");
-    expect(parsed.prOnlyIfReady).toBe(true);
+    expect(parsed.action).toBe("create_pr");
   });
 });
 
@@ -103,18 +101,16 @@ describe("GitRunStackedActionResult", () => {
         cta: {
           kind: "run_action",
           label: "Create PR",
-          action: "commit_push_pr",
-          prOnlyIfReady: true,
-          isDefaultBranch: false,
+          action: {
+            kind: "create_pr",
+          },
         },
       },
     });
 
     expect(parsed.toast.cta.kind).toBe("run_action");
     if (parsed.toast.cta.kind === "run_action") {
-      expect(parsed.toast.cta.action).toBe("commit_push_pr");
-      expect(parsed.toast.cta.prOnlyIfReady).toBe(true);
-      expect(parsed.toast.cta.isDefaultBranch).toBe(false);
+      expect(parsed.toast.cta.action.kind).toBe("create_pr");
     }
   });
 });

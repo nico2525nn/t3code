@@ -848,8 +848,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                     cta: {
                       kind: "run_action" as const,
                       label: "Push",
-                      action: "commit_push" as const,
-                      forcePushOnlyProgress: true,
+                      action: {
+                        kind: "push" as const,
+                      },
                     },
                   },
                 };

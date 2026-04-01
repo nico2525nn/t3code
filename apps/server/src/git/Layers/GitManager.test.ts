@@ -570,11 +570,10 @@ function runStackedAction(
   manager: GitManagerShape,
   input: {
     cwd: string;
-    action: "commit" | "commit_push" | "commit_push_pr";
+    action: "commit" | "push" | "create_pr" | "commit_push" | "commit_push_pr";
     actionId?: string;
     commitMessage?: string;
     featureBranch?: boolean;
-    prOnlyIfReady?: boolean;
     filePaths?: readonly string[];
   },
   options?: Parameters<GitManagerShape["runStackedAction"]>[1],
@@ -1048,8 +1047,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         cta: {
           kind: "run_action",
           label: "Push",
-          action: "commit_push",
-          forcePushOnlyProgress: true,
+          action: {
+            kind: "push",
+          },
         },
       });
       expect(result.toast.title).toMatch(/^Committed [0-9a-f]{7}$/);
@@ -1167,9 +1167,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         cta: {
           kind: "run_action",
           label: "Create PR",
-          action: "commit_push_pr",
-          prOnlyIfReady: true,
-          isDefaultBranch: false,
+          action: {
+            kind: "create_pr",
+          },
         },
       });
       expect(result.toast.title).toMatch(
@@ -1368,6 +1368,80 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.branch.status).toBe("skipped_not_requested");
       expect(result.commit.status).toBe("skipped_no_changes");
       expect(result.push.status).toBe("skipped_up_to_date");
+    }),
+  );
+
+  it.effect("pushes existing clean commits without rerunning commit logic", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/push-only"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      fs.writeFileSync(path.join(repoDir, "push-only.txt"), "push only\n");
+      yield* runGit(repoDir, ["add", "push-only.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Push only branch"]);
+
+      const { manager } = yield* makeManager();
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "push",
+      });
+
+      expect(result.commit.status).toBe("skipped_no_changes");
+      expect(result.push.status).toBe("pushed");
+      expect(result.pr.status).toBe("skipped_not_requested");
+      expect(
+        yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "@{upstream}"]).pipe(
+          Effect.map((output) => output.stdout.trim()),
+        ),
+      ).toBe("origin/feature/push-only");
+    }),
+  );
+
+  it.effect("create_pr pushes a clean branch before creating the PR when needed", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/create-pr-only"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      fs.writeFileSync(path.join(repoDir, "create-pr-only.txt"), "create pr\n");
+      yield* runGit(repoDir, ["add", "create-pr-only.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Create PR only branch"]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            "[]",
+            JSON.stringify([
+              {
+                number: 303,
+                title: "Create PR only branch",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/303",
+                baseRefName: "main",
+                headRefName: "feature/create-pr-only",
+              },
+            ]),
+          ],
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+      });
+
+      expect(result.commit.status).toBe("skipped_no_changes");
+      expect(result.push.status).toBe("pushed");
+      expect(result.push.setUpstream).toBe(true);
+      expect(result.pr.status).toBe("created");
+      expect(result.pr.number).toBe(303);
+      expect(
+        ghCalls.some((call) =>
+          call.includes("pr create --base main --head feature/create-pr-only"),
+        ),
+      ).toBe(true);
     }),
   );
 
@@ -2604,7 +2678,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
-  it.effect("prOnlyIfReady emits only the PR phase when the branch is already pushed", () =>
+  it.effect("create_pr emits only the PR phase when the branch is already pushed", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
@@ -2640,8 +2714,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         manager,
         {
           cwd: repoDir,
-          action: "commit_push_pr",
-          prOnlyIfReady: true,
+          action: "create_pr",
         },
         {
           actionId: "action-pr-only",

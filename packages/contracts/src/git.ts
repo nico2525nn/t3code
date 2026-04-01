@@ -5,7 +5,13 @@ const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 
 // Domain Types
 
-export const GitStackedAction = Schema.Literals(["commit", "commit_push", "commit_push_pr"]);
+export const GitStackedAction = Schema.Literals([
+  "commit",
+  "push",
+  "create_pr",
+  "commit_push",
+  "commit_push_pr",
+]);
 export type GitStackedAction = typeof GitStackedAction.Type;
 export const GitActionProgressPhase = Schema.Literals(["branch", "commit", "push", "pr"]);
 export type GitActionProgressPhase = typeof GitActionProgressPhase.Type;
@@ -33,6 +39,10 @@ const GitStatusPrState = Schema.Literals(["open", "closed", "merged"]);
 const GitPullRequestReference = TrimmedNonEmptyStringSchema;
 const GitPullRequestState = Schema.Literals(["open", "closed", "merged"]);
 const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
+export const GitRunStackedActionToastRunAction = Schema.Struct({
+  kind: GitStackedAction,
+});
+export type GitRunStackedActionToastRunAction = typeof GitRunStackedActionToastRunAction.Type;
 const GitRunStackedActionToastCta = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("none"),
@@ -45,10 +55,7 @@ const GitRunStackedActionToastCta = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("run_action"),
     label: TrimmedNonEmptyStringSchema,
-    action: GitStackedAction,
-    forcePushOnlyProgress: Schema.optional(Schema.Boolean),
-    isDefaultBranch: Schema.optional(Schema.Boolean),
-    prOnlyIfReady: Schema.optional(Schema.Boolean),
+    action: GitRunStackedActionToastRunAction,
   }),
 ]);
 export type GitRunStackedActionToastCta = typeof GitRunStackedActionToastCta.Type;
@@ -101,7 +108,6 @@ export const GitRunStackedActionInput = Schema.Struct({
   action: GitStackedAction,
   commitMessage: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(10_000))),
   featureBranch: Schema.optional(Schema.Boolean),
-  prOnlyIfReady: Schema.optional(Schema.Boolean),
   filePaths: Schema.optional(
     Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
   ),
