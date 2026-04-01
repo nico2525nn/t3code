@@ -78,6 +78,72 @@ interface FakeGitTextGeneration {
 
 type FakePullRequest = NonNullable<FakeGhScenario["pullRequest"]>;
 
+function normalizeFakePullRequestSummary(raw: unknown): GitHubPullRequestSummary | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const record = raw as Record<string, unknown>;
+  const number = record.number;
+  const title = record.title;
+  const url = record.url;
+  const baseRefName = record.baseRefName;
+  const headRefName = record.headRefName;
+  const headRepository =
+    typeof record.headRepository === "object" && record.headRepository !== null
+      ? (record.headRepository as Record<string, unknown>)
+      : null;
+  const headRepositoryOwner =
+    typeof record.headRepositoryOwner === "object" && record.headRepositoryOwner !== null
+      ? (record.headRepositoryOwner as Record<string, unknown>)
+      : null;
+
+  if (
+    typeof number !== "number" ||
+    typeof title !== "string" ||
+    typeof url !== "string" ||
+    typeof baseRefName !== "string" ||
+    typeof headRefName !== "string"
+  ) {
+    return null;
+  }
+
+  const state =
+    typeof record.state === "string"
+      ? record.state === "OPEN" || record.state === "open"
+        ? "open"
+        : record.state === "CLOSED" || record.state === "closed"
+          ? "closed"
+          : "merged"
+      : undefined;
+  const isCrossRepository =
+    typeof record.isCrossRepository === "boolean" ? record.isCrossRepository : undefined;
+  const headRepositoryNameWithOwner =
+    typeof record.headRepositoryNameWithOwner === "string"
+      ? record.headRepositoryNameWithOwner
+      : typeof headRepository?.nameWithOwner === "string"
+        ? headRepository.nameWithOwner
+        : undefined;
+  const headRepositoryOwnerLogin =
+    typeof record.headRepositoryOwnerLogin === "string"
+      ? record.headRepositoryOwnerLogin
+      : typeof headRepositoryOwner?.login === "string"
+        ? headRepositoryOwner.login
+        : undefined;
+
+  return {
+    number,
+    title,
+    url,
+    baseRefName,
+    headRefName,
+    ...(state ? { state } : {}),
+    ...(isCrossRepository !== undefined ? { isCrossRepository } : {}),
+    ...(headRepositoryNameWithOwner ? { headRepositoryNameWithOwner } : {}),
+    ...(headRepositoryOwnerLogin ? { headRepositoryOwnerLogin } : {}),
+  };
+}
+
 function runGitSyncForFakeGh(cwd: string, args: readonly string[]): void {
   const result = spawnSync("git", args, {
     cwd,
@@ -438,11 +504,14 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
             "--limit",
             String(input.limit ?? 1),
             "--json",
-            "number,title,url,baseRefName,headRefName",
+            "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
           ],
         }).pipe(
-          Effect.map(
-            (result) => JSON.parse(result.stdout) as ReadonlyArray<GitHubPullRequestSummary>,
+          Effect.map((result) => JSON.parse(result.stdout) as unknown[]),
+          Effect.map((raw) =>
+            raw
+              .map((entry) => normalizeFakePullRequestSummary(entry))
+              .filter((entry): entry is GitHubPullRequestSummary => entry !== null),
           ),
         ),
       createPullRequest: (input) =>
@@ -604,6 +673,47 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
   );
 
   it.effect(
+    "status ignores unrelated fork PRs when the current branch tracks the same repository",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        const remoteDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+
+        const { manager } = yield* makeManager({
+          ghScenario: {
+            prListSequence: [
+              JSON.stringify([
+                {
+                  number: 1661,
+                  title: "Fork PR from main",
+                  url: "https://github.com/pingdotgg/t3code/pull/1661",
+                  baseRefName: "main",
+                  headRefName: "main",
+                  state: "OPEN",
+                  updatedAt: "2026-04-01T15:00:00Z",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "lnieuwenhuis/t3code",
+                  },
+                  headRepositoryOwner: {
+                    login: "lnieuwenhuis",
+                  },
+                },
+              ]),
+            ],
+          },
+        });
+
+        const status = yield* manager.status({ cwd: repoDir });
+        expect(status.branch).toBe("main");
+        expect(status.pr).toBeNull();
+      }),
+  );
+
+  it.effect(
     "status detects cross-repo PRs from the upstream remote URL owner",
     () =>
       Effect.gen(function* () {
@@ -638,6 +748,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   headRefName: "statemachine",
                   state: "OPEN",
                   updatedAt: "2026-03-10T07:00:00Z",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "jasonLaster/codething-mvp",
+                  },
+                  headRepositoryOwner: {
+                    login: "jasonLaster",
+                  },
                 },
               ]),
             ],
@@ -655,7 +772,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           state: "open",
         });
         expect(ghCalls).toContain(
-          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt",
+          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         );
       }),
     12_000,
@@ -894,6 +1011,16 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.commit.status).toBe("created");
       expect(result.push.status).toBe("skipped_not_requested");
       expect(result.pr.status).toBe("skipped_not_requested");
+      expect(result.toast).toMatchObject({
+        description: "Implement stacked git actions",
+        cta: {
+          kind: "run_action",
+          label: "Push",
+          action: "commit_push",
+          forcePushOnlyProgress: true,
+        },
+      });
+      expect(result.toast.title).toMatch(/^Committed [0-9a-f]{7}$/);
       expect(
         yield* runGit(repoDir, ["log", "-1", "--pretty=%s"]).pipe(
           Effect.map((result) => result.stdout.trim()),
@@ -1003,6 +1130,19 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.branch.name).toBe("feature/implement-stacked-git-actions");
       expect(result.commit.status).toBe("created");
       expect(result.push.status).toBe("pushed");
+      expect(result.toast).toMatchObject({
+        description: "Implement stacked git actions",
+        cta: {
+          kind: "run_action",
+          label: "Create PR",
+          action: "commit_push_pr",
+          forcePushOnlyProgress: true,
+          isDefaultBranch: false,
+        },
+      });
+      expect(result.toast.title).toMatch(
+        /^Pushed [0-9a-f]{7} to origin\/feature\/implement-stacked-git-actions$/,
+      );
       expect(
         yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]).pipe(
           Effect.map((result) => result.stdout.trim()),
@@ -1231,6 +1371,15 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.branch.status).toBe("skipped_not_requested");
       expect(result.pr.status).toBe("opened_existing");
       expect(result.pr.number).toBe(42);
+      expect(result.toast).toEqual({
+        title: "Opened PR #42",
+        description: "Existing PR",
+        cta: {
+          kind: "open_pr",
+          label: "View PR",
+          url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+        },
+      });
       expect(ghCalls.some((call) => call.startsWith("pr view "))).toBe(false);
     }),
   );
@@ -1262,6 +1411,14 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   url: "https://github.com/pingdotgg/codething-mvp/pull/142",
                   baseRefName: "main",
                   headRefName: "statemachine",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "octocat/codething-mvp",
+                  },
+                  headRepositoryOwner: {
+                    login: "octocat",
+                  },
                 },
               ]),
             ],
@@ -1415,6 +1572,14 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   url: "https://github.com/pingdotgg/codething-mvp/pull/142",
                   baseRefName: "main",
                   headRefName: "statemachine",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "octocat/codething-mvp",
+                  },
+                  headRepositoryOwner: {
+                    login: "octocat",
+                  },
                 },
               ]),
               "fork-seed:statemachine": JSON.stringify([]),
@@ -1467,6 +1632,14 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   url: "https://github.com/pingdotgg/codething-mvp/pull/142",
                   baseRefName: "main",
                   headRefName: "statemachine",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "octocat/codething-mvp",
+                  },
+                  headRepositoryOwner: {
+                    login: "octocat",
+                  },
                 },
               ]),
               "fork-seed:statemachine": JSON.stringify([]),
@@ -1484,9 +1657,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect(result.pr.status).toBe("opened_existing");
         expect(result.pr.number).toBe(142);
 
-        const prListCalls = ghCalls.filter((call) => call.startsWith("pr list "));
-        expect(prListCalls).toHaveLength(1);
-        expect(prListCalls[0]).toContain(
+        const openLookupCalls = ghCalls.filter((call) => call.includes("--state open --limit 1"));
+        expect(openLookupCalls).toHaveLength(1);
+        expect(openLookupCalls[0]).toContain(
           "pr list --head octocat:statemachine --state open --limit 1",
         );
       }),
@@ -1537,6 +1710,78 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect(
+    "creates a new PR instead of reusing an unrelated fork PR with the same head branch",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        yield* runGit(repoDir, ["checkout", "-b", "feature/no-fork-match"]);
+        const remoteDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        fs.writeFileSync(path.join(repoDir, "changes.txt"), "change\n");
+        yield* runGit(repoDir, ["add", "changes.txt"]);
+        yield* runGit(repoDir, ["commit", "-m", "Feature commit"]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "feature/no-fork-match"]);
+
+        const { manager, ghCalls } = yield* makeManager({
+          ghScenario: {
+            prListSequence: [
+              JSON.stringify([
+                {
+                  number: 1661,
+                  title: "Fork PR with same branch name",
+                  url: "https://github.com/pingdotgg/t3code/pull/1661",
+                  baseRefName: "main",
+                  headRefName: "feature/no-fork-match",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "lnieuwenhuis/t3code",
+                  },
+                  headRepositoryOwner: {
+                    login: "lnieuwenhuis",
+                  },
+                },
+              ]),
+              JSON.stringify([
+                {
+                  number: 188,
+                  title: "Add stacked git actions",
+                  url: "https://github.com/pingdotgg/codething-mvp/pull/188",
+                  baseRefName: "main",
+                  headRefName: "feature/no-fork-match",
+                  state: "OPEN",
+                  isCrossRepository: false,
+                },
+              ]),
+            ],
+          },
+        });
+        const result = yield* runStackedAction(manager, {
+          cwd: repoDir,
+          action: "commit_push_pr",
+        });
+
+        expect(result.pr.status).toBe("created");
+        expect(result.pr.number).toBe(188);
+        expect(result.toast).toEqual({
+          title: "Created PR #188",
+          description: "Add stacked git actions",
+          cta: {
+            kind: "open_pr",
+            label: "View PR",
+            url: "https://github.com/pingdotgg/codething-mvp/pull/188",
+          },
+        });
+        expect(
+          ghCalls.some((call) =>
+            call.includes("pr create --base main --head feature/no-fork-match"),
+          ),
+        ).toBe(true);
+      }),
+  );
+
   it.effect("creates cross-repo PRs with the fork owner selector and default base branch", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -1568,6 +1813,14 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                   url: "https://github.com/pingdotgg/codething-mvp/pull/188",
                   baseRefName: "main",
                   headRefName: "statemachine",
+                  state: "OPEN",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "octocat/codething-mvp",
+                  },
+                  headRepositoryOwner: {
+                    login: "octocat",
+                  },
                 },
               ]),
             ],

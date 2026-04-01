@@ -21,7 +21,6 @@ import {
   resolveLiveThreadBranchUpdate,
   resolveQuickAction,
   resolveThreadBranchUpdate,
-  summarizeGitResult,
 } from "./GitActionsControl.logic";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
@@ -551,79 +550,53 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         const result = await promise;
         activeGitActionProgressRef.current = null;
         syncThreadBranchAfterGitAction(result);
-        const resultToast = summarizeGitResult(result);
-
-        const existingOpenPrUrl =
-          actionStatus?.pr?.state === "open" ? actionStatus.pr.url : undefined;
-        const prUrl = result.pr.url ?? existingOpenPrUrl;
-        const shouldOfferPushCta = action === "commit" && result.commit.status === "created";
-        const shouldOfferOpenPrCta =
-          (action === "commit_push" || action === "commit_push_pr") &&
-          !!prUrl &&
-          (!actionIsDefaultBranch ||
-            result.pr.status === "created" ||
-            result.pr.status === "opened_existing");
-        const shouldOfferCreatePrCta =
-          action === "commit_push" &&
-          !prUrl &&
-          result.push.status === "pushed" &&
-          !actionIsDefaultBranch;
         const closeResultToast = () => {
           toastManager.close(resolvedProgressToastId);
         };
 
+        const toastCta = result.toast.cta;
+        let toastActionProps: {
+          children: string;
+          onClick: () => void;
+        } | null = null;
+        if (toastCta.kind === "run_action") {
+          toastActionProps = {
+            children: toastCta.label,
+            onClick: () => {
+              closeResultToast();
+              void runGitActionWithToast({
+                action: toastCta.action,
+                ...(toastCta.forcePushOnlyProgress !== undefined
+                  ? { forcePushOnlyProgress: toastCta.forcePushOnlyProgress }
+                  : {}),
+                ...(toastCta.isDefaultBranch !== undefined
+                  ? { isDefaultBranchOverride: toastCta.isDefaultBranch }
+                  : {}),
+              });
+            },
+          };
+        } else if (toastCta.kind === "open_pr") {
+          toastActionProps = {
+            children: toastCta.label,
+            onClick: () => {
+              const api = readNativeApi();
+              if (!api) return;
+              closeResultToast();
+              void api.shell.openExternal(toastCta.url);
+            },
+          };
+        }
+
         toastManager.update(resolvedProgressToastId, {
           type: "success",
-          title: resultToast.title,
-          description: resultToast.description,
+          title: result.toast.title,
+          description: result.toast.description,
           timeout: 0,
           data: {
             ...threadToastData,
             dismissAfterVisibleMs: 10_000,
           },
-          ...(shouldOfferPushCta
-            ? {
-                actionProps: {
-                  children: "Push",
-                  onClick: () => {
-                    void runGitActionWithToast({
-                      action: "commit_push",
-                      forcePushOnlyProgress: true,
-                      onConfirmed: closeResultToast,
-                      statusOverride: actionStatus,
-                      isDefaultBranchOverride: actionIsDefaultBranch,
-                    });
-                  },
-                },
-              }
-            : shouldOfferOpenPrCta
-              ? {
-                  actionProps: {
-                    children: "View PR",
-                    onClick: () => {
-                      const api = readNativeApi();
-                      if (!api) return;
-                      closeResultToast();
-                      void api.shell.openExternal(prUrl);
-                    },
-                  },
-                }
-              : shouldOfferCreatePrCta
-                ? {
-                    actionProps: {
-                      children: "Create PR",
-                      onClick: () => {
-                        closeResultToast();
-                        void runGitActionWithToast({
-                          action: "commit_push_pr",
-                          forcePushOnlyProgress: true,
-                          statusOverride: actionStatus,
-                          isDefaultBranchOverride: actionIsDefaultBranch,
-                        });
-                      },
-                    },
-                  }
-                : {}),
+          ...(toastActionProps ? { actionProps: toastActionProps } : {}),
         });
       } catch (err) {
         activeGitActionProgressRef.current = null;

@@ -30,6 +30,8 @@ import type { GitManagerServiceError } from "@t3tools/contracts";
 
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;
+const SHORT_SHA_LENGTH = 7;
+const TOAST_DESCRIPTION_MAX = 72;
 type StripProgressContext<T> = T extends any ? Omit<T, "actionId" | "cwd" | "action"> : never;
 type GitActionProgressPayload = StripProgressContext<GitActionProgressEvent>;
 
@@ -41,7 +43,7 @@ interface OpenPrInfo {
   headRefName: string;
 }
 
-interface PullRequestInfo extends OpenPrInfo {
+interface PullRequestInfo extends OpenPrInfo, PullRequestHeadRemoteInfo {
   state: "open" | "closed" | "merged";
   updatedAt: string | null;
 }
@@ -136,6 +138,94 @@ function parseRepositoryOwnerLogin(nameWithOwner: string | null): string | null 
   return normalizedOwnerLogin.length > 0 ? normalizedOwnerLogin : null;
 }
 
+function normalizeOptionalString(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeOptionalRepositoryNameWithOwner(value: string | null | undefined): string | null {
+  const normalized = normalizeOptionalString(value);
+  return normalized ? normalized.toLowerCase() : null;
+}
+
+function normalizeOptionalOwnerLogin(value: string | null | undefined): string | null {
+  const normalized = normalizeOptionalString(value);
+  return normalized ? normalized.toLowerCase() : null;
+}
+
+function resolvePullRequestHeadRepositoryNameWithOwner(
+  pr: PullRequestHeadRemoteInfo & { url: string },
+) {
+  const explicitRepository = normalizeOptionalString(pr.headRepositoryNameWithOwner);
+  if (explicitRepository) {
+    return explicitRepository;
+  }
+
+  if (!pr.isCrossRepository) {
+    return null;
+  }
+
+  const ownerLogin = normalizeOptionalString(pr.headRepositoryOwnerLogin);
+  const repositoryName = parseRepositoryNameFromPullRequestUrl(pr.url);
+  if (!ownerLogin || !repositoryName) {
+    return null;
+  }
+
+  return `${ownerLogin}/${repositoryName}`;
+}
+
+function matchesBranchHeadContext(
+  pr: PullRequestInfo,
+  headContext: Pick<
+    BranchHeadContext,
+    "headBranch" | "headRepositoryNameWithOwner" | "headRepositoryOwnerLogin" | "isCrossRepository"
+  >,
+): boolean {
+  if (pr.headRefName !== headContext.headBranch) {
+    return false;
+  }
+
+  const expectedHeadRepository = normalizeOptionalRepositoryNameWithOwner(
+    headContext.headRepositoryNameWithOwner,
+  );
+  const expectedHeadOwner =
+    normalizeOptionalOwnerLogin(headContext.headRepositoryOwnerLogin) ??
+    parseRepositoryOwnerLogin(expectedHeadRepository);
+  const prHeadRepository = normalizeOptionalRepositoryNameWithOwner(
+    resolvePullRequestHeadRepositoryNameWithOwner(pr),
+  );
+  const prHeadOwner =
+    normalizeOptionalOwnerLogin(pr.headRepositoryOwnerLogin) ??
+    parseRepositoryOwnerLogin(prHeadRepository);
+
+  if (headContext.isCrossRepository) {
+    if (pr.isCrossRepository === false) {
+      return false;
+    }
+    if ((expectedHeadRepository || expectedHeadOwner) && !prHeadRepository && !prHeadOwner) {
+      return false;
+    }
+    if (expectedHeadRepository && prHeadRepository && expectedHeadRepository !== prHeadRepository) {
+      return false;
+    }
+    if (expectedHeadOwner && prHeadOwner && expectedHeadOwner !== prHeadOwner) {
+      return false;
+    }
+    return true;
+  }
+
+  if (pr.isCrossRepository === true) {
+    return false;
+  }
+  if (expectedHeadRepository && prHeadRepository && expectedHeadRepository !== prHeadRepository) {
+    return false;
+  }
+  if (expectedHeadOwner && prHeadOwner && expectedHeadOwner !== prHeadOwner) {
+    return false;
+  }
+  return true;
+}
+
 function parsePullRequestList(raw: unknown): PullRequestInfo[] {
   if (!Array.isArray(raw)) return [];
 
@@ -151,6 +241,27 @@ function parsePullRequestList(raw: unknown): PullRequestInfo[] {
     const state = record.state;
     const mergedAt = record.mergedAt;
     const updatedAt = record.updatedAt;
+    const isCrossRepository = record.isCrossRepository;
+    const headRepositoryRecord =
+      typeof record.headRepository === "object" && record.headRepository !== null
+        ? (record.headRepository as Record<string, unknown>)
+        : null;
+    const headRepositoryOwnerRecord =
+      typeof record.headRepositoryOwner === "object" && record.headRepositoryOwner !== null
+        ? (record.headRepositoryOwner as Record<string, unknown>)
+        : null;
+    const headRepositoryNameWithOwner =
+      typeof record.headRepositoryNameWithOwner === "string"
+        ? record.headRepositoryNameWithOwner
+        : typeof headRepositoryRecord?.nameWithOwner === "string"
+          ? headRepositoryRecord.nameWithOwner
+          : null;
+    const headRepositoryOwnerLogin =
+      typeof record.headRepositoryOwnerLogin === "string"
+        ? record.headRepositoryOwnerLogin
+        : typeof headRepositoryOwnerRecord?.login === "string"
+          ? headRepositoryOwnerRecord.login
+          : null;
     if (typeof number !== "number" || !Number.isInteger(number) || number <= 0) {
       continue;
     }
@@ -164,11 +275,15 @@ function parsePullRequestList(raw: unknown): PullRequestInfo[] {
     }
 
     let normalizedState: "open" | "closed" | "merged";
-    if ((typeof mergedAt === "string" && mergedAt.trim().length > 0) || state === "MERGED") {
+    if (
+      (typeof mergedAt === "string" && mergedAt.trim().length > 0) ||
+      state === "MERGED" ||
+      state === "merged"
+    ) {
       normalizedState = "merged";
-    } else if (state === "OPEN" || state === undefined || state === null) {
+    } else if (state === "OPEN" || state === "open" || state === undefined || state === null) {
       normalizedState = "open";
-    } else if (state === "CLOSED") {
+    } else if (state === "CLOSED" || state === "closed") {
       normalizedState = "closed";
     } else {
       continue;
@@ -182,6 +297,9 @@ function parsePullRequestList(raw: unknown): PullRequestInfo[] {
       headRefName,
       state: normalizedState,
       updatedAt: typeof updatedAt === "string" && updatedAt.trim().length > 0 ? updatedAt : null,
+      ...(typeof isCrossRepository === "boolean" ? { isCrossRepository } : {}),
+      ...(headRepositoryNameWithOwner ? { headRepositoryNameWithOwner } : {}),
+      ...(headRepositoryOwnerLogin ? { headRepositoryOwnerLogin } : {}),
     });
   }
   return parsed;
@@ -198,6 +316,57 @@ function gitManagerError(operation: string, detail: string, cause?: unknown): Gi
 function limitContext(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars)}\n\n[truncated]`;
+}
+
+function shortenSha(sha: string | undefined): string | null {
+  if (!sha) return null;
+  return sha.slice(0, SHORT_SHA_LENGTH);
+}
+
+function truncateText(
+  value: string | undefined,
+  maxLength = TOAST_DESCRIPTION_MAX,
+): string | undefined {
+  if (!value) return undefined;
+  if (value.length <= maxLength) return value;
+  if (maxLength <= 3) return "...".slice(0, maxLength);
+  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function withDescription(title: string, description: string | undefined) {
+  return description ? { title, description } : { title };
+}
+
+function summarizeGitActionResult(
+  result: Pick<GitRunStackedActionResult, "commit" | "push" | "pr">,
+): {
+  title: string;
+  description?: string;
+} {
+  if (result.pr.status === "created" || result.pr.status === "opened_existing") {
+    const prNumber = result.pr.number ? ` #${result.pr.number}` : "";
+    const title = `${result.pr.status === "created" ? "Created PR" : "Opened PR"}${prNumber}`;
+    return withDescription(title, truncateText(result.pr.title));
+  }
+
+  if (result.push.status === "pushed") {
+    const shortSha = shortenSha(result.commit.commitSha);
+    const branch = result.push.upstreamBranch ?? result.push.branch;
+    const pushedCommitPart = shortSha ? ` ${shortSha}` : "";
+    const branchPart = branch ? ` to ${branch}` : "";
+    return withDescription(
+      `Pushed${pushedCommitPart}${branchPart}`,
+      truncateText(result.commit.subject),
+    );
+  }
+
+  if (result.commit.status === "created") {
+    const shortSha = shortenSha(result.commit.commitSha);
+    const title = shortSha ? `Committed ${shortSha}` : "Committed changes";
+    return withDescription(title, truncateText(result.commit.subject));
+  }
+
+  return { title: "Done" };
 }
 
 function sanitizeCommitMessage(generated: {
@@ -583,16 +752,26 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   const findOpenPr = Effect.fn("findOpenPr")(function* (
     cwd: string,
-    headSelectors: ReadonlyArray<string>,
+    headContext: Pick<
+      BranchHeadContext,
+      | "headBranch"
+      | "headSelectors"
+      | "headRepositoryNameWithOwner"
+      | "headRepositoryOwnerLogin"
+      | "isCrossRepository"
+    >,
   ) {
-    for (const headSelector of headSelectors) {
+    for (const headSelector of headContext.headSelectors) {
       const pullRequests = yield* gitHubCli.listOpenPullRequests({
         cwd,
         headSelector,
         limit: 1,
       });
+      const normalizedPullRequests = parsePullRequestList(pullRequests);
 
-      const [firstPullRequest] = pullRequests;
+      const firstPullRequest = normalizedPullRequests.find((pullRequest) =>
+        matchesBranchHeadContext(pullRequest, headContext),
+      );
       if (firstPullRequest) {
         return {
           number: firstPullRequest.number,
@@ -630,7 +809,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
             "--limit",
             "20",
             "--json",
-            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt",
+            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
           ],
         })
         .pipe(Effect.map((result) => result.stdout));
@@ -647,6 +826,9 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       });
 
       for (const pr of parsePullRequestList(parsedJson)) {
+        if (!matchesBranchHeadContext(pr, headContext)) {
+          continue;
+        }
         parsedByNumber.set(pr.number, pr);
       }
     }
@@ -662,6 +844,85 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       return latestOpenPr;
     }
     return parsed[0] ?? null;
+  });
+
+  const isDefaultBranch = Effect.fn("isDefaultBranch")(function* (cwd: string, branch: string) {
+    const branches = yield* gitCore.listBranches({ cwd });
+    const currentBranch = branches.branches.find((candidate) => candidate.name === branch);
+    return currentBranch?.isDefault ?? (branch === "main" || branch === "master");
+  });
+
+  const buildCompletionToast = Effect.fn("buildCompletionToast")(function* (
+    cwd: string,
+    result: Pick<GitRunStackedActionResult, "action" | "branch" | "commit" | "push" | "pr">,
+  ) {
+    const summary = summarizeGitActionResult(result);
+    let latestOpenPr: PullRequestInfo | null = null;
+    let currentBranchIsDefault = false;
+
+    if (result.action !== "commit") {
+      const finalStatus = yield* gitCore.statusDetails(cwd);
+      if (finalStatus.branch) {
+        latestOpenPr = yield* findLatestPr(cwd, {
+          branch: finalStatus.branch,
+          upstreamRef: finalStatus.upstreamRef,
+        }).pipe(
+          Effect.map((pr) => (pr?.state === "open" ? pr : null)),
+          Effect.catch(() => Effect.succeed(null)),
+        );
+        currentBranchIsDefault = yield* isDefaultBranch(cwd, finalStatus.branch).pipe(
+          Effect.catch(() =>
+            Effect.succeed(finalStatus.branch === "main" || finalStatus.branch === "master"),
+          ),
+        );
+      }
+    }
+
+    const explicitResultPr =
+      (result.pr.status === "created" || result.pr.status === "opened_existing") && result.pr.url
+        ? {
+            url: result.pr.url,
+            state: "open" as const,
+          }
+        : null;
+    const openPr = latestOpenPr ?? explicitResultPr;
+
+    const cta =
+      result.action === "commit" && result.commit.status === "created"
+        ? {
+            kind: "run_action" as const,
+            label: "Push",
+            action: "commit_push" as const,
+            forcePushOnlyProgress: true,
+          }
+        : (result.action === "commit_push" || result.action === "commit_push_pr") &&
+            openPr?.url &&
+            (!currentBranchIsDefault ||
+              result.pr.status === "created" ||
+              result.pr.status === "opened_existing")
+          ? {
+              kind: "open_pr" as const,
+              label: "View PR",
+              url: openPr.url,
+            }
+          : result.action === "commit_push" &&
+              result.push.status === "pushed" &&
+              !currentBranchIsDefault
+            ? {
+                kind: "run_action" as const,
+                label: "Create PR",
+                action: "commit_push_pr" as const,
+                forcePushOnlyProgress: true,
+                isDefaultBranch: false,
+              }
+            : {
+                kind: "none" as const,
+              };
+
+    return {
+      ...summary,
+      cta,
+    };
   });
 
   const resolveBaseBranch = Effect.fn("resolveBaseBranch")(function* (
@@ -877,7 +1138,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       upstreamRef: details.upstreamRef,
     });
 
-    const existing = yield* findOpenPr(cwd, headContext.headSelectors);
+    const existing = yield* findOpenPr(cwd, headContext);
     if (existing) {
       return {
         status: "opened_existing" as const,
@@ -920,7 +1181,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       })
       .pipe(Effect.ensuring(fileSystem.remove(bodyFile).pipe(Effect.catch(() => Effect.void))));
 
-    const created = yield* findOpenPr(cwd, headContext.headSelectors);
+    const created = yield* findOpenPr(cwd, headContext);
     if (!created) {
       return {
         status: "created" as const,
@@ -1263,12 +1524,21 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
               )
           : { status: "skipped_not_requested" as const };
 
+        const toast = yield* buildCompletionToast(input.cwd, {
+          action: input.action,
+          branch: branchStep,
+          commit,
+          push,
+          pr,
+        });
+
         const result = {
           action: input.action,
           branch: branchStep,
           commit,
           push,
           pr,
+          toast,
         };
         yield* progress.emit({
           kind: "action_finished",
