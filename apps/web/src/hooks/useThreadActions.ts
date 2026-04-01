@@ -18,7 +18,6 @@ import { useSettings } from "./useSettings";
 
 export function useThreadActions() {
   const appSettings = useSettings();
-  const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
   const clearProjectDraftThreadById = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadById,
@@ -32,13 +31,6 @@ export function useThreadActions() {
   const { handleNewThread } = useHandleNewThread();
   const queryClient = useQueryClient();
   const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
-
-  const refreshActiveSnapshot = useCallback(async () => {
-    const api = readNativeApi();
-    if (!api) return;
-    const snapshot = await api.orchestration.getActiveSnapshot();
-    syncServerReadModel(snapshot);
-  }, [syncServerReadModel]);
 
   const archiveThread = useCallback(
     async (threadId: ThreadId) => {
@@ -73,10 +65,9 @@ export function useThreadActions() {
         commandId: newCommandId(),
         threadId,
       });
-      await refreshActiveSnapshot();
       void queryClient.invalidateQueries({ queryKey: orchestrationQueryKeys.archivedThreads() });
     },
-    [queryClient, refreshActiveSnapshot],
+    [queryClient],
   );
 
   const deleteThread = useCallback(
