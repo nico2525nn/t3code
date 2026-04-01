@@ -859,17 +859,20 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     const summary = summarizeGitActionResult(result);
     let latestOpenPr: PullRequestInfo | null = null;
     let currentBranchIsDefault = false;
+    let finalBranchContext: {
+      branch: string;
+      upstreamRef: string | null;
+      hasUpstream: boolean;
+    } | null = null;
 
     if (result.action !== "commit") {
       const finalStatus = yield* gitCore.statusDetails(cwd);
       if (finalStatus.branch) {
-        latestOpenPr = yield* findLatestPr(cwd, {
+        finalBranchContext = {
           branch: finalStatus.branch,
           upstreamRef: finalStatus.upstreamRef,
-        }).pipe(
-          Effect.map((pr) => (pr?.state === "open" ? pr : null)),
-          Effect.catch(() => Effect.succeed(null)),
-        );
+          hasUpstream: finalStatus.hasUpstream,
+        };
         currentBranchIsDefault = yield* isDefaultBranch(cwd, finalStatus.branch).pipe(
           Effect.catch(() =>
             Effect.succeed(finalStatus.branch === "main" || finalStatus.branch === "master"),
@@ -885,6 +888,24 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
             state: "open" as const,
           }
         : null;
+    const shouldLookupExistingOpenPr =
+      result.action === "commit_push" &&
+      result.push.status === "pushed" &&
+      result.branch.status !== "created" &&
+      !currentBranchIsDefault &&
+      explicitResultPr === null &&
+      finalBranchContext?.hasUpstream === true;
+
+    if (shouldLookupExistingOpenPr && finalBranchContext) {
+      latestOpenPr = yield* resolveBranchHeadContext(cwd, {
+        branch: finalBranchContext.branch,
+        upstreamRef: finalBranchContext.upstreamRef,
+      }).pipe(
+        Effect.flatMap((headContext) => findOpenPr(cwd, headContext)),
+        Effect.catch(() => Effect.succeed(null)),
+      );
+    }
+
     const openPr = latestOpenPr ?? explicitResultPr;
 
     const cta =
