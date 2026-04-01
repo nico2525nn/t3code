@@ -8,7 +8,7 @@ import { describe, expect, vi } from "vite-plus/test";
 
 import { GitCoreLive, makeGitCore } from "./GitCore.ts";
 import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
-import { GitCommandError } from "../Errors.ts";
+import { GitCommandError } from "@t3tools/contracts";
 import { type ProcessRunResult, runProcess } from "../../processRunner.ts";
 import { ServerConfig } from "../../config.ts";
 
@@ -366,6 +366,64 @@ it.layer(TestLayer)("git integration", (it) => {
         const names = result.branches.map((b) => b.name);
         expect(names).toContain("feature-a");
         expect(names).toContain("feature-b");
+      }),
+    );
+
+    it.effect("parses separate branch names when column.ui is always enabled", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(tmp);
+        const createdBranchNames = [
+          "go-bin",
+          "copilot/rewrite-cli-in-go",
+          "copilot/rewrite-cli-in-rust",
+        ] as const;
+        for (const branchName of createdBranchNames) {
+          yield* (yield* GitCore).createBranch({ cwd: tmp, branch: branchName });
+        }
+        yield* git(tmp, ["config", "column.ui", "always"]);
+
+        const rawBranchOutput = yield* git(tmp, ["branch", "--no-color"], {
+          ...process.env,
+          COLUMNS: "120",
+        });
+        expect(
+          rawBranchOutput
+            .split("\n")
+            .some(
+              (line) =>
+                createdBranchNames.filter((branchName) => line.includes(branchName)).length >= 2,
+            ),
+        ).toBe(true);
+
+        const realGitCore = yield* GitCore;
+        const core = yield* makeIsolatedGitCore((input) =>
+          realGitCore.execute(
+            input.args[0] === "branch"
+              ? {
+                  ...input,
+                  env: { ...input.env, COLUMNS: "120" },
+                }
+              : input,
+          ),
+        );
+
+        const result = yield* core.listBranches({ cwd: tmp });
+        const localBranchNames = result.branches
+          .filter((branch) => !branch.isRemote)
+          .map((branch) => branch.name);
+
+        expect(localBranchNames).toHaveLength(4);
+        expect(localBranchNames).toEqual(
+          expect.arrayContaining([initialBranch, ...createdBranchNames]),
+        );
+        expect(
+          localBranchNames.some(
+            (branchName) =>
+              createdBranchNames.filter((createdBranch) => branchName.includes(createdBranch))
+                .length >= 2,
+          ),
+        ).toBe(false);
       }),
     );
 
@@ -1898,7 +1956,7 @@ it.layer(TestLayer)("git integration", (it) => {
         let didFailRemoteBranches = false;
         let didFailRemoteNames = false;
         const core = yield* makeIsolatedGitCore((input) => {
-          if (input.args.join(" ") === "branch --no-color --remotes") {
+          if (input.args.join(" ") === "branch --no-color --no-column --remotes") {
             didFailRemoteBranches = true;
             return Effect.fail(
               new GitCommandError({

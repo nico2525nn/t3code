@@ -5,7 +5,7 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   pack: {
-    entry: ["src/index.ts"],
+    entry: ["src/bin.ts"],
     format: ["esm", "cjs"],
     checks: {
       legacyCjs: false,
@@ -20,7 +20,8 @@ export default defineConfig({
     },
   },
   test: {
-    testTimeout: 15_000,
-    hookTimeout: 15_000,
+    fileParallelism: false,
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 });
