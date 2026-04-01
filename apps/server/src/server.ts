@@ -42,6 +42,9 @@ import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResol
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
+import { isPerfProviderEnabled } from "./perf/config";
+import { PerfProviderRegistryLive } from "./perf/PerfProviderRegistry";
+import { PerfProviderLayerLive } from "./perf/PerfProviderLayers";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -112,7 +115,7 @@ const CheckpointingLayerLive = Layer.empty.pipe(
   Layer.provideMerge(CheckpointStoreLive),
 );
 
-const ProviderLayerLive = Layer.unwrap(
+const DefaultProviderLayerLive = Layer.unwrap(
   Effect.gen(function* () {
     const { providerEventLogPath } = yield* ServerConfig;
     const nativeEventLogger = yield* makeEventNdjsonLogger(providerEventLogPath, {
@@ -140,6 +143,14 @@ const ProviderLayerLive = Layer.unwrap(
     ).pipe(Layer.provide(adapterRegistryLayer), Layer.provide(providerSessionDirectoryLayer));
   }),
 );
+
+const SelectedProviderLayerLive = isPerfProviderEnabled()
+  ? PerfProviderLayerLive
+  : DefaultProviderLayerLive;
+
+const SelectedProviderRegistryLayerLive = isPerfProviderEnabled()
+  ? PerfProviderRegistryLive
+  : ProviderRegistryLive;
 
 const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
 
@@ -172,12 +183,12 @@ const RuntimeServicesLive = Layer.empty.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(OrchestrationLayerLive),
-  Layer.provideMerge(ProviderLayerLive),
+  Layer.provideMerge(SelectedProviderLayerLive),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(KeybindingsLive),
-  Layer.provideMerge(ProviderRegistryLive),
+  Layer.provideMerge(SelectedProviderRegistryLayerLive),
   Layer.provideMerge(ServerSettingsLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),

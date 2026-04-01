@@ -39,6 +39,7 @@
     "typecheck": "turbo run typecheck",
     "lint": "oxlint --report-unused-disable-directives",
     "test": "turbo run test",
+    "test:perf:web": "turbo run build --filter=@t3tools/web && turbo run build --filter=t3 && cd apps/web && bun run test:perf",
     "test:desktop-smoke": "turbo run smoke-test --filter=@t3tools/desktop",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
