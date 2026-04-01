@@ -328,24 +328,23 @@ export const ResolvedKeybindingFromConfig = KeybindingRule.pipe(
           Effect.map((resolved) => resolved),
         ),
 
-      encode: (resolved) =>
-        Effect.gen(function* () {
-          const key = encodeShortcut(resolved.shortcut);
-          if (!key) {
-            return yield* Effect.fail(
-              new SchemaIssue.InvalidValue(Option.some(resolved), {
-                title: "Resolved shortcut cannot be encoded to key string",
-              }),
-            );
-          }
+      encode: Effect.fn("ResolvedKeybindingFromConfig.encode")(function* (resolved) {
+        const key = encodeShortcut(resolved.shortcut);
+        if (!key) {
+          return yield* Effect.fail(
+            new SchemaIssue.InvalidValue(Option.some(resolved), {
+              title: "Resolved shortcut cannot be encoded to key string",
+            }),
+          );
+        }
 
-          const when = resolved.whenAst ? encodeWhenAst(resolved.whenAst) : undefined;
-          return {
-            key,
-            command: resolved.command,
-            when,
-          };
-        }),
+        const when = resolved.whenAst ? encodeWhenAst(resolved.whenAst) : undefined;
+        return {
+          key,
+          command: resolved.command,
+          when,
+        };
+      }),
     }),
   ),
 );
@@ -581,8 +580,9 @@ const makeKeybindings = Effect.gen(function* () {
       ),
     );
 
-    return yield* Effect.forEach(rawConfig, (entry) =>
-      Effect.gen(function* () {
+    return yield* Effect.forEach(
+      rawConfig,
+      Effect.fn("loadWritableCustomKeybindingsConfig.decodeEntry")(function* (entry) {
         const decodedRule = Schema.decodeUnknownExit(KeybindingRule)(entry);
         if (decodedRule._tag === "Failure") {
           yield* Effect.logWarning("ignoring invalid keybinding entry", {
