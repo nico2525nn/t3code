@@ -1,4 +1,4 @@
-import { type ModelSlug, type ProviderKind, type ServerProvider } from "@t3tools/contracts";
+import { type ProviderKind, type ServerProvider } from "@t3tools/contracts";
 import { resolveSelectableModel } from "@t3tools/shared/model";
 import { memo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
@@ -52,7 +52,7 @@ function providerIconClassName(
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   provider: ProviderKind;
-  model: ModelSlug;
+  model: string;
   lockedProvider: ProviderKind | null;
   providers?: ReadonlyArray<ServerProvider>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
@@ -61,7 +61,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   disabled?: boolean;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
-  onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
+  onProviderModelChange: (provider: ProviderKind, model: string) => void;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const activeProvider = props.lockedProvider ?? props.provider;
@@ -98,6 +98,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           <Button
             size="sm"
             variant={props.triggerVariant ?? "ghost"}
+            data-chat-provider-model-picker="true"
             className={cn(
               "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 [&_svg]:mx-0",
               props.compact ? "max-w-42 shrink-0" : "max-w-48 shrink sm:max-w-56 sm:px-3",
@@ -109,8 +110,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       >
         <span
           className={cn(
-            "flex min-w-0 w-full items-center gap-2 overflow-hidden",
-            props.compact ? "max-w-36" : undefined,
+            "flex min-w-0 w-full box-border items-center gap-2 overflow-hidden",
+            props.compact ? "max-w-36 sm:pl-1" : undefined,
           )}
         >
           <ProviderIcon

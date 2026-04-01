@@ -10,17 +10,14 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
-import { EDITORS, type EditorId } from "@t3tools/contracts";
-import { ServiceMap, Schema, Effect, Layer } from "effect";
+import { EDITORS, OpenError, type EditorId } from "@t3tools/contracts";
+import { ServiceMap, Effect, Layer } from "effect";
 
 // ==============================
 // Definitions
 // ==============================
 
-export class OpenError extends Schema.TaggedErrorClass<OpenError>()("OpenError", {
-  message: Schema.String,
-  cause: Schema.optional(Schema.Defect),
-}) {}
+export { OpenError };
 
 export interface OpenInEditorInput {
   readonly cwd: string;
@@ -39,10 +36,8 @@ interface CommandAvailabilityOptions {
 
 const LINE_COLUMN_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
 
-function shouldUseGotoFlag(editorId: EditorId, target: string): boolean {
-  return (
-    (editorId === "cursor" || editorId === "vscode") && LINE_COLUMN_SUFFIX_PATTERN.test(target)
-  );
+function shouldUseGotoFlag(editor: (typeof EDITORS)[number], target: string): boolean {
+  return editor.supportsGoto && LINE_COLUMN_SUFFIX_PATTERN.test(target);
 }
 
 function fileManagerCommandForPlatform(platform: NodeJS.Platform): string {
@@ -213,7 +208,7 @@ export const resolveEditorLaunch = Effect.fnUntraced(function* (
   }
 
   if (editorDef.command) {
-    return shouldUseGotoFlag(editorDef.id, input.cwd)
+    return shouldUseGotoFlag(editorDef, input.cwd)
       ? { command: editorDef.command, args: ["--goto", input.cwd] }
       : { command: editorDef.command, args: [input.cwd] };
   }
