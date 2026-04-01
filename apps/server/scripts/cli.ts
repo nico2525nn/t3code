@@ -184,9 +184,9 @@ const publishCmd = Command.make(
       }
     }
 
-      yield* Effect.acquireUseRelease(
-        // Acquire: backup package.json, resolve catalog: deps, strip devDependencies/scripts
-        Effect.fn("publishCmd.acquire")(function* () {
+    yield* Effect.acquireUseRelease(
+      // Acquire: backup package.json, resolve catalog: deps, strip devDependencies/scripts
+      Effect.fn("publishCmd.acquire")(function* () {
         // Resolve catalog dependencies before any file mutations. If this throws,
         // acquire fails and no release hook runs, so filesystem must still be untouched.
         const version = Option.getOrElse(config.appVersion, () => serverPackageJson.version);
@@ -214,38 +214,38 @@ const publishCmd = Command.make(
 
         const iconBackups = yield* applyPublishIconOverrides(repoRoot, serverDir);
         return { iconBackups };
-        })(),
-        // Use: npm publish
-        () =>
-          Effect.fn("publishCmd.use")(function* () {
-            const args = ["publish", "--access", config.access, "--tag", config.tag];
-            if (config.provenance) args.push("--provenance");
-            if (config.dryRun) args.push("--dry-run");
+      })(),
+      // Use: npm publish
+      () =>
+        Effect.fn("publishCmd.use")(function* () {
+          const args = ["publish", "--access", config.access, "--tag", config.tag];
+          if (config.provenance) args.push("--provenance");
+          if (config.dryRun) args.push("--dry-run");
 
-        yield* Effect.log(`[cli] Running: npm ${args.join(" ")}`);
-        yield* runCommand(
-          ChildProcess.make("npm", [...args], {
-            cwd: serverDir,
-            stdout: config.verbose ? "inherit" : "ignore",
-            stderr: "inherit",
-            // Windows needs shell mode to resolve .cmd shims.
-            shell: process.platform === "win32",
-              }),
-            );
-          })(),
-        // Release: restore
-        Effect.fn("publishCmd.release")(function* (resource: {
-          readonly iconBackups: ReadonlyArray<PublishIconBackup>;
-        }) {
+          yield* Effect.log(`[cli] Running: npm ${args.join(" ")}`);
+          yield* runCommand(
+            ChildProcess.make("npm", [...args], {
+              cwd: serverDir,
+              stdout: config.verbose ? "inherit" : "ignore",
+              stderr: "inherit",
+              // Windows needs shell mode to resolve .cmd shims.
+              shell: process.platform === "win32",
+            }),
+          );
+        })(),
+      // Release: restore
+      Effect.fn("publishCmd.release")(function* (resource: {
+        readonly iconBackups: ReadonlyArray<PublishIconBackup>;
+      }) {
         yield* restorePublishIconOverrides(resource.iconBackups).pipe(
           Effect.catch((error) =>
             Effect.logError(`[cli] Failed to restore publish icon overrides: ${String(error)}`),
           ),
-          );
-          yield* fs.rename(backupPath, packageJsonPath);
-          if (config.verbose) yield* Effect.log("[cli] Restored original package.json");
-        }),
-      );
+        );
+        yield* fs.rename(backupPath, packageJsonPath);
+        if (config.verbose) yield* Effect.log("[cli] Restored original package.json");
+      }),
+    );
   }),
 ).pipe(Command.withDescription("Publish the server package to npm."));
 
