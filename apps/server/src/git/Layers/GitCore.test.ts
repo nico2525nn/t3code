@@ -59,14 +59,14 @@ function git(
   });
 }
 
-function addRemoteWithFetchNamespace(
+function configureRemote(
   cwd: string,
   remoteName: string,
   remotePath: string,
   fetchNamespace: string,
 ): Effect.Effect<string, GitCommandError, GitCore> {
   return Effect.gen(function* () {
-    yield* git(cwd, ["remote", "add", remoteName, remotePath]);
+    yield* git(cwd, ["config", `remote.${remoteName}.url`, remotePath]);
     return yield* git(cwd, [
       "config",
       "--replace-all",
@@ -746,13 +746,8 @@ it.layer(TestLayer)("git integration", (it) => {
         const defaultBranch = (yield* (yield* GitCore).listBranches({ cwd: source })).branches.find(
           (branch) => branch.current,
         )!.name;
-        yield* addRemoteWithFetchNamespace(
-          source,
-          prefixRemoteName,
-          prefixRemote,
-          prefixFetchNamespace,
-        );
-        yield* git(source, ["remote", "add", remoteName, remote]);
+        yield* configureRemote(source, prefixRemoteName, prefixRemote, prefixFetchNamespace);
+        yield* configureRemote(source, remoteName, remote, remoteName);
         yield* git(source, ["push", "-u", remoteName, defaultBranch]);
 
         yield* git(source, ["checkout", "-b", featureBranch]);
@@ -1694,13 +1689,8 @@ it.layer(TestLayer)("git integration", (it) => {
         yield* git(prefixRemote, ["init", "--bare"]);
 
         const { initialBranch } = yield* initRepoWithCommit(tmp);
-        yield* addRemoteWithFetchNamespace(
-          tmp,
-          prefixRemoteName,
-          prefixRemote,
-          prefixFetchNamespace,
-        );
-        yield* git(tmp, ["remote", "add", remoteName, remote]);
+        yield* configureRemote(tmp, prefixRemoteName, prefixRemote, prefixFetchNamespace);
+        yield* configureRemote(tmp, remoteName, remote, remoteName);
         yield* git(tmp, ["push", "-u", remoteName, initialBranch]);
 
         yield* git(tmp, ["checkout", "-b", featureBranch]);
