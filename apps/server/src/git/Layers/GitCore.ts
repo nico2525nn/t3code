@@ -46,6 +46,7 @@ const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const GIT_CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
+const STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN = Duration.seconds(5);
 const STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY = 2_048;
 const DEFAULT_BASE_BRANCH_CANDIDATES = ["main", "master"] as const;
 
@@ -55,7 +56,7 @@ type TraceTailState = {
 };
 
 class StatusUpstreamRefreshCacheKey extends Data.Class<{
-  cwd: string;
+  gitCommonDir: string;
   upstreamRef: string;
   remoteName: string;
   upstreamBranch: string;
@@ -811,14 +812,16 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   });
 
   const fetchUpstreamRefForStatus = (
-    cwd: string,
+    gitCommonDir: string,
     upstream: { upstreamRef: string; remoteName: string; upstreamBranch: string },
   ): Effect.Effect<void, GitCommandError> => {
     const refspec = `+refs/heads/${upstream.upstreamBranch}:refs/remotes/${upstream.upstreamRef}`;
+    const fetchCwd =
+      path.basename(gitCommonDir) === ".git" ? path.dirname(gitCommonDir) : gitCommonDir;
     return executeGit(
       "GitCore.fetchUpstreamRefForStatus",
-      cwd,
-      ["fetch", "--quiet", "--no-tags", upstream.remoteName, refspec],
+      fetchCwd,
+      ["--git-dir", gitCommonDir, "fetch", "--quiet", "--no-tags", upstream.remoteName, refspec],
       {
         allowNonZeroExit: true,
         timeoutMs: Duration.toMillis(STATUS_UPSTREAM_REFRESH_TIMEOUT),
@@ -826,10 +829,18 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     ).pipe(Effect.asVoid);
   };
 
+  const resolveGitCommonDir = Effect.fn("resolveGitCommonDir")(function* (cwd: string) {
+    const gitCommonDir = yield* runGitStdout("GitCore.resolveGitCommonDir", cwd, [
+      "rev-parse",
+      "--git-common-dir",
+    ]).pipe(Effect.map((stdout) => stdout.trim()));
+    return path.isAbsolute(gitCommonDir) ? gitCommonDir : path.resolve(cwd, gitCommonDir);
+  });
+
   const refreshStatusUpstreamCacheEntry = Effect.fn("refreshStatusUpstreamCacheEntry")(function* (
     cacheKey: StatusUpstreamRefreshCacheKey,
   ) {
-    yield* fetchUpstreamRefForStatus(cacheKey.cwd, {
+    yield* fetchUpstreamRefForStatus(cacheKey.gitCommonDir, {
       upstreamRef: cacheKey.upstreamRef,
       remoteName: cacheKey.remoteName,
       upstreamBranch: cacheKey.upstreamBranch,
@@ -840,8 +851,11 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   const statusUpstreamRefreshCache = yield* Cache.makeWith({
     capacity: STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY,
     lookup: refreshStatusUpstreamCacheEntry,
-    // Keep successful refreshes warm; drop failures immediately so next request can retry.
-    timeToLive: (exit) => (Exit.isSuccess(exit) ? STATUS_UPSTREAM_REFRESH_INTERVAL : Duration.zero),
+    // Keep successful refreshes warm and briefly back off failed refreshes to avoid retry storms.
+    timeToLive: (exit) =>
+      Exit.isSuccess(exit)
+        ? STATUS_UPSTREAM_REFRESH_INTERVAL
+        : STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN,
   });
 
   const refreshStatusUpstreamIfStale = Effect.fn("refreshStatusUpstreamIfStale")(function* (
@@ -849,10 +863,11 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   ) {
     const upstream = yield* resolveCurrentUpstream(cwd);
     if (!upstream) return;
+    const gitCommonDir = yield* resolveGitCommonDir(cwd);
     yield* Cache.get(
       statusUpstreamRefreshCache,
       new StatusUpstreamRefreshCacheKey({
-        cwd,
+        gitCommonDir,
         upstreamRef: upstream.upstreamRef,
         remoteName: upstream.remoteName,
         upstreamBranch: upstream.upstreamBranch,

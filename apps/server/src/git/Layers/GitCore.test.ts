@@ -629,7 +629,7 @@ it.layer(TestLayer)("git integration", (it) => {
         const realGitCore = yield* GitCore;
         let refreshFetchAttempts = 0;
         const core = yield* makeIsolatedGitCore((input) => {
-          if (input.args[0] === "fetch") {
+          if (input.args[0] === "--git-dir" && input.args[2] === "fetch") {
             refreshFetchAttempts += 1;
             return Effect.fail(
               new GitCommandError({
@@ -675,7 +675,7 @@ it.layer(TestLayer)("git integration", (it) => {
         const realGitCore = yield* GitCore;
         let refreshFetchAttempts = 0;
         const core = yield* makeIsolatedGitCore((input) => {
-          if (input.args[0] === "fetch") {
+          if (input.args[0] === "--git-dir" && input.args[2] === "fetch") {
             refreshFetchAttempts += 1;
             return Effect.succeed({
               code: 0,
@@ -693,6 +693,126 @@ it.layer(TestLayer)("git integration", (it) => {
         const status = yield* core.statusDetails(source);
         expect(status.branch).toBe(featureBranch);
         expect(refreshFetchAttempts).toBe(1);
+      }),
+    );
+
+    it.effect("shares upstream refreshes across worktrees that use the same git common dir", () =>
+      Effect.gen(function* () {
+        const ok = (stdout = "") =>
+          Effect.succeed({
+            code: 0,
+            stdout,
+            stderr: "",
+            stdoutTruncated: false,
+            stderrTruncated: false,
+          });
+
+        let fetchCount = 0;
+        const core = yield* makeIsolatedGitCore((input) => {
+          if (
+            input.args[0] === "rev-parse" &&
+            input.args[1] === "--abbrev-ref" &&
+            input.args[2] === "--symbolic-full-name" &&
+            input.args[3] === "@{upstream}"
+          ) {
+            return ok("origin/main\n");
+          }
+          if (input.args[0] === "remote") {
+            return ok("origin\n");
+          }
+          if (input.args[0] === "rev-parse" && input.args[1] === "--git-common-dir") {
+            return ok("/repo/.git\n");
+          }
+          if (input.args[0] === "--git-dir" && input.args[2] === "fetch") {
+            fetchCount += 1;
+            expect(input.cwd).toBe("/repo");
+            return ok();
+          }
+          if (input.operation === "GitCore.statusDetails.status") {
+            return ok("# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n");
+          }
+          if (
+            input.operation === "GitCore.statusDetails.unstagedNumstat" ||
+            input.operation === "GitCore.statusDetails.stagedNumstat"
+          ) {
+            return ok();
+          }
+          return Effect.fail(
+            new GitCommandError({
+              operation: input.operation,
+              command: `git ${input.args.join(" ")}`,
+              cwd: input.cwd,
+              detail: "Unexpected git command in shared refresh cache test.",
+            }),
+          );
+        });
+
+        yield* core.statusDetails("/repo/worktrees/main");
+        yield* core.statusDetails("/repo/worktrees/pr-123");
+        expect(fetchCount).toBe(1);
+      }),
+    );
+
+    it.effect("briefly backs off failed upstream refreshes across sibling worktrees", () =>
+      Effect.gen(function* () {
+        const ok = (stdout = "") =>
+          Effect.succeed({
+            code: 0,
+            stdout,
+            stderr: "",
+            stdoutTruncated: false,
+            stderrTruncated: false,
+          });
+
+        let fetchCount = 0;
+        const core = yield* makeIsolatedGitCore((input) => {
+          if (
+            input.args[0] === "rev-parse" &&
+            input.args[1] === "--abbrev-ref" &&
+            input.args[2] === "--symbolic-full-name" &&
+            input.args[3] === "@{upstream}"
+          ) {
+            return ok("origin/main\n");
+          }
+          if (input.args[0] === "remote") {
+            return ok("origin\n");
+          }
+          if (input.args[0] === "rev-parse" && input.args[1] === "--git-common-dir") {
+            return ok("/repo/.git\n");
+          }
+          if (input.args[0] === "--git-dir" && input.args[2] === "fetch") {
+            fetchCount += 1;
+            return Effect.fail(
+              new GitCommandError({
+                operation: input.operation,
+                command: `git ${input.args.join(" ")}`,
+                cwd: input.cwd,
+                detail: "simulated fetch timeout",
+              }),
+            );
+          }
+          if (input.operation === "GitCore.statusDetails.status") {
+            return ok("# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n");
+          }
+          if (
+            input.operation === "GitCore.statusDetails.unstagedNumstat" ||
+            input.operation === "GitCore.statusDetails.stagedNumstat"
+          ) {
+            return ok();
+          }
+          return Effect.fail(
+            new GitCommandError({
+              operation: input.operation,
+              command: `git ${input.args.join(" ")}`,
+              cwd: input.cwd,
+              detail: "Unexpected git command in refresh failure cooldown test.",
+            }),
+          );
+        });
+
+        yield* core.statusDetails("/repo/worktrees/main");
+        yield* core.statusDetails("/repo/worktrees/pr-123");
+        expect(fetchCount).toBe(1);
       }),
     );
 
@@ -767,7 +887,7 @@ it.layer(TestLayer)("git integration", (it) => {
         const realGitCore = yield* GitCore;
         let fetchArgs: readonly string[] | null = null;
         const core = yield* makeIsolatedGitCore((input) => {
-          if (input.args[0] === "fetch") {
+          if (input.args[0] === "--git-dir" && input.args[2] === "fetch") {
             fetchArgs = [...input.args];
             return Effect.succeed({
               code: 0,
@@ -784,6 +904,8 @@ it.layer(TestLayer)("git integration", (it) => {
         expect(status.branch).toBe("upstream/feature");
         expect(status.upstreamRef).toBe(`${remoteName}/${featureBranch}`);
         expect(fetchArgs).toEqual([
+          "--git-dir",
+          path.join(source, ".git"),
           "fetch",
           "--quiet",
           "--no-tags",
