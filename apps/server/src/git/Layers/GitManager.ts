@@ -1592,7 +1592,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
                 ),
               ),
             )
-          : { status: "skipped_no_changes" as const };
+          : { status: "skipped_not_requested" as const };
 
         const push = wantsPush
           ? yield* progress

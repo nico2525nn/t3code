@@ -1388,7 +1388,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         action: "push",
       });
 
-      expect(result.commit.status).toBe("skipped_no_changes");
+      expect(result.commit.status).toBe("skipped_not_requested");
       expect(result.push.status).toBe("pushed");
       expect(result.pr.status).toBe("skipped_not_requested");
       expect(
@@ -1432,7 +1432,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         action: "create_pr",
       });
 
-      expect(result.commit.status).toBe("skipped_no_changes");
+      expect(result.commit.status).toBe("skipped_not_requested");
       expect(result.push.status).toBe("pushed");
       expect(result.push.setUpstream).toBe(true);
       expect(result.pr.status).toBe("created");
@@ -2727,7 +2727,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         },
       );
 
-      expect(result.commit.status).toBe("skipped_no_changes");
+      expect(result.commit.status).toBe("skipped_not_requested");
       expect(result.push.status).toBe("skipped_not_requested");
       expect(result.pr.status).toBe("created");
       expect(
