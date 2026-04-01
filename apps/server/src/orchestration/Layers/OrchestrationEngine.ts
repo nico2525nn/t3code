@@ -60,9 +60,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const commandQueue = yield* Queue.unbounded<CommandEnvelope>();
   const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
 
-  const processEnvelope = (envelope: CommandEnvelope): Effect.Effect<void> => {
+  const processEnvelope = Effect.fn("processEnvelope")(function* (
+    envelope: CommandEnvelope,
+  ): Effect.fn.Return<void, OrchestrationDispatchError> {
     const dispatchStartSequence = readModel.snapshotSequence;
-    const reconcileReadModelAfterDispatchFailure = Effect.gen(function* () {
+    const reconcileReadModelAfterDispatchFailure = Effect.fn(
+      "processEnvelope.reconcileReadModelAfterDispatchFailure",
+    )(function* () {
       const persistedEvents = yield* Stream.runCollect(
         eventStore.readFromSequence(dispatchStartSequence),
       ).pipe(Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)));
@@ -81,124 +85,127 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       }
     });
 
-    return Effect.gen(function* () {
-      const existingReceipt = yield* commandReceiptRepository.getByCommandId({
-        commandId: envelope.command.commandId,
-      });
-      if (Option.isSome(existingReceipt)) {
-        if (existingReceipt.value.status === "accepted") {
-          yield* Deferred.succeed(envelope.result, {
-            sequence: existingReceipt.value.resultSequence,
-          });
-          return;
-        }
-        yield* Deferred.fail(
-          envelope.result,
-          new OrchestrationCommandPreviouslyRejectedError({
+    const handleError = Effect.fn("processEnvelope.handleError")(function* (
+      error: OrchestrationDispatchError,
+    ) {
+      yield* reconcileReadModelAfterDispatchFailure().pipe(
+        Effect.catch(() =>
+          Effect.logWarning(
+            "failed to reconcile orchestration read model after dispatch failure",
+          ).pipe(
+            Effect.annotateLogs({
+              commandId: envelope.command.commandId,
+              snapshotSequence: readModel.snapshotSequence,
+            }),
+          ),
+        ),
+      );
+
+      if (Schema.is(OrchestrationCommandInvariantError)(error)) {
+        const aggregateRef = commandToAggregateRef(envelope.command);
+        yield* commandReceiptRepository
+          .upsert({
             commandId: envelope.command.commandId,
-            detail: existingReceipt.value.error ?? "Previously rejected.",
-          }),
-        );
+            aggregateKind: aggregateRef.aggregateKind,
+            aggregateId: aggregateRef.aggregateId,
+            acceptedAt: new Date().toISOString(),
+            resultSequence: readModel.snapshotSequence,
+            status: "rejected",
+            error: error.message,
+          })
+          .pipe(Effect.catch(() => Effect.void));
+      }
+      yield* Deferred.fail(envelope.result, error);
+    });
+
+    const existingReceipt = yield* commandReceiptRepository.getByCommandId({
+      commandId: envelope.command.commandId,
+    });
+    if (Option.isSome(existingReceipt)) {
+      if (existingReceipt.value.status === "accepted") {
+        yield* Deferred.succeed(envelope.result, {
+          sequence: existingReceipt.value.resultSequence,
+        });
         return;
       }
-
-      const eventBase = yield* decideOrchestrationCommand({
-        command: envelope.command,
-        readModel,
-      });
-      const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
-      const committedCommand = yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const committedEvents: OrchestrationEvent[] = [];
-            let nextReadModel = readModel;
-
-            for (const nextEvent of eventBases) {
-              const savedEvent = yield* eventStore.append(nextEvent);
-              nextReadModel = yield* projectEvent(nextReadModel, savedEvent);
-              yield* projectionPipeline.projectEvent(savedEvent);
-              committedEvents.push(savedEvent);
-            }
-
-            const lastSavedEvent = committedEvents.at(-1) ?? null;
-            if (lastSavedEvent === null) {
-              return yield* new OrchestrationCommandInvariantError({
-                commandType: envelope.command.type,
-                detail: "Command produced no events.",
-              });
-            }
-
-            yield* commandReceiptRepository.upsert({
-              commandId: envelope.command.commandId,
-              aggregateKind: lastSavedEvent.aggregateKind,
-              aggregateId: lastSavedEvent.aggregateId,
-              acceptedAt: lastSavedEvent.occurredAt,
-              resultSequence: lastSavedEvent.sequence,
-              status: "accepted",
-              error: null,
-            });
-
-            return {
-              committedEvents,
-              lastSequence: lastSavedEvent.sequence,
-              nextReadModel,
-            } as const;
-          }),
-        )
-        .pipe(
-          Effect.catchTag("SqlError", (sqlError) =>
-            Effect.fail(
-              toPersistenceSqlError("OrchestrationEngine.processEnvelope:transaction")(sqlError),
-            ),
-          ),
-        );
-
-      readModel = committedCommand.nextReadModel;
-      for (const event of committedCommand.committedEvents) {
-        yield* PubSub.publish(eventPubSub, event);
-      }
-      yield* Deferred.succeed(envelope.result, { sequence: committedCommand.lastSequence });
-    }).pipe(
-      Effect.catch((error) =>
-        Effect.gen(function* () {
-          yield* reconcileReadModelAfterDispatchFailure.pipe(
-            Effect.catch(() =>
-              Effect.logWarning(
-                "failed to reconcile orchestration read model after dispatch failure",
-              ).pipe(
-                Effect.annotateLogs({
-                  commandId: envelope.command.commandId,
-                  snapshotSequence: readModel.snapshotSequence,
-                }),
-              ),
-            ),
-          );
-
-          if (Schema.is(OrchestrationCommandInvariantError)(error)) {
-            const aggregateRef = commandToAggregateRef(envelope.command);
-            yield* commandReceiptRepository
-              .upsert({
-                commandId: envelope.command.commandId,
-                aggregateKind: aggregateRef.aggregateKind,
-                aggregateId: aggregateRef.aggregateId,
-                acceptedAt: new Date().toISOString(),
-                resultSequence: readModel.snapshotSequence,
-                status: "rejected",
-                error: error.message,
-              })
-              .pipe(Effect.catch(() => Effect.void));
-          }
-          yield* Deferred.fail(envelope.result, error);
+      yield* Deferred.fail(
+        envelope.result,
+        new OrchestrationCommandPreviouslyRejectedError({
+          commandId: envelope.command.commandId,
+          detail: existingReceipt.value.error ?? "Previously rejected.",
         }),
-      ),
-    );
-  };
+      );
+      return;
+    }
+
+    const eventBase = yield* decideOrchestrationCommand({
+      command: envelope.command,
+      readModel,
+    });
+    const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
+    const committedCommand = yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const committedEvents: OrchestrationEvent[] = [];
+          let nextReadModel = readModel;
+
+          for (const nextEvent of eventBases) {
+            const savedEvent = yield* eventStore.append(nextEvent);
+            nextReadModel = yield* projectEvent(nextReadModel, savedEvent);
+            yield* projectionPipeline.projectEvent(savedEvent);
+            committedEvents.push(savedEvent);
+          }
+
+          const lastSavedEvent = committedEvents.at(-1) ?? null;
+          if (lastSavedEvent === null) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: envelope.command.type,
+              detail: "Command produced no events.",
+            });
+          }
+
+          yield* commandReceiptRepository.upsert({
+            commandId: envelope.command.commandId,
+            aggregateKind: lastSavedEvent.aggregateKind,
+            aggregateId: lastSavedEvent.aggregateId,
+            acceptedAt: lastSavedEvent.occurredAt,
+            resultSequence: lastSavedEvent.sequence,
+            status: "accepted",
+            error: null,
+          });
+
+          return {
+            committedEvents,
+            lastSequence: lastSavedEvent.sequence,
+            nextReadModel,
+          } as const;
+        }),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (sqlError) =>
+          Effect.fail(
+            toPersistenceSqlError("OrchestrationEngine.processEnvelope:transaction")(sqlError),
+          ),
+        ),
+        Effect.catch(handleError),
+      );
+    if (!committedCommand) {
+      return;
+    }
+
+    readModel = committedCommand.nextReadModel;
+    for (const event of committedCommand.committedEvents) {
+      yield* PubSub.publish(eventPubSub, event);
+    }
+    yield* Deferred.succeed(envelope.result, { sequence: committedCommand.lastSequence });
+  });
 
   yield* projectionPipeline.bootstrap;
 
   // bootstrap in-memory read model from event store
-  yield* Stream.runForEach(eventStore.readAll(), (event) =>
-    Effect.gen(function* () {
+  yield* Stream.runForEach(
+    eventStore.readAll(),
+    Effect.fn("bootstrapReadModel")(function* (event) {
       readModel = yield* projectEvent(readModel, event);
     }),
   );
@@ -215,12 +222,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const readEvents: OrchestrationEngineShape["readEvents"] = (fromSequenceExclusive) =>
     eventStore.readFromSequence(fromSequenceExclusive);
 
-  const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
-    Effect.gen(function* () {
-      const result = yield* Deferred.make<{ sequence: number }, OrchestrationDispatchError>();
-      yield* Queue.offer(commandQueue, { command, result });
-      return yield* Deferred.await(result);
-    });
+  const dispatch: OrchestrationEngineShape["dispatch"] = Effect.fn("dispatch")(function* (command) {
+    const result = yield* Deferred.make<{ sequence: number }, OrchestrationDispatchError>();
+    yield* Queue.offer(commandQueue, { command, result });
+    return yield* Deferred.await(result);
+  });
 
   return {
     getReadModel,
