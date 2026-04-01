@@ -60,11 +60,11 @@ const upsertAnonymousId = Effect.gen(function* () {
 
   const anonymousId = yield* fileSystem.readFileString(anonymousIdPath).pipe(
     Effect.catch(() =>
-      Effect.gen(function* () {
+      Effect.fn("upsertAnonymousId.createAnonymousId")(function* () {
         const randomId = yield* Random.nextUUIDv4;
         yield* fileSystem.writeFileString(anonymousIdPath, randomId);
         return randomId;
-      }),
+      })(),
     ),
   );
 
