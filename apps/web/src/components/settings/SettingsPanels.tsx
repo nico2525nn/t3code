@@ -135,7 +135,6 @@ const SETTINGS_DESCRIPTIONS = {
   claudeBinaryPath: requireSchemaDescription(ClaudeSettings.fields.binaryPath, "Claude.binaryPath"),
 } as const;
 
-const EMPTY_SERVER_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 type InstallProviderSettings = {
   provider: ProviderKind;
   title: string;
