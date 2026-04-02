@@ -107,26 +107,58 @@ function toIdleSession(session: ProviderSession, updatedAt: string): ProviderSes
   };
 }
 
+function namespacePerfFixtureId(
+  baseId: string,
+  sourceThreadId: ThreadId,
+  runIndex: number,
+): string {
+  return `${baseId}--perf-run-${String(sourceThreadId)}-${runIndex.toString().padStart(4, "0")}`;
+}
+
 function buildRuntimeEvent(input: {
   readonly template: TimedFixtureProviderRuntimeEvent;
   readonly threadId: ThreadId;
   readonly turnId: TurnId;
   readonly startedAtMs: number;
   readonly index: number;
+  readonly runIndex: number;
 }): ProviderRuntimeEvent {
+  const eventThreadId = input.template.threadId ?? input.threadId;
+  const eventTurnId =
+    input.template.turnId === undefined
+      ? input.turnId
+      : input.runIndex === 1
+        ? input.template.turnId
+        : TurnId.makeUnsafe(
+            namespacePerfFixtureId(String(input.template.turnId), input.threadId, input.runIndex),
+          );
   const createdAt = new Date(input.startedAtMs + (input.template.delayMs ?? 0)).toISOString();
   return {
     type: input.template.type,
     eventId: EventId.makeUnsafe(
-      `perf-runtime:${String(input.threadId)}:${String(input.turnId)}:${input.index.toString().padStart(4, "0")}`,
+      `perf-runtime:${String(eventThreadId)}:${String(eventTurnId)}:${input.index.toString().padStart(4, "0")}`,
     ),
     provider: "codex",
-    threadId: input.threadId,
-    turnId: input.turnId,
+    threadId: eventThreadId,
+    turnId: eventTurnId,
     createdAt,
-    ...(input.template.itemId ? { itemId: RuntimeItemId.makeUnsafe(input.template.itemId) } : {}),
+    ...(input.template.itemId
+      ? {
+          itemId: RuntimeItemId.makeUnsafe(
+            input.runIndex === 1
+              ? input.template.itemId
+              : namespacePerfFixtureId(input.template.itemId, input.threadId, input.runIndex),
+          ),
+        }
+      : {}),
     ...(input.template.requestId
-      ? { requestId: RuntimeRequestId.makeUnsafe(input.template.requestId) }
+      ? {
+          requestId: RuntimeRequestId.makeUnsafe(
+            input.runIndex === 1
+              ? input.template.requestId
+              : namespacePerfFixtureId(input.template.requestId, input.threadId, input.runIndex),
+          ),
+        }
       : {}),
     payload: input.template.payload,
   } as ProviderRuntimeEvent;
@@ -274,6 +306,7 @@ export const makePerfProviderAdapter = Effect.gen(function* () {
             turnId,
             startedAtMs,
             index,
+            runIndex: state.turnCount,
           });
           const delayMs = template.delayMs ?? 0;
           return scheduleRuntimeEvent({
@@ -281,10 +314,14 @@ export const makePerfProviderAdapter = Effect.gen(function* () {
             event,
             delayMs,
             onAfterEmit: () => {
-              if (event.type === "content.delta" && event.payload.streamKind === "assistant_text") {
+              if (
+                event.threadId === input.threadId &&
+                event.type === "content.delta" &&
+                event.payload.streamKind === "assistant_text"
+              ) {
                 assistantText += event.payload.delta;
               }
-              if (event.type === "turn.completed") {
+              if (event.threadId === input.threadId && event.type === "turn.completed") {
                 updateAssistantSnapshot(event.createdAt);
               }
             },
@@ -412,6 +449,8 @@ export const makePerfProviderAdapter = Effect.gen(function* () {
     readThread,
     rollbackThread,
     stopAll,
-    streamEvents: Stream.fromQueue(runtimeEvents),
+    get streamEvents() {
+      return Stream.fromQueue(runtimeEvents);
+    },
   } satisfies ProviderAdapterShape<ProviderAdapterError>;
 });

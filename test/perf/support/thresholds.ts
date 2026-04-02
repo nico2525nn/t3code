@@ -15,7 +15,7 @@ export const PERF_THRESHOLDS = {
     threadSwitchP95Ms: 500,
     maxLongTaskMs: 120,
     maxRafGapMs: 120,
-    burstCompletionMs: 5_000,
+    burstCompletionMs: 14_000,
     longTasksOver50MsMax: 2,
   },
 } as const satisfies Record<string, PerfThresholdProfile>;

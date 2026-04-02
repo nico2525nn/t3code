@@ -26,10 +26,14 @@ export async function waitForThreadRoute(
   },
 ): Promise<void> {
   const path = `/${encodeURIComponent(input.threadId)}`;
+  const threadSelector = `[data-testid="chat-thread-${input.threadId}"]`;
   await page.waitForFunction(
-    ({ expectedPath, messageSelector, extraSelector }) => {
+    ({ expectedPath, threadSelector, messageSelector, extraSelector }) => {
       const pathMatches = window.location.pathname === expectedPath;
       if (!pathMatches) {
+        return false;
+      }
+      if (!document.querySelector(threadSelector)) {
         return false;
       }
 
@@ -43,6 +47,7 @@ export async function waitForThreadRoute(
     },
     {
       expectedPath: path,
+      threadSelector,
       messageSelector: input.messageId ? `[data-message-id="${input.messageId}"]` : null,
       extraSelector: input.extraSelector ?? null,
     },

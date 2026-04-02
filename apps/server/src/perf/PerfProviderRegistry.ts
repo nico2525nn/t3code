@@ -152,7 +152,9 @@ export const PerfProviderRegistryLive = Layer.effect(
     return {
       getProviders: Ref.get(providersRef),
       refresh: (_provider) => refreshProviders(),
-      streamChanges: Stream.fromPubSub(changesPubSub),
+      get streamChanges() {
+        return Stream.fromPubSub(changesPubSub);
+      },
     } satisfies ProviderRegistryShape;
   }),
 );

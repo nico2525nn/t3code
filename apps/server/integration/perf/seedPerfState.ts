@@ -164,6 +164,67 @@ function buildProposedPlanMarkdown(thread: PerfSeedThreadScenario, turnIndex: nu
   ].join("\n");
 }
 
+function buildCheckpointFiles(
+  thread: PerfSeedThreadScenario,
+  threadOrdinal: number,
+  turnIndex: number,
+): ReadonlyArray<{
+  readonly path: string;
+  readonly kind: string;
+  readonly additions: number;
+  readonly deletions: number;
+}> {
+  const nestedPathTemplates = [
+    ["apps", "web", "src", "components", `thread-${threadOrdinal + 1}`, "TimelineVirtualizer.tsx"],
+    ["apps", "web", "src", "components", `thread-${threadOrdinal + 1}`, "ThreadSummaryPane.tsx"],
+    ["apps", "web", "src", "hooks", `thread-${threadOrdinal + 1}`, "useThreadViewport.ts"],
+    ["apps", "web", "src", "stores", `thread-${threadOrdinal + 1}`, "timelineStore.ts"],
+    [
+      "apps",
+      "server",
+      "src",
+      "orchestration",
+      `thread-${threadOrdinal + 1}`,
+      "projectionPipeline.ts",
+    ],
+    ["apps", "server", "src", "provider", `thread-${threadOrdinal + 1}`, "runtimeBuffer.ts"],
+    ["packages", "shared", "src", "perf", `thread-${threadOrdinal + 1}`, "fixtureBuilders.ts"],
+    ["packages", "shared", "src", "perf", `thread-${threadOrdinal + 1}`, "scenarioCatalog.ts"],
+    ["packages", "contracts", "src", "orchestration", `thread-${threadOrdinal + 1}`, "schemas.ts"],
+    ["docs", "perf", `thread-${threadOrdinal + 1}`, "notes", "regression-findings.md"],
+    ["scripts", "perf", `thread-${threadOrdinal + 1}`, "capture-profile.ts"],
+    ["test", "perf", "fixtures", `thread-${threadOrdinal + 1}`, "workspace-state.json"],
+  ] as const;
+  const fileCount = thread.category === "heavy" ? 12 + (turnIndex % 7) : 7 + (turnIndex % 4);
+
+  return Array.from({ length: fileCount }, (_, fileIndex) => {
+    const template = nestedPathTemplates[fileIndex % nestedPathTemplates.length]!;
+    const variant = Math.floor(fileIndex / nestedPathTemplates.length);
+    const baseSegments = [...template];
+    const fileName = baseSegments.pop()!;
+    const variantFileName =
+      variant === 0
+        ? fileName
+        : fileName.replace(/(\.[^.]*)$/, `-${(variant + 1).toString().padStart(2, "0")}$1`);
+    const path = [...baseSegments, variantFileName].join("/");
+    const kind =
+      fileIndex % 9 === 0
+        ? "deleted"
+        : fileIndex % 5 === 0
+          ? "added"
+          : fileIndex % 4 === 0
+            ? "renamed"
+            : "modified";
+
+    return {
+      path,
+      kind,
+      additions: kind === "deleted" ? 0 : 4 + ((turnIndex + fileIndex) % 11),
+      deletions: kind === "added" ? 0 : 1 + ((threadOrdinal + fileIndex + turnIndex) % 6),
+    };
+  });
+}
+
 function buildThreadTurnEvents(
   scenario: PerfSeedScenario,
   thread: PerfSeedThreadScenario,
@@ -305,20 +366,7 @@ function buildThreadTurnEvents(
             `refs/perf/${String(thread.id)}/${turnIndex.toString().padStart(4, "0")}`,
           ),
           status: "ready",
-          files: [
-            {
-              path: `src/thread-${threadOrdinal + 1}/perf-${turnIndex}.ts`,
-              kind: "modified",
-              additions: 4 + (turnIndex % 6),
-              deletions: 1 + (turnIndex % 3),
-            },
-            {
-              path: `src/thread-${threadOrdinal + 1}/metrics-${turnIndex}.json`,
-              kind: "added",
-              additions: 2 + (turnIndex % 4),
-              deletions: 0,
-            },
-          ],
+          files: buildCheckpointFiles(thread, threadOrdinal, turnIndex),
           assistantMessageId,
           completedAt: diffOccurredAt,
         },
