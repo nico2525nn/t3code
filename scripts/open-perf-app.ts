@@ -208,7 +208,7 @@ async function seedPerfState(scenarioId: PerfSeedScenarioId): Promise<PerfSeeded
     stderr += chunk.toString();
   });
 
-  const [exitCode] = (await once(seedProcess, "exit")) as [number | null];
+  const [exitCode] = (await once(seedProcess, "close")) as [number | null];
   if (exitCode !== 0) {
     throw new Error(`Perf seed command failed with code ${exitCode ?? "unknown"}.\n${stderr}`);
   }

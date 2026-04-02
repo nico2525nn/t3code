@@ -51,6 +51,10 @@
     "./perf/artifact": {
       "types": "./src/perf/artifact.ts",
       "import": "./src/perf/artifact.ts"
+    },
+    "./perf/serverEnv": {
+      "types": "./src/perf/serverEnv.ts",
+      "import": "./src/perf/serverEnv.ts"
     }
   },
   "scripts": {

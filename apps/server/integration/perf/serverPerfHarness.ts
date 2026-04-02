@@ -33,13 +33,11 @@ import type {
   PerfProviderScenarioId,
   PerfSeedScenarioId,
 } from "@t3tools/shared/perf/scenarioCatalog";
+import { buildPerfServerEnv } from "@t3tools/shared/perf/serverEnv";
 import { seedPerfState, type PerfSeededState } from "./seedPerfState.ts";
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const PERF_ARTIFACT_DIR_ENV = "T3CODE_PERF_ARTIFACT_DIR";
-const PERF_PROVIDER_ENV = "T3CODE_PERF_PROVIDER";
-const PERF_SCENARIO_ENV = "T3CODE_PERF_SCENARIO";
-const AUTO_BOOTSTRAP_PROJECT_ENV = "T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD";
 
 const makeWsRpcClient = RpcClient.make(WsRpcGroup);
 type WsRpcClient =
@@ -182,28 +180,6 @@ async function writeServerLogs(
     writeFile(join(artifactDir, `${basename}.server.stdout.log`), stdout, "utf8"),
     writeFile(join(artifactDir, `${basename}.server.stderr.log`), stderr, "utf8"),
   ]);
-}
-
-function buildPerfServerEnv(
-  baseEnv: NodeJS.ProcessEnv,
-  providerScenarioId?: PerfProviderScenarioId,
-): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
-    ...baseEnv,
-    [AUTO_BOOTSTRAP_PROJECT_ENV]: "false",
-  };
-
-  if (!providerScenarioId) {
-    delete env[PERF_PROVIDER_ENV];
-    delete env[PERF_SCENARIO_ENV];
-    return env;
-  }
-
-  return {
-    ...env,
-    [PERF_PROVIDER_ENV]: "1",
-    [PERF_SCENARIO_ENV]: providerScenarioId,
-  };
 }
 
 export class PerfWsRpcClient {
