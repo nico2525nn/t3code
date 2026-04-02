@@ -4,7 +4,7 @@ import type {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import { OrchestrationCommand } from "@t3tools/contracts";
+import { DispatchableClientOrchestrationCommand, OrchestrationCommand } from "@t3tools/contracts";
 import {
   Deferred,
   Effect,
@@ -78,18 +78,10 @@ function commandToAggregateRef(command: OrchestrationCommand): {
 }
 
 function commandPriority(command: OrchestrationCommand): CommandPriority {
-  switch (command.type) {
-    case "thread.session.set":
-    case "thread.message.assistant.delta":
-    case "thread.message.assistant.complete":
-    case "thread.proposed-plan.upsert":
-    case "thread.turn.diff.complete":
-    case "thread.activity.append":
-    case "thread.revert.complete":
-      return COMMAND_PRIORITY.stream;
-    default:
-      return COMMAND_PRIORITY.control;
+  if (Schema.is(DispatchableClientOrchestrationCommand)(command)) {
+    return COMMAND_PRIORITY.control;
   }
+  return COMMAND_PRIORITY.stream;
 }
 
 const makeOrchestrationEngine = Effect.gen(function* () {

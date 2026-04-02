@@ -34,7 +34,24 @@ Measure end-to-end server latency for control-plane commands through the real we
 | `t3code/perf-control-plane-priority-lane`        | Spam canary rerun                    | completed | [control-plane-stream-baseline.json](/Users/julius/.t3/worktrees/codething-mvp/t3code-93392e80/artifacts/perf/server/server-latency-critical-commands-burst_base-1775121334761/control-plane-stream-baseline.json) |
 | `t3code/perf-control-plane-priority-lane`        | Terminal + mixed git rerun           | completed | [terminal-mixed-git-baseline.json](/Users/julius/.t3/worktrees/codething-mvp/t3code-93392e80/artifacts/perf/server/server-latency-critical-commands-burst_base-1775121336380/terminal-mixed-git-baseline.json)     |
 
-## Results
+## Best So Far
+
+- `create-turn-spam-8x` `thread.create dispatch -> thread.created`
+  Baseline: `3.61ms / 58.38ms`
+  Best so far: `2.38ms / 20.36ms` on `t3code/perf-projection-thread-message-hot-path`
+  Tail improvement: `-65%` on p95
+- `create-turn-spam-8x` `thread.archive dispatch -> thread.archived`
+  Baseline: `5.71ms / 50.80ms`
+  Best so far: `1.09ms / 12.60ms` on `t3code/perf-control-plane-priority-lane`
+  Tail improvement: `-75%` on p95
+- `mixed-stream-terminal-git` `thread.create dispatch -> thread.created`
+  Baseline: `0.89ms / 1.57ms`
+  Best so far: `1.16ms / 1.33ms` on `t3code/perf-control-plane-priority-lane`
+  Tail improvement: `-15%` on p95
+- `git.status`
+  No clear improvement yet. The measurements move around, but there is no stable win I would claim from these changes.
+
+## Detailed Results
 
 | Branch                                           | Change         | Profile                     | Metric                                       | Before p50 / p95      | After p50 / p95       | Notes                                                                              |
 | ------------------------------------------------ | -------------- | --------------------------- | -------------------------------------------- | --------------------- | --------------------- | ---------------------------------------------------------------------------------- |

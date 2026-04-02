@@ -316,6 +316,86 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("treats normalized thread.turn.start as a prioritized client command", async () => {
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const createdAt = now();
+    const threadId = ThreadId.makeUnsafe("thread-priority-turn-start");
+
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-project-priority-turn-start-create"),
+        projectId: asProjectId("project-priority-turn-start"),
+        title: "Priority Turn Start Project",
+        workspaceRoot: "/tmp/project-priority-turn-start",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        createdAt,
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-priority-turn-start-create"),
+        threadId,
+        projectId: asProjectId("project-priority-turn-start"),
+        title: "Priority Turn Start Thread",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    const lowPriorityCommandCount = 150;
+    const lowPriorityDispatches = Array.from({ length: lowPriorityCommandCount }, (_, index) =>
+      system.run(
+        engine.dispatch({
+          type: "thread.message.assistant.delta",
+          commandId: CommandId.makeUnsafe(`cmd-thread-priority-turn-start-delta-${index}`),
+          threadId,
+          messageId: asMessageId("assistant-priority-turn-start"),
+          delta: `chunk-${index}`,
+          turnId: asTurnId("turn-priority-turn-start-internal"),
+          createdAt,
+        }),
+      ),
+    );
+
+    const turnStartResult = await system.run(
+      engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-thread-priority-turn-start"),
+        threadId,
+        message: {
+          messageId: asMessageId("user-priority-turn-start"),
+          role: "user",
+          text: "hello",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        createdAt,
+      }),
+    );
+    const lowPriorityResults = await Promise.all(lowPriorityDispatches);
+    const lowPriorityCommandsAheadOfTurnStart = lowPriorityResults.filter(
+      (result) => result.sequence < turnStartResult.sequence,
+    ).length;
+
+    expect(lowPriorityCommandsAheadOfTurnStart).toBeLessThan(lowPriorityCommandCount / 3);
+    expect(turnStartResult.sequence).toBeLessThan(lowPriorityResults.at(-1)?.sequence ?? Infinity);
+    await system.dispose();
+  });
+
   it("streams persisted domain events in order", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;
