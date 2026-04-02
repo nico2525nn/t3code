@@ -1,6 +1,11 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-
+import {
+  percentile,
+  summarizeLatencySamples,
+  summarizeLatencyValues,
+  type PerfLatencySample,
+  type PerfLatencySummary,
+  writeJsonArtifact,
+} from "../../../packages/shared/src/perf/artifact";
 import type { PerfThresholdProfile } from "./thresholds.ts";
 
 export interface PerfActionDuration {
@@ -50,6 +55,9 @@ export interface PerfArtifactSummary {
   readonly burstCompletionMs: number | null;
 }
 
+export type { PerfLatencySample, PerfLatencySummary };
+export { percentile, summarizeLatencySamples, summarizeLatencyValues, writeJsonArtifact };
+
 export interface PerfRunArtifact {
   readonly suite: string;
   readonly scenarioId: string;
@@ -60,19 +68,6 @@ export interface PerfRunArtifact {
   readonly browserMetrics: BrowserPerfMetrics;
   readonly serverMetrics: ReadonlyArray<PerfServerMetricSample> | null;
   readonly metadata?: Record<string, unknown>;
-}
-
-export function percentile(values: ReadonlyArray<number>, target: number): number | null {
-  if (values.length === 0) {
-    return null;
-  }
-  const sorted = values.toSorted((left, right) => left - right);
-  const clampedTarget = Math.min(Math.max(target, 0), 1);
-  const index = Math.min(
-    sorted.length - 1,
-    Math.max(0, Math.ceil(sorted.length * clampedTarget) - 1),
-  );
-  return sorted[index] ?? null;
 }
 
 export function summarizeBrowserPerfMetrics(
@@ -120,7 +115,5 @@ export async function writePerfArtifact(
   outputPath: string,
   artifact: PerfRunArtifact,
 ): Promise<void> {
-  const resolvedOutputPath = resolve(outputPath);
-  await mkdir(dirname(resolvedOutputPath), { recursive: true });
-  await writeFile(`${resolvedOutputPath}`, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+  await writeJsonArtifact(outputPath, artifact);
 }

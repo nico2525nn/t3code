@@ -11,7 +11,7 @@ import {
 } from "@t3tools/contracts";
 
 export type PerfSeedScenarioId = "large_threads" | "burst_base";
-export type PerfProviderScenarioId = "dense_assistant_stream";
+export type PerfProviderScenarioId = "dense_assistant_stream" | "parallel_assistant_stream";
 export type PerfScenarioId = PerfSeedScenarioId | PerfProviderScenarioId;
 
 export interface PerfProjectScenario {
@@ -382,6 +382,11 @@ const DENSE_ASSISTANT_STREAM_WORKLOG_STARTED_GAP_MS = 20;
 const DENSE_ASSISTANT_STREAM_WORKLOG_UPDATED_GAP_MS = 24;
 const DENSE_ASSISTANT_STREAM_WORKLOG_COMPLETED_GAP_MS = 28;
 const DENSE_ASSISTANT_STREAM_WORKLOG_GROUP_GAP_MS = 12;
+const PARALLEL_ASSISTANT_STREAM_SENTINEL =
+  "PERF_STREAM_SENTINEL:parallel_assistant_stream:completed";
+const PARALLEL_ASSISTANT_STREAM_FRAGMENT_COUNT = 240;
+const PARALLEL_ASSISTANT_STREAM_FRAGMENT_GAP_MS = 24;
+const PARALLEL_ASSISTANT_STREAM_COMPLETION_GAP_MS = 48;
 
 type DenseAssistantStreamLaneKey = "burst" | "navigation" | "filler";
 
@@ -1089,8 +1094,61 @@ function buildDenseAssistantStreamScenario(): PerfProviderScenario {
   };
 }
 
+function buildParallelAssistantStreamScenario(): PerfProviderScenario {
+  const events: Array<TimedFixtureProviderRuntimeEvent> = [
+    {
+      delayMs: 0,
+      type: "turn.started",
+      payload: {
+        model: "gpt-5.4",
+      },
+    },
+  ];
+
+  let delayMs = 0;
+  for (
+    let fragmentIndex = 0;
+    fragmentIndex < PARALLEL_ASSISTANT_STREAM_FRAGMENT_COUNT;
+    fragmentIndex += 1
+  ) {
+    delayMs += PARALLEL_ASSISTANT_STREAM_FRAGMENT_GAP_MS;
+    const isFinalFragment = fragmentIndex === PARALLEL_ASSISTANT_STREAM_FRAGMENT_COUNT - 1;
+    const cycleLabel = fragmentIndex.toString().padStart(3, "0");
+    const delta = isFinalFragment
+      ? `parallel-cycle-${cycleLabel} ${PARALLEL_ASSISTANT_STREAM_SENTINEL}`
+      : `parallel-cycle-${cycleLabel} keeping provider ingestion and projection busy. `;
+
+    events.push({
+      delayMs,
+      type: "content.delta",
+      payload: {
+        streamKind: "assistant_text",
+        delta,
+      },
+    });
+  }
+
+  delayMs += PARALLEL_ASSISTANT_STREAM_COMPLETION_GAP_MS;
+  events.push({
+    delayMs,
+    type: "turn.completed",
+    payload: {
+      state: "completed",
+    },
+  });
+
+  return {
+    id: "parallel_assistant_stream",
+    provider: "codex",
+    sentinelText: PARALLEL_ASSISTANT_STREAM_SENTINEL,
+    totalDurationMs: delayMs,
+    events,
+  };
+}
+
 export const PERF_PROVIDER_SCENARIOS = {
   dense_assistant_stream: buildDenseAssistantStreamScenario(),
+  parallel_assistant_stream: buildParallelAssistantStreamScenario(),
 } as const satisfies Record<PerfProviderScenarioId, PerfProviderScenario>;
 
 export const PERF_CATALOG_IDS = {
@@ -1120,6 +1178,7 @@ export const PERF_CATALOG_IDS = {
   },
   provider: {
     denseAssistantStreamSentinel: DENSE_ASSISTANT_STREAM_SENTINEL,
+    parallelAssistantStreamSentinel: PARALLEL_ASSISTANT_STREAM_SENTINEL,
     navigationLiveTurnId: PERF_PROVIDER_LIVE_TURNS.navigation,
     fillerLiveTurnId: PERF_PROVIDER_LIVE_TURNS.filler,
     navigationLiveAssistantMessageId: makeLiveAssistantMessageId(
