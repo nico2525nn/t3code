@@ -45,6 +45,10 @@ We are very very early in this project. Expect bugs.
 
 We are not accepting contributions yet.
 
+## Performance benchmarks
+
+See [docs/perf-benchmarks.md](./docs/perf-benchmarks.md) for the local perf harness, seeded scenarios, artifact format, and the commands for automated and manual benchmark runs.
+
 ## If you REALLY want to contribute still.... read this first
 
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
