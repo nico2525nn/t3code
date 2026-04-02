@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { access } from "node:fs/promises";
+import { access, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +27,7 @@ interface PerfSeedThreadSummary {
 
 interface PerfSeededState {
   readonly scenarioId: PerfSeedScenarioId;
+  readonly runParentDir: string;
   readonly baseDir: string;
   readonly workspaceRoot: string;
   readonly projectTitle: string | null;
@@ -252,6 +253,10 @@ async function stopChildProcess(process: ChildProcess): Promise<void> {
   }
 }
 
+async function cleanupPerfRunDir(runParentDir: string): Promise<void> {
+  await rm(runParentDir, { recursive: true, force: true });
+}
+
 function openUrl(url: string): void {
   const command: [string, ...string[]] =
     process.platform === "darwin"
@@ -339,6 +344,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     process.stdout.write(`\nReceived ${signal}. Stopping perf app...\n`);
     await stopChildProcess(serverProcess);
+    await cleanupPerfRunDir(seededState.runParentDir);
     process.exit(0);
   };
 
@@ -349,17 +355,24 @@ async function main(): Promise<void> {
     void shutdown("SIGTERM");
   });
 
-  const url = `http://${options.host}:${port.toString()}`;
-  await waitForServerReady(url, serverProcess);
-  printSeedSummary(seededState, url, options.providerScenarioId);
+  try {
+    const url = `http://${options.host}:${port.toString()}`;
+    await waitForServerReady(url, serverProcess);
+    printSeedSummary(seededState, url, options.providerScenarioId);
 
-  if (options.openBrowser) {
-    openUrl(url);
-  }
+    if (options.openBrowser) {
+      openUrl(url);
+    }
 
-  const [exitCode] = (await once(serverProcess, "exit")) as [number | null];
-  if (!shuttingDown) {
-    process.exit(exitCode ?? 0);
+    const [exitCode] = (await once(serverProcess, "exit")) as [number | null];
+    if (!shuttingDown) {
+      await cleanupPerfRunDir(seededState.runParentDir);
+      process.exit(exitCode ?? 0);
+    }
+  } catch (error) {
+    await stopChildProcess(serverProcess);
+    await cleanupPerfRunDir(seededState.runParentDir);
+    throw error;
   }
 }
 

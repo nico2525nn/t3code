@@ -34,6 +34,7 @@ import { ServerSettingsService, ServerSettingsLive } from "../../src/serverSetti
 
 export interface PerfSeededState {
   readonly scenarioId: PerfSeedScenarioId;
+  readonly runParentDir: string;
   readonly baseDir: string;
   readonly workspaceRoot: string;
   readonly snapshot: OrchestrationReadModel;
@@ -489,6 +490,7 @@ export async function seedPerfState(scenarioId: PerfSeedScenarioId): Promise<Per
 
   return {
     scenarioId,
+    runParentDir,
     baseDir,
     workspaceRoot,
     snapshot,

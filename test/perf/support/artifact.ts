@@ -68,7 +68,10 @@ export function percentile(values: ReadonlyArray<number>, target: number): numbe
   }
   const sorted = values.toSorted((left, right) => left - right);
   const clampedTarget = Math.min(Math.max(target, 0), 1);
-  const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * clampedTarget) - 1);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil(sorted.length * clampedTarget) - 1),
+  );
   return sorted[index] ?? null;
 }
 
