@@ -1,11 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 
-import { chromium, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
 import {
   type BrowserPerfMetrics,
@@ -50,6 +50,7 @@ interface PerfSeedThreadSummary {
 
 export interface PerfSeededState {
   readonly scenarioId: PerfSeedScenarioId;
+  readonly runParentDir: string;
   readonly baseDir: string;
   readonly workspaceRoot: string;
   readonly projectTitle: string | null;
@@ -181,6 +182,10 @@ async function ensureArtifactDir(suite: string, scenarioId: string): Promise<str
   return artifactDir;
 }
 
+async function cleanupPerfRunDir(runParentDir: string): Promise<void> {
+  await rm(runParentDir, { recursive: true, force: true });
+}
+
 async function writeServerLogs(
   artifactDir: string,
   stdout: string,
@@ -295,151 +300,174 @@ export async function startPerfAppHarness(
   serverProcess.stderr?.on("data", (chunk) => {
     stderrBuffer += chunk.toString();
   });
+  let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
+  let page: Page | null = null;
 
-  await waitForServerReady(url, serverProcess);
+  try {
+    await waitForServerReady(url, serverProcess);
 
-  const browser = await chromium.launch({
-    headless: process.env[PERF_HEADFUL_ENV] !== "1",
-  });
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 960 },
-  });
-  await context.addInitScript(installBrowserPerfCollector, "[data-timeline-row-kind]");
-  const page = await context.newPage();
-  await page.goto(url, { waitUntil: "domcontentloaded" });
+    browser = await chromium.launch({
+      headless: process.env[PERF_HEADFUL_ENV] !== "1",
+    });
+    context = await browser.newContext({
+      viewport: { width: 1440, height: 960 },
+    });
+    await context.addInitScript(installBrowserPerfCollector, "[data-timeline-row-kind]");
+    page = await context.newPage();
+    await page.goto(url, { waitUntil: "domcontentloaded" });
 
-  const firstProjectTitle =
-    seededState.projectTitle ?? getPerfSeedScenario(options.seedScenarioId).project.title;
-  if (!firstProjectTitle) {
-    throw new Error(`Seed scenario '${options.seedScenarioId}' produced no projects.`);
-  }
-  await page.getByText(firstProjectTitle, { exact: true }).first().waitFor({ timeout: 45_000 });
+    const firstProjectTitle =
+      seededState.projectTitle ?? getPerfSeedScenario(options.seedScenarioId).project.title;
+    if (!firstProjectTitle) {
+      throw new Error(`Seed scenario '${options.seedScenarioId}' produced no projects.`);
+    }
+    await page.getByText(firstProjectTitle, { exact: true }).first().waitFor({ timeout: 45_000 });
 
-  const sampler = options.serverSampler ?? new NoopServerSampler();
-  if (serverProcess.pid) {
-    await sampler.start({ pid: serverProcess.pid });
-  }
-  const runStartedAt = new Date().toISOString();
+    const sampler = options.serverSampler ?? new NoopServerSampler();
+    if (serverProcess.pid) {
+      await sampler.start({ pid: serverProcess.pid });
+    }
+    const runStartedAt = new Date().toISOString();
+    const readyPage = page;
+    if (!readyPage) {
+      throw new Error("Perf app harness did not initialize a browser page.");
+    }
 
-  let finishPromise: Promise<{
-    readonly artifactPath: string;
-    readonly artifact: PerfRunArtifact;
-    readonly browserMetrics: BrowserPerfMetrics;
-    readonly serverMetrics: ReadonlyArray<PerfServerMetricSample> | null;
-  }> | null = null;
+    let finishPromise:
+      | Promise<{
+          readonly artifactPath: string;
+          readonly artifact: PerfRunArtifact;
+          readonly browserMetrics: BrowserPerfMetrics;
+          readonly serverMetrics: ReadonlyArray<PerfServerMetricSample> | null;
+        }>
+      | undefined;
 
-  const teardown = async () => {
-    await Promise.allSettled([context.close(), browser.close()]);
-    await stopChildProcess(serverProcess);
-  };
+    const teardown = async () => {
+      await Promise.allSettled([
+        context ? context.close() : Promise.resolve(),
+        browser ? browser.close() : Promise.resolve(),
+      ]);
+      await stopChildProcess(serverProcess);
+      await cleanupPerfRunDir(seededState.runParentDir);
+    };
 
-  return {
-    seededState,
-    page,
-    url,
-    artifactDir,
-    startAction: (name) =>
-      invokeBrowserCollector(
-        page,
-        (collectorName, actionName) => {
-          (window as Window & Record<string, any>)[collectorName]?.startAction(
-            actionName as string,
-          );
-        },
-        name,
-      ),
-    endAction: (name) =>
-      invokeBrowserCollector(
-        page,
-        (collectorName, actionName) => {
-          return (
-            (window as Window & Record<string, any>)[collectorName]?.endAction(
+    return {
+      seededState,
+      page: readyPage,
+      url,
+      artifactDir,
+      startAction: (name) =>
+        invokeBrowserCollector(
+          readyPage,
+          (collectorName, actionName) => {
+            (window as Window & Record<string, any>)[collectorName]?.startAction(
               actionName as string,
-            ) ?? null
-          );
-        },
-        name,
-      ),
-    resetBrowserMetrics: () =>
-      invokeBrowserCollector(page, (collectorName) => {
-        (window as Window & Record<string, any>)[collectorName]?.reset();
-      }),
-    sampleMountedRows: (label) =>
-      invokeBrowserCollector(
-        page,
-        (collectorName, sampleLabel) => {
-          return (
-            (window as Window & Record<string, any>)[collectorName]?.sampleMountedRows(
-              sampleLabel as string,
-            ) ?? 0
-          );
-        },
-        label,
-      ),
-    snapshotBrowserMetrics: () =>
-      invokeBrowserCollector(page, (collectorName) => {
-        return ((window as Window & Record<string, any>)[collectorName]?.snapshot() ?? {
-          actions: [],
-          longTasks: [],
-          rafGapsMs: [],
-          mountedRowSamples: [],
-        }) as BrowserPerfMetrics;
-      }),
-    finishRun: async (finishOptions) => {
-      if (finishPromise) {
-        return await finishPromise;
-      }
+            );
+          },
+          name,
+        ),
+      endAction: (name) =>
+        invokeBrowserCollector(
+          readyPage,
+          (collectorName, actionName) => {
+            return (
+              (window as Window & Record<string, any>)[collectorName]?.endAction(
+                actionName as string,
+              ) ?? null
+            );
+          },
+          name,
+        ),
+      resetBrowserMetrics: () =>
+        invokeBrowserCollector(readyPage, (collectorName) => {
+          (window as Window & Record<string, any>)[collectorName]?.reset();
+        }),
+      sampleMountedRows: (label) =>
+        invokeBrowserCollector(
+          readyPage,
+          (collectorName, sampleLabel) => {
+            return (
+              (window as Window & Record<string, any>)[collectorName]?.sampleMountedRows(
+                sampleLabel as string,
+              ) ?? 0
+            );
+          },
+          label,
+        ),
+      snapshotBrowserMetrics: () =>
+        invokeBrowserCollector(readyPage, (collectorName) => {
+          return ((window as Window & Record<string, any>)[collectorName]?.snapshot() ?? {
+            actions: [],
+            longTasks: [],
+            rafGapsMs: [],
+            mountedRowSamples: [],
+          }) as BrowserPerfMetrics;
+        }),
+      finishRun: async (finishOptions) => {
+        if (finishPromise) {
+          return await finishPromise;
+        }
 
-      finishPromise = (async () => {
-        const completedAt = new Date().toISOString();
-        const browserMetrics = await (async () => {
-          try {
-            return await invokeBrowserCollector(page, (collectorName) => {
-              return ((window as Window & Record<string, any>)[collectorName]?.snapshot() ?? {
+        finishPromise = (async () => {
+          const completedAt = new Date().toISOString();
+          const browserMetrics: BrowserPerfMetrics = await (async () => {
+            try {
+              return await invokeBrowserCollector(readyPage, (collectorName) => {
+                return ((window as Window & Record<string, any>)[collectorName]?.snapshot() ?? {
+                  actions: [],
+                  longTasks: [],
+                  rafGapsMs: [],
+                  mountedRowSamples: [],
+                }) as BrowserPerfMetrics;
+              });
+            } catch {
+              return {
                 actions: [],
                 longTasks: [],
                 rafGapsMs: [],
                 mountedRowSamples: [],
-              }) as BrowserPerfMetrics;
-            });
-          } catch {
-            return {
-              actions: [],
-              longTasks: [],
-              rafGapsMs: [],
-              mountedRowSamples: [],
-            } satisfies BrowserPerfMetrics;
-          }
+              } satisfies BrowserPerfMetrics;
+            }
+          })();
+          const serverMetrics = await sampler.stop();
+          await teardown();
+
+          const basename =
+            finishOptions.artifactBasename ?? `${finishOptions.suite}-${finishOptions.scenarioId}`;
+          await writeServerLogs(artifactDir, stdoutBuffer, stderrBuffer, basename);
+          const artifact: PerfRunArtifact = {
+            suite: finishOptions.suite,
+            scenarioId: finishOptions.scenarioId,
+            startedAt: runStartedAt,
+            completedAt,
+            thresholds: finishOptions.thresholds,
+            summary: summarizeBrowserPerfMetrics(browserMetrics, finishOptions.actionSummary),
+            browserMetrics,
+            serverMetrics,
+            ...(finishOptions.metadata ? { metadata: finishOptions.metadata } : {}),
+          };
+          const artifactPath = join(artifactDir, `${basename}.json`);
+          await writePerfArtifact(artifactPath, artifact);
+
+          return {
+            artifactPath,
+            artifact,
+            browserMetrics,
+            serverMetrics,
+          };
         })();
-        const serverMetrics = await sampler.stop();
-        await teardown();
 
-        const basename =
-          finishOptions.artifactBasename ?? `${finishOptions.suite}-${finishOptions.scenarioId}`;
-        await writeServerLogs(artifactDir, stdoutBuffer, stderrBuffer, basename);
-        const artifact: PerfRunArtifact = {
-          suite: finishOptions.suite,
-          scenarioId: finishOptions.scenarioId,
-          startedAt: runStartedAt,
-          completedAt,
-          thresholds: finishOptions.thresholds,
-          summary: summarizeBrowserPerfMetrics(browserMetrics, finishOptions.actionSummary),
-          browserMetrics,
-          serverMetrics,
-          ...(finishOptions.metadata ? { metadata: finishOptions.metadata } : {}),
-        };
-        const artifactPath = join(artifactDir, `${basename}.json`);
-        await writePerfArtifact(artifactPath, artifact);
-
-        return {
-          artifactPath,
-          artifact,
-          browserMetrics,
-          serverMetrics,
-        };
-      })();
-
-      return await finishPromise;
-    },
-  };
+        return await finishPromise;
+      },
+    };
+  } catch (error) {
+    await Promise.allSettled([
+      context ? context.close() : Promise.resolve(),
+      browser ? browser.close() : Promise.resolve(),
+    ]);
+    await stopChildProcess(serverProcess);
+    await cleanupPerfRunDir(seededState.runParentDir);
+    throw error;
+  }
 }

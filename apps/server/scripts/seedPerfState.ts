@@ -13,6 +13,7 @@ const seeded = await seedPerfState(scenarioId);
 const payload = JSON.stringify(
   {
     scenarioId: seeded.scenarioId,
+    runParentDir: seeded.runParentDir,
     baseDir: seeded.baseDir,
     workspaceRoot: seeded.workspaceRoot,
     projectTitle: seeded.snapshot.projects[0]?.title ?? null,

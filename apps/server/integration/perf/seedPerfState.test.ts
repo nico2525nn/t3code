@@ -7,20 +7,23 @@ import { PERF_CATALOG_IDS } from "@t3tools/shared/perf/scenarioCatalog";
 import { seedPerfState } from "./seedPerfState.ts";
 
 describe("seedPerfState", () => {
-  const baseDirsToCleanup: string[] = [];
+  const runParentDirsToCleanup: string[] = [];
 
   afterEach(async () => {
     await Promise.all(
-      baseDirsToCleanup.splice(0).map((baseDir) => rm(baseDir, { recursive: true, force: true })),
+      runParentDirsToCleanup
+        .splice(0)
+        .map((runParentDir) => rm(runParentDir, { recursive: true, force: true })),
     );
   });
 
   it("seeds large thread fixtures through the real event store and projection pipeline", async () => {
     const seeded = await seedPerfState("large_threads");
-    baseDirsToCleanup.push(seeded.baseDir);
+    runParentDirsToCleanup.push(seeded.runParentDir);
 
     expect(seeded.snapshot.projects).toHaveLength(1);
     expect(seeded.snapshot.threads).toHaveLength(12);
+    expect(seeded.baseDir).toBe(join(seeded.runParentDir, "base"));
 
     const heavyThread = seeded.snapshot.threads.find(
       (thread) => thread.id === PERF_CATALOG_IDS.largeThreads.heavyAThreadId,
@@ -34,7 +37,7 @@ describe("seedPerfState", () => {
 
   it("enables assistant streaming in the burst base seed for websocket perf runs", async () => {
     const seeded = await seedPerfState("burst_base");
-    baseDirsToCleanup.push(seeded.baseDir);
+    runParentDirsToCleanup.push(seeded.runParentDir);
 
     const rawSettings = await readFile(join(seeded.baseDir, "userdata/settings.json"), "utf8");
     expect(JSON.parse(rawSettings)).toMatchObject({

@@ -30,15 +30,16 @@ export function installBrowserPerfCollector(
   const rafGapsMs: number[] = [];
   const mountedRowSamples: Array<BrowserPerfMetrics["mountedRowSamples"][number]> = [];
   let previousAnimationFrameTs = 0;
+  let rafHandle = 0;
 
   const animationFrameLoop = (timestampMs: number) => {
     if (previousAnimationFrameTs > 0) {
       rafGapsMs.push(timestampMs - previousAnimationFrameTs);
     }
     previousAnimationFrameTs = timestampMs;
-    window.requestAnimationFrame(animationFrameLoop);
+    rafHandle = window.requestAnimationFrame(animationFrameLoop);
   };
-  window.requestAnimationFrame(animationFrameLoop);
+  rafHandle = window.requestAnimationFrame(animationFrameLoop);
 
   if (typeof PerformanceObserver !== "undefined") {
     try {
@@ -103,7 +104,8 @@ export function installBrowserPerfCollector(
       rafGapsMs.length = 0;
       mountedRowSamples.length = 0;
       previousAnimationFrameTs = 0;
-      window.requestAnimationFrame(animationFrameLoop);
+      window.cancelAnimationFrame(rafHandle);
+      rafHandle = window.requestAnimationFrame(animationFrameLoop);
     },
   };
 }
