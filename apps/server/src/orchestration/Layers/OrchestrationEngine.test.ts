@@ -245,6 +245,77 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("prioritizes client commands ahead of queued internal stream commands", async () => {
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const createdAt = now();
+    const threadId = ThreadId.makeUnsafe("thread-priority-lane");
+
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-project-priority-lane-create"),
+        projectId: asProjectId("project-priority-lane"),
+        title: "Priority Lane Project",
+        workspaceRoot: "/tmp/project-priority-lane",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        createdAt,
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-priority-lane-create"),
+        threadId,
+        projectId: asProjectId("project-priority-lane"),
+        title: "Priority Lane Thread",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    const lowPriorityCommandCount = 250;
+    const lowPriorityDispatches = Array.from({ length: lowPriorityCommandCount }, (_, index) =>
+      system.run(
+        engine.dispatch({
+          type: "thread.message.assistant.delta",
+          commandId: CommandId.makeUnsafe(`cmd-thread-priority-lane-delta-${index}`),
+          threadId,
+          messageId: asMessageId("assistant-priority-lane"),
+          delta: `chunk-${index}`,
+          turnId: asTurnId("turn-priority-lane"),
+          createdAt,
+        }),
+      ),
+    );
+
+    const archiveResult = await system.run(
+      engine.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.makeUnsafe("cmd-thread-priority-lane-archive"),
+        threadId,
+      }),
+    );
+    const lowPriorityResults = await Promise.all(lowPriorityDispatches);
+    const lowPriorityCommandsAheadOfArchive = lowPriorityResults.filter(
+      (result) => result.sequence < archiveResult.sequence,
+    ).length;
+
+    expect(lowPriorityCommandsAheadOfArchive).toBeLessThan(lowPriorityCommandCount / 3);
+    expect(archiveResult.sequence).toBeLessThan(lowPriorityResults.at(-1)?.sequence ?? Infinity);
+    await system.dispose();
+  });
+
   it("streams persisted domain events in order", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;
