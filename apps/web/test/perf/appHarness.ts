@@ -268,8 +268,12 @@ export async function startPerfAppHarness(
   const env = {
     ...process.env,
     T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
-    [PERF_PROVIDER_ENV]: "1",
-    ...(options.providerScenarioId ? { [PERF_SCENARIO_ENV]: options.providerScenarioId } : {}),
+    ...(options.providerScenarioId
+      ? {
+          [PERF_PROVIDER_ENV]: "1",
+          [PERF_SCENARIO_ENV]: options.providerScenarioId,
+        }
+      : {}),
   };
 
   let stdoutBuffer = "";
