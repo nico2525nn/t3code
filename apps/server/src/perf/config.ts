@@ -11,7 +11,7 @@ export function isPerfProviderEnabled(): boolean {
 
 export function getPerfProviderScenarioId(): PerfProviderScenarioId | null {
   const rawScenarioId = process.env[PERF_SCENARIO_ENV]?.trim();
-  if (rawScenarioId === "dense_assistant_stream") {
+  if (rawScenarioId === "dense_assistant_stream" || rawScenarioId === "parallel_assistant_stream") {
     return rawScenarioId;
   }
   return null;
