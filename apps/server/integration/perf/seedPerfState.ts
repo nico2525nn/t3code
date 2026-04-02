@@ -546,7 +546,10 @@ async function getTemplateDir(scenarioId: PerfSeedScenarioId): Promise<string> {
   if (existing) {
     return existing;
   }
-  const created = createTemplateDir(scenarioId);
+  const created = createTemplateDir(scenarioId).catch((error: unknown) => {
+    templateDirPromises.delete(scenarioId);
+    throw error;
+  });
   templateDirPromises.set(scenarioId, created);
   return created;
 }

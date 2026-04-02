@@ -27,6 +27,7 @@
     "test",
     "../../test/perf/support/artifact.ts",
     "../../test/perf/support/browserMetrics.ts",
+    "../../test/perf/support/perfProcess.ts",
     "../../test/perf/support/serverSampler.ts",
     "../../test/perf/support/thresholds.ts"
   ]

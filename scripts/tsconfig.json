@@ -12,5 +12,5 @@
       }
     ]
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts", "../test/perf/support/perfProcess.ts"]
 }

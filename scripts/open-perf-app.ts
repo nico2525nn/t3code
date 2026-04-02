@@ -1,17 +1,22 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { access, rm } from "node:fs/promises";
-import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import {
+  pickFreePort,
+  waitForServerReady,
+  stopChildProcess,
+  cleanupPerfRunDir,
+  verifyBuiltArtifacts,
+  parsePerfSeededState,
+} from "../test/perf/support/perfProcess";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const serverBinPath = resolve(repoRoot, "apps/server/dist/bin.mjs");
 const serverClientIndexPath = resolve(repoRoot, "apps/server/dist/client/index.html");
 const PERF_PROVIDER_ENV = "T3CODE_PERF_PROVIDER";
 const PERF_SCENARIO_ENV = "T3CODE_PERF_SCENARIO";
-const PERF_SEED_JSON_START = "__T3_PERF_SEED_JSON_START__";
-const PERF_SEED_JSON_END = "__T3_PERF_SEED_JSON_END__";
 
 type PerfSeedScenarioId = "large_threads" | "burst_base";
 type PerfProviderScenarioId = "dense_assistant_stream";
@@ -151,47 +156,6 @@ function parseArgs(argv: ReadonlyArray<string>): CliOptions {
   };
 }
 
-async function pickFreePort(): Promise<number> {
-  return await new Promise<number>((resolvePort, reject) => {
-    const server = createServer();
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("Unable to resolve a free localhost port."));
-        return;
-      }
-      server.close((closeError) => {
-        if (closeError) {
-          reject(closeError);
-          return;
-        }
-        resolvePort(address.port);
-      });
-    });
-  });
-}
-
-async function verifyBuiltArtifacts(): Promise<void> {
-  await Promise.all([access(serverBinPath), access(serverClientIndexPath)]).catch(() => {
-    throw new Error(
-      `Built perf artifacts are missing. Expected ${serverBinPath} and ${serverClientIndexPath}. Run bun run test:perf:web or build the app first.`,
-    );
-  });
-}
-
-function parsePerfSeededState(stdout: string): PerfSeededState {
-  const startIndex = stdout.lastIndexOf(PERF_SEED_JSON_START);
-  const endIndex = stdout.lastIndexOf(PERF_SEED_JSON_END);
-
-  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
-    throw new Error(`Perf seed command did not emit the expected JSON markers.\n${stdout}`);
-  }
-
-  const payload = stdout.slice(startIndex + PERF_SEED_JSON_START.length, endIndex).trim();
-  return JSON.parse(payload) as PerfSeededState;
-}
-
 async function seedPerfState(scenarioId: PerfSeedScenarioId): Promise<PerfSeededState> {
   const seedProcess = spawn("bun", ["run", "apps/server/scripts/seedPerfState.ts", scenarioId], {
     cwd: repoRoot,
@@ -213,59 +177,7 @@ async function seedPerfState(scenarioId: PerfSeedScenarioId): Promise<PerfSeeded
     throw new Error(`Perf seed command failed with code ${exitCode ?? "unknown"}.\n${stderr}`);
   }
 
-  return parsePerfSeededState(stdout);
-}
-
-async function waitForServerReady(url: string, process: ChildProcess): Promise<void> {
-  const startedAt = Date.now();
-  const timeoutMs = 45_000;
-  const requestTimeoutMs = 1_000;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    if (process.exitCode !== null) {
-      throw new Error(`Perf server exited early with code ${process.exitCode}.`);
-    }
-    try {
-      const response = await fetch(url, {
-        redirect: "manual",
-        signal: AbortSignal.timeout(requestTimeoutMs),
-      });
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // Ignore connection races during startup.
-    }
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
-  }
-
-  throw new Error(`Timed out waiting for perf server readiness at ${url}.`);
-}
-
-async function stopChildProcess(process: ChildProcess): Promise<void> {
-  if (process.exitCode !== null) {
-    return;
-  }
-
-  process.kill("SIGTERM");
-  const exited = await new Promise<boolean>((resolveExited) => {
-    const timer = setTimeout(() => resolveExited(false), 5_000);
-    process.once("exit", () => {
-      clearTimeout(timer);
-      resolveExited(true);
-    });
-  });
-
-  if (!exited && process.exitCode === null) {
-    process.kill("SIGKILL");
-    await new Promise<void>((resolveExited) => {
-      process.once("exit", () => resolveExited());
-    });
-  }
-}
-
-async function cleanupPerfRunDir(runParentDir: string): Promise<void> {
-  await rm(runParentDir, { recursive: true, force: true });
+  return parsePerfSeededState<PerfSeededState>(stdout);
 }
 
 function openUrl(url: string): void {
@@ -320,7 +232,7 @@ function printSeedSummary(
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  await verifyBuiltArtifacts();
+  await verifyBuiltArtifacts([serverBinPath, serverClientIndexPath]);
   const seededState = await seedPerfState(options.scenarioId);
   const port = options.port === 0 ? await pickFreePort() : options.port;
 
