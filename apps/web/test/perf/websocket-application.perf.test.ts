@@ -25,6 +25,7 @@ test("high-frequency websocket events stay responsive under real built-app flow"
 
     const projectTitle = harness.seededState.projectTitle ?? "Performance Workspace";
     const streamScenario = PERF_PROVIDER_SCENARIOS.dense_assistant_stream;
+    expect(streamScenario.totalDurationMs).toBeGreaterThanOrEqual(10_000);
 
     await ensureThreadRowVisible(
       harness.page,
@@ -49,21 +50,27 @@ test("high-frequency websocket events stay responsive under real built-app flow"
       actionName: "thread-switch-burst-nav",
       projectTitle,
       threadId: PERF_CATALOG_IDS.burstBase.navigationThreadId,
-      messageId: PERF_CATALOG_IDS.burstBase.navigationTerminalMessageId,
     });
+    await harness.page.waitForFunction(
+      (messageNeedle) => document.body.textContent?.includes(messageNeedle as string) ?? false,
+      "Navigation lane",
+      { timeout: 10_000 },
+    );
+    const navigationTimelineText = await harness.page
+      .locator('[data-timeline-root="true"]')
+      .textContent();
+    expect(navigationTimelineText ?? "").toContain("Navigation lane");
 
     await measureThreadSwitch(harness, {
       actionName: "thread-switch-burst-return",
       projectTitle,
       threadId: PERF_CATALOG_IDS.burstBase.burstThreadId,
-      messageId: PERF_CATALOG_IDS.burstBase.burstTerminalMessageId,
-      extraSelector: '[data-testid="composer-editor"]',
     });
 
     await harness.page.waitForFunction(
       (sentinelText) => document.body.textContent?.includes(sentinelText as string) ?? false,
       streamScenario.sentinelText,
-      { timeout: 15_000 },
+      { timeout: streamScenario.totalDurationMs + 15_000 },
     );
     await harness.endAction("burst-completion");
 
@@ -96,6 +103,10 @@ test("high-frequency websocket events stay responsive under real built-app flow"
       metadata: {
         burstSeedThreadId: PERF_CATALOG_IDS.burstBase.burstThreadId,
         navigationThreadId: PERF_CATALOG_IDS.burstBase.navigationThreadId,
+        fillerThreadId: PERF_CATALOG_IDS.burstBase.fillerThreadId,
+        navigationLiveAssistantMessageId:
+          PERF_CATALOG_IDS.provider.navigationLiveAssistantMessageId,
+        burstLiveAssistantMessageId: PERF_CATALOG_IDS.provider.burstLiveAssistantMessageId,
         sentinelText: streamScenario.sentinelText,
       },
       actionSummary: {
@@ -113,6 +124,10 @@ test("high-frequency websocket events stay responsive under real built-app flow"
         metadata: {
           burstSeedThreadId: PERF_CATALOG_IDS.burstBase.burstThreadId,
           navigationThreadId: PERF_CATALOG_IDS.burstBase.navigationThreadId,
+          fillerThreadId: PERF_CATALOG_IDS.burstBase.fillerThreadId,
+          navigationLiveAssistantMessageId:
+            PERF_CATALOG_IDS.provider.navigationLiveAssistantMessageId,
+          burstLiveAssistantMessageId: PERF_CATALOG_IDS.provider.burstLiveAssistantMessageId,
           sentinelText: PERF_PROVIDER_SCENARIOS.dense_assistant_stream.sentinelText,
         },
         actionSummary: {

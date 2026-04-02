@@ -207,7 +207,9 @@ describe("ProviderCommandReactor", () => {
           sessionModelSwitch: input?.sessionModelSwitch ?? "in-session",
         }),
       rollbackConversation: () => unsupported(),
-      streamEvents: Stream.fromPubSub(runtimeEventPubSub),
+      get streamEvents() {
+        return Stream.fromPubSub(runtimeEventPubSub);
+      },
     };
 
     const orchestrationLayer = OrchestrationEngineLive.pipe(

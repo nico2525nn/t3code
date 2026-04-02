@@ -3750,7 +3750,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
+    <div
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background"
+      data-testid={`chat-thread-${activeThread.id}`}
+    >
       {/* Top bar */}
       <header
         className={cn(

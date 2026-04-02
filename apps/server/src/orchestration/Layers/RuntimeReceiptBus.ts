@@ -11,7 +11,9 @@ const makeRuntimeReceiptBus = Effect.gen(function* () {
 
   return {
     publish: (receipt) => PubSub.publish(pubSub, receipt).pipe(Effect.asVoid),
-    stream: Stream.fromPubSub(pubSub),
+    get stream() {
+      return Stream.fromPubSub(pubSub);
+    },
   } satisfies RuntimeReceiptBusShape;
 });
 

@@ -28,7 +28,8 @@ describe("seedPerfState", () => {
     expect(heavyThread?.messages).toHaveLength(2_000);
     expect((heavyThread?.activities.length ?? 0) > 0).toBe(true);
     expect((heavyThread?.proposedPlans.length ?? 0) > 0).toBe(true);
-    expect((heavyThread?.checkpoints.length ?? 0) > 0).toBe(true);
+    expect((heavyThread?.checkpoints.length ?? 0) >= 80).toBe(true);
+    expect((heavyThread?.checkpoints[0]?.files.length ?? 0) >= 12).toBe(true);
   });
 
   it("enables assistant streaming in the burst base seed for websocket perf runs", async () => {
