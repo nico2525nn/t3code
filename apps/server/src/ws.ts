@@ -84,31 +84,9 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       };
     });
 
-    const rpcEffect = <A, E, R>(
-      method: string,
-      effect: Effect.Effect<A, E, R>,
-      traceAttributes?: Readonly<Record<string, unknown>>,
-    ) => observeRpcEffect(method, effect, traceAttributes);
-
-    const rpcStream = <A, E, R>(
-      method: string,
-      stream: Stream.Stream<A, E, R>,
-      traceAttributes?: Readonly<Record<string, unknown>>,
-    ) => observeRpcStream(method, stream, traceAttributes);
-
-    const rpcStreamEffect = <A, StreamError, StreamContext, EffectError, EffectContext>(
-      method: string,
-      effect: Effect.Effect<
-        Stream.Stream<A, StreamError, StreamContext>,
-        EffectError,
-        EffectContext
-      >,
-      traceAttributes?: Readonly<Record<string, unknown>>,
-    ) => observeRpcStreamEffect(method, effect, traceAttributes);
-
     return WsRpcGroup.of({
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (_input) =>
-        rpcEffect(
+        observeRpcEffect(
           ORCHESTRATION_WS_METHODS.getSnapshot,
           projectionSnapshotQuery.getSnapshot().pipe(
             Effect.mapError(
@@ -122,7 +100,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "orchestration" },
         ),
       [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
-        rpcEffect(
+        observeRpcEffect(
           ORCHESTRATION_WS_METHODS.dispatchCommand,
           Effect.gen(function* () {
             const normalizedCommand = yield* normalizeDispatchCommand(command);
@@ -153,7 +131,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "orchestration" },
         ),
       [ORCHESTRATION_WS_METHODS.getTurnDiff]: (input) =>
-        rpcEffect(
+        observeRpcEffect(
           ORCHESTRATION_WS_METHODS.getTurnDiff,
           checkpointDiffQuery.getTurnDiff(input).pipe(
             Effect.mapError(
@@ -167,7 +145,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "orchestration" },
         ),
       [ORCHESTRATION_WS_METHODS.getFullThreadDiff]: (input) =>
-        rpcEffect(
+        observeRpcEffect(
           ORCHESTRATION_WS_METHODS.getFullThreadDiff,
           checkpointDiffQuery.getFullThreadDiff(input).pipe(
             Effect.mapError(
@@ -181,7 +159,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "orchestration" },
         ),
       [ORCHESTRATION_WS_METHODS.replayEvents]: (input) =>
-        rpcEffect(
+        observeRpcEffect(
           ORCHESTRATION_WS_METHODS.replayEvents,
           Stream.runCollect(
             orchestrationEngine.readEvents(
@@ -200,7 +178,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "orchestration" },
         ),
       [WS_METHODS.subscribeOrchestrationDomainEvents]: (_input) =>
-        rpcStreamEffect(
+        observeRpcStreamEffect(
           WS_METHODS.subscribeOrchestrationDomainEvents,
           Effect.gen(function* () {
             const snapshot = yield* orchestrationEngine.getReadModel();
@@ -259,15 +237,17 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "orchestration" },
         ),
       [WS_METHODS.serverGetConfig]: (_input) =>
-        rpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, { "rpc.aggregate": "server" }),
+        observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {
+          "rpc.aggregate": "server",
+        }),
       [WS_METHODS.serverRefreshProviders]: (_input) =>
-        rpcEffect(
+        observeRpcEffect(
           WS_METHODS.serverRefreshProviders,
           providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
           { "rpc.aggregate": "server" },
         ),
       [WS_METHODS.serverUpsertKeybinding]: (rule) =>
-        rpcEffect(
+        observeRpcEffect(
           WS_METHODS.serverUpsertKeybinding,
           Effect.gen(function* () {
             const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);
@@ -276,15 +256,15 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "server" },
         ),
       [WS_METHODS.serverGetSettings]: (_input) =>
-        rpcEffect(WS_METHODS.serverGetSettings, serverSettings.getSettings, {
+        observeRpcEffect(WS_METHODS.serverGetSettings, serverSettings.getSettings, {
           "rpc.aggregate": "server",
         }),
       [WS_METHODS.serverUpdateSettings]: ({ patch }) =>
-        rpcEffect(WS_METHODS.serverUpdateSettings, serverSettings.updateSettings(patch), {
+        observeRpcEffect(WS_METHODS.serverUpdateSettings, serverSettings.updateSettings(patch), {
           "rpc.aggregate": "server",
         }),
       [WS_METHODS.projectsSearchEntries]: (input) =>
-        rpcEffect(
+        observeRpcEffect(
           WS_METHODS.projectsSearchEntries,
           workspaceEntries.search(input).pipe(
             Effect.mapError(
@@ -298,7 +278,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "workspace" },
         ),
       [WS_METHODS.projectsWriteFile]: (input) =>
-        rpcEffect(
+        observeRpcEffect(
           WS_METHODS.projectsWriteFile,
           workspaceFileSystem.writeFile(input).pipe(
             Effect.mapError((cause) => {
@@ -314,15 +294,19 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "workspace" },
         ),
       [WS_METHODS.shellOpenInEditor]: (input) =>
-        rpcEffect(WS_METHODS.shellOpenInEditor, open.openInEditor(input), {
+        observeRpcEffect(WS_METHODS.shellOpenInEditor, open.openInEditor(input), {
           "rpc.aggregate": "workspace",
         }),
       [WS_METHODS.gitStatus]: (input) =>
-        rpcEffect(WS_METHODS.gitStatus, gitManager.status(input), { "rpc.aggregate": "git" }),
+        observeRpcEffect(WS_METHODS.gitStatus, gitManager.status(input), {
+          "rpc.aggregate": "git",
+        }),
       [WS_METHODS.gitPull]: (input) =>
-        rpcEffect(WS_METHODS.gitPull, git.pullCurrentBranch(input.cwd), { "rpc.aggregate": "git" }),
+        observeRpcEffect(WS_METHODS.gitPull, git.pullCurrentBranch(input.cwd), {
+          "rpc.aggregate": "git",
+        }),
       [WS_METHODS.gitRunStackedAction]: (input) =>
-        rpcStream(
+        observeRpcStream(
           WS_METHODS.gitRunStackedAction,
           Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>
             gitManager
@@ -342,61 +326,63 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "git" },
         ),
       [WS_METHODS.gitResolvePullRequest]: (input) =>
-        rpcEffect(WS_METHODS.gitResolvePullRequest, gitManager.resolvePullRequest(input), {
+        observeRpcEffect(WS_METHODS.gitResolvePullRequest, gitManager.resolvePullRequest(input), {
           "rpc.aggregate": "git",
         }),
       [WS_METHODS.gitPreparePullRequestThread]: (input) =>
-        rpcEffect(
+        observeRpcEffect(
           WS_METHODS.gitPreparePullRequestThread,
           gitManager.preparePullRequestThread(input),
           { "rpc.aggregate": "git" },
         ),
       [WS_METHODS.gitListBranches]: (input) =>
-        rpcEffect(WS_METHODS.gitListBranches, git.listBranches(input), { "rpc.aggregate": "git" }),
+        observeRpcEffect(WS_METHODS.gitListBranches, git.listBranches(input), {
+          "rpc.aggregate": "git",
+        }),
       [WS_METHODS.gitCreateWorktree]: (input) =>
-        rpcEffect(WS_METHODS.gitCreateWorktree, git.createWorktree(input), {
+        observeRpcEffect(WS_METHODS.gitCreateWorktree, git.createWorktree(input), {
           "rpc.aggregate": "git",
         }),
       [WS_METHODS.gitRemoveWorktree]: (input) =>
-        rpcEffect(WS_METHODS.gitRemoveWorktree, git.removeWorktree(input), {
+        observeRpcEffect(WS_METHODS.gitRemoveWorktree, git.removeWorktree(input), {
           "rpc.aggregate": "git",
         }),
       [WS_METHODS.gitCreateBranch]: (input) =>
-        rpcEffect(WS_METHODS.gitCreateBranch, git.createBranch(input), {
+        observeRpcEffect(WS_METHODS.gitCreateBranch, git.createBranch(input), {
           "rpc.aggregate": "git",
         }),
       [WS_METHODS.gitCheckout]: (input) =>
-        rpcEffect(WS_METHODS.gitCheckout, Effect.scoped(git.checkoutBranch(input)), {
+        observeRpcEffect(WS_METHODS.gitCheckout, Effect.scoped(git.checkoutBranch(input)), {
           "rpc.aggregate": "git",
         }),
       [WS_METHODS.gitInit]: (input) =>
-        rpcEffect(WS_METHODS.gitInit, git.initRepo(input), { "rpc.aggregate": "git" }),
+        observeRpcEffect(WS_METHODS.gitInit, git.initRepo(input), { "rpc.aggregate": "git" }),
       [WS_METHODS.terminalOpen]: (input) =>
-        rpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
+        observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
           "rpc.aggregate": "terminal",
         }),
       [WS_METHODS.terminalWrite]: (input) =>
-        rpcEffect(WS_METHODS.terminalWrite, terminalManager.write(input), {
+        observeRpcEffect(WS_METHODS.terminalWrite, terminalManager.write(input), {
           "rpc.aggregate": "terminal",
         }),
       [WS_METHODS.terminalResize]: (input) =>
-        rpcEffect(WS_METHODS.terminalResize, terminalManager.resize(input), {
+        observeRpcEffect(WS_METHODS.terminalResize, terminalManager.resize(input), {
           "rpc.aggregate": "terminal",
         }),
       [WS_METHODS.terminalClear]: (input) =>
-        rpcEffect(WS_METHODS.terminalClear, terminalManager.clear(input), {
+        observeRpcEffect(WS_METHODS.terminalClear, terminalManager.clear(input), {
           "rpc.aggregate": "terminal",
         }),
       [WS_METHODS.terminalRestart]: (input) =>
-        rpcEffect(WS_METHODS.terminalRestart, terminalManager.restart(input), {
+        observeRpcEffect(WS_METHODS.terminalRestart, terminalManager.restart(input), {
           "rpc.aggregate": "terminal",
         }),
       [WS_METHODS.terminalClose]: (input) =>
-        rpcEffect(WS_METHODS.terminalClose, terminalManager.close(input), {
+        observeRpcEffect(WS_METHODS.terminalClose, terminalManager.close(input), {
           "rpc.aggregate": "terminal",
         }),
       [WS_METHODS.subscribeTerminalEvents]: (_input) =>
-        rpcStream(
+        observeRpcStream(
           WS_METHODS.subscribeTerminalEvents,
           Stream.callback<TerminalEvent>((queue) =>
             Effect.acquireRelease(
@@ -407,7 +393,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "terminal" },
         ),
       [WS_METHODS.subscribeServerConfig]: (_input) =>
-        rpcStreamEffect(
+        observeRpcStreamEffect(
           WS_METHODS.subscribeServerConfig,
           Effect.gen(function* () {
             const keybindingsUpdates = keybindings.streamChanges.pipe(
@@ -446,7 +432,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           { "rpc.aggregate": "server" },
         ),
       [WS_METHODS.subscribeServerLifecycle]: (_input) =>
-        rpcStreamEffect(
+        observeRpcStreamEffect(
           WS_METHODS.subscribeServerLifecycle,
           Effect.gen(function* () {
             const snapshot = yield* lifecycleEvents.snapshot;
