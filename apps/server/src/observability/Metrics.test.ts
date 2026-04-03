@@ -70,4 +70,42 @@ describe("withMetrics", () => {
       );
     }),
   );
+
+  it.effect("evaluates attributes lazily after the wrapped effect runs", () =>
+    Effect.gen(function* () {
+      const counter = Metric.counter("with_metrics_lazy_total");
+      const timer = Metric.timer("with_metrics_lazy_duration");
+      let provider = "unknown";
+
+      yield* Effect.sync(() => {
+        provider = "codex";
+      }).pipe(
+        withMetrics({
+          counter,
+          timer,
+          attributes: () => ({
+            provider,
+            operation: "lazy",
+          }),
+        }),
+      );
+
+      const snapshots = yield* Metric.snapshot;
+      assert.equal(
+        hasMetricSnapshot(snapshots, "with_metrics_lazy_total", {
+          provider: "codex",
+          operation: "lazy",
+          outcome: "success",
+        }),
+        true,
+      );
+      assert.equal(
+        hasMetricSnapshot(snapshots, "with_metrics_lazy_duration", {
+          provider: "codex",
+          operation: "lazy",
+        }),
+        true,
+      );
+    }),
+  );
 });

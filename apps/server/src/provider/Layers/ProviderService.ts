@@ -407,12 +407,16 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       "provider.interaction_mode": input.interactionMode,
       "provider.attachment_count": input.attachments.length,
     });
+    let metricProvider = "unknown";
+    let metricModel = input.modelSelection?.model;
     return yield* Effect.gen(function* () {
       const routed = yield* resolveRoutableSession({
         threadId: input.threadId,
         operation: "ProviderService.sendTurn",
         allowRecovery: true,
       });
+      metricProvider = routed.adapter.provider;
+      metricModel = input.modelSelection?.model;
       yield* Effect.annotateCurrentSpan({
         "provider.kind": routed.adapter.provider,
         ...(input.modelSelection?.model ? { "provider.model": input.modelSelection.model } : {}),
@@ -442,13 +446,14 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       withMetrics({
         counter: providerTurnsTotal,
         timer: providerTurnDuration,
-        attributes: providerTurnMetricAttributes({
-          provider: input.modelSelection?.provider ?? "unknown",
-          model: input.modelSelection?.model,
-          extra: {
-            operation: "send",
-          },
-        }),
+        attributes: () =>
+          providerTurnMetricAttributes({
+            provider: metricProvider,
+            model: metricModel,
+            extra: {
+              operation: "send",
+            },
+          }),
       }),
     );
   });

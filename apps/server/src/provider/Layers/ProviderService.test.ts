@@ -1146,6 +1146,45 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
       );
     }),
   );
+
+  it.effect(
+    "records sendTurn metrics with the resolved provider when modelSelection is omitted",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+
+        const session = yield* provider.startSession(asThreadId("thread-send-metrics"), {
+          provider: "claudeAgent",
+          threadId: asThreadId("thread-send-metrics"),
+          cwd: "/tmp/project-send-metrics",
+          runtimeMode: "full-access",
+        });
+
+        yield* provider.sendTurn({
+          threadId: session.threadId,
+          input: "hello",
+          attachments: [],
+        });
+
+        const snapshots = yield* Metric.snapshot;
+
+        assert.equal(
+          hasMetricSnapshot(snapshots, "t3_provider_turns_total", {
+            provider: "claudeAgent",
+            operation: "send",
+            outcome: "success",
+          }),
+          true,
+        );
+        assert.equal(
+          hasMetricSnapshot(snapshots, "t3_provider_turn_duration", {
+            provider: "claudeAgent",
+            operation: "send",
+          }),
+          true,
+        );
+      }),
+  );
 });
 
 const validation = makeProviderServiceLayer();

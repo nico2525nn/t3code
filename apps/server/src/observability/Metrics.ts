@@ -91,7 +91,9 @@ export const increment = (
 export interface WithMetricsOptions {
   readonly counter?: Metric.Metric<number, unknown>;
   readonly timer?: Metric.Metric<Duration.Duration, unknown>;
-  readonly attributes?: Readonly<Record<string, unknown>>;
+  readonly attributes?:
+    | Readonly<Record<string, unknown>>
+    | (() => Readonly<Record<string, unknown>>);
   readonly outcomeAttributes?: (
     outcome: ReturnType<typeof outcomeFromExit>,
   ) => Readonly<Record<string, unknown>>;
@@ -105,7 +107,8 @@ const withMetricsImpl = <A, E, R>(
     const startedAt = Date.now();
     const exit = yield* Effect.exit(effect);
     const duration = Duration.millis(Math.max(0, Date.now() - startedAt));
-    const baseAttributes = options.attributes ?? {};
+    const baseAttributes =
+      typeof options.attributes === "function" ? options.attributes() : (options.attributes ?? {});
 
     if (options.timer) {
       yield* Metric.update(
