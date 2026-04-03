@@ -491,6 +491,9 @@ describe("incremental orchestration updates", () => {
     expect(projectsOf(next)[0]?.id).toBe(recreatedProjectId);
     expect(projectsOf(next)[0]?.cwd).toBe("/tmp/project");
     expect(projectsOf(next)[0]?.name).toBe("Project Recreated");
+    expect(next.projectIds).toEqual([recreatedProjectId]);
+    expect(next.projectById[originalProjectId]).toBeUndefined();
+    expect(next.projectById[recreatedProjectId]?.id).toBe(recreatedProjectId);
   });
 
   it("removes stale project index entries when thread.created recreates a thread under a new project", () => {
@@ -660,7 +663,10 @@ describe("incremental orchestration updates", () => {
 
     expect(threadsOf(next)[0]?.messages[0]?.text).toBe("hello world");
     expect(threadsOf(next)[0]?.latestTurn?.state).toBe("running");
-    expect(threadsOf(next)[1]).toBe(thread2);
+    expect(next.threadShellById[thread2.id]).toBe(state.threadShellById[thread2.id]);
+    expect(next.threadSessionById[thread2.id]).toBe(state.threadSessionById[thread2.id]);
+    expect(next.messageIdsByThreadId[thread2.id]).toBe(state.messageIdsByThreadId[thread2.id]);
+    expect(next.messageByThreadId[thread2.id]).toBe(state.messageByThreadId[thread2.id]);
   });
 
   it("applies replay batches in sequence and updates session state", () => {

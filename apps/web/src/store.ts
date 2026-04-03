@@ -1020,15 +1020,29 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
             projectId === event.payload.projectId ||
             state.projectById[projectId]?.cwd === event.payload.workspaceRoot,
         ) ?? null;
-      const resolvedProjectId = existingProjectId ?? nextProject.id;
-      const projectById = {
-        ...state.projectById,
-        [resolvedProjectId]: nextProject,
-      };
-      const projectIds =
-        existingProjectId === null && !state.projectIds.includes(nextProject.id)
-          ? [...state.projectIds, nextProject.id]
-          : state.projectIds;
+      let projectById = state.projectById;
+      let projectIds = state.projectIds;
+
+      if (existingProjectId !== null && existingProjectId !== nextProject.id) {
+        const { [existingProjectId]: _removedProject, ...restProjectById } = state.projectById;
+        projectById = {
+          ...restProjectById,
+          [nextProject.id]: nextProject,
+        };
+        projectIds = state.projectIds.map((projectId) =>
+          projectId === existingProjectId ? nextProject.id : projectId,
+        );
+      } else {
+        projectById = {
+          ...state.projectById,
+          [nextProject.id]: nextProject,
+        };
+        projectIds =
+          existingProjectId === null && !state.projectIds.includes(nextProject.id)
+            ? [...state.projectIds, nextProject.id]
+            : state.projectIds;
+      }
+
       return {
         ...state,
         projectById,
