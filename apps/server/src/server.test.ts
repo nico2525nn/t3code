@@ -542,6 +542,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       } as const;
 
       yield* buildAppUnderTest({
+        config: {
+          otlpTracesUrl: "http://localhost:4318/v1/traces",
+          otlpMetricsUrl: "http://localhost:4318/v1/metrics",
+        },
         layers: {
           keybindings: {
             loadConfigState: Effect.succeed({
@@ -570,6 +574,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.deepEqual(first.config.keybindings, []);
         assert.deepEqual(first.config.issues, []);
         assert.deepEqual(first.config.providers, providers);
+        assert.equal(first.config.observability.logsDirectoryPath.endsWith("/logs"), true);
+        assert.equal(first.config.observability.localTracingEnabled, true);
+        assert.equal(first.config.observability.otlpTracesUrl, "http://localhost:4318/v1/traces");
+        assert.equal(first.config.observability.otlpTracesEnabled, true);
+        assert.equal(first.config.observability.otlpMetricsUrl, "http://localhost:4318/v1/metrics");
+        assert.equal(first.config.observability.otlpMetricsEnabled, true);
         assert.deepEqual(first.config.settings, DEFAULT_SERVER_SETTINGS);
       }
       assert.deepEqual(second, {
