@@ -416,7 +416,6 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         allowRecovery: true,
       });
       metricProvider = routed.adapter.provider;
-      metricModel = input.modelSelection?.model;
       yield* Effect.annotateCurrentSpan({
         "provider.kind": routed.adapter.provider,
         ...(input.modelSelection?.model ? { "provider.model": input.modelSelection.model } : {}),
