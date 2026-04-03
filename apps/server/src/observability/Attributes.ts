@@ -31,7 +31,7 @@ function normalizeJsonValue(value: unknown, seen: WeakSet<object> = new WeakSet(
     return value.toString();
   }
   if (value instanceof Date) {
-    return value.toISOString();
+    return Number.isNaN(value.getTime()) ? "Invalid Date" : value.toISOString();
   }
   if (value instanceof Error) {
     return {
@@ -115,8 +115,8 @@ export function normalizeModelMetricLabel(model: string | null | undefined): str
   if (!normalized) {
     return undefined;
   }
-  if (normalized.includes("gpt-5")) {
-    return "gpt-5";
+  if (normalized.includes("gpt")) {
+    return "gpt";
   }
   if (normalized.includes("claude")) {
     return "claude";

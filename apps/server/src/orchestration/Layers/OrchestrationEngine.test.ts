@@ -470,6 +470,44 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("records failed command dispatches as metric failures", async () => {
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const createdAt = now();
+
+    await expect(
+      system.run(
+        engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("cmd-thread-missing-project"),
+          threadId: ThreadId.makeUnsafe("thread-missing-project"),
+          projectId: asProjectId("project-missing"),
+          title: "Missing Project Thread",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        }),
+      ),
+    ).rejects.toThrow("does not exist");
+
+    const snapshots = await system.run(Metric.snapshot);
+    expect(
+      hasMetricSnapshot(snapshots, "t3_orchestration_commands_total", {
+        commandType: "thread.create",
+        aggregateKind: "thread",
+        outcome: "failure",
+      }),
+    ).toBe(true);
+
+    await system.dispose();
+  });
+
   it("stores completed checkpoint summaries even when no files changed", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;

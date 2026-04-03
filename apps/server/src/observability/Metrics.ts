@@ -155,11 +155,11 @@ export const providerTurnMetricAttributes = (input: {
   readonly provider: string;
   readonly model: string | null | undefined;
   readonly extra?: Readonly<Record<string, unknown>>;
-}) =>
-  compactMetricAttributes({
+}) => {
+  const modelFamily = normalizeModelMetricLabel(input.model);
+  return compactMetricAttributes({
     provider: input.provider,
-    ...(normalizeModelMetricLabel(input.model)
-      ? { modelFamily: normalizeModelMetricLabel(input.model) }
-      : {}),
+    ...(modelFamily ? { modelFamily } : {}),
     ...input.extra,
   });
+};

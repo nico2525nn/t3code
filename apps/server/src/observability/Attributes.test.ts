@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 
-import { compactTraceAttributes } from "./Attributes.ts";
+import { compactTraceAttributes, normalizeModelMetricLabel } from "./Attributes.ts";
 
 describe("Attributes", () => {
   it("normalizes circular arrays, maps, and sets without recursing forever", () => {
@@ -25,5 +25,22 @@ describe("Attributes", () => {
         set: ["[Circular]"],
       },
     );
+  });
+
+  it("normalizes invalid dates without throwing", () => {
+    assert.deepStrictEqual(
+      compactTraceAttributes({
+        invalidDate: new Date("not-a-real-date"),
+      }),
+      {
+        invalidDate: "Invalid Date",
+      },
+    );
+  });
+
+  it("groups GPT-family models under a shared metric label", () => {
+    assert.strictEqual(normalizeModelMetricLabel("gpt-4o"), "gpt");
+    assert.strictEqual(normalizeModelMetricLabel("gpt-5.4"), "gpt");
+    assert.strictEqual(normalizeModelMetricLabel("claude-sonnet-4"), "claude");
   });
 });
