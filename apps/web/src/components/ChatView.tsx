@@ -64,7 +64,7 @@ import {
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
 import { useStore } from "../store";
-import { useProjectById, useThreadById } from "../storeSelectors";
+import { createThreadSelector } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
 import {
   buildPlanImplementationThreadTitle,
@@ -219,7 +219,7 @@ const threadPlanCatalogCache = new LRUCache<{
   entry: ThreadPlanCatalogEntry;
 }>(MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES, MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES);
 
-function estimateThreadPlanCatalogEntrySize(thread: Thread): number {
+function estimateThreadPlanCatalogEntrySize(thread: Pick<Thread, "id" | "proposedPlans">): number {
   return Math.max(
     64,
     thread.id.length +
@@ -235,7 +235,9 @@ function estimateThreadPlanCatalogEntrySize(thread: Thread): number {
   );
 }
 
-function toThreadPlanCatalogEntry(thread: Thread): ThreadPlanCatalogEntry {
+function toThreadPlanCatalogEntry(
+  thread: Pick<Thread, "id" | "proposedPlans">,
+): ThreadPlanCatalogEntry {
   const cached = threadPlanCatalogCache.get(thread.id);
   if (cached && cached.proposedPlans === thread.proposedPlans) {
     return cached.entry;
@@ -258,13 +260,29 @@ function toThreadPlanCatalogEntry(thread: Thread): ThreadPlanCatalogEntry {
 
 function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalogEntry[] {
   const selector = useMemo(() => {
-    let previousThreads: Array<Thread | undefined> | null = null;
+    let previousThreads: Array<
+      { id: ThreadId; proposedPlans: Thread["proposedPlans"] } | undefined
+    > | null = null;
     let previousEntries: ThreadPlanCatalogEntry[] = [];
 
-    return (state: { threads: Thread[] }): ThreadPlanCatalogEntry[] => {
-      const nextThreads = threadIds.map((threadId) =>
-        state.threads.find((thread) => thread.id === threadId),
-      );
+    return (state: {
+      threadShellById: Record<ThreadId, { id: ThreadId } | undefined>;
+      proposedPlanIdsByThreadId: Record<ThreadId, string[]>;
+      proposedPlanByThreadId: Record<ThreadId, Record<string, Thread["proposedPlans"][number]>>;
+    }): ThreadPlanCatalogEntry[] => {
+      const nextThreads = threadIds.map((threadId) => {
+        if (!state.threadShellById[threadId]) {
+          return undefined;
+        }
+        return {
+          id: threadId,
+          proposedPlans:
+            state.proposedPlanIdsByThreadId[threadId]?.flatMap((planId) => {
+              const plan = state.proposedPlanByThreadId[threadId]?.[planId];
+              return plan ? [plan] : [];
+            }) ?? [],
+        };
+      });
       const cachedThreads = previousThreads;
       if (
         cachedThreads &&
@@ -426,11 +444,17 @@ function PersistentThreadTerminalDrawer({
   closeShortcutLabel,
   onAddTerminalContext,
 }: PersistentThreadTerminalDrawerProps) {
-  const serverThread = useThreadById(threadId);
+  const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
   const draftThread = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
-  const project = useProjectById(serverThread?.projectId ?? draftThread?.projectId);
+  const project = useStore((state) =>
+    serverThread?.projectId
+      ? state.projectById[serverThread.projectId]
+      : draftThread?.projectId
+        ? state.projectById[draftThread.projectId]
+        : undefined,
+  );
   const terminalState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadId, threadId),
   );
@@ -565,7 +589,7 @@ function PersistentThreadTerminalDrawer({
 }
 
 export default function ChatView({ threadId }: ChatViewProps) {
-  const serverThread = useThreadById(threadId);
+  const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
   const setStoreThreadError = useStore((store) => store.setError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
@@ -742,8 +766,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
-  const threads = useStore((state) => state.threads);
-  const serverThreadIds = useMemo(() => threads.map((thread) => thread.id), [threads]);
+  const serverThreadIds = useStore((state) => state.threadIds);
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const draftThreadIds = useMemo(
     () => Object.keys(draftThreadsByThreadId) as ThreadId[],
@@ -804,7 +827,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [composerTerminalContexts, removeComposerDraftTerminalContext, setPrompt, threadId],
   );
 
-  const fallbackDraftProject = useProjectById(draftThread?.projectId);
+  const fallbackDraftProject = useStore((state) =>
+    draftThread?.projectId ? state.projectById[draftThread.projectId] : undefined,
+  );
   const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
   const localDraftThread = useMemo(
     () =>
@@ -869,7 +894,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     });
   }, [activeThreadId, existingOpenTerminalThreadIds, terminalState.terminalOpen]);
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
-  const activeProject = useProjectById(activeThread?.projectId);
+  const activeProject = useStore((state) =>
+    activeThread?.projectId ? state.projectById[activeThread.projectId] : undefined,
+  );
 
   const openPullRequestDialog = useCallback(
     (reference?: string) => {
@@ -1595,7 +1622,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setThreadError = useCallback(
     (targetThreadId: ThreadId | null, error: string | null) => {
       if (!targetThreadId) return;
-      if (useStore.getState().threads.some((thread) => thread.id === targetThreadId)) {
+      if (useStore.getState().threadShellById[targetThreadId] !== undefined) {
         setStoreThreadError(targetThreadId, error);
         return;
       }

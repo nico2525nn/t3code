@@ -33,7 +33,7 @@ import {
   clearPromotedDraftThreads,
   useComposerDraftStore,
 } from "../composerDraftStore";
-import { useStore } from "../store";
+import { selectProjects, selectThreadById, selectThreads, useStore } from "../store";
 import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
@@ -314,8 +314,9 @@ function EventRouter() {
     let flushPendingDomainEventsScheduled = false;
 
     const reconcileSnapshotDerivedState = () => {
-      const threads = useStore.getState().threads;
-      const projects = useStore.getState().projects;
+      const storeState = useStore.getState();
+      const threads = selectThreads(storeState);
+      const projects = selectProjects(storeState);
       syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
       syncThreads(
         threads.map((thread) => ({
@@ -378,14 +379,14 @@ function EventRouter() {
 
       applyOrchestrationEvents(uiEvents);
       if (needsProjectUiSync) {
-        const projects = useStore.getState().projects;
+        const projects = selectProjects(useStore.getState());
         syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
       }
       const needsThreadUiSync = nextEvents.some(
         (event) => event.type === "thread.created" || event.type === "thread.deleted",
       );
       if (needsThreadUiSync) {
-        const threads = useStore.getState().threads;
+        const threads = selectThreads(useStore.getState());
         syncThreads(
           threads.map((thread) => ({
             id: thread.id,
@@ -501,7 +502,7 @@ function EventRouter() {
       }
     });
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
-      const thread = useStore.getState().threads.find((entry) => entry.id === event.threadId);
+      const thread = selectThreadById(ThreadId.makeUnsafe(event.threadId))(useStore.getState());
       if (thread && thread.archivedAt !== null) {
         return;
       }
