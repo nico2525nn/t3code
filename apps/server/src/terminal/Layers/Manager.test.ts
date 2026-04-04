@@ -3,6 +3,7 @@ import path from "node:path";
 import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import { FetchHttpClient } from "effect/unstable/http";
 import {
   DEFAULT_TERMINAL_ID,
   type TerminalEvent,
@@ -273,7 +274,7 @@ const nodeChildProcessLayer = NodeChildProcessSpawner.layer.pipe(Layer.provide(N
 it.layer(
   Layer.mergeAll(
     NodeServices.layer,
-    WebPortInspectorLive,
+    WebPortInspectorLive.pipe(Layer.provide(FetchHttpClient.layer)),
     TerminalProcessInspectorLive.pipe(Layer.provide(nodeChildProcessLayer)),
   ),
   { excludeTestServices: true },

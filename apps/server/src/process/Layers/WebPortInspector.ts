@@ -1,7 +1,7 @@
-import { request as httpRequest } from "node:http";
-import type { IncomingMessage } from "node:http";
+import { Buffer } from "node:buffer";
 
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option, Stream } from "effect";
+import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import { WebPortInspectionError } from "../Errors";
 import type { WebPortInspectorShape } from "../Services/WebPortInspector";
@@ -37,181 +37,143 @@ function isLikelyWebProbe(result: WebProbeResult | null): boolean {
   return body.includes("<!doctype") || body.includes("<html") || body.includes("<head");
 }
 
-const probeWebPortOnHost = Effect.fn("process.probeWebPortOnHost")(function* (
-  port: number,
-  host: string,
-): Effect.fn.Return<WebProbeResult | null, WebPortInspectionError> {
-  return yield* Effect.callback<WebProbeResult | null, WebPortInspectionError>((resume) => {
-    let response: IncomingMessage | null = null;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let settled = false;
+const collectBodyPreview = <E>(
+  stream: Stream.Stream<Uint8Array, E>,
+): Effect.Effect<string, never> =>
+  stream.pipe(
+    Stream.decodeText(),
+    Stream.runFold(
+      () => ({
+        text: "",
+        bytes: 0,
+      }),
+      (state, chunk) => {
+        if (state.bytes >= WEB_PORT_PROBE_MAX_BODY_BYTES) {
+          return state;
+        }
 
-    const settle = (effect: Effect.Effect<WebProbeResult | null, WebPortInspectionError>) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resume(effect);
-    };
+        const chunkBytes = Buffer.byteLength(chunk);
+        const remainingBytes = WEB_PORT_PROBE_MAX_BODY_BYTES - state.bytes;
+        if (chunkBytes <= remainingBytes) {
+          return {
+            text: `${state.text}${chunk}`,
+            bytes: state.bytes + chunkBytes,
+          };
+        }
 
-    const cleanup = () => {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      response?.removeAllListeners();
-      request.removeAllListeners();
-      response?.destroy();
-      request.destroy();
-    };
-
-    const request = httpRequest(
-      {
-        host,
-        port,
-        method: "GET",
-        path: "/",
-        timeout: DEFAULT_WEB_PORT_PROBE_TIMEOUT_MS,
+        return {
+          text: `${state.text}${Buffer.from(chunk).subarray(0, remainingBytes).toString("utf8")}`,
+          bytes: state.bytes + remainingBytes,
+        };
       },
-      (res) => {
-        response = res;
-        const status = res.statusCode ?? 0;
-        const contentType = normalizeHeaderValue(res.headers["content-type"]);
-        const location = normalizeHeaderValue(res.headers.location);
+    ),
+    Effect.map((preview) => preview.text),
+    Effect.orElseSucceed(() => ""),
+  );
 
-        if (
-          (status >= 300 && status < 400 && location.length > 0) ||
-          contentType.toLowerCase().includes("text/html") ||
-          contentType.toLowerCase().includes("application/xhtml+xml")
-        ) {
-          settle(
-            Effect.succeed({
+const makeWebPortInspector = Effect.gen(function* () {
+  const httpClient = yield* HttpClient.HttpClient;
+
+  const probeWebPortOnHost = Effect.fn("process.probeWebPortOnHost")(function* (
+    port: number,
+    host: string,
+  ): Effect.fn.Return<WebProbeResult | null, WebPortInspectionError> {
+    const request = HttpClientRequest.get(`http://${host}:${port}/`).pipe(
+      HttpClientRequest.setHeaders({
+        accept: "text/html,application/xhtml+xml;q=1,*/*;q=0.1",
+      }),
+    );
+
+    return yield* httpClient.execute(request).pipe(
+      Effect.flatMap((response) =>
+        Effect.gen(function* () {
+          const status = response.status;
+          const contentType = normalizeHeaderValue(response.headers["content-type"]);
+          const location = normalizeHeaderValue(response.headers.location);
+
+          if (
+            (status >= 300 && status < 400 && location.length > 0) ||
+            contentType.toLowerCase().includes("text/html") ||
+            contentType.toLowerCase().includes("application/xhtml+xml")
+          ) {
+            return {
               status,
               contentType,
               location,
               body: "",
-            } satisfies WebProbeResult),
-          );
-          return;
-        }
-
-        const chunks: string[] = [];
-        let received = 0;
-
-        res.setEncoding("utf8");
-        res.on("data", (chunk: string) => {
-          if (received >= WEB_PORT_PROBE_MAX_BODY_BYTES) return;
-          const remaining = WEB_PORT_PROBE_MAX_BODY_BYTES - received;
-          const fragment = chunk.slice(0, remaining);
-          received += fragment.length;
-          chunks.push(fragment);
-          if (received >= WEB_PORT_PROBE_MAX_BODY_BYTES) {
-            settle(
-              Effect.succeed({
-                status,
-                contentType,
-                location,
-                body: chunks.join(""),
-              } satisfies WebProbeResult),
-            );
+            } satisfies WebProbeResult;
           }
-        });
-        res.on("end", () => {
-          settle(
-            Effect.succeed({
-              status,
-              contentType,
-              location,
-              body: chunks.join(""),
-            } satisfies WebProbeResult),
-          );
-        });
-        res.on("error", (cause) => {
-          settle(
+
+          const body = yield* collectBodyPreview(response.stream);
+          return {
+            status,
+            contentType,
+            location,
+            body,
+          } satisfies WebProbeResult;
+        }),
+      ),
+      Effect.timeoutOption(DEFAULT_WEB_PORT_PROBE_TIMEOUT_MS),
+      Effect.flatMap(
+        Option.match({
+          onNone: () =>
             Effect.fail(
               new WebPortInspectionError({
                 port,
                 host,
-                detail: "Failed to read HTTP probe response.",
-                cause,
+                detail: "HTTP probe timed out.",
               }),
             ),
-          );
-        });
-      },
-    );
-
-    request.on("timeout", () => {
-      settle(
-        Effect.fail(
+          onSome: Effect.succeed,
+        }),
+      ),
+      Effect.mapError(
+        (cause) =>
           new WebPortInspectionError({
             port,
             host,
-            detail: "HTTP probe timed out.",
-          }),
-        ),
-      );
-    });
-    request.on("error", (cause) => {
-      settle(
-        Effect.fail(
-          new WebPortInspectionError({
-            port,
-            host,
-            detail: "Failed to open HTTP probe request.",
+            detail: "Failed to execute HTTP probe request.",
             cause,
           }),
-        ),
-      );
-    });
-
-    timer = setTimeout(() => {
-      settle(
-        Effect.fail(
-          new WebPortInspectionError({
-            port,
-            host,
-            detail: "HTTP probe timed out.",
-          }),
-        ),
-      );
-    }, DEFAULT_WEB_PORT_PROBE_TIMEOUT_MS + 50);
-
-    request.end();
-
-    return Effect.sync(cleanup);
+      ),
+    );
   });
+
+  const inspect: WebPortInspectorShape["inspect"] = Effect.fn("process.inspectWebPort")(
+    function* (port) {
+      if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
+        return yield* new WebPortInspectionError({
+          port,
+          host: "127.0.0.1",
+          detail: "Port must be an integer between 1 and 65535.",
+        });
+      }
+
+      const ipv4Result = yield* probeWebPortOnHost(port, "127.0.0.1").pipe(Effect.exit);
+      if (ipv4Result._tag === "Success" && isLikelyWebProbe(ipv4Result.value)) {
+        return true;
+      }
+
+      const ipv6Result = yield* probeWebPortOnHost(port, "::1").pipe(Effect.exit);
+      if (ipv6Result._tag === "Success" && isLikelyWebProbe(ipv6Result.value)) {
+        return true;
+      }
+
+      if (ipv4Result._tag === "Success" || ipv6Result._tag === "Success") {
+        return false;
+      }
+
+      if (ipv6Result._tag === "Failure") {
+        return yield* Effect.failCause(ipv6Result.cause);
+      }
+
+      return yield* Effect.failCause(ipv4Result.cause);
+    },
+  );
+
+  return {
+    inspect,
+  } satisfies WebPortInspectorShape;
 });
-
-const makeWebPortInspector = Effect.succeed({
-  inspect: Effect.fn("process.inspectWebPort")(function* (port) {
-    if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
-      return yield* new WebPortInspectionError({
-        port,
-        host: "127.0.0.1",
-        detail: "Port must be an integer between 1 and 65535.",
-      });
-    }
-
-    const ipv4Result = yield* probeWebPortOnHost(port, "127.0.0.1").pipe(Effect.exit);
-    if (ipv4Result._tag === "Success" && isLikelyWebProbe(ipv4Result.value)) {
-      return true;
-    }
-
-    const ipv6Result = yield* probeWebPortOnHost(port, "::1").pipe(Effect.exit);
-    if (ipv6Result._tag === "Success" && isLikelyWebProbe(ipv6Result.value)) {
-      return true;
-    }
-
-    if (ipv4Result._tag === "Success" || ipv6Result._tag === "Success") {
-      return false;
-    }
-
-    if (ipv6Result._tag === "Failure") {
-      return yield* Effect.failCause(ipv6Result.cause);
-    }
-
-    return yield* Effect.failCause(ipv4Result.cause);
-  }),
-} satisfies WebPortInspectorShape);
 
 export const WebPortInspectorLive = Layer.effect(WebPortInspector, makeWebPortInspector);
