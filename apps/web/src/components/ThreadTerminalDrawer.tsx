@@ -78,7 +78,6 @@ export function selectPendingTerminalEventEntries(
 interface TerminalRuntimeStatus {
   label: string;
   primaryWebPort: number | null;
-  extraWebPortCount: number;
 }
 
 function normalizeRunningPorts(rawPorts: number[] | undefined): number[] {
@@ -99,7 +98,6 @@ function terminalRuntimeStatus(
 
   const runningPorts = normalizeRunningPorts(runningTerminalPorts[terminalId]);
   const primaryWebPort = runningPorts[0] ?? null;
-  const extraWebPortCount = runningPorts.length > 1 ? runningPorts.length - 1 : 0;
   const label =
     runningPorts.length === 0
       ? "Terminal process running"
@@ -110,7 +108,6 @@ function terminalRuntimeStatus(
   return {
     label,
     primaryWebPort,
-    extraWebPortCount,
   };
 }
 

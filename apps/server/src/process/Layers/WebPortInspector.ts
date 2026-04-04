@@ -127,15 +127,22 @@ const makeWebPortInspector = Effect.gen(function* () {
           onSome: Effect.succeed,
         }),
       ),
-      Effect.mapError(
-        (cause) =>
-          new WebPortInspectionError({
-            port,
-            host,
-            detail: "Failed to execute HTTP probe request.",
-            cause,
-          }),
-      ),
+      Effect.mapError((cause) => {
+        if (
+          typeof cause === "object" &&
+          cause !== null &&
+          "_tag" in cause &&
+          cause._tag === "WebPortInspectionError"
+        ) {
+          return cause as WebPortInspectionError;
+        }
+        return new WebPortInspectionError({
+          port,
+          host,
+          detail: "Failed to execute HTTP probe request.",
+          cause,
+        });
+      }),
     );
   });
 
