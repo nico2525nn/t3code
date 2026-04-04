@@ -1,22 +1,47 @@
 import { spawn, type ChildProcess, type ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
 
-import { afterEach, describe, expect, it } from "vitest";
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, it } from "@effect/vitest";
+import { Effect, Layer } from "effect";
 
-import { defaultSubprocessInspector } from "./index";
+import { TerminalProcessInspectorLive } from "./Layers/TerminalProcessInspector";
+import { TerminalProcessInspector } from "./Services/TerminalProcessInspector";
 
 type ListenerProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 interface StartedProcess {
-  process: ListenerProcess;
-  port: number;
+  readonly process: ListenerProcess;
+  readonly port: number;
 }
 
-async function waitForPort(child: ListenerProcess): Promise<number> {
-  return new Promise((resolve, reject) => {
+const stopProcess = (child: ChildProcess) =>
+  Effect.callback<void>((resume) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resume(Effect.void);
+      return;
+    }
+
+    child.kill("SIGTERM");
+
+    const timeout = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+    }, 1_000);
+
+    child.once("exit", () => {
+      clearTimeout(timeout);
+      resume(Effect.void);
+    });
+  });
+
+const waitForPort = (child: ListenerProcess) =>
+  Effect.callback<number, Error>((resume) => {
     const timeout = setTimeout(() => {
       cleanup();
-      reject(new Error("Timed out waiting for listener port"));
+      resume(Effect.fail(new Error("Timed out waiting for listener port")));
     }, 3_000);
 
     let stdout = "";
@@ -36,7 +61,7 @@ async function waitForPort(child: ListenerProcess): Promise<number> {
       const port = Number(match[1]);
       if (!Number.isInteger(port) || port <= 0) return;
       cleanup();
-      resolve(port);
+      resume(Effect.succeed(port));
     };
 
     const onStderr = (chunk: Buffer) => {
@@ -45,9 +70,11 @@ async function waitForPort(child: ListenerProcess): Promise<number> {
 
     const onExit = (code: number | null) => {
       cleanup();
-      reject(
-        new Error(
-          `Listener process exited before reporting port (code=${String(code)}): ${stderr.trim()}`,
+      resume(
+        Effect.fail(
+          new Error(
+            `Listener process exited before reporting port (code=${String(code)}): ${stderr.trim()}`,
+          ),
         ),
       );
     };
@@ -55,10 +82,11 @@ async function waitForPort(child: ListenerProcess): Promise<number> {
     child.stdout.on("data", onStdout);
     child.stderr.on("data", onStderr);
     child.on("exit", onExit);
-  });
-}
 
-async function startListenerProcess(): Promise<StartedProcess> {
+    return Effect.sync(cleanup);
+  });
+
+const startListenerProcess = Effect.gen(function* () {
   const script = [
     "const { createServer } = require('node:http');",
     "const server = createServer((_req, res) => {",
@@ -79,63 +107,56 @@ async function startListenerProcess(): Promise<StartedProcess> {
   const process = spawn("node", ["-e", script], {
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const port = await waitForPort(process);
-  return { process, port };
-}
+  const port = yield* waitForPort(process);
+  return { process, port } satisfies StartedProcess;
+});
 
-async function stopProcess(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return;
-  }
+const nodeChildProcessLayer = NodeChildProcessSpawner.layer.pipe(Layer.provide(NodeServices.layer));
 
-  child.kill("SIGTERM");
-  await new Promise<void>((resolve) => {
-    const timeout = setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGKILL");
-      }
-    }, 1_000);
-    child.once("exit", () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-  });
-}
+const testLayer = TerminalProcessInspectorLive.pipe(Layer.provide(nodeChildProcessLayer));
 
-describe("defaultSubprocessInspector", () => {
-  const spawned: ChildProcess[] = [];
+it.layer(testLayer)("TerminalProcessInspectorLive", (it) => {
+  it.effect("detects listening ports when the terminal root pid is the listener", () =>
+    Effect.acquireUseRelease(
+      startListenerProcess,
+      ({ process, port }) =>
+        Effect.gen(function* () {
+          const listenerPid = process.pid;
+          if (!listenerPid) {
+            return yield* Effect.fail(new Error("Listener process pid missing"));
+          }
 
-  afterEach(async () => {
-    await Promise.all(spawned.splice(0, spawned.length).map((child) => stopProcess(child)));
-  });
+          const inspector = yield* TerminalProcessInspector;
+          const activity = yield* inspector.inspect(listenerPid);
 
-  it("detects listening ports when the terminal root PID is the listener", async () => {
-    const listener = await startListenerProcess();
-    spawned.push(listener.process);
-    const listenerPid = listener.process.pid;
-    if (!listenerPid) {
-      throw new Error("Listener process pid missing");
-    }
+          assert.equal(activity.hasRunningSubprocess, true);
+          assert.deepStrictEqual(activity.runningPorts.includes(port), true);
+        }),
+      ({ process }) => stopProcess(process),
+    ),
+  );
 
-    const activity = await defaultSubprocessInspector(listenerPid);
+  it.effect("returns idle activity when root process has no children and no listening ports", () =>
+    Effect.acquireUseRelease(
+      Effect.sync(() =>
+        spawn("node", ["-e", "setInterval(() => {}, 10_000)"], {
+          stdio: ["ignore", "ignore", "ignore"],
+        }),
+      ),
+      (process) =>
+        Effect.gen(function* () {
+          const idlePid = process.pid;
+          if (!idlePid) {
+            return yield* Effect.fail(new Error("Idle process pid missing"));
+          }
 
-    expect(activity.hasRunningSubprocess).toBe(true);
-    expect(activity.runningPorts).toContain(listener.port);
-  });
+          const inspector = yield* TerminalProcessInspector;
+          const activity = yield* inspector.inspect(idlePid);
 
-  it("returns idle activity when root process has no children and no listening ports", async () => {
-    const idle = spawn("node", ["-e", "setInterval(() => {}, 10_000)"], {
-      stdio: ["ignore", "ignore", "ignore"],
-    });
-    spawned.push(idle);
-    const idlePid = idle.pid;
-    if (!idlePid) {
-      throw new Error("Idle process pid missing");
-    }
-
-    const activity = await defaultSubprocessInspector(idlePid);
-
-    expect(activity.hasRunningSubprocess).toBe(false);
-    expect(activity.runningPorts).toEqual([]);
-  });
+          assert.equal(activity.hasRunningSubprocess, false);
+          assert.deepStrictEqual(activity.runningPorts, []);
+        }),
+      stopProcess,
+    ),
+  );
 });

@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -15,6 +16,7 @@ import {
   Exit,
   Fiber,
   FileSystem,
+  Layer,
   Option,
   PlatformError,
   Ref,
@@ -24,6 +26,10 @@ import {
 import { TestClock } from "effect/testing";
 import { expect } from "vitest";
 
+import { TerminalProcessInspectorLive } from "../../terminalProcessInspector/Layers/TerminalProcessInspector";
+import { WebPortInspectorLive } from "../../terminalProcessInspector/Layers/WebPortInspector";
+import { TerminalProcessInspector } from "../../terminalProcessInspector/Services/TerminalProcessInspector";
+import { WebPortInspector } from "../../terminalProcessInspector/Services/WebPortInspector";
 import type { TerminalManagerShape } from "../Services/Manager";
 import {
   type PtyAdapterShape,
@@ -213,7 +219,7 @@ const createManager = (
 ): Effect.Effect<
   ManagerFixture,
   PlatformError.PlatformError,
-  FileSystem.FileSystem | Scope.Scope
+  FileSystem.FileSystem | Scope.Scope | TerminalProcessInspector | WebPortInspector
 > =>
   Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) =>
     Effect.gen(function* () {
@@ -262,7 +268,16 @@ const createManager = (
     }),
   );
 
-it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (it) => {
+const nodeChildProcessLayer = NodeChildProcessSpawner.layer.pipe(Layer.provide(NodeServices.layer));
+
+it.layer(
+  Layer.mergeAll(
+    NodeServices.layer,
+    WebPortInspectorLive,
+    TerminalProcessInspectorLive.pipe(Layer.provide(nodeChildProcessLayer)),
+  ),
+  { excludeTestServices: true },
+)("TerminalManager", (it) => {
   it.effect("spawns lazily and reuses running terminal per thread", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();

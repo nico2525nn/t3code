@@ -1,81 +1,109 @@
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { assert, it } from "@effect/vitest";
+import { Effect } from "effect";
 
-import { defaultWebPortInspector } from "./webPortInspector";
+import { WebPortInspectorLive } from "./webPortInspector";
+import { WebPortInspector } from "./terminalProcessInspector/Services/WebPortInspector";
 
-async function listenServer(server: Server): Promise<number> {
-  await new Promise<void>((resolve, reject) => {
+const closeServer = (server: Server) =>
+  Effect.callback<void>((resume) => {
+    server.close(() => {
+      resume(Effect.void);
+    });
+
+    return Effect.sync(() => {
+      try {
+        server.close();
+      } catch {
+        // Ignore cleanup failures in tests.
+      }
+    });
+  });
+
+const listenServer = (server: Server) =>
+  Effect.callback<number, Error>((resume) => {
     server.listen(0, "127.0.0.1", (error?: Error) => {
       if (error) {
-        reject(error);
+        resume(Effect.fail(error));
         return;
       }
-      resolve();
-    });
-  });
-  const address = server.address();
-  if (!address || typeof address !== "object") {
-    throw new Error("Server did not provide a valid listening address.");
-  }
-  return address.port;
-}
 
-async function closeServer(server: Server): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    server.close((error?: Error) => {
-      if (error) {
-        reject(error);
+      const address = server.address();
+      if (!address || typeof address !== "object") {
+        resume(Effect.fail(new Error("Server did not provide a valid listening address.")));
         return;
       }
-      resolve();
+
+      resume(Effect.succeed(address.port));
     });
-  });
-}
 
-describe("defaultWebPortInspector", () => {
-  const servers: Server[] = [];
-
-  afterEach(async () => {
-    await Promise.all(servers.splice(0, servers.length).map((server) => closeServer(server)));
+    return closeServer(server);
   });
 
-  it("treats slow HTML responses as web ports", async () => {
-    const server = createServer((_req, res) => {
-      setTimeout(() => {
-        res.statusCode = 200;
-        res.setHeader("content-type", "text/html; charset=utf-8");
-        res.end("<!DOCTYPE html><html><head><title>ok</title></head><body>hello</body></html>");
-      }, 800);
-    });
-    servers.push(server);
-    const port = await listenServer(server);
-
-    await expect(defaultWebPortInspector(port)).resolves.toBe(true);
+const startServer = (
+  handler: (request: IncomingMessage, response: ServerResponse) => void,
+): Effect.Effect<{ server: Server; port: number }, Error> =>
+  Effect.gen(function* () {
+    const server = createServer(handler);
+    const port = yield* listenServer(server);
+    return { server, port };
   });
 
-  it("treats HTML responses with large bodies as web ports", async () => {
-    const server = createServer((_req, res) => {
-      res.statusCode = 200;
-      res.setHeader("content-type", "text/html; charset=utf-8");
-      res.end(
-        `<!DOCTYPE html><html><head><title>x</title></head><body>${"x".repeat(20_000)}</body></html>`,
-      );
-    });
-    servers.push(server);
-    const port = await listenServer(server);
+it.layer(WebPortInspectorLive)("WebPortInspectorLive", (it) => {
+  it.effect("treats slow HTML responses as web ports", () =>
+    Effect.acquireUseRelease(
+      startServer((_request, response) => {
+        setTimeout(() => {
+          response.statusCode = 200;
+          response.setHeader("content-type", "text/html; charset=utf-8");
+          response.end(
+            "<!DOCTYPE html><html><head><title>ok</title></head><body>hello</body></html>",
+          );
+        }, 800);
+      }),
+      ({ port }) =>
+        Effect.gen(function* () {
+          const inspector = yield* WebPortInspector;
+          const isWeb = yield* inspector.inspect(port);
+          assert.equal(isWeb, true);
+        }),
+      ({ server }) => closeServer(server),
+    ),
+  );
 
-    await expect(defaultWebPortInspector(port)).resolves.toBe(true);
-  });
+  it.effect("treats HTML responses with large bodies as web ports", () =>
+    Effect.acquireUseRelease(
+      startServer((_request, response) => {
+        response.statusCode = 200;
+        response.setHeader("content-type", "text/html; charset=utf-8");
+        response.end(
+          `<!DOCTYPE html><html><head><title>x</title></head><body>${"x".repeat(20_000)}</body></html>`,
+        );
+      }),
+      ({ port }) =>
+        Effect.gen(function* () {
+          const inspector = yield* WebPortInspector;
+          const isWeb = yield* inspector.inspect(port);
+          assert.equal(isWeb, true);
+        }),
+      ({ server }) => closeServer(server),
+    ),
+  );
 
-  it("ignores HTTP 404 responses", async () => {
-    const server = createServer((_req, res) => {
-      res.statusCode = 404;
-      res.end();
-    });
-    servers.push(server);
-    const port = await listenServer(server);
-
-    await expect(defaultWebPortInspector(port)).resolves.toBe(false);
-  });
+  it.effect("ignores HTTP 404 responses", () =>
+    Effect.acquireUseRelease(
+      startServer((_request, response) => {
+        response.statusCode = 404;
+        response.end();
+      }),
+      ({ port }) =>
+        Effect.gen(function* () {
+          const inspector = yield* WebPortInspector;
+          const isWeb = yield* inspector.inspect(port);
+          assert.equal(isWeb, false);
+        }),
+      ({ server }) => closeServer(server),
+    ),
+  );
 });

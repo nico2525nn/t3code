@@ -1,6 +1,14 @@
-export type TerminalSubprocessChecker = (terminalPid: number) => Promise<boolean>;
+import type { Effect } from "effect";
 
-export type TerminalWebPortInspector = (port: number) => Promise<boolean>;
+import type { TerminalProcessInspectionError, WebPortInspectionError } from "./Errors";
+
+export type TerminalSubprocessChecker = (
+  terminalPid: number,
+) => Effect.Effect<boolean, TerminalProcessInspectionError>;
+
+export type TerminalWebPortInspector = (
+  port: number,
+) => Effect.Effect<boolean, WebPortInspectionError>;
 
 export interface TerminalSubprocessActivity {
   hasRunningSubprocess: boolean;
@@ -9,4 +17,4 @@ export interface TerminalSubprocessActivity {
 
 export type TerminalSubprocessInspector = (
   terminalPid: number,
-) => Promise<TerminalSubprocessActivity>;
+) => Effect.Effect<TerminalSubprocessActivity, TerminalProcessInspectionError>;

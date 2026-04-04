@@ -43,6 +43,8 @@ import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem"
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner";
 import { ObservabilityLive } from "./observability/Layers/Observability";
+import { TerminalProcessInspectorLive } from "./terminalProcessInspector/Layers/TerminalProcessInspector";
+import { WebPortInspectorLive } from "./terminalProcessInspector/Layers/WebPortInspector";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -168,7 +170,11 @@ const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitCoreLive),
 );
 
-const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive));
+const TerminalLayerLive = TerminalManagerLive.pipe(
+  Layer.provideMerge(WebPortInspectorLive),
+  Layer.provideMerge(TerminalProcessInspectorLive),
+  Layer.provide(PtyAdapterLive),
+);
 
 const WorkspaceLayerLive = Layer.mergeAll(
   WorkspacePathsLive,

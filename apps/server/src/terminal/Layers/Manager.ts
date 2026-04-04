@@ -30,10 +30,15 @@ import {
 } from "../../observability/Metrics";
 import {
   arePortListsEqual,
-  defaultSubprocessInspector,
   normalizeRunningPorts,
+  subprocessCheckerToInspector,
+  TerminalProcessInspector,
+  type TerminalSubprocessActivity,
+  type TerminalSubprocessChecker,
+  type TerminalSubprocessInspector,
+  type TerminalWebPortInspector,
 } from "../../terminalProcessInspector";
-import { DEFAULT_WEB_PORT_PROBE_TTL_MS, defaultWebPortInspector } from "../../webPortInspector";
+import { DEFAULT_WEB_PORT_PROBE_TTL_MS, WebPortInspector } from "../../webPortInspector";
 import {
   TerminalCwdError,
   TerminalHistoryError,
@@ -58,25 +63,6 @@ const DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS = 128;
 const DEFAULT_OPEN_COLS = 120;
 const DEFAULT_OPEN_ROWS = 30;
 const TERMINAL_ENV_BLOCKLIST = new Set(["PORT", "ELECTRON_RENDERER_PORT", "ELECTRON_RUN_AS_NODE"]);
-
-type TerminalSubprocessChecker = (
-  terminalPid: number,
-) => Effect.Effect<boolean, TerminalSubprocessCheckError>;
-type TerminalSubprocessActivity = {
-  hasRunningSubprocess: boolean;
-  runningPorts: number[];
-};
-type TerminalSubprocessInspector = (
-  terminalPid: number,
-) => Effect.Effect<TerminalSubprocessActivity, TerminalSubprocessCheckError>;
-type TerminalWebPortInspector = (port: number) => Effect.Effect<boolean>;
-
-class TerminalSubprocessCheckError extends Data.TaggedError("TerminalSubprocessCheckError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-  readonly terminalPid: number;
-  readonly command: "powershell" | "pgrep" | "ps";
-}> {}
 
 class TerminalProcessSignalError extends Data.TaggedError("TerminalProcessSignalError")<{
   readonly message: string;
@@ -588,29 +574,9 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
     const subprocessInspector =
       options.subprocessInspector ??
       (options.subprocessChecker
-        ? (terminalPid: number) =>
-            Effect.map(options.subprocessChecker!(terminalPid), (hasRunningSubprocess) => ({
-              hasRunningSubprocess,
-              runningPorts: [],
-            }))
-        : (terminalPid: number) =>
-            Effect.tryPromise({
-              try: () => defaultSubprocessInspector(terminalPid),
-              catch: (cause) =>
-                new TerminalSubprocessCheckError({
-                  message: "Failed to inspect terminal subprocess activity",
-                  cause,
-                  terminalPid,
-                  command: process.platform === "win32" ? "powershell" : "ps",
-                }),
-            }));
-    const webPortInspector =
-      options.webPortInspector ??
-      ((port: number) =>
-        Effect.tryPromise({
-          try: () => defaultWebPortInspector(port),
-          catch: () => false,
-        }));
+        ? subprocessCheckerToInspector(options.subprocessChecker)
+        : (yield* TerminalProcessInspector).inspect);
+    const webPortInspector = options.webPortInspector ?? (yield* WebPortInspector).inspect;
     const webPortProbeCacheTtlMs = options.webPortProbeCacheTtlMs ?? DEFAULT_WEB_PORT_PROBE_TTL_MS;
     const subprocessPollIntervalMs =
       options.subprocessPollIntervalMs ?? DEFAULT_SUBPROCESS_POLL_INTERVAL_MS;
