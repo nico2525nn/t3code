@@ -1,11 +1,6 @@
 import { collectPosixProcessFamilyPids, checkPosixListeningPorts } from "./posix";
-import {
-  type TerminalSubprocessActivity,
-  type TerminalSubprocessChecker,
-  type TerminalSubprocessInspector,
-  type TerminalWebPortInspector,
-} from "./types";
-import { checkWindowsListeningPorts, collectWindowsChildPids } from "./win32";
+import { type TerminalSubprocessActivity } from "./types";
+import { checkWindowsListeningPorts, collectWindowsProcessFamilyPids } from "./win32";
 
 export { arePortListsEqual, normalizeRunningPorts } from "./utils";
 
@@ -24,11 +19,15 @@ export async function defaultSubprocessInspector(
   }
 
   if (process.platform === "win32") {
-    const childPids = await collectWindowsChildPids(terminalPid);
-    const processPidsForPortScan = [terminalPid, ...childPids];
-    const runningPorts = await checkWindowsListeningPorts(processPidsForPortScan);
+    const processFamilyPids = await collectWindowsProcessFamilyPids(terminalPid);
+    if (processFamilyPids.length === 0) {
+      return { hasRunningSubprocess: false, runningPorts: [] };
+    }
+
+    const subprocessPids = processFamilyPids.filter((pid) => pid !== terminalPid);
+    const runningPorts = await checkWindowsListeningPorts(processFamilyPids);
     return {
-      hasRunningSubprocess: childPids.length > 0 || runningPorts.length > 0,
+      hasRunningSubprocess: subprocessPids.length > 0 || runningPorts.length > 0,
       runningPorts,
     };
   }
@@ -44,13 +43,4 @@ export async function defaultSubprocessInspector(
     hasRunningSubprocess: subprocessPids.length > 0 || runningPorts.length > 0,
     runningPorts,
   };
-}
-
-export function subprocessCheckerToInspector(
-  subprocessChecker: TerminalSubprocessChecker,
-): TerminalSubprocessInspector {
-  return async (terminalPid: number) => ({
-    hasRunningSubprocess: await subprocessChecker(terminalPid),
-    runningPorts: [],
-  });
 }

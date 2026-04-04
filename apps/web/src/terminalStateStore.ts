@@ -62,7 +62,7 @@ function normalizeRunningTerminalIds(
     .filter((id) => id.length > 0 && validTerminalIdSet.has(id));
 }
 
-function normalizeRunningPorts(ports: readonly number[] | undefined): number[] {
+export function normalizeRunningPorts(ports: readonly number[] | undefined): number[] {
   if (!ports || ports.length === 0) return [];
   return [...new Set(ports)]
     .filter((port) => Number.isInteger(port) && port > 0 && port <= 65_535)
