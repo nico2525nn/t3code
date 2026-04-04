@@ -3,9 +3,8 @@ import { Buffer } from "node:buffer";
 import { Effect, Layer, Option, Stream } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
-import { WebPortInspectionError } from "../Errors";
 import type { WebPortInspectorShape } from "../Services/WebPortInspector";
-import { WebPortInspector } from "../Services/WebPortInspector";
+import { WebPortInspector, WebPortInspectionError } from "../Services/WebPortInspector";
 
 const DEFAULT_WEB_PORT_PROBE_TIMEOUT_MS = 2_000;
 const WEB_PORT_PROBE_MAX_BODY_BYTES = 8_192;

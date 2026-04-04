@@ -195,7 +195,6 @@ function multiTerminalHistoryLogPath(
 
 interface CreateManagerOptions {
   shellResolver?: () => string;
-  subprocessChecker?: (terminalPid: number) => Effect.Effect<boolean>;
   subprocessInspector?: (
     terminalPid: number,
   ) => Effect.Effect<{ hasRunningSubprocess: boolean; runningPorts: number[] }>;
@@ -233,9 +232,6 @@ const createManager = (
         historyLineLimit,
         ptyAdapter,
         ...(options.shellResolver !== undefined ? { shellResolver: options.shellResolver } : {}),
-        ...(options.subprocessChecker !== undefined
-          ? { subprocessChecker: options.subprocessChecker }
-          : {}),
         ...(options.subprocessInspector !== undefined
           ? { subprocessInspector: options.subprocessInspector }
           : {}),
@@ -634,9 +630,12 @@ it.layer(
     Effect.gen(function* () {
       let checks = 0;
       const { manager } = yield* createManager(5, {
-        subprocessChecker: () => {
+        subprocessInspector: () => {
           checks += 1;
-          return Effect.succeed(false);
+          return Effect.succeed({
+            hasRunningSubprocess: false,
+            runningPorts: [],
+          });
         },
         subprocessPollIntervalMs: 20,
       });

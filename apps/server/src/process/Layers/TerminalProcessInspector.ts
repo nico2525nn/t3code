@@ -3,15 +3,15 @@ import { Buffer } from "node:buffer";
 import { Effect, Layer, Option, PlatformError, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { TerminalProcessInspectionError } from "../Errors";
 import { collectPosixProcessFamilyPids, checkPosixListeningPorts } from "../posix";
-import type { TerminalProcessInspectorShape } from "../Services/TerminalProcessInspector";
-import { TerminalProcessInspector } from "../Services/TerminalProcessInspector";
+import type {
+  TerminalProcessInspectorShape,
+  TerminalSubprocessActivity,
+} from "../Services/TerminalProcessInspector";
 import {
-  type TerminalSubprocessActivity,
-  type TerminalSubprocessChecker,
-  type TerminalSubprocessInspector,
-} from "../types";
+  TerminalProcessInspector,
+  TerminalProcessInspectionError,
+} from "../Services/TerminalProcessInspector";
 import { checkWindowsListeningPorts, collectWindowsChildPids } from "../win32";
 
 const DEFAULT_COMMAND_KILL_GRACE_MS = 1_000;
@@ -224,16 +224,6 @@ const makeTerminalProcessInspector = Effect.gen(function* () {
     inspect,
   } satisfies TerminalProcessInspectorShape;
 });
-
-export const subprocessCheckerToInspector = (
-  subprocessChecker: TerminalSubprocessChecker,
-): TerminalSubprocessInspector =>
-  Effect.fn("process.subprocessCheckerToInspector")(function* (terminalPid) {
-    return {
-      hasRunningSubprocess: yield* subprocessChecker(terminalPid),
-      runningPorts: [],
-    };
-  });
 
 export const TerminalProcessInspectorLive = Layer.effect(
   TerminalProcessInspector,

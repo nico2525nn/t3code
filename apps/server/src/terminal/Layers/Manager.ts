@@ -29,17 +29,15 @@ import {
   terminalSessionsTotal,
 } from "../../observability/Metrics";
 import { arePortListsEqual, normalizeRunningPorts } from "../../process/utils";
-import { TerminalProcessInspector } from "../../process/Services/TerminalProcessInspector";
 import {
+  TerminalProcessInspector,
   type TerminalSubprocessActivity,
-  type TerminalSubprocessChecker,
   type TerminalSubprocessInspector,
-  type TerminalWebPortInspector,
-} from "../../process/types";
-import { subprocessCheckerToInspector } from "../../process/Layers/TerminalProcessInspector";
+} from "../../process/Services/TerminalProcessInspector";
 import {
   DEFAULT_WEB_PORT_PROBE_TTL_MS,
   WebPortInspector,
+  type TerminalWebPortInspector,
 } from "../../process/Services/WebPortInspector";
 import {
   TerminalCwdError,
@@ -546,7 +544,6 @@ interface TerminalManagerOptions {
   historyLineLimit?: number;
   ptyAdapter: PtyAdapterShape;
   shellResolver?: () => string;
-  subprocessChecker?: TerminalSubprocessChecker;
   subprocessInspector?: TerminalSubprocessInspector;
   webPortInspector?: TerminalWebPortInspector;
   webPortProbeCacheTtlMs?: number;
@@ -574,10 +571,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
     const historyLineLimit = options.historyLineLimit ?? DEFAULT_HISTORY_LINE_LIMIT;
     const shellResolver = options.shellResolver ?? defaultShellResolver;
     const subprocessInspector =
-      options.subprocessInspector ??
-      (options.subprocessChecker
-        ? subprocessCheckerToInspector(options.subprocessChecker)
-        : (yield* TerminalProcessInspector).inspect);
+      options.subprocessInspector ?? (yield* TerminalProcessInspector).inspect;
     const webPortInspector = options.webPortInspector ?? (yield* WebPortInspector).inspect;
     const webPortProbeCacheTtlMs = options.webPortProbeCacheTtlMs ?? DEFAULT_WEB_PORT_PROBE_TTL_MS;
     const subprocessPollIntervalMs =

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import type { TerminalProcessInspectionError } from "./Errors";
+import type { TerminalProcessInspectionError } from "./Services/TerminalProcessInspector";
 import { parsePidList, parsePortList } from "./utils";
 
 interface InspectorCommandResult {
