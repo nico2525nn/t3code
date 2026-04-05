@@ -61,11 +61,8 @@ import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import { useStore } from "../store";
-import {
-  normalizeRunningPorts,
-  selectThreadTerminalState,
-  useTerminalStateStore,
-} from "../terminalStateStore";
+import { normalizeRunningPorts, portStatusLabel } from "@t3tools/shared/port";
+import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
 import {
   resolveShortcutCommand,
@@ -219,15 +216,10 @@ function terminalStatusFromTerminalState(
   const runningPorts = normalizeRunningPorts(
     runningTerminalIds.flatMap((terminalId) => runningTerminalPorts[terminalId] ?? []),
   );
-  const primaryWebPort = runningPorts[0] ?? null;
+  const { label, primaryWebPort } = portStatusLabel(runningPorts);
 
   return {
-    label:
-      primaryWebPort === null
-        ? "Terminal process running"
-        : runningPorts.length === 1
-          ? `Open web server: http://localhost:${primaryWebPort}`
-          : `Open web server: http://localhost:${primaryWebPort} (detected web ports: ${runningPorts.join(", ")})`,
+    label,
     colorClass:
       primaryWebPort === null
         ? "text-teal-600 dark:text-teal-300/90"

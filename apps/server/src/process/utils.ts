@@ -1,11 +1,6 @@
-export const MAX_PORT_NUMBER = 65_535;
+import { MAX_PORT_NUMBER, normalizeRunningPorts } from "@t3tools/shared/port";
 
-export function normalizeRunningPorts(ports: number[]): number[] {
-  if (ports.length === 0) return [];
-  return [...new Set(ports)]
-    .filter((port) => Number.isInteger(port) && port > 0 && port <= MAX_PORT_NUMBER)
-    .toSorted((left, right) => left - right);
-}
+export { MAX_PORT_NUMBER, normalizeRunningPorts };
 
 export function parsePidList(stdout: string): number[] {
   const pids: number[] = [];

@@ -6,6 +6,8 @@
  */
 
 import { ThreadId, type TerminalEvent } from "@t3tools/contracts";
+import { normalizeRunningPorts } from "@t3tools/shared/port";
+export { normalizeRunningPorts } from "@t3tools/shared/port";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";
@@ -60,13 +62,6 @@ function normalizeRunningTerminalIds(
   return [...new Set(runningTerminalIds)]
     .map((id) => id.trim())
     .filter((id) => id.length > 0 && validTerminalIdSet.has(id));
-}
-
-export function normalizeRunningPorts(ports: readonly number[] | undefined): number[] {
-  if (!ports || ports.length === 0) return [];
-  return [...new Set(ports)]
-    .filter((port) => Number.isInteger(port) && port > 0 && port <= 65_535)
-    .toSorted((left, right) => left - right);
 }
 
 function normalizeRunningTerminalPorts(

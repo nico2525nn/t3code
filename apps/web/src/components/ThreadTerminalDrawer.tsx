@@ -33,11 +33,8 @@ import {
   type ThreadTerminalGroup,
 } from "../types";
 import { readNativeApi } from "~/nativeApi";
-import {
-  normalizeRunningPorts,
-  selectTerminalEventEntries,
-  useTerminalStateStore,
-} from "../terminalStateStore";
+import { normalizeRunningPorts, portStatusLabel, type PortStatusLabel } from "@t3tools/shared/port";
+import { selectTerminalEventEntries, useTerminalStateStore } from "../terminalStateStore";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
@@ -79,33 +76,17 @@ export function selectPendingTerminalEventEntries(
   return entries.filter((entry) => entry.id > lastAppliedTerminalEventId);
 }
 
-interface TerminalRuntimeStatus {
-  label: string;
-  primaryWebPort: number | null;
-}
-
 function terminalRuntimeStatus(
   terminalId: string,
   runningTerminalIds: Set<string>,
   runningTerminalPorts: Record<string, number[]>,
-): TerminalRuntimeStatus | null {
+): PortStatusLabel | null {
   if (!runningTerminalIds.has(terminalId)) {
     return null;
   }
 
   const runningPorts = normalizeRunningPorts(runningTerminalPorts[terminalId]);
-  const primaryWebPort = runningPorts[0] ?? null;
-  const label =
-    runningPorts.length === 0
-      ? "Terminal process running"
-      : runningPorts.length === 1
-        ? `Open web server: http://localhost:${primaryWebPort}`
-        : `Open web server: http://localhost:${primaryWebPort} (detected web ports: ${runningPorts.join(", ")})`;
-
-  return {
-    label,
-    primaryWebPort,
-  };
+  return portStatusLabel(runningPorts);
 }
 
 function terminalThemeFromApp(): ITheme {
