@@ -1,5 +1,6 @@
 import { type ContextMenuItem, type NativeApi } from "@t3tools/contracts";
 
+import { resetGitStatusStateForTests } from "./lib/gitStatusState";
 import { showContextMenuFallback } from "./contextMenuFallback";
 import { __resetWsRpcAtomClientForTests } from "./rpc/client";
 import { resetRequestLatencyStateForTests } from "./rpc/requestLatencyState";
@@ -12,7 +13,8 @@ let instance: { api: NativeApi } | null = null;
 export async function __resetWsNativeApiForTests() {
   instance = null;
   await __resetWsRpcAtomClientForTests();
-  __resetWsRpcClientForTests();
+  await __resetWsRpcClientForTests();
+  resetGitStatusStateForTests();
   resetRequestLatencyStateForTests();
   resetServerStateForTests();
   resetWsConnectionStateForTests();
