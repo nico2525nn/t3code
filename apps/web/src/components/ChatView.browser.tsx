@@ -43,7 +43,8 @@ import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 vi.mock("../lib/gitStatusState", () => ({
   useGitStatus: () => ({ data: null, error: null, cause: null, isPending: false }),
   useGitStatuses: () => new Map(),
-  refreshGitStatus: () => undefined,
+  refreshGitStatus: () => Promise.resolve(null),
+  resetGitStatusStateForTests: () => undefined,
 }));
 
 const THREAD_ID = "thread-browser-test" as ThreadId;

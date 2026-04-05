@@ -28,7 +28,8 @@ import { BrowserWsRpcHarness } from "../../test/wsRpcHarness";
 vi.mock("../lib/gitStatusState", () => ({
   useGitStatus: () => ({ data: null, error: null, cause: null, isPending: false }),
   useGitStatuses: () => new Map(),
-  refreshGitStatus: () => undefined,
+  refreshGitStatus: () => Promise.resolve(null),
+  resetGitStatusStateForTests: () => undefined,
 }));
 
 const THREAD_ID = "thread-kb-toast-test" as ThreadId;

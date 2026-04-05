@@ -19,7 +19,7 @@ const {
   toastUpdateSpy,
 } = vi.hoisted(() => ({
   invalidateGitQueriesSpy: vi.fn(() => Promise.resolve()),
-  refreshGitStatusSpy: vi.fn(),
+  refreshGitStatusSpy: vi.fn(() => Promise.resolve(null)),
   runStackedActionMutateAsyncSpy: vi.fn(() => new Promise<never>(() => undefined)),
   setThreadBranchSpy: vi.fn(),
   toastAddSpy: vi.fn(() => "toast-1"),
@@ -107,6 +107,7 @@ vi.mock("~/lib/gitReactQuery", () => ({
 
 vi.mock("~/lib/gitStatusState", () => ({
   refreshGitStatus: refreshGitStatusSpy,
+  resetGitStatusStateForTests: () => undefined,
   useGitStatus: vi.fn(() => ({
     data: {
       branch: BRANCH_NAME,
