@@ -82,8 +82,6 @@ import {
   type Thread,
   type TurnDiffSummary,
 } from "../types";
-import { LRUCache } from "../lib/lruCache";
-
 import { basenameOfPath } from "../vscode-icons";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
@@ -210,95 +208,28 @@ const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnsw
 
 type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
 
-const MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES = 500;
-const MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES = 512 * 1024;
-const threadPlanCatalogCache = new LRUCache<{
-  proposedPlans: Thread["proposedPlans"];
-  entry: ThreadPlanCatalogEntry;
-}>(MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES, MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES);
-
-function estimateThreadPlanCatalogEntrySize(thread: Pick<Thread, "id" | "proposedPlans">): number {
-  return Math.max(
-    64,
-    thread.id.length +
-      thread.proposedPlans.reduce(
-        (total, plan) =>
-          total +
-          plan.id.length +
-          plan.planMarkdown.length +
-          plan.updatedAt.length +
-          (plan.turnId?.length ?? 0),
-        0,
-      ),
-  );
-}
-
-function toThreadPlanCatalogEntry(
-  thread: Pick<Thread, "id" | "proposedPlans">,
-): ThreadPlanCatalogEntry {
-  const cached = threadPlanCatalogCache.get(thread.id);
-  if (cached && cached.proposedPlans === thread.proposedPlans) {
-    return cached.entry;
-  }
-
-  const entry: ThreadPlanCatalogEntry = {
-    id: thread.id,
-    proposedPlans: thread.proposedPlans,
-  };
-  threadPlanCatalogCache.set(
-    thread.id,
-    {
-      proposedPlans: thread.proposedPlans,
-      entry,
-    },
-    estimateThreadPlanCatalogEntrySize(thread),
-  );
-  return entry;
-}
-
 function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalogEntry[] {
-  const selector = useMemo(() => {
-    let previousThreads: Array<
-      { id: ThreadId; proposedPlans: Thread["proposedPlans"] } | undefined
-    > | null = null;
-    let previousEntries: ThreadPlanCatalogEntry[] = [];
+  const threadShellById = useStore((state) => state.threadShellById);
+  const proposedPlanIdsByThreadId = useStore((state) => state.proposedPlanIdsByThreadId);
+  const proposedPlanByThreadId = useStore((state) => state.proposedPlanByThreadId);
 
-    return (state: {
-      threadShellById: Record<ThreadId, { id: ThreadId } | undefined>;
-      proposedPlanIdsByThreadId: Record<ThreadId, string[]>;
-      proposedPlanByThreadId: Record<ThreadId, Record<string, Thread["proposedPlans"][number]>>;
-    }): ThreadPlanCatalogEntry[] => {
-      const nextThreads = threadIds.map((threadId) => {
-        if (!state.threadShellById[threadId]) {
-          return undefined;
+  return useMemo(
+    () =>
+      threadIds.flatMap((threadId) => {
+        if (!threadShellById[threadId]) {
+          return [];
         }
-        return {
-          id: threadId,
-          proposedPlans:
-            state.proposedPlanIdsByThreadId[threadId]?.flatMap((planId) => {
-              const plan = state.proposedPlanByThreadId[threadId]?.[planId];
-              return plan ? [plan] : [];
-            }) ?? [],
-        };
-      });
-      const cachedThreads = previousThreads;
-      if (
-        cachedThreads &&
-        nextThreads.length === cachedThreads.length &&
-        nextThreads.every((thread, index) => thread === cachedThreads[index])
-      ) {
-        return previousEntries;
-      }
 
-      previousThreads = nextThreads;
-      previousEntries = nextThreads.flatMap((thread) =>
-        thread ? [toThreadPlanCatalogEntry(thread)] : [],
-      );
-      return previousEntries;
-    };
-  }, [threadIds]);
+        const proposedPlans =
+          proposedPlanIdsByThreadId[threadId]?.flatMap((planId) => {
+            const plan = proposedPlanByThreadId[threadId]?.[planId];
+            return plan ? [plan] : [];
+          }) ?? [];
 
-  return useStore(selector);
+        return [{ id: threadId, proposedPlans }];
+      }),
+    [proposedPlanByThreadId, proposedPlanIdsByThreadId, threadIds, threadShellById],
+  );
 }
 
 function formatOutgoingPrompt(params: {
