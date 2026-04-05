@@ -158,6 +158,11 @@ export interface GitCoreShape {
   readonly statusDetails: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
 
   /**
+   * Read detailed working tree / branch status without refreshing remote tracking refs.
+   */
+  readonly statusDetailsLocal: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
+
+  /**
    * Build staged change context for commit generation.
    */
   readonly prepareCommitContext: (

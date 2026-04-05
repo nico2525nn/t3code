@@ -1262,7 +1262,25 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       yield* buildAppUnderTest({
         layers: {
           gitManager: {
+            invalidateLocalStatus: () => Effect.void,
+            invalidateRemoteStatus: () => Effect.void,
             invalidateStatus: () => Effect.void,
+            localStatus: () =>
+              Effect.succeed({
+                isRepo: true,
+                hasOriginRemote: true,
+                isDefaultBranch: true,
+                branch: "main",
+                hasWorkingTreeChanges: false,
+                workingTree: { files: [], insertions: 0, deletions: 0 },
+              }),
+            remoteStatus: () =>
+              Effect.succeed({
+                hasUpstream: true,
+                aheadCount: 0,
+                behindCount: 0,
+                pr: null,
+              }),
             status: () =>
               Effect.succeed({
                 isRepo: true,
@@ -1507,9 +1525,36 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             pullCurrentBranch: () => Effect.fail(gitError),
           },
           gitManager: {
+            invalidateLocalStatus: () =>
+              Effect.sync(() => {
+                invalidationCalls += 1;
+              }),
+            invalidateRemoteStatus: () =>
+              Effect.sync(() => {
+                invalidationCalls += 1;
+              }),
             invalidateStatus: () =>
               Effect.sync(() => {
                 invalidationCalls += 1;
+              }),
+            localStatus: () =>
+              Effect.succeed({
+                isRepo: true,
+                hasOriginRemote: true,
+                isDefaultBranch: true,
+                branch: "main",
+                hasWorkingTreeChanges: true,
+                workingTree: { files: [], insertions: 0, deletions: 0 },
+              }),
+            remoteStatus: () =>
+              Effect.sync(() => {
+                statusCalls += 1;
+                return {
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                };
               }),
             status: () =>
               Effect.sync(() => {
@@ -1539,7 +1584,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assertFailure(result, gitError);
-      assert.equal(invalidationCalls, 1);
+      assert.equal(invalidationCalls, 2);
       assert.equal(statusCalls, 1);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -1557,9 +1602,36 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       yield* buildAppUnderTest({
         layers: {
           gitManager: {
+            invalidateLocalStatus: () =>
+              Effect.sync(() => {
+                invalidationCalls += 1;
+              }),
+            invalidateRemoteStatus: () =>
+              Effect.sync(() => {
+                invalidationCalls += 1;
+              }),
             invalidateStatus: () =>
               Effect.sync(() => {
                 invalidationCalls += 1;
+              }),
+            localStatus: () =>
+              Effect.succeed({
+                isRepo: true,
+                hasOriginRemote: true,
+                isDefaultBranch: false,
+                branch: "feature/demo",
+                hasWorkingTreeChanges: true,
+                workingTree: { files: [], insertions: 0, deletions: 0 },
+              }),
+            remoteStatus: () =>
+              Effect.sync(() => {
+                statusCalls += 1;
+                return {
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                };
               }),
             status: () =>
               Effect.sync(() => {
@@ -1594,7 +1666,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assertFailure(result, gitError);
-      assert.equal(invalidationCalls, 1);
+      assert.equal(invalidationCalls, 2);
       assert.equal(statusCalls, 1);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );

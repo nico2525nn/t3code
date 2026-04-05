@@ -1,6 +1,11 @@
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
-import type { GitManagerServiceError, GitStatusInput, GitStatusResult } from "@t3tools/contracts";
+import type {
+  GitManagerServiceError,
+  GitStatusInput,
+  GitStatusResult,
+  GitStatusStreamEvent,
+} from "@t3tools/contracts";
 
 export interface GitStatusBroadcasterShape {
   readonly getStatus: (
@@ -9,7 +14,7 @@ export interface GitStatusBroadcasterShape {
   readonly refreshStatus: (cwd: string) => Effect.Effect<GitStatusResult, GitManagerServiceError>;
   readonly streamStatus: (
     input: GitStatusInput,
-  ) => Stream.Stream<GitStatusResult, GitManagerServiceError>;
+  ) => Stream.Stream<GitStatusStreamEvent, GitManagerServiceError>;
 }
 
 export class GitStatusBroadcaster extends ServiceMap.Service<

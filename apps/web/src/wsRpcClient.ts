@@ -3,11 +3,13 @@ import {
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
   type GitStatusResult,
+  type GitStatusStreamEvent,
   type NativeApi,
   ORCHESTRATION_WS_METHODS,
   type ServerSettingsPatch,
   WS_METHODS,
 } from "@t3tools/contracts";
+import { applyGitStatusStreamEvent } from "@t3tools/shared/git";
 import { Effect, Stream } from "effect";
 
 import { type WsRpcProtocolClient } from "./rpc/protocol";
@@ -157,12 +159,17 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
       pull: (input) => transport.request((client) => client[WS_METHODS.gitPull](input)),
       refreshStatus: (input) =>
         transport.request((client) => client[WS_METHODS.gitRefreshStatus](input)),
-      onStatus: (input, listener, options) =>
-        transport.subscribe(
+      onStatus: (input, listener, options) => {
+        let current: GitStatusResult | null = null;
+        return transport.subscribe(
           (client) => client[WS_METHODS.subscribeGitStatus](input),
-          listener,
+          (event: GitStatusStreamEvent) => {
+            current = applyGitStatusStreamEvent(current, event);
+            listener(current);
+          },
           options,
-        ),
+        );
+      },
       runStackedAction: async (input, options) => {
         let result: GitRunStackedActionResult | null = null;
 

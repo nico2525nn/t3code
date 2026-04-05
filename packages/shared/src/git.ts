@@ -1,4 +1,11 @@
-import type { GitBranch, GitHostingProvider } from "@t3tools/contracts";
+import type {
+  GitBranch,
+  GitHostingProvider,
+  GitStatusLocalResult,
+  GitStatusRemoteResult,
+  GitStatusResult,
+  GitStatusStreamEvent,
+} from "@t3tools/contracts";
 
 /**
  * Sanitize an arbitrary string into a valid, lowercase git branch fragment.
@@ -183,4 +190,57 @@ export function detectGitHostingProviderFromRemoteUrl(
     name: host,
     baseUrl: toBaseUrl(host),
   };
+}
+
+const EMPTY_GIT_STATUS_REMOTE: GitStatusRemoteResult = {
+  hasUpstream: false,
+  aheadCount: 0,
+  behindCount: 0,
+  pr: null,
+};
+
+export function mergeGitStatusParts(
+  local: GitStatusLocalResult,
+  remote: GitStatusRemoteResult | null,
+): GitStatusResult {
+  return {
+    ...local,
+    ...(remote ?? EMPTY_GIT_STATUS_REMOTE),
+  };
+}
+
+function toRemoteStatusPart(status: GitStatusResult): GitStatusRemoteResult {
+  return {
+    hasUpstream: status.hasUpstream,
+    aheadCount: status.aheadCount,
+    behindCount: status.behindCount,
+    pr: status.pr,
+  };
+}
+
+export function applyGitStatusStreamEvent(
+  current: GitStatusResult | null,
+  event: GitStatusStreamEvent,
+): GitStatusResult {
+  switch (event._tag) {
+    case "snapshot":
+      return mergeGitStatusParts(event.local, event.remote);
+    case "localUpdated":
+      return mergeGitStatusParts(event.local, current ? toRemoteStatusPart(current) : null);
+    case "remoteUpdated":
+      if (current === null) {
+        return mergeGitStatusParts(
+          {
+            isRepo: false,
+            hasOriginRemote: false,
+            isDefaultBranch: false,
+            branch: null,
+            hasWorkingTreeChanges: false,
+            workingTree: { files: [], insertions: 0, deletions: 0 },
+          },
+          event.remote,
+        );
+      }
+      return mergeGitStatusParts(current, event.remote);
+  }
 }

@@ -194,7 +194,7 @@ const GitStatusPr = Schema.Struct({
   state: GitStatusPrState,
 });
 
-export const GitStatusResult = Schema.Struct({
+const GitStatusLocalShape = {
   isRepo: Schema.Boolean,
   hostingProvider: Schema.optional(GitHostingProvider),
   hasOriginRemote: Schema.Boolean,
@@ -212,12 +212,40 @@ export const GitStatusResult = Schema.Struct({
     insertions: NonNegativeInt,
     deletions: NonNegativeInt,
   }),
+};
+
+const GitStatusRemoteShape = {
   hasUpstream: Schema.Boolean,
   aheadCount: NonNegativeInt,
   behindCount: NonNegativeInt,
   pr: Schema.NullOr(GitStatusPr),
+};
+
+export const GitStatusLocalResult = Schema.Struct(GitStatusLocalShape);
+export type GitStatusLocalResult = typeof GitStatusLocalResult.Type;
+
+export const GitStatusRemoteResult = Schema.Struct(GitStatusRemoteShape);
+export type GitStatusRemoteResult = typeof GitStatusRemoteResult.Type;
+
+export const GitStatusResult = Schema.Struct({
+  ...GitStatusLocalShape,
+  ...GitStatusRemoteShape,
 });
 export type GitStatusResult = typeof GitStatusResult.Type;
+
+export const GitStatusStreamEvent = Schema.Union([
+  Schema.TaggedStruct("snapshot", {
+    local: GitStatusLocalResult,
+    remote: Schema.NullOr(GitStatusRemoteResult),
+  }),
+  Schema.TaggedStruct("localUpdated", {
+    local: GitStatusLocalResult,
+  }),
+  Schema.TaggedStruct("remoteUpdated", {
+    remote: Schema.NullOr(GitStatusRemoteResult),
+  }),
+]);
+export type GitStatusStreamEvent = typeof GitStatusStreamEvent.Type;
 
 export const GitListBranchesResult = Schema.Struct({
   branches: Schema.Array(GitBranch),

@@ -25,6 +25,7 @@ import {
   GitRunStackedActionInput,
   GitStatusInput,
   GitStatusResult,
+  GitStatusStreamEvent,
 } from "./git";
 import { KeybindingsConfigError } from "./keybindings";
 import {
@@ -166,7 +167,7 @@ export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
 
 export const WsSubscribeGitStatusRpc = Rpc.make(WS_METHODS.subscribeGitStatus, {
   payload: GitStatusInput,
-  success: GitStatusResult,
+  success: GitStatusStreamEvent,
   error: GitManagerServiceError,
   stream: true,
 });

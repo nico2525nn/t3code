@@ -1177,9 +1177,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     return branchLastCommit;
   });
 
-  const statusDetails: GitCoreShape["statusDetails"] = Effect.fn("statusDetails")(function* (cwd) {
-    yield* refreshStatusUpstreamIfStale(cwd).pipe(Effect.ignoreCause({ log: true }));
-
+  const readStatusDetailsLocal = Effect.fn("readStatusDetailsLocal")(function* (cwd: string) {
     const statusResult = yield* executeGit(
       "GitCore.statusDetails.status",
       cwd,
@@ -1310,6 +1308,17 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       aheadCount,
       behindCount,
     };
+  });
+
+  const statusDetailsLocal: GitCoreShape["statusDetailsLocal"] = Effect.fn("statusDetailsLocal")(
+    function* (cwd) {
+      return yield* readStatusDetailsLocal(cwd);
+    },
+  );
+
+  const statusDetails: GitCoreShape["statusDetails"] = Effect.fn("statusDetails")(function* (cwd) {
+    yield* refreshStatusUpstreamIfStale(cwd).pipe(Effect.ignoreCause({ log: true }));
+    return yield* readStatusDetailsLocal(cwd);
   });
 
   const status: GitCoreShape["status"] = (input) =>
@@ -2113,6 +2122,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     execute,
     status,
     statusDetails,
+    statusDetailsLocal,
     prepareCommitContext,
     commit,
     pushCurrentBranch,
