@@ -67,6 +67,8 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
     const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
+    const services = yield* Effect.services();
+    const runPromise = Effect.runPromiseWith(services);
 
     const serverCommandId = (tag: string) =>
       CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
@@ -351,9 +353,11 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     });
 
     const refreshGitStatus = (cwd: string) =>
-      gitStatusBroadcaster
-        .refreshStatus(cwd)
-        .pipe(Effect.ignoreCause({ log: true }), Effect.asVoid);
+      Effect.sync(() => {
+        setTimeout(() => {
+          void runPromise(gitStatusBroadcaster.enqueueRefreshStatus(cwd));
+        }, 0);
+      });
 
     return WsRpcGroup.of({
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (_input) =>
@@ -581,9 +585,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.gitPull]: (input) =>
         observeRpcEffect(
           WS_METHODS.gitPull,
-          git
-            .pullCurrentBranch(input.cwd)
-            .pipe(Effect.ensuring(refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true })))),
+          git.pullCurrentBranch(input.cwd).pipe(
+            Effect.matchCauseEffect({
+              onFailure: (cause) => Effect.failCause(cause),
+              onSuccess: (result) =>
+                refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true }), Effect.as(result)),
+            }),
+          ),
           { "rpc.aggregate": "git" },
         ),
       [WS_METHODS.gitRunStackedAction]: (input) =>
@@ -599,14 +607,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               })
               .pipe(
                 Effect.matchCauseEffect({
-                  onFailure: (cause) =>
-                    refreshGitStatus(input.cwd).pipe(
-                      Effect.ignore({ log: true }),
-                      Effect.andThen(Queue.failCause(queue, cause)),
-                    ),
+                  onFailure: (cause) => Queue.failCause(queue, cause),
                   onSuccess: () =>
-                    refreshGitStatus(input.cwd).pipe(
-                      Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
+                    Queue.end(queue).pipe(
+                      Effect.asVoid,
+                      Effect.andThen(
+                        refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true })),
+                      ),
                     ),
                 }),
               ),

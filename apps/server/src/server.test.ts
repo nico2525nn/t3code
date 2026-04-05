@@ -22,7 +22,7 @@ import {
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
-import { Effect, FileSystem, Layer, ManagedRuntime, Path, Stream } from "effect";
+import { Duration, Effect, FileSystem, Layer, ManagedRuntime, Path, Stream } from "effect";
 import {
   FetchHttpClient,
   HttpBody,
@@ -1584,8 +1584,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assertFailure(result, gitError);
-      assert.equal(invalidationCalls, 2);
-      assert.equal(statusCalls, 1);
+      assert.equal(invalidationCalls, 0);
+      assert.equal(statusCalls, 0);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -1666,9 +1666,129 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assertFailure(result, gitError);
-      assert.equal(invalidationCalls, 2);
-      assert.equal(statusCalls, 1);
+      assert.equal(invalidationCalls, 0);
+      assert.equal(statusCalls, 0);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("completes websocket rpc git.pull before background git status refresh finishes", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          gitCore: {
+            pullCurrentBranch: () =>
+              Effect.succeed({
+                status: "pulled" as const,
+                branch: "main",
+                upstreamBranch: "origin/main",
+              }),
+          },
+          gitManager: {
+            invalidateLocalStatus: () => Effect.void,
+            invalidateRemoteStatus: () => Effect.void,
+            localStatus: () =>
+              Effect.succeed({
+                isRepo: true,
+                hasOriginRemote: true,
+                isDefaultBranch: true,
+                branch: "main",
+                hasWorkingTreeChanges: false,
+                workingTree: { files: [], insertions: 0, deletions: 0 },
+              }),
+            remoteStatus: () =>
+              Effect.sleep(Duration.seconds(2)).pipe(
+                Effect.as({
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                }),
+              ),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const startedAt = Date.now();
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitPull]({ cwd: "/tmp/repo" })),
+      );
+      const elapsedMs = Date.now() - startedAt;
+
+      assert.equal(result.status, "pulled");
+      assertTrue(elapsedMs < 1_000);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
+    "completes websocket rpc git.runStackedAction before background git status refresh finishes",
+    () =>
+      Effect.gen(function* () {
+        yield* buildAppUnderTest({
+          layers: {
+            gitManager: {
+              invalidateLocalStatus: () => Effect.void,
+              invalidateRemoteStatus: () => Effect.void,
+              localStatus: () =>
+                Effect.succeed({
+                  isRepo: true,
+                  hasOriginRemote: true,
+                  isDefaultBranch: false,
+                  branch: "feature/demo",
+                  hasWorkingTreeChanges: false,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                }),
+              remoteStatus: () =>
+                Effect.sleep(Duration.seconds(2)).pipe(
+                  Effect.as({
+                    hasUpstream: true,
+                    aheadCount: 0,
+                    behindCount: 0,
+                    pr: null,
+                  }),
+                ),
+              runStackedAction: () =>
+                Effect.succeed({
+                  action: "commit" as const,
+                  branch: { status: "skipped_not_requested" as const },
+                  commit: {
+                    status: "created" as const,
+                    commitSha: "abc123",
+                    subject: "feat: demo",
+                  },
+                  push: { status: "skipped_not_requested" as const },
+                  pr: { status: "skipped_not_requested" as const },
+                  toast: {
+                    title: "Committed abc123",
+                    description: "feat: demo",
+                    cta: {
+                      kind: "run_action" as const,
+                      label: "Push",
+                      action: {
+                        kind: "push" as const,
+                      },
+                    },
+                  },
+                }),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const startedAt = Date.now();
+        yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.gitRunStackedAction]({
+              actionId: "action-1",
+              cwd: "/tmp/repo",
+              action: "commit",
+            }).pipe(Stream.runCollect),
+          ),
+        );
+        const elapsedMs = Date.now() - startedAt;
+
+        assertTrue(elapsedMs < 1_000);
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("routes websocket rpc orchestration methods", () =>

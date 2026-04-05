@@ -7,6 +7,7 @@ import type {
   GitStatusRemoteResult,
   GitStatusStreamEvent,
 } from "@t3tools/contracts";
+import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import { mergeGitStatusParts } from "@t3tools/shared/git";
 
 import {
@@ -186,6 +187,23 @@ export const GitStatusBroadcasterLive = Layer.effect(
       },
     );
 
+    const refreshWorker = yield* makeKeyedCoalescingWorker<string, void, never, never>({
+      merge: () => undefined,
+      process: (cwd) =>
+        refreshStatus(cwd).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("git status refresh failed", {
+              cwd,
+              cause,
+            }),
+          ),
+          Effect.asVoid,
+        ),
+    });
+
+    const enqueueRefreshStatus: GitStatusBroadcasterShape["enqueueRefreshStatus"] = (cwd) =>
+      refreshWorker.enqueue(normalizeCwd(cwd), undefined);
+
     const ensureRemotePoller = Effect.fn("ensureRemotePoller")(function* (cwd: string) {
       const normalizedCwd = normalizeCwd(cwd);
       const shouldStart = yield* Ref.modify(pollersRef, (activePollers) => {
@@ -248,6 +266,7 @@ export const GitStatusBroadcasterLive = Layer.effect(
 
     return {
       getStatus,
+      enqueueRefreshStatus,
       refreshStatus,
       streamStatus,
     } satisfies GitStatusBroadcasterShape;
