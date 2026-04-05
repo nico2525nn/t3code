@@ -17,6 +17,7 @@ import {
   FileSystem,
   Layer,
   Option,
+  Schema,
   Scope,
   Semaphore,
   SynchronizedRef,
@@ -31,6 +32,7 @@ import {
 import { arePortListsEqual, normalizeRunningPorts } from "../../process/utils";
 import {
   TerminalProcessInspector,
+  TerminalProcessInspectionError,
   type TerminalSubprocessActivity,
   type TerminalSubprocessInspector,
 } from "../../process/Services/TerminalProcessInspector";
@@ -58,6 +60,7 @@ import {
 const DEFAULT_HISTORY_LINE_LIMIT = 5_000;
 const DEFAULT_PERSIST_DEBOUNCE_MS = 40;
 const DEFAULT_SUBPROCESS_POLL_INTERVAL_MS = 1_000;
+const DEFAULT_SUBPROCESS_ACTIVITY_ERROR_LOG_THROTTLE_MS = 30_000;
 const DEFAULT_PROCESS_KILL_GRACE_MS = 1_000;
 const DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS = 128;
 const DEFAULT_OPEN_COLS = 120;
@@ -69,6 +72,96 @@ class TerminalProcessSignalError extends Data.TaggedError("TerminalProcessSignal
   readonly cause?: unknown;
   readonly signal: "SIGTERM" | "SIGKILL";
 }> {}
+
+interface SubprocessActivityErrorLogState {
+  fingerprint: string;
+  lastLoggedAt: number;
+  suppressedRepeats: number;
+}
+
+export function describeSubprocessInspectorError(error: unknown): {
+  fingerprint: string;
+  error: string;
+  operation?: string;
+  command?: string;
+  detail?: string;
+  cause?: string;
+} {
+  if (Schema.is(TerminalProcessInspectionError)(error)) {
+    const cause =
+      error.cause instanceof Error
+        ? error.cause.message
+        : typeof error.cause === "string"
+          ? error.cause
+          : error.cause === undefined || error.cause === null
+            ? undefined
+            : String(error.cause);
+    return {
+      fingerprint: JSON.stringify([
+        error.operation,
+        error.terminalPid,
+        error.command,
+        error.detail,
+        cause ?? "",
+      ]),
+      error: error.message,
+      operation: error.operation,
+      command: error.command,
+      detail: error.detail,
+      ...(cause ? { cause } : {}),
+    };
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    fingerprint: message,
+    error: message,
+  };
+}
+
+export function nextSubprocessActivityErrorLogState(input: {
+  previous: SubprocessActivityErrorLogState | undefined;
+  fingerprint: string;
+  now: number;
+  throttleMs: number;
+}): {
+  shouldLog: boolean;
+  suppressedRepeats: number;
+  next: SubprocessActivityErrorLogState;
+} {
+  if (!input.previous || input.previous.fingerprint !== input.fingerprint) {
+    return {
+      shouldLog: true,
+      suppressedRepeats: 0,
+      next: {
+        fingerprint: input.fingerprint,
+        lastLoggedAt: input.now,
+        suppressedRepeats: 0,
+      },
+    };
+  }
+
+  if (input.now - input.previous.lastLoggedAt >= input.throttleMs) {
+    return {
+      shouldLog: true,
+      suppressedRepeats: input.previous.suppressedRepeats,
+      next: {
+        fingerprint: input.fingerprint,
+        lastLoggedAt: input.now,
+        suppressedRepeats: 0,
+      },
+    };
+  }
+
+  return {
+    shouldLog: false,
+    suppressedRepeats: input.previous.suppressedRepeats + 1,
+    next: {
+      ...input.previous,
+      suppressedRepeats: input.previous.suppressedRepeats + 1,
+    },
+  };
+}
 
 interface ShellCandidate {
   shell: string;
@@ -579,7 +672,8 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
     const processKillGraceMs = options.processKillGraceMs ?? DEFAULT_PROCESS_KILL_GRACE_MS;
     const maxRetainedInactiveSessions =
       options.maxRetainedInactiveSessions ?? DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS;
-    const webPortProbeCache = new Map<number, { isWeb: boolean; checkedAt: number }>();
+    const webPortProbeCache = new Map<number, { isWeb: true; checkedAt: number }>();
+    const subprocessActivityErrorLogState = new Map<string, SubprocessActivityErrorLogState>();
 
     yield* fileSystem.makeDirectory(logsDir, { recursive: true }).pipe(Effect.orDie);
 
@@ -602,23 +696,39 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
     const inspectWebPortCached = (port: number) =>
       Effect.gen(function* () {
         const now = Date.now();
+        const cached = webPortProbeCache.get(port);
         for (const [cachedPort, entry] of webPortProbeCache) {
-          if (now - entry.checkedAt > webPortProbeCacheTtlMs) {
+          if (cachedPort !== port && now - entry.checkedAt > webPortProbeCacheTtlMs) {
             webPortProbeCache.delete(cachedPort);
           }
         }
 
-        const cached = webPortProbeCache.get(port);
-        if (cached) {
-          return cached.isWeb;
+        if (cached && now - cached.checkedAt <= webPortProbeCacheTtlMs) {
+          return true;
         }
 
-        const isWeb = yield* webPortInspector(port).pipe(Effect.catch(() => Effect.succeed(false)));
-        webPortProbeCache.set(port, {
-          isWeb,
-          checkedAt: Date.now(),
-        });
-        return isWeb;
+        const probeResult = yield* webPortInspector(port).pipe(Effect.exit);
+        if (probeResult._tag === "Success") {
+          if (probeResult.value) {
+            webPortProbeCache.set(port, {
+              isWeb: true,
+              checkedAt: Date.now(),
+            });
+            return true;
+          }
+          webPortProbeCache.delete(port);
+          return false;
+        }
+
+        if (cached) {
+          webPortProbeCache.set(port, {
+            isWeb: true,
+            checkedAt: Date.now(),
+          });
+          return true;
+        }
+
+        return false;
       });
 
     const detectWebPorts = (runningPorts: number[]) =>
@@ -1404,6 +1514,14 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         (session): session is TerminalSessionState & { pid: number } =>
           session.status === "running" && Number.isInteger(session.pid),
       );
+      const activeRunningSessionKeys = new Set(
+        runningSessions.map((session) => toSessionKey(session.threadId, session.terminalId)),
+      );
+      for (const sessionKey of subprocessActivityErrorLogState.keys()) {
+        if (!activeRunningSessionKeys.has(sessionKey)) {
+          subprocessActivityErrorLogState.delete(sessionKey);
+        }
+      }
 
       if (runningSessions.length === 0) {
         return;
@@ -1413,16 +1531,36 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         session: TerminalSessionState & { pid: number },
       ) {
         const terminalPid = session.pid;
+        const sessionKey = toSessionKey(session.threadId, session.terminalId);
         const activity = yield* subprocessInspector(terminalPid).pipe(
+          Effect.tap(() => Effect.sync(() => subprocessActivityErrorLogState.delete(sessionKey))),
           Effect.map(Option.some),
-          Effect.catch((error) =>
-            Effect.logWarning("failed to check terminal subprocess activity", {
+          Effect.catch((error) => {
+            const description = describeSubprocessInspectorError(error);
+            const logDecision = nextSubprocessActivityErrorLogState({
+              previous: subprocessActivityErrorLogState.get(sessionKey),
+              fingerprint: description.fingerprint,
+              now: Date.now(),
+              throttleMs: DEFAULT_SUBPROCESS_ACTIVITY_ERROR_LOG_THROTTLE_MS,
+            });
+            subprocessActivityErrorLogState.set(sessionKey, logDecision.next);
+            if (!logDecision.shouldLog) {
+              return Effect.succeed(Option.none<TerminalSubprocessActivity>());
+            }
+            return Effect.logWarning("failed to check terminal subprocess activity", {
               threadId: session.threadId,
               terminalId: session.terminalId,
               terminalPid,
-              error: error instanceof Error ? error.message : String(error),
-            }).pipe(Effect.as(Option.none<TerminalSubprocessActivity>())),
-          ),
+              error: description.error,
+              ...(description.operation ? { operation: description.operation } : {}),
+              ...(description.command ? { command: description.command } : {}),
+              ...(description.detail ? { detail: description.detail } : {}),
+              ...(description.cause ? { cause: description.cause } : {}),
+              ...(logDecision.suppressedRepeats > 0
+                ? { suppressedRepeats: logDecision.suppressedRepeats }
+                : {}),
+            }).pipe(Effect.as(Option.none<TerminalSubprocessActivity>()));
+          }),
         );
 
         if (Option.isNone(activity)) {

@@ -448,26 +448,40 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {terminalStatus &&
             (terminalStatus.primaryWebPort === null ? (
-              <span
-                role="img"
-                aria-label={terminalStatus.label}
-                title={terminalStatus.label}
-                className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
-              >
-                <TerminalIcon className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`} />
-              </span>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span
+                      role="img"
+                      aria-label={terminalStatus.label}
+                      className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
+                    >
+                      <TerminalIcon
+                        className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`}
+                      />
+                    </span>
+                  }
+                />
+                <TooltipPopup side="top">{terminalStatus.label}</TooltipPopup>
+              </Tooltip>
             ) : (
-              <button
-                type="button"
-                aria-label={terminalStatus.label}
-                title={terminalStatus.label}
-                className={`inline-flex items-center justify-center rounded-sm ${terminalStatus.colorClass} outline-hidden transition-colors hover:bg-accent hover:text-sky-700 focus-visible:ring-1 focus-visible:ring-ring dark:hover:text-sky-200`}
-                onClick={(event) => {
-                  props.openWebPort(event, terminalStatus.primaryWebPort!);
-                }}
-              >
-                <GlobeIcon className="size-3" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={terminalStatus.label}
+                      className={`inline-flex cursor-pointer items-center justify-center rounded-sm ${terminalStatus.colorClass} outline-hidden transition-colors hover:bg-accent hover:text-sky-700 focus-visible:ring-1 focus-visible:ring-ring dark:hover:text-sky-200`}
+                      onClick={(event) => {
+                        props.openWebPort(event, terminalStatus.primaryWebPort!);
+                      }}
+                    >
+                      <GlobeIcon className="size-3" />
+                    </button>
+                  }
+                />
+                <TooltipPopup side="top">{terminalStatus.label}</TooltipPopup>
+              </Tooltip>
             ))}
           <div className="flex min-w-12 justify-end">
             {isConfirmingArchive ? (

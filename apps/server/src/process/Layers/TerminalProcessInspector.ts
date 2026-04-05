@@ -212,6 +212,7 @@ const makeTerminalProcessInspector = Effect.gen(function* () {
       const runningPorts = yield* checkPosixListeningPorts(processFamilyPids, {
         terminalPid,
         runCommand: runInspectorCommand,
+        platform: process.platform,
       });
       return {
         hasRunningSubprocess: subprocessPids.length > 0 || runningPorts.length > 0,

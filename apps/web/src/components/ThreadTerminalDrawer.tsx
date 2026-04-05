@@ -1281,26 +1281,56 @@ export default function ThreadTerminalDrawer({
                               </button>
                               {runtimeStatus &&
                                 (runtimeStatus.primaryWebPort === null ? (
-                                  <span
-                                    role="img"
-                                    aria-label={runtimeStatus.label}
-                                    title={runtimeStatus.label}
-                                    className="inline-flex items-center justify-center text-teal-600 dark:text-teal-300/90"
-                                  >
-                                    <TerminalSquare className="size-2.5 animate-pulse" />
-                                  </span>
+                                  <Popover>
+                                    <PopoverTrigger
+                                      openOnHover
+                                      render={
+                                        <span
+                                          role="img"
+                                          aria-label={runtimeStatus.label}
+                                          className="inline-flex items-center justify-center text-teal-600 dark:text-teal-300/90"
+                                        >
+                                          <TerminalSquare className="size-2.5 animate-pulse" />
+                                        </span>
+                                      }
+                                    />
+                                    <PopoverPopup
+                                      tooltipStyle
+                                      side="bottom"
+                                      sideOffset={6}
+                                      align="center"
+                                      className="pointer-events-none select-none"
+                                    >
+                                      {runtimeStatus.label}
+                                    </PopoverPopup>
+                                  </Popover>
                                 ) : (
-                                  <button
-                                    type="button"
-                                    className="inline-flex items-center justify-center rounded p-0.5 text-sky-600 transition-colors hover:bg-accent hover:text-sky-700 dark:text-sky-300/90 dark:hover:text-sky-200"
-                                    onClick={(event) =>
-                                      openWebPort(event, runtimeStatus.primaryWebPort!)
-                                    }
-                                    aria-label={runtimeStatus.label}
-                                    title={runtimeStatus.label}
-                                  >
-                                    <Globe className="size-2.5 shrink-0" />
-                                  </button>
+                                  <Popover>
+                                    <PopoverTrigger
+                                      openOnHover
+                                      render={
+                                        <button
+                                          type="button"
+                                          className="inline-flex cursor-pointer items-center justify-center rounded p-0.5 text-sky-600 transition-colors hover:bg-accent hover:text-sky-700 dark:text-sky-300/90 dark:hover:text-sky-200"
+                                          onClick={(event) =>
+                                            openWebPort(event, runtimeStatus.primaryWebPort!)
+                                          }
+                                          aria-label={runtimeStatus.label}
+                                        >
+                                          <Globe className="size-2.5 shrink-0" />
+                                        </button>
+                                      }
+                                    />
+                                    <PopoverPopup
+                                      tooltipStyle
+                                      side="bottom"
+                                      sideOffset={6}
+                                      align="center"
+                                      className="pointer-events-none select-none"
+                                    >
+                                      {runtimeStatus.label}
+                                    </PopoverPopup>
+                                  </Popover>
                                 ))}
                               {normalizedTerminalIds.length > 1 && (
                                 <Popover>

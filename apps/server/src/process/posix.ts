@@ -76,12 +76,14 @@ export const checkPosixListeningPorts = Effect.fn("process.checkPosixListeningPo
   input: {
     terminalPid: number;
     runCommand: PosixRunCommand;
+    platform?: NodeJS.Platform;
   },
 ): Effect.fn.Return<number[], TerminalProcessInspectionError> {
   if (processIds.length === 0) return [];
 
   const ports = new Set<number>();
   const pidFilter = new Set(processIds);
+  const platform = input.platform ?? process.platform;
 
   const lsofResult = yield* input
     .runCommand({
@@ -95,9 +97,6 @@ export const checkPosixListeningPorts = Effect.fn("process.checkPosixListeningPo
     .pipe(Effect.exit);
 
   if (lsofResult._tag === "Success") {
-    if (lsofResult.value.exitCode === 1) {
-      return [];
-    }
     if (lsofResult.value.exitCode === 0) {
       for (const line of lsofResult.value.stdout.split(/\r?\n/g)) {
         const match = line.match(/:(\d+)\s+\(LISTEN\)$/);
@@ -108,6 +107,9 @@ export const checkPosixListeningPorts = Effect.fn("process.checkPosixListeningPo
         }
       }
       return [...ports].toSorted((left, right) => left - right);
+    }
+    if (lsofResult.value.exitCode === 1 && platform === "darwin") {
+      return [];
     }
   }
 

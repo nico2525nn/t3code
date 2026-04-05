@@ -29,8 +29,15 @@ import { expect } from "vitest";
 
 import { TerminalProcessInspectorLive } from "../../process/Layers/TerminalProcessInspector";
 import { WebPortInspectorLive } from "../../process/Layers/WebPortInspector";
-import { TerminalProcessInspector } from "../../process/Services/TerminalProcessInspector";
-import { WebPortInspector } from "../../process/Services/WebPortInspector";
+import {
+  TerminalProcessInspectionError,
+  TerminalProcessInspector,
+} from "../../process/Services/TerminalProcessInspector";
+import {
+  WebPortInspector,
+  WebPortInspectionError,
+  type TerminalWebPortInspector,
+} from "../../process/Services/WebPortInspector";
 import type { TerminalManagerShape } from "../Services/Manager";
 import {
   type PtyAdapterShape,
@@ -39,7 +46,11 @@ import {
   type PtySpawnInput,
   PtySpawnError,
 } from "../Services/PTY";
-import { makeTerminalManagerWithOptions } from "./Manager";
+import {
+  describeSubprocessInspectorError,
+  makeTerminalManagerWithOptions,
+  nextSubprocessActivityErrorLogState,
+} from "./Manager";
 
 class FakePtyProcess implements PtyProcess {
   readonly writes: string[] = [];
@@ -198,7 +209,8 @@ interface CreateManagerOptions {
   subprocessInspector?: (
     terminalPid: number,
   ) => Effect.Effect<{ hasRunningSubprocess: boolean; runningPorts: number[] }>;
-  webPortInspector?: (port: number) => Effect.Effect<boolean>;
+  webPortInspector?: TerminalWebPortInspector;
+  webPortProbeCacheTtlMs?: number;
   subprocessPollIntervalMs?: number;
   processKillGraceMs?: number;
   maxRetainedInactiveSessions?: number;
@@ -238,6 +250,9 @@ const createManager = (
         ...(options.webPortInspector !== undefined
           ? { webPortInspector: options.webPortInspector }
           : {}),
+        ...(options.webPortProbeCacheTtlMs !== undefined
+          ? { webPortProbeCacheTtlMs: options.webPortProbeCacheTtlMs }
+          : {}),
         ...(options.subprocessPollIntervalMs !== undefined
           ? { subprocessPollIntervalMs: options.subprocessPollIntervalMs }
           : {}),
@@ -266,6 +281,61 @@ const createManager = (
   );
 
 const nodeChildProcessLayer = NodeChildProcessSpawner.layer.pipe(Layer.provide(NodeServices.layer));
+
+it.effect("formats subprocess inspector errors with command and underlying cause details", () =>
+  Effect.sync(() => {
+    const error = new TerminalProcessInspectionError({
+      operation: "TerminalProcessInspector.checkPosixListeningPorts.ss",
+      terminalPid: 77_411,
+      command: "ss -ltnp",
+      detail: "Failed to spawn inspector command.",
+      cause: new Error("spawn ss ENOENT"),
+    });
+
+    const description = describeSubprocessInspectorError(error);
+
+    assert.equal(description.operation, "TerminalProcessInspector.checkPosixListeningPorts.ss");
+    assert.equal(description.command, "ss -ltnp");
+    assert.equal(description.detail, "Failed to spawn inspector command.");
+    assert.equal(description.cause, "spawn ss ENOENT");
+    assert.include(description.error, "ss -ltnp");
+    assert.include(description.error, "spawn ss ENOENT");
+  }),
+);
+
+it.effect(
+  "suppresses repeated identical subprocess inspector warnings inside the throttle window",
+  () =>
+    Effect.sync(() => {
+      const first = nextSubprocessActivityErrorLogState({
+        previous: undefined,
+        fingerprint: "same-error",
+        now: 1_000,
+        throttleMs: 30_000,
+      });
+      assert.equal(first.shouldLog, true);
+      assert.equal(first.suppressedRepeats, 0);
+
+      const second = nextSubprocessActivityErrorLogState({
+        previous: first.next,
+        fingerprint: "same-error",
+        now: 2_000,
+        throttleMs: 30_000,
+      });
+      assert.equal(second.shouldLog, false);
+      assert.equal(second.next.suppressedRepeats, 1);
+
+      const third = nextSubprocessActivityErrorLogState({
+        previous: second.next,
+        fingerprint: "same-error",
+        now: 32_000,
+        throttleMs: 30_000,
+      });
+      assert.equal(third.shouldLog, true);
+      assert.equal(third.suppressedRepeats, 1);
+      assert.equal(third.next.suppressedRepeats, 0);
+    }),
+);
 
 it.layer(
   Layer.mergeAll(
@@ -623,6 +693,61 @@ it.layer(
         ),
         "1200 millis",
       );
+    }),
+  );
+
+  it.effect("keeps a confirmed web port during transient probe failures after cache expiry", () =>
+    Effect.gen(function* () {
+      let activity = {
+        hasRunningSubprocess: true,
+        runningPorts: [3000],
+      };
+      let probeCalls = 0;
+      const { manager, getEvents } = yield* createManager(5, {
+        subprocessInspector: () => Effect.succeed(activity),
+        webPortInspector: () => {
+          probeCalls += 1;
+          return probeCalls === 1
+            ? Effect.succeed(true)
+            : Effect.fail(
+                new WebPortInspectionError({
+                  port: 3000,
+                  host: "127.0.0.1",
+                  detail: "transient web probe failure",
+                }),
+              );
+        },
+        webPortProbeCacheTtlMs: 25,
+        subprocessPollIntervalMs: 20,
+      });
+
+      yield* manager.open(openInput());
+      yield* waitFor(
+        Effect.map(getEvents, (events) =>
+          events.some(
+            (event) =>
+              event.type === "activity" &&
+              event.hasRunningSubprocess === true &&
+              event.runningPorts.join(",") === "3000",
+          ),
+        ),
+        "1200 millis",
+      );
+
+      yield* waitFor(
+        Effect.sync(() => probeCalls >= 2),
+        "1200 millis",
+      );
+      const events = yield* getEvents;
+      expect(
+        events.some(
+          (event) =>
+            event.type === "activity" &&
+            event.hasRunningSubprocess === true &&
+            event.runningPorts.length === 0,
+        ),
+      ).toBe(false);
+      activity = { hasRunningSubprocess: false, runningPorts: [] };
     }),
   );
 

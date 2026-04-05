@@ -1,6 +1,19 @@
 import { ServiceMap, Schema } from "effect";
 import type { Effect } from "effect";
 
+function describeTerminalInspectorCause(cause: unknown): string | null {
+  if (cause instanceof Error && cause.message.length > 0) {
+    return cause.message;
+  }
+  if (typeof cause === "string" && cause.length > 0) {
+    return cause;
+  }
+  if (cause === undefined || cause === null) {
+    return null;
+  }
+  return String(cause);
+}
+
 export class TerminalProcessInspectionError extends Schema.TaggedErrorClass<TerminalProcessInspectionError>()(
   "TerminalProcessInspectionError",
   {
@@ -12,7 +25,10 @@ export class TerminalProcessInspectionError extends Schema.TaggedErrorClass<Term
   },
 ) {
   override get message(): string {
-    return `${this.operation} failed for terminal pid ${this.terminalPid}: ${this.detail}`;
+    const cause = describeTerminalInspectorCause(this.cause);
+    return `${this.operation} failed for terminal pid ${this.terminalPid} (${this.command}): ${this.detail}${
+      cause ? ` Cause: ${cause}` : ""
+    }`;
   }
 }
 
