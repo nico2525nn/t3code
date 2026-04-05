@@ -29,6 +29,10 @@ const EMPTY_GIT_STATUS_STATE = Object.freeze<GitStatusState>({
   cause: null,
   isPending: false,
 });
+const EMPTY_GIT_STATUS_ATOM = Atom.make(EMPTY_GIT_STATUS_STATE).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("git-status:null"),
+);
 
 const NOOP: () => void = () => undefined;
 const watchedGitStatuses = new Map<string, WatchedGitStatus>();
@@ -126,7 +130,7 @@ export function resetGitStatusStateForTests(): void {
 export function useGitStatus(cwd: string | null): GitStatusState {
   useEffect(() => watchGitStatus(cwd), [cwd]);
 
-  const state = useAtomValue(gitStatusStateAtom(cwd ?? ""));
+  const state = useAtomValue(cwd !== null ? gitStatusStateAtom(cwd) : EMPTY_GIT_STATUS_ATOM);
   return cwd === null ? EMPTY_GIT_STATUS_STATE : state;
 }
 
