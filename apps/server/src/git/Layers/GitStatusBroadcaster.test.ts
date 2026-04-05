@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { Deferred, Effect, Layer, Stream } from "effect";
+import { Deferred, Effect, Exit, Layer, Option, Scope, Stream } from "effect";
 import type {
   GitStatusLocalResult,
   GitStatusRemoteResult,
@@ -181,5 +181,96 @@ describe("GitStatusBroadcasterLive", () => {
         remote: baseRemoteStatus,
       } satisfies GitStatusStreamEvent);
     }).pipe(Effect.provide(makeTestLayer(state)));
+  });
+
+  it.effect("stops the remote poller after the last stream subscriber disconnects", () => {
+    const state = {
+      currentLocalStatus: baseLocalStatus,
+      currentRemoteStatus: baseRemoteStatus,
+      localStatusCalls: 0,
+      remoteStatusCalls: 0,
+      localInvalidationCalls: 0,
+      remoteInvalidationCalls: 0,
+    };
+    let remoteInterruptedDeferred: Deferred.Deferred<void, never> | null = null;
+    let remoteStartedDeferred: Deferred.Deferred<void, never> | null = null;
+    const testLayer = GitStatusBroadcasterLive.pipe(
+      Layer.provide(
+        Layer.succeed(GitManager, {
+          localStatus: () =>
+            Effect.sync(() => {
+              state.localStatusCalls += 1;
+              return state.currentLocalStatus;
+            }),
+          remoteStatus: () =>
+            Effect.sync(() => {
+              state.remoteStatusCalls += 1;
+            }).pipe(
+              Effect.andThen(
+                remoteStartedDeferred
+                  ? Deferred.succeed(remoteStartedDeferred, undefined).pipe(Effect.ignore)
+                  : Effect.void,
+              ),
+              Effect.andThen(Effect.never as Effect.Effect<GitStatusRemoteResult | null, never>),
+              Effect.onInterrupt(() =>
+                remoteInterruptedDeferred
+                  ? Deferred.succeed(remoteInterruptedDeferred, undefined).pipe(Effect.ignore)
+                  : Effect.void,
+              ),
+            ),
+          status: () => Effect.die("status should not be called in this test"),
+          invalidateLocalStatus: () =>
+            Effect.sync(() => {
+              state.localInvalidationCalls += 1;
+            }),
+          invalidateRemoteStatus: () =>
+            Effect.sync(() => {
+              state.remoteInvalidationCalls += 1;
+            }),
+          invalidateStatus: () => Effect.die("invalidateStatus should not be called in this test"),
+          resolvePullRequest: () =>
+            Effect.die("resolvePullRequest should not be called in this test"),
+          preparePullRequestThread: () =>
+            Effect.die("preparePullRequestThread should not be called in this test"),
+          runStackedAction: () => Effect.die("runStackedAction should not be called in this test"),
+        } satisfies GitManagerShape),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const remoteInterrupted = yield* Deferred.make<void>();
+      const remoteStarted = yield* Deferred.make<void>();
+      remoteInterruptedDeferred = remoteInterrupted;
+      remoteStartedDeferred = remoteStarted;
+
+      const broadcaster = yield* GitStatusBroadcaster;
+      const firstSnapshot = yield* Deferred.make<GitStatusStreamEvent>();
+      const secondSnapshot = yield* Deferred.make<GitStatusStreamEvent>();
+      const firstScope = yield* Scope.make();
+      const secondScope = yield* Scope.make();
+      yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo" }), (event) =>
+        event._tag === "snapshot"
+          ? Deferred.succeed(firstSnapshot, event).pipe(Effect.ignore)
+          : Effect.void,
+      ).pipe(Effect.forkIn(firstScope));
+      yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo" }), (event) =>
+        event._tag === "snapshot"
+          ? Deferred.succeed(secondSnapshot, event).pipe(Effect.ignore)
+          : Effect.void,
+      ).pipe(Effect.forkIn(secondScope));
+
+      yield* Deferred.await(firstSnapshot);
+      yield* Deferred.await(secondSnapshot);
+      yield* Deferred.await(remoteStarted);
+
+      assert.equal(state.remoteStatusCalls, 1);
+
+      yield* Scope.close(firstScope, Exit.void);
+      assert.equal(Option.isNone(yield* Deferred.poll(remoteInterrupted)), true);
+
+      yield* Scope.close(secondScope, Exit.void).pipe(Effect.forkScoped);
+      yield* Deferred.await(remoteInterrupted);
+      assert.equal(Option.isSome(yield* Deferred.poll(remoteInterrupted)), true);
+    }).pipe(Effect.provide(testLayer));
   });
 });
