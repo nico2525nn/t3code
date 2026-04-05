@@ -76,20 +76,6 @@ export function watchGitStatus(
   return () => unwatchGitStatus(cwd);
 }
 
-export function refreshGitStatus(cwd: string | null): void {
-  if (cwd === null) {
-    return;
-  }
-
-  const watched = watchedGitStatuses.get(cwd);
-  if (!watched) {
-    return;
-  }
-
-  watched.unsubscribe();
-  watched.unsubscribe = subscribeToGitStatus(cwd);
-}
-
 export function resetGitStatusStateForTests(): void {
   for (const watched of watchedGitStatuses.values()) {
     watched.unsubscribe();

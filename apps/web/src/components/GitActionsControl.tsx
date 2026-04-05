@@ -46,7 +46,7 @@ import {
   gitPullMutationOptions,
   gitRunStackedActionMutationOptions,
 } from "~/lib/gitReactQuery";
-import { refreshGitStatus, useGitStatus } from "~/lib/gitStatusState";
+import { useGitStatus } from "~/lib/gitStatusState";
 import { newCommandId, randomUUID } from "~/lib/utils";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { readNativeApi } from "~/nativeApi";
@@ -798,11 +798,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
             </Button>
           )}
           <GroupSeparator className="hidden @3xl/header-actions:block" />
-          <Menu
-            onOpenChange={(open) => {
-              if (open) refreshGitStatus(gitCwd);
-            }}
-          >
+          <Menu>
             <MenuTrigger
               render={<Button aria-label="Git action options" size="icon-xs" variant="outline" />}
               disabled={isGitActionRunning}

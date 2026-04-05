@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   getGitStatusSnapshot,
-  refreshGitStatus,
   resetGitStatusStateForTests,
   watchGitStatus,
 } from "./gitStatusState";
@@ -75,22 +74,5 @@ describe("gitStatusState", () => {
 
     releaseB();
     expect(gitStatusListeners.size).toBe(0);
-  });
-
-  it("restarts the live stream when explicitly refreshed", () => {
-    const release = watchGitStatus("/repo", gitClient);
-
-    emitGitStatus(BASE_STATUS);
-    refreshGitStatus("/repo");
-
-    expect(gitClient.onStatus).toHaveBeenCalledTimes(2);
-    expect(getGitStatusSnapshot("/repo")).toEqual({
-      data: BASE_STATUS,
-      error: null,
-      cause: null,
-      isPending: true,
-    });
-
-    release();
   });
 });
