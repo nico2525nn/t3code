@@ -1,6 +1,7 @@
 import "../index.css";
 
 import {
+  DEFAULT_SERVER_SETTINGS,
   ORCHESTRATION_WS_METHODS,
   type MessageId,
   type OrchestrationReadModel,
@@ -56,7 +57,14 @@ function createBaseServerConfig(): ServerConfig {
       },
     ],
     availableEditors: [],
+    observability: {
+      logsDirectoryPath: "/repo/project/.t3/logs",
+      localTracingEnabled: true,
+      otlpTracesEnabled: false,
+      otlpMetricsEnabled: false,
+    },
     settings: {
+      ...DEFAULT_SERVER_SETTINGS,
       enableAssistantStreaming: false,
       defaultThreadEnvMode: "local" as const,
       textGenerationModelSelection: { provider: "codex" as const, model: "gpt-5.4-mini" },

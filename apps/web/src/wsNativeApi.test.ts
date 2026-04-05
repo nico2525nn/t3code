@@ -159,6 +159,12 @@ const baseServerConfig: ServerConfig = {
   issues: [],
   providers: defaultProviders,
   availableEditors: ["cursor"],
+  observability: {
+    logsDirectoryPath: "/tmp/workspace/.config/logs",
+    localTracingEnabled: true,
+    otlpTracesEnabled: false,
+    otlpMetricsEnabled: false,
+  },
   settings: DEFAULT_SERVER_SETTINGS,
 };
 
@@ -235,6 +241,20 @@ describe("wsNativeApi", () => {
 
     expect(onTerminalEvent).toHaveBeenCalledWith(terminalEvent);
     expect(onDomainEvent).toHaveBeenCalledWith(orchestrationEvent);
+  });
+
+  it("forwards orchestration stream subscription options to the RPC client", async () => {
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    const onDomainEvent = vi.fn();
+    const onResubscribe = vi.fn();
+
+    api.orchestration.onDomainEvent(onDomainEvent, { onResubscribe });
+
+    expect(rpcClientMock.orchestration.onDomainEvent).toHaveBeenCalledWith(onDomainEvent, {
+      onResubscribe,
+    });
   });
 
   it("sends orchestration dispatch commands as the direct RPC payload", async () => {
