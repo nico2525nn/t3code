@@ -44,6 +44,7 @@ import {
 } from "./checkpointing/Services/CheckpointDiffQuery.ts";
 import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
+import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
 import {
@@ -294,6 +295,10 @@ const buildAppUnderTest = (options?: {
       ...options?.config,
     };
     const layerConfig = Layer.succeed(ServerConfig, config);
+    const gitManagerLayer = Layer.mock(GitManager)({
+      ...options?.layers?.gitManager,
+    });
+    const gitStatusBroadcasterLayer = GitStatusBroadcasterLive.pipe(Layer.provide(gitManagerLayer));
 
     const appLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
@@ -333,11 +338,8 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.gitCore,
         }),
       ),
-      Layer.provide(
-        Layer.mock(GitManager)({
-          ...options?.layers?.gitManager,
-        }),
-      ),
+      Layer.provide(gitManagerLayer),
+      Layer.provideMerge(gitStatusBroadcasterLayer),
       Layer.provide(
         Layer.mock(ProjectSetupScriptRunner)({
           runForThread: () => Effect.succeed({ status: "no-script" as const }),
@@ -1260,6 +1262,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       yield* buildAppUnderTest({
         layers: {
           gitManager: {
+            invalidateStatus: () => Effect.void,
             status: () =>
               Effect.succeed({
                 isRepo: true,
@@ -1374,18 +1377,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
             removeWorktree: () => Effect.void,
             createBranch: () => Effect.void,
-            checkoutBranch: () => Effect.void,
+            checkoutBranch: (input) => Effect.succeed({ branch: input.branch }),
             initRepo: () => Effect.void,
           },
         },
       });
 
       const wsUrl = yield* getWsServerUrl("/ws");
-
-      const status = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitStatus]({ cwd: "/tmp/repo" })),
-      );
-      assert.equal(status.branch, "main");
 
       const pull = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitPull]({ cwd: "/tmp/repo" })),

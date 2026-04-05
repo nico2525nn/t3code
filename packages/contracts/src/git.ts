@@ -44,6 +44,14 @@ const GitStatusPrState = Schema.Literals(["open", "closed", "merged"]);
 const GitPullRequestReference = TrimmedNonEmptyStringSchema;
 const GitPullRequestState = Schema.Literals(["open", "closed", "merged"]);
 const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
+export const GitHostingProviderKind = Schema.Literals(["github", "gitlab", "unknown"]);
+export type GitHostingProviderKind = typeof GitHostingProviderKind.Type;
+export const GitHostingProvider = Schema.Struct({
+  kind: GitHostingProviderKind,
+  name: TrimmedNonEmptyStringSchema,
+  baseUrl: Schema.String,
+});
+export type GitHostingProvider = typeof GitHostingProvider.Type;
 export const GitRunStackedActionToastRunAction = Schema.Struct({
   kind: GitStackedAction,
 });
@@ -188,6 +196,7 @@ const GitStatusPr = Schema.Struct({
 
 export const GitStatusResult = Schema.Struct({
   isRepo: Schema.Boolean,
+  hostingProvider: Schema.optional(GitHostingProvider),
   hasOriginRemote: Schema.Boolean,
   isDefaultBranch: Schema.Boolean,
   branch: Schema.NullOr(TrimmedNonEmptyStringSchema),
@@ -235,6 +244,11 @@ export const GitPreparePullRequestThreadResult = Schema.Struct({
   worktreePath: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
 });
 export type GitPreparePullRequestThreadResult = typeof GitPreparePullRequestThreadResult.Type;
+
+export const GitCheckoutResult = Schema.Struct({
+  branch: Schema.NullOr(TrimmedNonEmptyStringSchema),
+});
+export type GitCheckoutResult = typeof GitCheckoutResult.Type;
 
 export const GitRunStackedActionResult = Schema.Struct({
   action: GitStackedAction,

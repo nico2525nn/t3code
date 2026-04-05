@@ -10,7 +10,7 @@ const BRANCH_NAME = "feature/toast-scope";
 
 const {
   invalidateGitQueriesSpy,
-  invalidateGitStatusQuerySpy,
+  refreshGitStatusSpy,
   runStackedActionMutateAsyncSpy,
   setThreadBranchSpy,
   toastAddSpy,
@@ -19,7 +19,7 @@ const {
   toastUpdateSpy,
 } = vi.hoisted(() => ({
   invalidateGitQueriesSpy: vi.fn(() => Promise.resolve()),
-  invalidateGitStatusQuerySpy: vi.fn(() => Promise.resolve()),
+  refreshGitStatusSpy: vi.fn(),
   runStackedActionMutateAsyncSpy: vi.fn(() => new Promise<never>(() => undefined)),
   setThreadBranchSpy: vi.fn(),
   toastAddSpy: vi.fn(() => "toast-1"),
@@ -57,21 +57,6 @@ vi.mock("@tanstack/react-query", async () => {
       };
     }),
     useQuery: vi.fn((options: { queryKey?: string[] }) => {
-      if (options.queryKey?.[0] === "git-status") {
-        return {
-          data: {
-            branch: BRANCH_NAME,
-            hasWorkingTreeChanges: false,
-            workingTree: { files: [], insertions: 0, deletions: 0 },
-            hasUpstream: true,
-            aheadCount: 1,
-            behindCount: 0,
-            pr: null,
-          },
-          error: null,
-        };
-      }
-
       if (options.queryKey?.[0] === "git-branches") {
         return {
           data: {
@@ -110,7 +95,6 @@ vi.mock("~/editorPreferences", () => ({
 }));
 
 vi.mock("~/lib/gitReactQuery", () => ({
-  gitBranchesQueryOptions: vi.fn(() => ({ queryKey: ["git-branches"] })),
   gitInitMutationOptions: vi.fn(() => ({ __kind: "init" })),
   gitMutationKeys: {
     pull: vi.fn(() => ["pull"]),
@@ -118,9 +102,24 @@ vi.mock("~/lib/gitReactQuery", () => ({
   },
   gitPullMutationOptions: vi.fn(() => ({ __kind: "pull" })),
   gitRunStackedActionMutationOptions: vi.fn(() => ({ __kind: "run-stacked-action" })),
-  gitStatusQueryOptions: vi.fn(() => ({ queryKey: ["git-status"] })),
   invalidateGitQueries: invalidateGitQueriesSpy,
-  invalidateGitStatusQuery: invalidateGitStatusQuerySpy,
+}));
+
+vi.mock("~/lib/gitStatusState", () => ({
+  refreshGitStatus: refreshGitStatusSpy,
+  useGitStatus: vi.fn(() => ({
+    data: {
+      branch: BRANCH_NAME,
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+      hasUpstream: true,
+      aheadCount: 1,
+      behindCount: 0,
+      pr: null,
+    },
+    error: null,
+    isPending: false,
+  })),
 }));
 
 vi.mock("~/lib/utils", async () => {

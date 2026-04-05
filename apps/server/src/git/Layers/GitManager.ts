@@ -11,6 +11,7 @@ import {
   ModelSelection,
 } from "@t3tools/contracts";
 import {
+  detectGitHostingProviderFromRemoteUrl,
   resolveAutoFeatureBranchName,
   sanitizeBranchFragment,
   sanitizeFeatureBranchName,
@@ -723,9 +724,13 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
             Effect.catch(() => Effect.succeed(null)),
           )
         : null;
+    const hostingProvider = details.isRepo
+      ? yield* resolveHostingProvider(cwd, details.branch)
+      : null;
 
     return {
       isRepo: details.isRepo,
+      ...(hostingProvider ? { hostingProvider } : {}),
       hasOriginRemote: details.hasOriginRemote,
       isDefaultBranch: details.isDefaultBranch,
       branch: details.branch,
@@ -747,6 +752,21 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   const readConfigValueNullable = (cwd: string, key: string) =>
     gitCore.readConfigValue(cwd, key).pipe(Effect.catch(() => Effect.succeed(null)));
+
+  const resolveHostingProvider = Effect.fn("resolveHostingProvider")(function* (
+    cwd: string,
+    branch: string | null,
+  ) {
+    const preferredRemoteName =
+      branch === null
+        ? "origin"
+        : ((yield* readConfigValueNullable(cwd, `branch.${branch}.remote`)) ?? "origin");
+    const remoteUrl =
+      (yield* readConfigValueNullable(cwd, `remote.${preferredRemoteName}.url`)) ??
+      (yield* readConfigValueNullable(cwd, "remote.origin.url"));
+
+    return remoteUrl ? detectGitHostingProviderFromRemoteUrl(remoteUrl) : null;
+  });
 
   const resolveRemoteRepositoryContext = Effect.fn("resolveRemoteRepositoryContext")(function* (
     cwd: string,
@@ -1314,6 +1334,11 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const status: GitManagerShape["status"] = Effect.fn("status")(function* (input) {
     return yield* Cache.get(statusResultCache, normalizeStatusCacheKey(input.cwd));
   });
+  const invalidateStatus: GitManagerShape["invalidateStatus"] = Effect.fn("invalidateStatus")(
+    function* (cwd) {
+      yield* invalidateStatusResultCache(cwd);
+    },
+  );
 
   const resolvePullRequest: GitManagerShape["resolvePullRequest"] = Effect.fn("resolvePullRequest")(
     function* (input) {
@@ -1708,6 +1733,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   return {
     status,
+    invalidateStatus,
     resolvePullRequest,
     preparePullRequestThread,
     runStackedAction,

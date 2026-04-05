@@ -170,20 +170,6 @@ function resolveWsRpc(tag: string): unknown {
       branches: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
     };
   }
-  if (tag === WS_METHODS.gitStatus) {
-    return {
-      isRepo: true,
-      hasOriginRemote: true,
-      isDefaultBranch: true,
-      branch: "main",
-      hasWorkingTreeChanges: false,
-      workingTree: { files: [], insertions: 0, deletions: 0 },
-      hasUpstream: true,
-      aheadCount: 0,
-      behindCount: 0,
-      pr: null,
-    };
-  }
   if (tag === WS_METHODS.projectsSearchEntries) {
     return { entries: [], truncated: false };
   }

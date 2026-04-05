@@ -2,6 +2,7 @@ import {
   type GitActionProgressEvent,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
+  type GitStatusResult,
   type NativeApi,
   ORCHESTRATION_WS_METHODS,
   type ServerSettingsPatch,
@@ -64,7 +65,11 @@ export interface WsRpcClient {
   };
   readonly git: {
     readonly pull: RpcUnaryMethod<typeof WS_METHODS.gitPull>;
-    readonly status: RpcUnaryMethod<typeof WS_METHODS.gitStatus>;
+    readonly onStatus: (
+      input: RpcInput<typeof WS_METHODS.subscribeGitStatus>,
+      listener: (status: GitStatusResult) => void,
+      options?: StreamSubscriptionOptions,
+    ) => () => void;
     readonly runStackedAction: (
       input: GitRunStackedActionInput,
       options?: GitRunStackedActionOptions,
@@ -149,7 +154,12 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     },
     git: {
       pull: (input) => transport.request((client) => client[WS_METHODS.gitPull](input)),
-      status: (input) => transport.request((client) => client[WS_METHODS.gitStatus](input)),
+      onStatus: (input, listener, options) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeGitStatus](input),
+          listener,
+          options,
+        ),
       runStackedAction: async (input, options) => {
         let result: GitRunStackedActionResult | null = null;
 

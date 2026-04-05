@@ -10,6 +10,7 @@ import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
 import type {
   GitCheckoutInput,
+  GitCheckoutResult,
   GitCreateBranchInput,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
@@ -285,7 +286,7 @@ export interface GitCoreShape {
    */
   readonly checkoutBranch: (
     input: GitCheckoutInput,
-  ) => Effect.Effect<void, GitCommandError, Scope.Scope>;
+  ) => Effect.Effect<GitCheckoutResult, GitCommandError, Scope.Scope>;
 
   /**
    * Initialize a repository in the provided directory.

@@ -42,6 +42,11 @@ export interface GitManagerShape {
   ) => Effect.Effect<GitStatusResult, GitManagerServiceError>;
 
   /**
+   * Clear any cached status snapshot for a repository so the next read is fresh.
+   */
+  readonly invalidateStatus: (cwd: string) => Effect.Effect<void, never>;
+
+  /**
    * Resolve a pull request by URL/number against the current repository.
    */
   readonly resolvePullRequest: (

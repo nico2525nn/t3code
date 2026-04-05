@@ -6,6 +6,7 @@ import { OpenError, OpenInEditorInput } from "./editor";
 import {
   GitActionProgressEvent,
   GitCheckoutInput,
+  GitCheckoutResult,
   GitCommandError,
   GitCreateBranchInput,
   GitCreateWorktreeInput,
@@ -83,7 +84,6 @@ export const WS_METHODS = {
 
   // Git methods
   gitPull: "git.pull",
-  gitStatus: "git.status",
   gitRunStackedAction: "git.runStackedAction",
   gitListBranches: "git.listBranches",
   gitCreateWorktree: "git.createWorktree",
@@ -110,6 +110,7 @@ export const WS_METHODS = {
   serverUpdateSettings: "server.updateSettings",
 
   // Streaming subscriptions
+  subscribeGitStatus: "subscribeGitStatus",
   subscribeOrchestrationDomainEvents: "subscribeOrchestrationDomainEvents",
   subscribeTerminalEvents: "subscribeTerminalEvents",
   subscribeServerConfig: "subscribeServerConfig",
@@ -162,10 +163,11 @@ export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   error: OpenError,
 });
 
-export const WsGitStatusRpc = Rpc.make(WS_METHODS.gitStatus, {
+export const WsSubscribeGitStatusRpc = Rpc.make(WS_METHODS.subscribeGitStatus, {
   payload: GitStatusInput,
   success: GitStatusResult,
   error: GitManagerServiceError,
+  stream: true,
 });
 
 export const WsGitPullRpc = Rpc.make(WS_METHODS.gitPull, {
@@ -217,6 +219,7 @@ export const WsGitCreateBranchRpc = Rpc.make(WS_METHODS.gitCreateBranch, {
 
 export const WsGitCheckoutRpc = Rpc.make(WS_METHODS.gitCheckout, {
   payload: GitCheckoutInput,
+  success: GitCheckoutResult,
   error: GitCommandError,
 });
 
@@ -330,7 +333,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
-  WsGitStatusRpc,
+  WsSubscribeGitStatusRpc,
   WsGitPullRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
