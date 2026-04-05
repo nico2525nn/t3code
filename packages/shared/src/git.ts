@@ -231,7 +231,7 @@ export function applyGitStatusStreamEvent(
       if (current === null) {
         return mergeGitStatusParts(
           {
-            isRepo: false,
+            isRepo: true,
             hasOriginRemote: false,
             isDefaultBranch: false,
             branch: null,
