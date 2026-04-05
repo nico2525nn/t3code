@@ -33,7 +33,11 @@ import {
   type ThreadTerminalGroup,
 } from "../types";
 import { readNativeApi } from "~/nativeApi";
-import { selectTerminalEventEntries, useTerminalStateStore } from "../terminalStateStore";
+import {
+  normalizeRunningPorts,
+  selectTerminalEventEntries,
+  useTerminalStateStore,
+} from "../terminalStateStore";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
@@ -78,14 +82,6 @@ export function selectPendingTerminalEventEntries(
 interface TerminalRuntimeStatus {
   label: string;
   primaryWebPort: number | null;
-  extraWebPortCount: number;
-}
-
-function normalizeRunningPorts(rawPorts: number[] | undefined): number[] {
-  if (!rawPorts) return [];
-  return [...new Set(rawPorts)]
-    .filter((port) => Number.isInteger(port) && port > 0 && port <= 65_535)
-    .toSorted((left, right) => left - right);
 }
 
 function terminalRuntimeStatus(
@@ -99,7 +95,6 @@ function terminalRuntimeStatus(
 
   const runningPorts = normalizeRunningPorts(runningTerminalPorts[terminalId]);
   const primaryWebPort = runningPorts[0] ?? null;
-  const extraWebPortCount = runningPorts.length > 1 ? runningPorts.length - 1 : 0;
   const label =
     runningPorts.length === 0
       ? "Terminal process running"
@@ -110,7 +105,6 @@ function terminalRuntimeStatus(
   return {
     label,
     primaryWebPort,
-    extraWebPortCount,
   };
 }
 

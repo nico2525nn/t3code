@@ -1,20 +1,24 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 
-import { WebPortInspector } from "../Services/WebPortInspector";
+import { WebPortInspectionError, WebPortInspector } from "../Services/WebPortInspector";
 import { WebPortInspectorLive } from "./WebPortInspector";
 
 const closeServer = (server: Server) =>
   Effect.callback<void>((resume) => {
+    server.closeAllConnections?.();
+    server.closeIdleConnections?.();
     server.close(() => {
       resume(Effect.void);
     });
 
     return Effect.sync(() => {
       try {
+        server.closeAllConnections?.();
+        server.closeIdleConnections?.();
         server.close();
       } catch {
         // Ignore cleanup failures in tests.
@@ -24,12 +28,18 @@ const closeServer = (server: Server) =>
 
 const listenServer = (server: Server) =>
   Effect.callback<number, Error>((resume) => {
-    server.listen(0, "127.0.0.1", (error?: Error) => {
-      if (error) {
-        resume(Effect.fail(error));
-        return;
-      }
+    const onError = (error: Error) => {
+      cleanup();
+      resume(Effect.fail(error));
+    };
 
+    const cleanup = () => {
+      server.off("error", onError);
+    };
+
+    server.once("error", onError);
+    server.listen(0, "127.0.0.1", () => {
+      cleanup();
       const address = server.address();
       if (!address || typeof address !== "object") {
         resume(Effect.fail(new Error("Server did not provide a valid listening address.")));
@@ -39,7 +49,10 @@ const listenServer = (server: Server) =>
       resume(Effect.succeed(address.port));
     });
 
-    return closeServer(server);
+    return Effect.gen(function* () {
+      cleanup();
+      yield* closeServer(server);
+    });
   });
 
 const startServer = (
@@ -110,4 +123,31 @@ it.layer(WebPortInspectorLive.pipe(Layer.provide(FetchHttpClient.layer)))(
       ),
     );
   },
+);
+
+it.effect("WebPortInspectorLive preserves typed timeout errors", () =>
+  Effect.gen(function* () {
+    const inspector = yield* WebPortInspector;
+    const error = yield* inspector.inspect(3000).pipe(Effect.flip);
+
+    assert.equal(Schema.is(WebPortInspectionError)(error), true);
+    assert.equal(error.detail, "HTTP probe timed out.");
+  }).pipe(
+    Effect.provide(
+      WebPortInspectorLive.pipe(
+        Layer.provide(
+          Layer.succeed(HttpClient.HttpClient, {
+            execute: () =>
+              Effect.fail(
+                new WebPortInspectionError({
+                  port: 3000,
+                  host: "127.0.0.1",
+                  detail: "HTTP probe timed out.",
+                }),
+              ),
+          } as never),
+        ),
+      ),
+    ),
+  ),
 );

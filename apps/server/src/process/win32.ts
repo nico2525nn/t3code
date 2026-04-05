@@ -26,23 +26,43 @@ export const collectWindowsChildPids = Effect.fn("process.collectWindowsChildPid
   terminalPid: number,
   runCommand: WindowsRunCommand,
 ): Effect.fn.Return<number[], TerminalProcessInspectionError> {
-  const command = [
-    `$children = Get-CimInstance Win32_Process -Filter "ParentProcessId = ${terminalPid}" -ErrorAction SilentlyContinue`,
-    "if (-not $children) { exit 0 }",
-    "$children | Select-Object -ExpandProperty ProcessId",
-  ].join("; ");
-  const result = yield* runCommand({
-    operation: "TerminalProcessInspector.collectWindowsChildPids",
-    terminalPid,
-    command: "powershell.exe",
-    args: ["-NoProfile", "-NonInteractive", "-Command", command],
-    timeoutMs: 1_500,
-    maxOutputBytes: 32_768,
-  });
-  if (result.exitCode !== 0) {
-    return [];
+  const seenPids = new Set<number>([terminalPid]);
+  const childPids: number[] = [];
+  const pendingParentPids = [terminalPid];
+
+  while (pendingParentPids.length > 0) {
+    const parentPid = pendingParentPids.shift();
+    if (parentPid === undefined) {
+      break;
+    }
+
+    const command = [
+      `$children = Get-CimInstance Win32_Process -Filter "ParentProcessId = ${parentPid}" -ErrorAction SilentlyContinue`,
+      "if (-not $children) { exit 0 }",
+      "$children | Select-Object -ExpandProperty ProcessId",
+    ].join("; ");
+    const result = yield* runCommand({
+      operation: "TerminalProcessInspector.collectWindowsChildPids",
+      terminalPid,
+      command: "powershell.exe",
+      args: ["-NoProfile", "-NonInteractive", "-Command", command],
+      timeoutMs: 1_500,
+      maxOutputBytes: 32_768,
+    });
+    if (result.exitCode !== 0) {
+      continue;
+    }
+
+    for (const childPid of parsePidList(result.stdout)) {
+      if (seenPids.has(childPid)) {
+        continue;
+      }
+      seenPids.add(childPid);
+      childPids.push(childPid);
+      pendingParentPids.push(childPid);
+    }
   }
-  return parsePidList(result.stdout);
+  return childPids;
 });
 
 export const checkWindowsListeningPorts = Effect.fn("process.checkWindowsListeningPorts")(

@@ -61,7 +61,11 @@ import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import { useStore } from "../store";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import {
+  normalizeRunningPorts,
+  selectThreadTerminalState,
+  useTerminalStateStore,
+} from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
 import {
   resolveShortcutCommand,
@@ -202,13 +206,6 @@ function ThreadStatusLabel({
       <span className="hidden md:inline">{status.label}</span>
     </span>
   );
-}
-
-function normalizeRunningPorts(rawPorts: number[] | undefined): number[] {
-  if (!rawPorts) return [];
-  return [...new Set(rawPorts)]
-    .filter((port) => Number.isInteger(port) && port > 0 && port <= 65_535)
-    .toSorted((left, right) => left - right);
 }
 
 function terminalStatusFromTerminalState(

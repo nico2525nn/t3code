@@ -602,8 +602,14 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
     const inspectWebPortCached = (port: number) =>
       Effect.gen(function* () {
         const now = Date.now();
+        for (const [cachedPort, entry] of webPortProbeCache) {
+          if (now - entry.checkedAt > webPortProbeCacheTtlMs) {
+            webPortProbeCache.delete(cachedPort);
+          }
+        }
+
         const cached = webPortProbeCache.get(port);
-        if (cached && now - cached.checkedAt <= webPortProbeCacheTtlMs) {
+        if (cached) {
           return cached.isWeb;
         }
 

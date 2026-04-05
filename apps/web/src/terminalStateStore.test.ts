@@ -86,6 +86,27 @@ describe("terminalStateStore actions", () => {
     });
   });
 
+  it("normalizes legacy persisted thread terminal state at selector boundaries", () => {
+    const terminalState = selectThreadTerminalState(
+      {
+        [THREAD_ID]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: ["default"],
+          runningTerminalIds: ["default", "default"],
+          runningTerminalPorts: { default: [5173, 3000, 5173, 0] },
+          activeTerminalId: "default",
+          terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+          activeTerminalGroupId: "group-default",
+        },
+      },
+      THREAD_ID,
+    );
+
+    expect(terminalState.runningTerminalIds).toEqual(["default"]);
+    expect(terminalState.runningTerminalPorts).toEqual({ default: [3000, 5173] });
+  });
+
   it("opens and splits terminals into the active group", () => {
     const store = useTerminalStateStore.getState();
     store.setTerminalOpen(THREAD_ID, true);

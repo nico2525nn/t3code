@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 
-import { Effect, Layer, Option, Stream } from "effect";
+import { Effect, Layer, Option, Schema, Stream } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
 import type { WebPortInspectorShape } from "../Services/WebPortInspector";
@@ -126,14 +126,15 @@ const makeWebPortInspector = Effect.gen(function* () {
           onSome: Effect.succeed,
         }),
       ),
-      Effect.mapError(
-        (cause) =>
-          new WebPortInspectionError({
-            port,
-            host,
-            detail: "Failed to execute HTTP probe request.",
-            cause,
-          }),
+      Effect.mapError((error) =>
+        Schema.is(WebPortInspectionError)(error)
+          ? error
+          : new WebPortInspectionError({
+              port,
+              host,
+              detail: "Failed to execute HTTP probe request.",
+              cause: error,
+            }),
       ),
     );
   });
