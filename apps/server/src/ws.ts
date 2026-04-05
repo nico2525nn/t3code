@@ -570,10 +570,20 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcStream(WS_METHODS.subscribeGitStatus, gitStatusBroadcaster.streamStatus(input), {
           "rpc.aggregate": "git",
         }),
+      [WS_METHODS.gitRefreshStatus]: (input) =>
+        observeRpcEffect(
+          WS_METHODS.gitRefreshStatus,
+          gitStatusBroadcaster.refreshStatus(input.cwd),
+          {
+            "rpc.aggregate": "git",
+          },
+        ),
       [WS_METHODS.gitPull]: (input) =>
         observeRpcEffect(
           WS_METHODS.gitPull,
-          git.pullCurrentBranch(input.cwd).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+          git
+            .pullCurrentBranch(input.cwd)
+            .pipe(Effect.ensuring(refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true })))),
           { "rpc.aggregate": "git" },
         ),
       [WS_METHODS.gitRunStackedAction]: (input) =>
@@ -589,7 +599,11 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               })
               .pipe(
                 Effect.matchCauseEffect({
-                  onFailure: (cause) => Queue.failCause(queue, cause),
+                  onFailure: (cause) =>
+                    refreshGitStatus(input.cwd).pipe(
+                      Effect.ignore({ log: true }),
+                      Effect.andThen(Queue.failCause(queue, cause)),
+                    ),
                   onSuccess: () =>
                     refreshGitStatus(input.cwd).pipe(
                       Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),

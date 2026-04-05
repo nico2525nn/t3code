@@ -127,11 +127,12 @@ export const GitStatusBroadcasterLive = Layer.effect(
         Effect.gen(function* () {
           const normalizedCwd = normalizeCwd(input.cwd);
           yield* ensurePoller(normalizedCwd);
+          const subscription = yield* PubSub.subscribe(changesPubSub);
           const initialStatus = yield* getStatus({ cwd: normalizedCwd });
 
           return Stream.concat(
             Stream.make(initialStatus),
-            Stream.fromPubSub(changesPubSub).pipe(
+            Stream.fromEffectRepeat(PubSub.take(subscription)).pipe(
               Stream.filter((event) => event.cwd === normalizedCwd),
               Stream.map((event) => event.status),
             ),

@@ -1390,6 +1390,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
       assert.equal(pull.status, "pulled");
 
+      const refreshedStatus = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.gitRefreshStatus]({ cwd: "/tmp/repo" }),
+        ),
+      );
+      assert.equal(refreshedStatus.isRepo, true);
+
       const stackedEvents = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
           client[WS_METHODS.gitRunStackedAction]({
@@ -1492,10 +1499,34 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         cwd: "/tmp/repo",
         detail: "upstream missing",
       });
+      let invalidationCalls = 0;
+      let statusCalls = 0;
       yield* buildAppUnderTest({
         layers: {
           gitCore: {
             pullCurrentBranch: () => Effect.fail(gitError),
+          },
+          gitManager: {
+            invalidateStatus: () =>
+              Effect.sync(() => {
+                invalidationCalls += 1;
+              }),
+            status: () =>
+              Effect.sync(() => {
+                statusCalls += 1;
+                return {
+                  isRepo: true,
+                  hasOriginRemote: true,
+                  isDefaultBranch: true,
+                  branch: "main",
+                  hasWorkingTreeChanges: true,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                };
+              }),
           },
         },
       });
@@ -1508,6 +1539,63 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assertFailure(result, gitError);
+      assert.equal(invalidationCalls, 1);
+      assert.equal(statusCalls, 1);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc git.runStackedAction errors after refreshing git status", () =>
+    Effect.gen(function* () {
+      const gitError = new GitCommandError({
+        operation: "commit",
+        command: "git commit",
+        cwd: "/tmp/repo",
+        detail: "nothing to commit",
+      });
+      let invalidationCalls = 0;
+      let statusCalls = 0;
+      yield* buildAppUnderTest({
+        layers: {
+          gitManager: {
+            invalidateStatus: () =>
+              Effect.sync(() => {
+                invalidationCalls += 1;
+              }),
+            status: () =>
+              Effect.sync(() => {
+                statusCalls += 1;
+                return {
+                  isRepo: true,
+                  hasOriginRemote: true,
+                  isDefaultBranch: false,
+                  branch: "feature/demo",
+                  hasWorkingTreeChanges: true,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                };
+              }),
+            runStackedAction: () => Effect.fail(gitError),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.gitRunStackedAction]({
+            actionId: "action-1",
+            cwd: "/tmp/repo",
+            action: "commit",
+          }).pipe(Stream.runCollect, Effect.result),
+        ),
+      );
+
+      assertFailure(result, gitError);
+      assert.equal(invalidationCalls, 1);
+      assert.equal(statusCalls, 1);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

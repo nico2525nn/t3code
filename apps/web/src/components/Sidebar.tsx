@@ -298,7 +298,7 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
       selectThreadTerminalState(state.terminalStateByThreadId, props.threadId).runningTerminalIds,
   );
   const gitCwd = thread?.worktreePath ?? props.projectCwd;
-  const gitStatus = useGitStatus(thread?.branch !== null ? gitCwd : null);
+  const gitStatus = useGitStatus(thread?.branch != null ? gitCwd : null);
 
   if (!thread) {
     return null;

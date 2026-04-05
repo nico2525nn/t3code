@@ -65,6 +65,7 @@ export interface WsRpcClient {
   };
   readonly git: {
     readonly pull: RpcUnaryMethod<typeof WS_METHODS.gitPull>;
+    readonly refreshStatus: RpcUnaryMethod<typeof WS_METHODS.gitRefreshStatus>;
     readonly onStatus: (
       input: RpcInput<typeof WS_METHODS.subscribeGitStatus>,
       listener: (status: GitStatusResult) => void,
@@ -154,6 +155,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     },
     git: {
       pull: (input) => transport.request((client) => client[WS_METHODS.gitPull](input)),
+      refreshStatus: (input) =>
+        transport.request((client) => client[WS_METHODS.gitRefreshStatus](input)),
       onStatus: (input, listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeGitStatus](input),

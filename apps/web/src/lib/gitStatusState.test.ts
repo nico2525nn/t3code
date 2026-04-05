@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getGitStatusSnapshot,
   resetGitStatusStateForTests,
+  refreshGitStatus,
   watchGitStatus,
 } from "./gitStatusState";
 
@@ -30,6 +31,10 @@ const BASE_STATUS: GitStatusResult = {
 };
 
 const gitClient = {
+  refreshStatus: vi.fn(async (input: { cwd: string }) => ({
+    ...BASE_STATUS,
+    branch: `${input.cwd}-refreshed`,
+  })),
   onStatus: vi.fn((input: { cwd: string }, listener: (event: GitStatusResult) => void) =>
     registerListener(gitStatusListeners, listener),
   ),
@@ -44,6 +49,7 @@ function emitGitStatus(event: GitStatusResult) {
 afterEach(() => {
   gitStatusListeners.clear();
   gitClient.onStatus.mockClear();
+  gitClient.refreshStatus.mockClear();
   resetGitStatusStateForTests();
 });
 
@@ -74,5 +80,24 @@ describe("gitStatusState", () => {
 
     releaseB();
     expect(gitStatusListeners.size).toBe(0);
+  });
+
+  it("refreshes git status through the unary RPC without restarting the stream", async () => {
+    const release = watchGitStatus("/repo", gitClient);
+
+    emitGitStatus(BASE_STATUS);
+    const refreshed = await refreshGitStatus("/repo", gitClient);
+
+    expect(gitClient.onStatus).toHaveBeenCalledOnce();
+    expect(gitClient.refreshStatus).toHaveBeenCalledWith({ cwd: "/repo" });
+    expect(refreshed).toEqual({ ...BASE_STATUS, branch: "/repo-refreshed" });
+    expect(getGitStatusSnapshot("/repo")).toEqual({
+      data: BASE_STATUS,
+      error: null,
+      cause: null,
+      isPending: false,
+    });
+
+    release();
   });
 });

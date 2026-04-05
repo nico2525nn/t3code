@@ -106,7 +106,7 @@ export function gitInitMutationOptions(input: { cwd: string | null; queryClient:
       if (!input.cwd) throw new Error("Git init is unavailable.");
       return api.git.init({ cwd: input.cwd });
     },
-    onSuccess: async () => {
+    onSettled: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.cwd);
     },
   });
@@ -123,7 +123,7 @@ export function gitCheckoutMutationOptions(input: {
       if (!input.cwd) throw new Error("Git checkout is unavailable.");
       return api.git.checkout({ cwd: input.cwd, branch });
     },
-    onSuccess: async () => {
+    onSettled: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.cwd);
     },
   });

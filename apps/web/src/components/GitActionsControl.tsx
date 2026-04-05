@@ -46,7 +46,7 @@ import {
   gitPullMutationOptions,
   gitRunStackedActionMutationOptions,
 } from "~/lib/gitReactQuery";
-import { useGitStatus } from "~/lib/gitStatusState";
+import { refreshGitStatus, useGitStatus } from "~/lib/gitStatusState";
 import { newCommandId, randomUUID } from "~/lib/utils";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { readNativeApi } from "~/nativeApi";
@@ -357,6 +357,29 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       window.clearInterval(interval);
     };
   }, [updateActiveProgressToast]);
+
+  useEffect(() => {
+    if (gitCwd === null) {
+      return;
+    }
+
+    const refreshCurrentGitStatus = () => {
+      void refreshGitStatus(gitCwd).catch(() => undefined);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshCurrentGitStatus();
+      }
+    };
+
+    window.addEventListener("focus", refreshCurrentGitStatus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", refreshCurrentGitStatus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [gitCwd]);
 
   const openExistingPr = useCallback(async () => {
     const api = readNativeApi();
@@ -798,7 +821,13 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
             </Button>
           )}
           <GroupSeparator className="hidden @3xl/header-actions:block" />
-          <Menu>
+          <Menu
+            onOpenChange={(open) => {
+              if (open) {
+                void refreshGitStatus(gitCwd).catch(() => undefined);
+              }
+            }}
+          >
             <MenuTrigger
               render={<Button aria-label="Git action options" size="icon-xs" variant="outline" />}
               disabled={isGitActionRunning}

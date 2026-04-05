@@ -16,7 +16,7 @@ export interface GitStatusState {
   readonly isPending: boolean;
 }
 
-type GitStatusClient = Pick<WsRpcClient["git"], "onStatus">;
+type GitStatusClient = Pick<WsRpcClient["git"], "onStatus" | "refreshStatus">;
 
 interface WatchedGitStatus {
   refCount: number;
@@ -33,6 +33,10 @@ const EMPTY_GIT_STATUS_STATE = Object.freeze<GitStatusState>({
 const NOOP: () => void = () => undefined;
 const watchedGitStatuses = new Map<string, WatchedGitStatus>();
 const knownGitStatusCwds = new Set<string>();
+const gitStatusRefreshInFlight = new Map<string, Promise<GitStatusResult>>();
+const gitStatusLastRefreshAtByCwd = new Map<string, number>();
+
+const GIT_STATUS_REFRESH_DEBOUNCE_MS = 1_000;
 
 let sharedGitStatusClient: GitStatusClient | null = null;
 
@@ -76,11 +80,41 @@ export function watchGitStatus(
   return () => unwatchGitStatus(cwd);
 }
 
+export function refreshGitStatus(
+  cwd: string | null,
+  client: GitStatusClient = getWsRpcClient().git,
+): Promise<GitStatusResult | null> {
+  if (cwd === null) {
+    return Promise.resolve(null);
+  }
+
+  ensureGitStatusClient(client);
+
+  const currentInFlight = gitStatusRefreshInFlight.get(cwd);
+  if (currentInFlight) {
+    return currentInFlight;
+  }
+
+  const lastRequestedAt = gitStatusLastRefreshAtByCwd.get(cwd) ?? 0;
+  if (Date.now() - lastRequestedAt < GIT_STATUS_REFRESH_DEBOUNCE_MS) {
+    return Promise.resolve(getGitStatusSnapshot(cwd).data);
+  }
+
+  gitStatusLastRefreshAtByCwd.set(cwd, Date.now());
+  const refreshPromise = client.refreshStatus({ cwd }).finally(() => {
+    gitStatusRefreshInFlight.delete(cwd);
+  });
+  gitStatusRefreshInFlight.set(cwd, refreshPromise);
+  return refreshPromise;
+}
+
 export function resetGitStatusStateForTests(): void {
   for (const watched of watchedGitStatuses.values()) {
     watched.unsubscribe();
   }
   watchedGitStatuses.clear();
+  gitStatusRefreshInFlight.clear();
+  gitStatusLastRefreshAtByCwd.clear();
   sharedGitStatusClient = null;
 
   for (const cwd of knownGitStatusCwds) {
@@ -92,7 +126,8 @@ export function resetGitStatusStateForTests(): void {
 export function useGitStatus(cwd: string | null): GitStatusState {
   useEffect(() => watchGitStatus(cwd), [cwd]);
 
-  return cwd === null ? EMPTY_GIT_STATUS_STATE : useAtomValue(gitStatusStateAtom(cwd));
+  const state = useAtomValue(gitStatusStateAtom(cwd ?? ""));
+  return cwd === null ? EMPTY_GIT_STATUS_STATE : state;
 }
 
 function ensureGitStatusClient(client: GitStatusClient): void {
