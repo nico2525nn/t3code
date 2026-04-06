@@ -106,6 +106,7 @@ export function BranchToolbarBranchSelector({
     gitBranchSearchInfiniteQueryOptions({
       cwd: branchCwd,
       query: deferredTrimmedBranchQuery,
+      enabled: isBranchMenuOpen,
     }),
   );
   const branches = useMemo(
