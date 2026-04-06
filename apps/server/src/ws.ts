@@ -1,4 +1,4 @@
-import { Cause, Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
+import { Cause, Effect, Exit, Layer, Option, Queue, Ref, Schema, Scope, Stream } from "effect";
 import {
   CommandId,
   EventId,
@@ -67,8 +67,9 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
     const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
-    const services = yield* Effect.services();
-    const runPromise = Effect.runPromiseWith(services);
+    const wsBackgroundScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
+      Scope.close(scope, Exit.void),
+    );
 
     const serverCommandId = (tag: string) =>
       CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
@@ -353,11 +354,9 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     });
 
     const refreshGitStatus = (cwd: string) =>
-      Effect.sync(() => {
-        setTimeout(() => {
-          void runPromise(gitStatusBroadcaster.enqueueRefreshStatus(cwd));
-        }, 0);
-      });
+      gitStatusBroadcaster
+        .enqueueRefreshStatus(cwd)
+        .pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(wsBackgroundScope), Effect.asVoid);
 
     return WsRpcGroup.of({
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (_input) =>
