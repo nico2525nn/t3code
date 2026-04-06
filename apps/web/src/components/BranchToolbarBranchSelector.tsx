@@ -14,11 +14,7 @@ import {
   useTransition,
 } from "react";
 
-import {
-  gitBranchSearchInfiniteQueryOptions,
-  gitQueryKeys,
-  invalidateGitQueries,
-} from "../lib/gitReactQuery";
+import { gitBranchSearchInfiniteQueryOptions, gitQueryKeys } from "../lib/gitReactQuery";
 import { useGitStatus } from "../lib/gitStatusState";
 import { readNativeApi } from "../nativeApi";
 import { parsePullRequestReference } from "../pullRequestReference";
@@ -188,7 +184,9 @@ export function BranchToolbarBranchSelector({
   const runBranchAction = (action: () => Promise<void>) => {
     startBranchActionTransition(async () => {
       await action().catch(() => undefined);
-      await invalidateGitQueries(queryClient).catch(() => undefined);
+      await queryClient
+        .invalidateQueries({ queryKey: gitQueryKeys.branches(branchCwd) })
+        .catch(() => undefined);
     });
   };
 
@@ -232,7 +230,6 @@ export function BranchToolbarBranchSelector({
           cwd: selectionTarget.checkoutCwd,
           branch: branch.name,
         });
-        await invalidateGitQueries(queryClient);
         const nextBranchName = branch.isRemote
           ? (checkoutResult.branch ?? selectedBranchName)
           : selectedBranchName;
