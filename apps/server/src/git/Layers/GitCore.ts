@@ -2009,12 +2009,6 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     return { branch: targetBranch };
   });
 
-  const createBranch: GitCoreShape["createBranch"] = (input) =>
-    executeGit("GitCore.createBranch", input.cwd, ["branch", input.branch], {
-      timeoutMs: 10_000,
-      fallbackErrorMessage: "git branch create failed",
-    }).pipe(Effect.asVoid);
-
   const checkoutBranch: GitCoreShape["checkoutBranch"] = Effect.fn("checkoutBranch")(
     function* (input) {
       const [localInputExists, remoteExists] = yield* Effect.all(
@@ -2096,6 +2090,18 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       return { branch };
     },
   );
+
+  const createBranch: GitCoreShape["createBranch"] = Effect.fn("createBranch")(function* (input) {
+    yield* executeGit("GitCore.createBranch", input.cwd, ["branch", input.branch], {
+      timeoutMs: 10_000,
+      fallbackErrorMessage: "git branch create failed",
+    });
+    if (input.checkout) {
+      yield* checkoutBranch({ cwd: input.cwd, branch: input.branch });
+    }
+
+    return { branch: input.branch };
+  });
 
   const initRepo: GitCoreShape["initRepo"] = (input) =>
     executeGit("GitCore.initRepo", input.cwd, ["init"], {

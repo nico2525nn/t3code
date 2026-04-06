@@ -9,6 +9,7 @@ import {
   GitCheckoutResult,
   GitCommandError,
   GitCreateBranchInput,
+  GitCreateBranchResult,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
   GitInitInput,
@@ -222,6 +223,7 @@ export const WsGitRemoveWorktreeRpc = Rpc.make(WS_METHODS.gitRemoveWorktree, {
 
 export const WsGitCreateBranchRpc = Rpc.make(WS_METHODS.gitCreateBranch, {
   payload: GitCreateBranchInput,
+  success: GitCreateBranchResult,
   error: GitCommandError,
 });
 

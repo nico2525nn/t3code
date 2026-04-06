@@ -106,7 +106,6 @@ export function BranchToolbarBranchSelector({
     gitBranchSearchInfiniteQueryOptions({
       cwd: branchCwd,
       query: deferredTrimmedBranchQuery,
-      enabled: isBranchMenuOpen,
     }),
   );
   const branches = useMemo(
@@ -256,27 +255,23 @@ export function BranchToolbarBranchSelector({
     onComposerFocusRequest?.();
 
     runBranchAction(async () => {
+      const previousBranch = resolvedActiveBranch;
       setOptimisticBranch(name);
-
       try {
-        await api.git.createBranch({ cwd: branchCwd, branch: name });
-        try {
-          await api.git.checkout({ cwd: branchCwd, branch: name });
-        } catch (error) {
-          toastManager.add({
-            type: "error",
-            title: "Failed to checkout branch.",
-            description: toBranchActionErrorMessage(error),
-          });
-          return;
-        }
+        const createBranchResult = await api.git.createBranch({
+          cwd: branchCwd,
+          branch: name,
+          checkout: true,
+        });
+        setOptimisticBranch(createBranchResult.branch);
+        onSetThreadBranch(createBranchResult.branch, activeWorktreePath);
       } catch (error) {
+        setOptimisticBranch(previousBranch);
         toastManager.add({
           type: "error",
-          title: "Failed to create branch.",
+          title: "Failed to create and checkout branch.",
           description: toBranchActionErrorMessage(error),
         });
-        return;
       }
 
       setOptimisticBranch(name);

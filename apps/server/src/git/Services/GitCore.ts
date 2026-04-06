@@ -7,11 +7,12 @@
  * @module GitCore
  */
 import { ServiceMap } from "effect";
-import type { Effect, Scope } from "effect";
+import type { Effect } from "effect";
 import type {
   GitCheckoutInput,
   GitCheckoutResult,
   GitCreateBranchInput,
+  GitCreateBranchResult,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
   GitInitInput,
@@ -284,14 +285,16 @@ export interface GitCoreShape {
   /**
    * Create a local branch.
    */
-  readonly createBranch: (input: GitCreateBranchInput) => Effect.Effect<void, GitCommandError>;
+  readonly createBranch: (
+    input: GitCreateBranchInput,
+  ) => Effect.Effect<GitCreateBranchResult, GitCommandError>;
 
   /**
    * Checkout an existing branch and refresh its upstream metadata in background.
    */
   readonly checkoutBranch: (
     input: GitCheckoutInput,
-  ) => Effect.Effect<GitCheckoutResult, GitCommandError, Scope.Scope>;
+  ) => Effect.Effect<GitCheckoutResult, GitCommandError>;
 
   /**
    * Initialize a repository in the provided directory.
