@@ -273,10 +273,6 @@ export function BranchToolbarBranchSelector({
           description: toBranchActionErrorMessage(error),
         });
       }
-
-      setOptimisticBranch(name);
-      onSetThreadBranch(name, activeWorktreePath);
-      setBranchQuery("");
     });
   };
 
