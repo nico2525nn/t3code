@@ -1403,7 +1403,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 worktree: { path: "/tmp/wt", branch: "feature/demo" },
               }),
             removeWorktree: () => Effect.void,
-            createBranch: () => Effect.void,
+            createBranch: (input) => Effect.succeed({ branch: input.branch }),
             checkoutBranch: (input) => Effect.succeed({ branch: input.branch }),
             initRepo: () => Effect.void,
           },
