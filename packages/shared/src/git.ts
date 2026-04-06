@@ -218,6 +218,18 @@ function toRemoteStatusPart(status: GitStatusResult): GitStatusRemoteResult {
   };
 }
 
+function toLocalStatusPart(status: GitStatusResult): GitStatusLocalResult {
+  return {
+    isRepo: status.isRepo,
+    ...(status.hostingProvider ? { hostingProvider: status.hostingProvider } : {}),
+    hasOriginRemote: status.hasOriginRemote,
+    isDefaultBranch: status.isDefaultBranch,
+    branch: status.branch,
+    hasWorkingTreeChanges: status.hasWorkingTreeChanges,
+    workingTree: status.workingTree,
+  };
+}
+
 export function applyGitStatusStreamEvent(
   current: GitStatusResult | null,
   event: GitStatusStreamEvent,
@@ -241,6 +253,6 @@ export function applyGitStatusStreamEvent(
           event.remote,
         );
       }
-      return mergeGitStatusParts(current, event.remote);
+      return mergeGitStatusParts(toLocalStatusPart(current), event.remote);
   }
 }
