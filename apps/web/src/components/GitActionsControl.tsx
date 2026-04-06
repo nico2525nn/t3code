@@ -91,6 +91,8 @@ interface RunGitActionWithToastInput {
   filePaths?: string[];
 }
 
+const GIT_STATUS_WINDOW_REFRESH_DEBOUNCE_MS = 250;
+
 function formatElapsedDescription(startedAtMs: number | null): string | undefined {
   if (startedAtMs === null) {
     return undefined;
@@ -363,20 +365,30 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       return;
     }
 
-    const refreshCurrentGitStatus = () => {
-      void refreshGitStatus(gitCwd).catch(() => undefined);
+    let refreshTimeout: number | null = null;
+    const scheduleRefreshCurrentGitStatus = () => {
+      if (refreshTimeout !== null) {
+        window.clearTimeout(refreshTimeout);
+      }
+      refreshTimeout = window.setTimeout(() => {
+        refreshTimeout = null;
+        void refreshGitStatus(gitCwd).catch(() => undefined);
+      }, GIT_STATUS_WINDOW_REFRESH_DEBOUNCE_MS);
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        refreshCurrentGitStatus();
+        scheduleRefreshCurrentGitStatus();
       }
     };
 
-    window.addEventListener("focus", refreshCurrentGitStatus);
+    window.addEventListener("focus", scheduleRefreshCurrentGitStatus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      window.removeEventListener("focus", refreshCurrentGitStatus);
+      if (refreshTimeout !== null) {
+        window.clearTimeout(refreshTimeout);
+      }
+      window.removeEventListener("focus", scheduleRefreshCurrentGitStatus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [gitCwd]);

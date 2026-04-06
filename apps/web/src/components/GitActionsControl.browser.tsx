@@ -235,4 +235,42 @@ describe("GitActionsControl thread-scoped progress toast", () => {
       host.remove();
     }
   });
+
+  it("debounces focus-driven git status refreshes", async () => {
+    vi.useFakeTimers();
+
+    const originalVisibilityState = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    let visibilityState: DocumentVisibilityState = "hidden";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibilityState,
+    });
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(<GitActionsControl gitCwd={GIT_CWD} activeThreadId={THREAD_A} />, {
+      container: host,
+    });
+
+    try {
+      window.dispatchEvent(new Event("focus"));
+      visibilityState = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      expect(refreshGitStatusSpy).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(249);
+      expect(refreshGitStatusSpy).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(refreshGitStatusSpy).toHaveBeenCalledTimes(1);
+      expect(refreshGitStatusSpy).toHaveBeenCalledWith(GIT_CWD);
+    } finally {
+      if (originalVisibilityState) {
+        Object.defineProperty(document, "visibilityState", originalVisibilityState);
+      }
+      await screen.unmount();
+      host.remove();
+    }
+  });
 });
