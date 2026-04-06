@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Layer, Option, Queue, Ref, Schema, Scope, Stream } from "effect";
+import { Cause, Effect, Layer, Option, Queue, Ref, Schema, Scope, Stream } from "effect";
 import {
   CommandId,
   EventId,
@@ -67,9 +67,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
     const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
-    const wsBackgroundScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
-      Scope.close(scope, Exit.void),
-    );
+    const wsBackgroundScope = yield* Effect.acquireRelease(Scope.make(), Scope.close);
 
     const serverCommandId = (tag: string) =>
       CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
