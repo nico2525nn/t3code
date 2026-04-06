@@ -54,6 +54,15 @@ afterEach(() => {
 });
 
 describe("gitStatusState", () => {
+  it("starts fresh cwd state in a pending state", () => {
+    expect(getGitStatusSnapshot("/fresh")).toEqual({
+      data: null,
+      error: null,
+      cause: null,
+      isPending: true,
+    });
+  });
+
   it("shares one live subscription per cwd and updates the per-cwd atom snapshot", () => {
     const releaseA = watchGitStatus("/repo", gitClient);
     const releaseB = watchGitStatus("/repo", gitClient);

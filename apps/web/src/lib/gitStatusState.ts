@@ -29,6 +29,10 @@ const EMPTY_GIT_STATUS_STATE = Object.freeze<GitStatusState>({
   cause: null,
   isPending: false,
 });
+const INITIAL_GIT_STATUS_STATE = Object.freeze<GitStatusState>({
+  ...EMPTY_GIT_STATUS_STATE,
+  isPending: true,
+});
 const EMPTY_GIT_STATUS_ATOM = Atom.make(EMPTY_GIT_STATUS_STATE).pipe(
   Atom.keepAlive,
   Atom.withLabel("git-status:null"),
@@ -46,7 +50,7 @@ let sharedGitStatusClient: GitStatusClient | null = null;
 
 const gitStatusStateAtom = Atom.family((cwd: string) => {
   knownGitStatusCwds.add(cwd);
-  return Atom.make(EMPTY_GIT_STATUS_STATE).pipe(
+  return Atom.make(INITIAL_GIT_STATUS_STATE).pipe(
     Atom.keepAlive,
     Atom.withLabel(`git-status:${cwd}`),
   );
@@ -122,7 +126,7 @@ export function resetGitStatusStateForTests(): void {
   sharedGitStatusClient = null;
 
   for (const cwd of knownGitStatusCwds) {
-    appAtomRegistry.set(gitStatusStateAtom(cwd), EMPTY_GIT_STATUS_STATE);
+    appAtomRegistry.set(gitStatusStateAtom(cwd), INITIAL_GIT_STATUS_STATE);
   }
   knownGitStatusCwds.clear();
 }
@@ -198,7 +202,7 @@ function markGitStatusPending(cwd: string): void {
   const current = appAtomRegistry.get(atom);
   const next =
     current.data === null
-      ? { ...EMPTY_GIT_STATUS_STATE, isPending: true }
+      ? INITIAL_GIT_STATUS_STATE
       : {
           ...current,
           error: null,
