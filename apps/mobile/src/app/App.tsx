@@ -1,6 +1,14 @@
 import { useColorScheme } from "react-native";
 import "./../../global.css";
 
+import {
+  DMSans_400Regular,
+  DMSans_500Medium,
+  DMSans_700Bold,
+  useFonts,
+} from "@expo-google-fonts/dm-sans";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { LoadingScreen } from "../components/LoadingScreen";
@@ -10,10 +18,15 @@ import { useRemoteAppState } from "./useRemoteAppState";
 export default function App() {
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme !== "light";
+  const [fontsLoaded] = useFonts({
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_700Bold,
+  });
   const app = useRemoteAppState();
   let content;
 
-  if (app.isLoadingSavedConnection) {
+  if (!fontsLoaded || app.isLoadingSavedConnection) {
     content = <LoadingScreen isDarkMode={isDarkMode} message="Loading remote workspace…" />;
   } else if (app.reconnectingScreenVisible) {
     content = <LoadingScreen isDarkMode={isDarkMode} message="Reconnecting…" />;
@@ -21,5 +34,11 @@ export default function App() {
     content = <MobileAppShell app={app} isDarkMode={isDarkMode} />;
   }
 
-  return <SafeAreaProvider>{content}</SafeAreaProvider>;
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <BottomSheetModalProvider>
+        <SafeAreaProvider>{content}</SafeAreaProvider>
+      </BottomSheetModalProvider>
+    </GestureHandlerRootView>
+  );
 }

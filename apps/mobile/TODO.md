@@ -1,0 +1,15 @@
+- Expo Router for navigation
+  - / (Home, list of recent threads)
+  - /connections (Connections, list of connected environments)
+  - /connections/new (Add backend, QR code scanner, manual input)
+  - /new (New thread)
+    - /new (Sheet, select project)
+    - /draft (New thread, prompt, select model, environment, workspace etc)
+      These two is 2 pages in one sheet with sliding animation between them
+- effect/rpc for typed rpc
+- Uniwind?
+- Theme it like the desktop app
+- Share more code between web and mobile using @t3tools/client-runtime
+- Make sure model list, options etc are server authorative and not hardcoded in the client
+- Fix bug where sheet content doesn't scroll
+- Allow pasting images into text input

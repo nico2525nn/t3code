@@ -1,17 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
 
+import { buildGitActionProgressStages, type GitActionRequestInput } from "@t3tools/client-runtime";
 import {
   ApprovalRequestId,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
+  type GitBranch,
+  type GitRunStackedActionResult,
+  type GitStatusResult,
   MessageId,
+  type ModelSelection,
   type OrchestrationReadModel,
   type ProviderApprovalDecision,
+  type ProviderInteractionMode,
+  type RuntimeMode,
   type ServerConfig as T3ServerConfig,
   ThreadId,
 } from "@t3tools/contracts";
+import {
+  dedupeRemoteBranchesWithLocalMatches,
+  sanitizeFeatureBranchName,
+} from "@t3tools/shared/git";
 import { deriveActiveWorkStartedAt, formatElapsed } from "@t3tools/shared/orchestrationTiming";
 
 import { connectionTone } from "../features/connection/connectionTone";
@@ -46,6 +57,7 @@ import {
 } from "../lib/threadActivity";
 import { sortCopy } from "../lib/arrayCompat";
 import { newClientId } from "../lib/clientId";
+import { buildTemporaryWorktreeBranchName } from "../lib/worktrees";
 
 export interface ConnectedEnvironmentSummary {
   readonly environmentId: string;
@@ -65,6 +77,7 @@ export interface RemoteAppModel {
   readonly connectedEnvironments: ReadonlyArray<ConnectedEnvironmentSummary>;
   readonly connectedEnvironmentCount: number;
   readonly serverConfig: T3ServerConfig | null;
+  readonly serverConfigByEnvironmentId: Readonly<Record<string, T3ServerConfig | null>>;
   readonly projects: ReadonlyArray<ScopedMobileProject>;
   readonly threads: ReadonlyArray<ScopedMobileThread>;
   readonly selectedThread: ScopedMobileThread | null;
@@ -81,6 +94,8 @@ export interface RemoteAppModel {
   readonly draftAttachments: ReadonlyArray<DraftComposerImageAttachment>;
   readonly screenTone: ReturnType<typeof connectionTone>;
   readonly activeThreadBusy: boolean;
+  readonly selectedThreadGitStatus: GitStatusResult | null;
+  readonly gitOperationLabel: string | null;
   readonly hasRemoteActivity: boolean;
   readonly selectedEnvironmentBaseUrl: string | null;
   readonly selectedEnvironmentBearerToken: string | null;
@@ -92,15 +107,57 @@ export interface RemoteAppModel {
   readonly onRequestCloseConnectionEditor: () => void;
   readonly onChangeConnectionPairingUrl: (pairingUrl: string) => void;
   readonly onConnectPress: () => void;
+  readonly onUpdateEnvironment: (
+    environmentId: string,
+    updates: { readonly label: string; readonly displayUrl: string },
+  ) => Promise<void>;
   readonly onRemoveEnvironmentPress: (environmentId: string) => void;
   readonly onRefresh: () => Promise<void>;
   readonly onCreateThread: (project: ScopedMobileProject) => Promise<void>;
+  readonly onCreateThreadWithOptions: (input: {
+    readonly project: ScopedMobileProject;
+    readonly modelSelection: ModelSelection;
+    readonly envMode: "local" | "worktree";
+    readonly branch: string | null;
+    readonly worktreePath: string | null;
+    readonly runtimeMode: RuntimeMode;
+    readonly interactionMode: ProviderInteractionMode;
+    readonly initialMessageText: string;
+    readonly initialAttachments: ReadonlyArray<DraftComposerImageAttachment>;
+  }) => Promise<void>;
   readonly onSelectThread: (thread: ScopedMobileThread) => void;
   readonly onBackFromThread: () => void;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftImages: () => Promise<void>;
   readonly onPasteIntoDraft: () => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
+  readonly onRefreshSelectedThreadGitStatus: (options?: {
+    readonly quiet?: boolean;
+  }) => Promise<void>;
+  readonly onListProjectBranches: (
+    project: ScopedMobileProject,
+  ) => Promise<ReadonlyArray<GitBranch>>;
+  readonly onCreateProjectWorktree: (
+    project: ScopedMobileProject,
+    input: {
+      readonly baseBranch: string;
+      readonly newBranch: string;
+    },
+  ) => Promise<{
+    readonly branch: string;
+    readonly worktreePath: string;
+  } | null>;
+  readonly onListSelectedThreadBranches: () => Promise<ReadonlyArray<GitBranch>>;
+  readonly onCheckoutSelectedThreadBranch: (branch: string) => Promise<void>;
+  readonly onCreateSelectedThreadBranch: (branch: string) => Promise<void>;
+  readonly onCreateSelectedThreadWorktree: (input: {
+    readonly baseBranch: string;
+    readonly newBranch: string;
+  }) => Promise<void>;
+  readonly onPullSelectedThreadBranch: () => Promise<void>;
+  readonly onRunSelectedThreadGitAction: (
+    input: GitActionRequestInput,
+  ) => Promise<GitRunStackedActionResult | null>;
   readonly onSendMessage: () => void;
   readonly onRenameThread: (title: string) => Promise<void>;
   readonly onStopThread: () => Promise<void>;
@@ -145,6 +202,16 @@ function firstNonNull<T>(values: ReadonlyArray<T | null | undefined>): T | null 
     }
   }
   return null;
+}
+
+function deriveThreadTitleFromPrompt(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return "New thread";
+  }
+
+  const compact = trimmed.replace(/\s+/g, " ");
+  return compact.length <= 72 ? compact : `${compact.slice(0, 69).trimEnd()}...`;
 }
 
 function deriveOverallConnectionState(
@@ -268,6 +335,10 @@ export function useRemoteAppState(): RemoteAppModel {
     null,
   );
   const [dispatchingQueuedMessageId, setDispatchingQueuedMessageId] = useState<string | null>(null);
+  const [selectedThreadGitStatus, setSelectedThreadGitStatus] = useState<GitStatusResult | null>(
+    null,
+  );
+  const [gitOperationLabel, setGitOperationLabel] = useState<string | null>(null);
   const [queuedMessagesByThreadKey, setQueuedMessagesByThreadKey] = useState<
     Record<string, ReadonlyArray<QueuedThreadMessage>>
   >({});
@@ -516,6 +587,333 @@ export function useRemoteAppState(): RemoteAppModel {
     setSelectedThreadRef(null);
   }, [selectedThread, selectedThreadRef]);
 
+  const selectedThreadProject = useMemo(
+    () =>
+      selectedThread
+        ? (projects.find(
+            (project) =>
+              project.environmentId === selectedThread.environmentId &&
+              project.id === selectedThread.projectId,
+          ) ?? null)
+        : null,
+    [projects, selectedThread],
+  );
+
+  const selectedThreadGitRootCwd = selectedThreadProject?.workspaceRoot ?? null;
+
+  const updateThreadGitContext = useCallback(
+    async (
+      thread: ScopedMobileThread,
+      input: {
+        readonly branch?: string | null;
+        readonly worktreePath?: string | null;
+      },
+    ) => {
+      const client = clientsRef.current.get(thread.environmentId);
+      if (!client) {
+        return;
+      }
+
+      await client.dispatchCommand({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe(newClientId("command")),
+        threadId: ThreadId.makeUnsafe(thread.id),
+        ...(input.branch !== undefined ? { branch: input.branch } : {}),
+        ...(input.worktreePath !== undefined ? { worktreePath: input.worktreePath } : {}),
+      });
+    },
+    [],
+  );
+
+  const refreshSelectedThreadGitStatus = useCallback(
+    async (options?: { readonly quiet?: boolean; readonly cwd?: string | null }) => {
+      if (!selectedThread || !selectedThreadProject) {
+        setSelectedThreadGitStatus(null);
+        return null;
+      }
+
+      const cwd =
+        options?.cwd ?? selectedThread.worktreePath ?? selectedThreadProject.workspaceRoot;
+      if (!cwd) {
+        setSelectedThreadGitStatus(null);
+        return null;
+      }
+
+      if (!options?.quiet) {
+        setGitOperationLabel("Refreshing git status");
+      }
+
+      try {
+        const client = clientsRef.current.get(selectedThread.environmentId);
+        if (!client) {
+          return null;
+        }
+        const status = await client.gitRefreshStatus({ cwd });
+        setSelectedThreadGitStatus(status);
+        setPendingConnectionError(null);
+        return status;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to refresh git status.";
+        setPendingConnectionError(message);
+        return null;
+      } finally {
+        if (!options?.quiet) {
+          setGitOperationLabel(null);
+        }
+      }
+    },
+    [selectedThread, selectedThreadProject],
+  );
+
+  useEffect(() => {
+    if (!selectedThread || !selectedThreadProject) {
+      setSelectedThreadGitStatus(null);
+      return;
+    }
+
+    void refreshSelectedThreadGitStatus({ quiet: true });
+  }, [refreshSelectedThreadGitStatus, selectedThread, selectedThreadProject]);
+
+  const runSelectedThreadGitMutation = useCallback(
+    async <T>(
+      label: string,
+      operation: (input: {
+        readonly client: RemoteClient;
+        readonly thread: ScopedMobileThread;
+        readonly project: ScopedMobileProject;
+      }) => Promise<T>,
+    ): Promise<T | null> => {
+      if (!selectedThread || !selectedThreadProject) {
+        return null;
+      }
+
+      const client = clientsRef.current.get(selectedThread.environmentId);
+      if (!client) {
+        return null;
+      }
+
+      setGitOperationLabel(label);
+      try {
+        setPendingConnectionError(null);
+        return await operation({
+          client,
+          thread: selectedThread,
+          project: selectedThreadProject,
+        });
+      } catch (error) {
+        setPendingConnectionError(error instanceof Error ? error.message : "Git action failed.");
+        return null;
+      } finally {
+        setGitOperationLabel(null);
+      }
+    },
+    [selectedThread, selectedThreadProject],
+  );
+
+  const onListSelectedThreadBranches = useCallback(async (): Promise<ReadonlyArray<GitBranch>> => {
+    if (!selectedThread || !selectedThreadProject || !selectedThreadGitRootCwd) {
+      return [];
+    }
+
+    const client = clientsRef.current.get(selectedThread.environmentId);
+    if (!client) {
+      return [];
+    }
+
+    try {
+      const result = await client.gitListBranches({
+        cwd: selectedThreadGitRootCwd,
+        limit: 100,
+      });
+      return dedupeRemoteBranchesWithLocalMatches(result.branches).filter(
+        (branch) => !branch.isRemote,
+      );
+    } catch (error) {
+      setPendingConnectionError(
+        error instanceof Error ? error.message : "Failed to load branches.",
+      );
+      return [];
+    }
+  }, [selectedThread, selectedThreadGitRootCwd, selectedThreadProject]);
+
+  const onListProjectBranches = useCallback(
+    async (project: ScopedMobileProject): Promise<ReadonlyArray<GitBranch>> => {
+      const client = clientsRef.current.get(project.environmentId);
+      if (!client) {
+        return [];
+      }
+
+      try {
+        const result = await client.gitListBranches({
+          cwd: project.workspaceRoot,
+          limit: 100,
+        });
+        return dedupeRemoteBranchesWithLocalMatches(result.branches).filter(
+          (branch) => !branch.isRemote,
+        );
+      } catch (error) {
+        setPendingConnectionError(
+          error instanceof Error ? error.message : "Failed to load branches.",
+        );
+        return [];
+      }
+    },
+    [],
+  );
+
+  const onCreateProjectWorktree = useCallback(
+    async (
+      project: ScopedMobileProject,
+      input: {
+        readonly baseBranch: string;
+        readonly newBranch: string;
+      },
+    ): Promise<{
+      readonly branch: string;
+      readonly worktreePath: string;
+    } | null> => {
+      const client = clientsRef.current.get(project.environmentId);
+      if (!client) {
+        return null;
+      }
+
+      try {
+        const result = await client.gitCreateWorktree({
+          cwd: project.workspaceRoot,
+          branch: input.baseBranch,
+          newBranch: sanitizeFeatureBranchName(input.newBranch),
+          path: null,
+        });
+        return {
+          branch: result.worktree.branch,
+          worktreePath: result.worktree.path,
+        };
+      } catch (error) {
+        setPendingConnectionError(
+          error instanceof Error ? error.message : "Failed to create worktree.",
+        );
+        return null;
+      }
+    },
+    [],
+  );
+
+  const onCheckoutSelectedThreadBranch = useCallback(
+    async (branch: string) => {
+      await runSelectedThreadGitMutation(
+        "Checking out branch",
+        async ({ client, thread, project }) => {
+          const cwd = thread.worktreePath ?? project.workspaceRoot;
+          const result = await client.gitCheckout({ cwd, branch });
+          await updateThreadGitContext(thread, {
+            branch: result.branch,
+            worktreePath: thread.worktreePath,
+          });
+          await refreshSelectedThreadGitStatus({ quiet: true, cwd });
+        },
+      );
+    },
+    [refreshSelectedThreadGitStatus, runSelectedThreadGitMutation, updateThreadGitContext],
+  );
+
+  const onCreateSelectedThreadBranch = useCallback(
+    async (branch: string) => {
+      await runSelectedThreadGitMutation("Creating branch", async ({ client, thread, project }) => {
+        const cwd = thread.worktreePath ?? project.workspaceRoot;
+        const result = await client.gitCreateBranch({
+          cwd,
+          branch,
+          checkout: true,
+        });
+        await updateThreadGitContext(thread, {
+          branch: result.branch,
+          worktreePath: thread.worktreePath,
+        });
+        await refreshSelectedThreadGitStatus({ quiet: true, cwd });
+      });
+    },
+    [refreshSelectedThreadGitStatus, runSelectedThreadGitMutation, updateThreadGitContext],
+  );
+
+  const onCreateSelectedThreadWorktree = useCallback(
+    async (input: { readonly baseBranch: string; readonly newBranch: string }) => {
+      await runSelectedThreadGitMutation(
+        "Creating worktree",
+        async ({ client, thread, project }) => {
+          const result = await client.gitCreateWorktree({
+            cwd: project.workspaceRoot,
+            branch: input.baseBranch,
+            newBranch: sanitizeFeatureBranchName(input.newBranch),
+            path: null,
+          });
+          await updateThreadGitContext(thread, {
+            branch: result.worktree.branch,
+            worktreePath: result.worktree.path,
+          });
+          await refreshSelectedThreadGitStatus({ quiet: true, cwd: result.worktree.path });
+        },
+      );
+    },
+    [refreshSelectedThreadGitStatus, runSelectedThreadGitMutation, updateThreadGitContext],
+  );
+
+  const onPullSelectedThreadBranch = useCallback(async () => {
+    await runSelectedThreadGitMutation(
+      "Pulling latest changes",
+      async ({ client, thread, project }) => {
+        const cwd = thread.worktreePath ?? project.workspaceRoot;
+        await client.gitPull({ cwd });
+        await refreshSelectedThreadGitStatus({ quiet: true, cwd });
+      },
+    );
+  }, [refreshSelectedThreadGitStatus, runSelectedThreadGitMutation]);
+
+  const onRunSelectedThreadGitAction = useCallback(
+    async (input: GitActionRequestInput): Promise<GitRunStackedActionResult | null> => {
+      const [firstStage] = buildGitActionProgressStages({
+        action: input.action,
+        hasCustomCommitMessage: Boolean(input.commitMessage?.trim()),
+        hasWorkingTreeChanges: selectedThreadGitStatus?.hasWorkingTreeChanges ?? false,
+        featureBranch: input.featureBranch ?? false,
+        shouldPushBeforePr:
+          input.action === "create_pr" &&
+          ((selectedThreadGitStatus?.aheadCount ?? 0) > 0 ||
+            !(selectedThreadGitStatus?.hasUpstream ?? false)),
+      });
+
+      return await runSelectedThreadGitMutation(
+        firstStage ?? "Running git action",
+        async ({ client, thread, project }) => {
+          const cwd = thread.worktreePath ?? project.workspaceRoot;
+          const result = await client.gitRunStackedAction({
+            actionId: newClientId("git-action"),
+            cwd,
+            action: input.action,
+            ...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
+            ...(input.featureBranch ? { featureBranch: input.featureBranch } : {}),
+            ...(input.filePaths?.length ? { filePaths: [...input.filePaths] } : {}),
+          });
+
+          if (result.branch.status === "created" && result.branch.name) {
+            await updateThreadGitContext(thread, {
+              branch: result.branch.name,
+              worktreePath: thread.worktreePath,
+            });
+          }
+
+          await refreshSelectedThreadGitStatus({ quiet: true, cwd });
+          return result;
+        },
+      );
+    },
+    [
+      refreshSelectedThreadGitStatus,
+      runSelectedThreadGitMutation,
+      selectedThreadGitStatus,
+      updateThreadGitContext,
+    ],
+  );
+
   const selectedThreadKey = selectedThread
     ? scopedThreadKey(selectedThread.environmentId, selectedThread.id)
     : null;
@@ -740,15 +1138,115 @@ export function useRemoteAppState(): RemoteAppModel {
         }
       }),
     );
-  }, [savedConnectionsById, selectedThread]);
+    if (selectedThread) {
+      await refreshSelectedThreadGitStatus({ quiet: true });
+    }
+  }, [refreshSelectedThreadGitStatus, savedConnectionsById, selectedThread]);
 
-  const onCreateThread = useCallback(
-    async (project: ScopedMobileProject) => {
-      const client = clientsRef.current.get(project.environmentId);
+  const onCreateThreadWithOptions = useCallback(
+    async (input: {
+      readonly project: ScopedMobileProject;
+      readonly modelSelection: ModelSelection;
+      readonly envMode: "local" | "worktree";
+      readonly branch: string | null;
+      readonly worktreePath: string | null;
+      readonly runtimeMode: RuntimeMode;
+      readonly interactionMode: ProviderInteractionMode;
+      readonly initialMessageText: string;
+      readonly initialAttachments: ReadonlyArray<DraftComposerImageAttachment>;
+    }) => {
+      const client = clientsRef.current.get(input.project.environmentId);
       if (!client) {
         return;
       }
 
+      const threadId = ThreadId.makeUnsafe(newClientId("thread"));
+      const createdAt = new Date().toISOString();
+      const initialMessageText = input.initialMessageText.trim();
+      const nextTitle = deriveThreadTitleFromPrompt(input.initialMessageText);
+      if (input.envMode === "worktree") {
+        if (!input.branch || initialMessageText.length === 0) {
+          return;
+        }
+
+        await client.dispatchCommand({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe(newClientId("command")),
+          threadId,
+          message: {
+            messageId: MessageId.makeUnsafe(newClientId("message")),
+            role: "user",
+            text: initialMessageText,
+            attachments: input.initialAttachments,
+          },
+          modelSelection: input.modelSelection,
+          titleSeed: nextTitle,
+          runtimeMode: input.runtimeMode,
+          interactionMode: input.interactionMode,
+          bootstrap: {
+            createThread: {
+              projectId: input.project.id,
+              title: nextTitle,
+              modelSelection: input.modelSelection,
+              runtimeMode: input.runtimeMode,
+              interactionMode: input.interactionMode,
+              branch: input.branch,
+              worktreePath: null,
+              createdAt,
+            },
+            prepareWorktree: {
+              projectCwd: input.project.workspaceRoot,
+              baseBranch: input.branch,
+              branch: buildTemporaryWorktreeBranchName(),
+            },
+            runSetupScript: true,
+          },
+          createdAt: new Date().toISOString(),
+        });
+      } else {
+        await client.dispatchCommand({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe(newClientId("command")),
+          threadId,
+          projectId: input.project.id,
+          title: nextTitle,
+          modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode,
+          interactionMode: input.interactionMode,
+          branch: input.branch,
+          worktreePath: input.worktreePath,
+          createdAt,
+        });
+
+        if (initialMessageText.length > 0 || input.initialAttachments.length > 0) {
+          await client.dispatchCommand({
+            type: "thread.turn.start",
+            commandId: CommandId.makeUnsafe(newClientId("command")),
+            threadId,
+            message: {
+              messageId: MessageId.makeUnsafe(newClientId("message")),
+              role: "user",
+              text: initialMessageText,
+              attachments: input.initialAttachments,
+            },
+            runtimeMode: input.runtimeMode,
+            interactionMode: input.interactionMode,
+            createdAt: new Date().toISOString(),
+          });
+        }
+      }
+
+      setSelectedThreadRef({
+        environmentId: input.project.environmentId,
+        threadId,
+      });
+      await onRefresh();
+    },
+    [onRefresh],
+  );
+
+  const onCreateThread = useCallback(
+    async (project: ScopedMobileProject) => {
       const latestProjectThread =
         threads.find(
           (thread) =>
@@ -761,28 +1259,19 @@ export function useRemoteAppState(): RemoteAppModel {
         return;
       }
 
-      const threadId = ThreadId.makeUnsafe(newClientId("thread"));
-      const createdAt = new Date().toISOString();
-      await client.dispatchCommand({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe(newClientId("command")),
-        threadId,
-        projectId: project.id,
-        title: "New thread",
+      await onCreateThreadWithOptions({
+        project,
         modelSelection,
-        runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        envMode: "local",
         branch: null,
         worktreePath: null,
-        createdAt,
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        initialMessageText: "",
+        initialAttachments: [],
       });
-      setSelectedThreadRef({
-        environmentId: project.environmentId,
-        threadId,
-      });
-      await onRefresh();
     },
-    [onRefresh, threads],
+    [onCreateThreadWithOptions, threads],
   );
 
   const onConnectPress = useCallback(() => {
@@ -823,6 +1312,31 @@ export function useRemoteAppState(): RemoteAppModel {
       );
     },
     [disconnectEnvironment, savedConnectionsById],
+  );
+
+  const onUpdateEnvironment = useCallback(
+    async (
+      environmentId: string,
+      updates: { readonly label: string; readonly displayUrl: string },
+    ) => {
+      const connection = savedConnectionsById[environmentId];
+      if (!connection) {
+        return;
+      }
+
+      const updated: SavedRemoteConnection = {
+        ...connection,
+        environmentLabel: updates.label.trim() || connection.environmentLabel,
+        displayUrl: updates.displayUrl.trim() || connection.displayUrl,
+      };
+
+      await saveConnection(updated);
+      setSavedConnectionsById((current) => ({
+        ...current,
+        [environmentId]: updated,
+      }));
+    },
+    [savedConnectionsById],
   );
 
   const onSendMessage = useCallback(() => {
@@ -1105,6 +1619,16 @@ export function useRemoteAppState(): RemoteAppModel {
   const serverConfig =
     selectedEnvironmentRuntime?.serverConfig ??
     firstNonNull(Object.values(environmentStateById).map((runtime) => runtime.serverConfig));
+  const serverConfigByEnvironmentId = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(environmentStateById).map(([environmentId, runtime]) => [
+          environmentId,
+          runtime.serverConfig ?? null,
+        ]),
+      ),
+    [environmentStateById],
+  );
   const hasClient = connectedEnvironments.length > 0;
 
   return {
@@ -1117,6 +1641,7 @@ export function useRemoteAppState(): RemoteAppModel {
     connectedEnvironments,
     connectedEnvironmentCount: connectedEnvironments.length,
     serverConfig,
+    serverConfigByEnvironmentId,
     projects,
     threads,
     selectedThread,
@@ -1133,6 +1658,8 @@ export function useRemoteAppState(): RemoteAppModel {
     draftAttachments,
     screenTone,
     activeThreadBusy,
+    selectedThreadGitStatus,
+    gitOperationLabel,
     hasRemoteActivity,
     selectedEnvironmentBaseUrl: selectedEnvironmentConnection?.httpBaseUrl ?? null,
     selectedEnvironmentBearerToken: selectedEnvironmentConnection?.bearerToken ?? null,
@@ -1148,9 +1675,11 @@ export function useRemoteAppState(): RemoteAppModel {
     },
     onChangeConnectionPairingUrl: (pairingUrl: string) => setConnectionInput({ pairingUrl }),
     onConnectPress,
+    onUpdateEnvironment,
     onRemoveEnvironmentPress,
     onRefresh,
     onCreateThread,
+    onCreateThreadWithOptions,
     onSelectThread: (thread) =>
       setSelectedThreadRef({
         environmentId: thread.environmentId,
@@ -1161,6 +1690,17 @@ export function useRemoteAppState(): RemoteAppModel {
     onPickDraftImages,
     onPasteIntoDraft,
     onRemoveDraftImage,
+    onRefreshSelectedThreadGitStatus: async (options) => {
+      await refreshSelectedThreadGitStatus(options);
+    },
+    onListProjectBranches,
+    onCreateProjectWorktree,
+    onListSelectedThreadBranches,
+    onCheckoutSelectedThreadBranch,
+    onCreateSelectedThreadBranch,
+    onCreateSelectedThreadWorktree,
+    onPullSelectedThreadBranch,
+    onRunSelectedThreadGitAction,
     onSendMessage,
     onRenameThread,
     onStopThread,

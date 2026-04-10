@@ -1,23 +1,39 @@
-import type { ApprovalRequestId, ProviderApprovalDecision } from "@t3tools/contracts";
+import type {
+  ApprovalRequestId,
+  GitBranch,
+  GitRunStackedActionResult,
+  GitStatusResult,
+  ProviderApprovalDecision,
+} from "@t3tools/contracts";
+import type { GitActionRequestInput } from "@t3tools/client-runtime";
 import * as Haptics from "expo-haptics";
-import { useEffect, useRef, useState } from "react";
+import { SymbolView } from "expo-symbols";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   useColorScheme,
+  useWindowDimensions,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated from "react-native-reanimated";
+import Animated, {
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
-import { ErrorBanner } from "../../components/ErrorBanner";
 import { GlassSafeAreaView } from "../../components/GlassSafeAreaView";
 import type { StatusTone } from "../../components/StatusPill";
-import { ConnectionStatusDot } from "../connection/ConnectionStatusDot";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
+import type { MobileLayoutVariant } from "../../lib/mobileLayout";
 import type { ScopedMobileThread } from "../../lib/scopedEntities";
 import type {
   PendingApproval,
@@ -26,6 +42,7 @@ import type {
   ThreadFeedEntry,
 } from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { ThreadGitControls } from "./ThreadGitControls";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import { ThreadComposer } from "./ThreadComposer";
 import { ThreadFeed } from "./ThreadFeed";
@@ -48,14 +65,32 @@ export interface ThreadDetailScreenProps {
   readonly draftAttachments: ReadonlyArray<DraftComposerImageAttachment>;
   readonly connectionStateLabel: "ready" | "connecting" | "reconnecting" | "disconnected" | "idle";
   readonly activeThreadBusy: boolean;
+  readonly selectedThreadGitStatus: GitStatusResult | null;
+  readonly gitOperationLabel: string | null;
   readonly selectedThreadQueueCount: number;
+  readonly layoutVariant?: MobileLayoutVariant;
   readonly onBack: () => void;
+  readonly onOpenDrawer: () => void;
   readonly onOpenConnectionEditor: () => void;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftImages: () => Promise<void>;
   readonly onPasteIntoDraft: () => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onRefresh: () => Promise<void>;
+  readonly onRefreshSelectedThreadGitStatus: (options?: {
+    readonly quiet?: boolean;
+  }) => Promise<void>;
+  readonly onListSelectedThreadBranches: () => Promise<ReadonlyArray<GitBranch>>;
+  readonly onCheckoutSelectedThreadBranch: (branch: string) => Promise<void>;
+  readonly onCreateSelectedThreadBranch: (branch: string) => Promise<void>;
+  readonly onCreateSelectedThreadWorktree: (input: {
+    readonly baseBranch: string;
+    readonly newBranch: string;
+  }) => Promise<void>;
+  readonly onPullSelectedThreadBranch: () => Promise<void>;
+  readonly onRunSelectedThreadGitAction: (
+    input: GitActionRequestInput,
+  ) => Promise<GitRunStackedActionResult | null>;
   readonly onRenameThread: (title: string) => Promise<void>;
   readonly onStopThread: () => Promise<void>;
   readonly onSendMessage: () => void;
@@ -92,16 +127,6 @@ function latestStreamingAssistantMessage(
   }
 
   return null;
-}
-
-function useRenameDraftSync(threadId: string, threadTitle: string) {
-  const [renameDraft, setRenameDraft] = useState(threadTitle);
-
-  useEffect(() => {
-    setRenameDraft(threadTitle);
-  }, [threadId, threadTitle]);
-
-  return [renameDraft, setRenameDraft] as const;
 }
 
 function useStreamingHaptics(threadId: string, feed: ReadonlyArray<ThreadFeedEntry>) {
@@ -155,27 +180,116 @@ function useStreamingHaptics(threadId: string, feed: ReadonlyArray<ThreadFeedEnt
 }
 
 export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
+  const { onBack, onOpenDrawer, onRefresh, onRefreshSelectedThreadGitStatus } = props;
   const isDarkMode = useColorScheme() === "dark";
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const agentLabel = `${props.selectedThread.modelSelection.provider} agent`;
-  const headerOverlayHeight = insets.top + 70;
+  const headerOverlayHeight = insets.top + 118;
   const composerBottomInset = Math.max(insets.bottom, 12);
-  const screenBackgroundColor = isDarkMode ? "#020617" : "#f8fafc";
+  const screenBackgroundColor = isDarkMode ? "#0c1118" : "#f7f7f5";
   const modalBackdropColor = isDarkMode ? "rgba(2,6,23,0.68)" : "rgba(15,23,42,0.22)";
   const modalPanelColor = isDarkMode ? "#111827" : "#ffffff";
   const modalBorderColor = isDarkMode ? "rgba(255,255,255,0.08)" : "#e2e8f0";
   const modalMutedColor = isDarkMode ? "#94a3b8" : "#64748b";
   const modalPrimaryColor = isDarkMode ? "#f8fafc" : "#020617";
-  const connectionPulse = props.activeThreadBusy;
   const [renameVisible, setRenameVisible] = useState(false);
-  const [renameDraft, setRenameDraft] = useRenameDraftSync(
-    props.selectedThread.id,
-    props.selectedThread.title,
-  );
+  const [refreshing, setRefreshing] = useState(false);
+  const [renameDraft, setRenameDraft] = useState(props.selectedThread.title);
   const showHeader = props.showHeader ?? true;
   const showContent = props.showContent ?? true;
+  const layoutVariant = props.layoutVariant ?? "compact";
+  const isSplitLayout = layoutVariant === "split";
+  const edgeSwipeTranslation = useSharedValue(0);
 
   useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
+
+  const completeDrawerGesture = useCallback(() => {
+    void Haptics.selectionAsync();
+    onOpenDrawer();
+  }, [onOpenDrawer]);
+
+  const completeBackGesture = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onBack();
+  }, [onBack]);
+
+  const handleRefresh = useCallback(async (): Promise<void> => {
+    if (refreshing) {
+      return;
+    }
+
+    setRefreshing(true);
+    try {
+      await onRefresh();
+      await onRefreshSelectedThreadGitStatus();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [onRefresh, onRefreshSelectedThreadGitStatus, refreshing]);
+
+  const edgeSwipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(!isSplitLayout)
+        .hitSlop({ left: 0, width: 40 })
+        .activeOffsetX([10, 999])
+        .failOffsetY([-24, 24])
+        .onUpdate((event) => {
+          edgeSwipeTranslation.value = Math.max(event.translationX, 0);
+        })
+        .onEnd((event) => {
+          const translationX = Math.max(event.translationX, 0);
+          const shouldOpenDrawer = event.y < headerOverlayHeight && translationX > 56;
+          const shouldGoBack = translationX > Math.min(width * 0.26, 120);
+
+          if (shouldOpenDrawer) {
+            edgeSwipeTranslation.value = withSpring(0, {
+              damping: 20,
+              stiffness: 220,
+            });
+            runOnJS(completeDrawerGesture)();
+            return;
+          }
+
+          if (shouldGoBack) {
+            edgeSwipeTranslation.value = withTiming(width, { duration: 180 }, (finished) => {
+              if (!finished) {
+                return;
+              }
+
+              edgeSwipeTranslation.value = 0;
+              runOnJS(completeBackGesture)();
+            });
+            return;
+          }
+
+          edgeSwipeTranslation.value = withSpring(0, {
+            damping: 20,
+            stiffness: 220,
+          });
+        }),
+    [
+      completeBackGesture,
+      completeDrawerGesture,
+      edgeSwipeTranslation,
+      headerOverlayHeight,
+      isSplitLayout,
+      width,
+    ],
+  );
+
+  const edgeSwipeStyle = useAnimatedStyle(() => {
+    const borderRadius = interpolate(edgeSwipeTranslation.value, [0, width], [0, 28], "clamp");
+
+    return {
+      flex: 1,
+      transform: [{ translateX: edgeSwipeTranslation.value }],
+      borderTopLeftRadius: borderRadius,
+      borderBottomLeftRadius: borderRadius,
+      overflow: "hidden",
+    };
+  });
 
   async function handleSubmitRename(): Promise<void> {
     const trimmed = renameDraft.trim();
@@ -188,216 +302,243 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={{ flex: 1, backgroundColor: screenBackgroundColor }}
-    >
-      {showHeader ? (
-        <View className="absolute inset-x-0 top-0 z-20">
-          <GlassSafeAreaView
-            leftSlot={
-              <Pressable
-                className="min-w-[76px] items-center rounded-[14px] bg-slate-200 px-2.5 py-2.5 dark:bg-slate-800"
-                onPress={props.onBack}
-              >
-                <Text className="font-t3-bold text-[13px] text-slate-950 dark:text-slate-50">
-                  Back
-                </Text>
-              </Pressable>
-            }
-            centerSlot={
-              <View className="items-center gap-1">
-                <Pressable onLongPress={() => setRenameVisible(true)}>
-                  <Animated.Text
-                    numberOfLines={1}
-                    style={{
-                      color: isDarkMode ? "#f8fafc" : "#020617",
-                      fontSize: 18,
-                      fontWeight: "800",
-                      lineHeight: 22,
-                    }}
-                  >
-                    {props.selectedThread.title}
-                  </Animated.Text>
-                </Pressable>
-                <Text
-                  className="text-[11px] font-bold uppercase"
-                  style={{ color: modalMutedColor, letterSpacing: 1.05 }}
-                >
-                  {props.activeWorkDurationLabel ? props.activeWorkDurationLabel : ""}
-                </Text>
-              </View>
-            }
-            rightSlot={
-              <Pressable className="rounded-full px-3 py-2" onPress={props.onOpenConnectionEditor}>
-                <ConnectionStatusDot state={props.connectionStateLabel} pulse={connectionPulse} />
-              </Pressable>
-            }
-          />
-        </View>
-      ) : null}
-
-      {showContent && props.connectionError ? (
-        <View
-          className="mx-4 mt-3"
-          style={{
-            paddingTop: props.activeWorkDurationLabel
-              ? headerOverlayHeight + 12
-              : headerOverlayHeight + 6,
-          }}
+    <GestureDetector gesture={edgeSwipeGesture}>
+      <Animated.View style={edgeSwipeStyle}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flex: 1, backgroundColor: screenBackgroundColor }}
         >
-          <ErrorBanner message={props.connectionError} />
-        </View>
-      ) : null}
-
-      {showContent ? (
-        <>
-          <View style={{ flex: 1, minHeight: 0 }}>
-            <ThreadFeed
-              threadId={props.selectedThread.id}
-              feed={props.selectedThreadFeed}
-              httpBaseUrl={props.httpBaseUrl}
-              bearerToken={props.bearerToken}
-              agentLabel={agentLabel}
-              contentTopInset={headerOverlayHeight + 20}
-              contentBottomInset={composerBottomInset + 20}
-            />
-          </View>
-
-          {props.activePendingApproval || props.activePendingUserInput ? (
-            <View className="gap-3 px-4 pb-3" style={{ flexShrink: 0 }}>
-              {props.activePendingApproval ? (
-                <PendingApprovalCard
-                  approval={props.activePendingApproval}
-                  respondingApprovalId={props.respondingApprovalId}
-                  onRespond={props.onRespondToApproval}
+          {showHeader ? (
+            <View className="absolute inset-x-0 top-0 z-20">
+              <View
+                style={{
+                  backgroundColor: isDarkMode ? "rgba(12,17,24,0.94)" : "rgba(247,247,245,0.94)",
+                  borderBottomWidth: 1,
+                  borderBottomColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(23,23,23,0.06)",
+                }}
+              >
+                <GlassSafeAreaView
+                  leftSlot={
+                    isSplitLayout ? null : (
+                      <Pressable
+                        className="h-11 w-11 items-center justify-center rounded-full"
+                        style={{
+                          backgroundColor: isDarkMode
+                            ? "rgba(255,255,255,0.06)"
+                            : "rgba(23,23,23,0.05)",
+                        }}
+                        onPress={props.onBack}
+                      >
+                        <SymbolView
+                          name="chevron.left"
+                          size={18}
+                          tintColor={isDarkMode ? "#fafaf9" : "#171717"}
+                          type="monochrome"
+                        />
+                      </Pressable>
+                    )
+                  }
+                  centerSlot={
+                    <View className="items-center gap-1">
+                      <Pressable
+                        onLongPress={() => {
+                          setRenameDraft(props.selectedThread.title);
+                          setRenameVisible(true);
+                        }}
+                      >
+                        <Animated.Text
+                          numberOfLines={1}
+                          style={{
+                            color: isDarkMode ? "#f8fafc" : "#020617",
+                            fontSize: 18,
+                            fontWeight: "800",
+                            lineHeight: 22,
+                          }}
+                        >
+                          {props.selectedThread.title}
+                        </Animated.Text>
+                      </Pressable>
+                      <Text
+                        className="text-[11px] font-bold uppercase"
+                        style={{ color: modalMutedColor, letterSpacing: 1.05 }}
+                      >
+                        {props.activeWorkDurationLabel ? props.activeWorkDurationLabel : ""}
+                      </Text>
+                    </View>
+                  }
+                  rightSlot={
+                    <ThreadGitControls
+                      currentBranch={props.selectedThread.branch}
+                      currentWorktreePath={props.selectedThread.worktreePath}
+                      gitStatus={props.selectedThreadGitStatus}
+                      gitOperationLabel={props.gitOperationLabel}
+                      onRefreshStatus={props.onRefreshSelectedThreadGitStatus}
+                      onListBranches={props.onListSelectedThreadBranches}
+                      onCheckoutBranch={props.onCheckoutSelectedThreadBranch}
+                      onCreateBranch={props.onCreateSelectedThreadBranch}
+                      onCreateWorktree={props.onCreateSelectedThreadWorktree}
+                      onPull={props.onPullSelectedThreadBranch}
+                      onRunAction={props.onRunSelectedThreadGitAction}
+                    />
+                  }
                 />
-              ) : null}
-              {props.activePendingUserInput ? (
-                <PendingUserInputCard
-                  pendingUserInput={props.activePendingUserInput}
-                  drafts={props.activePendingUserInputDrafts}
-                  answers={props.activePendingUserInputAnswers}
-                  respondingUserInputId={props.respondingUserInputId}
-                  onSelectOption={props.onSelectUserInputOption}
-                  onChangeCustomAnswer={props.onChangeUserInputCustomAnswer}
-                  onSubmit={props.onSubmitUserInput}
-                />
-              ) : null}
+              </View>
             </View>
           ) : null}
 
-          <ThreadComposer
-            draftMessage={props.draftMessage}
-            draftAttachments={props.draftAttachments}
-            placeholder="Ask the repo agent, or run a command…"
-            connectionState={props.connectionStateLabel}
-            selectedThread={props.selectedThread}
-            queueCount={props.selectedThreadQueueCount}
-            activeThreadBusy={props.activeThreadBusy}
-            bottomInset={composerBottomInset}
-            onChangeDraftMessage={props.onChangeDraftMessage}
-            onPickDraftImages={props.onPickDraftImages}
-            onPasteIntoDraft={props.onPasteIntoDraft}
-            onRemoveDraftImage={props.onRemoveDraftImage}
-            onRefresh={props.onRefresh}
-            onStopThread={props.onStopThread}
-            onSendMessage={props.onSendMessage}
-          />
-        </>
-      ) : (
-        <View style={{ flex: 1 }} />
-      )}
+          {showContent ? (
+            <>
+              <View style={{ flex: 1, minHeight: 0 }}>
+                <ThreadFeed
+                  threadId={props.selectedThread.id}
+                  feed={props.selectedThreadFeed}
+                  httpBaseUrl={props.httpBaseUrl}
+                  bearerToken={props.bearerToken}
+                  agentLabel={agentLabel}
+                  contentTopInset={headerOverlayHeight + 20}
+                  contentBottomInset={composerBottomInset + 20}
+                  layoutVariant={layoutVariant}
+                  refreshing={refreshing}
+                  onRefresh={() => void handleRefresh()}
+                />
+              </View>
 
-      <Modal
-        transparent
-        animationType="fade"
-        visible={renameVisible}
-        onRequestClose={() => setRenameVisible(false)}
-      >
-        <View
-          className="flex-1 items-center justify-center px-5"
-          style={{ backgroundColor: modalBackdropColor }}
-        >
-          <View
-            className="w-full gap-4 px-4 py-4"
-            style={{
-              maxWidth: 420,
-              borderWidth: 1,
-              borderColor: modalBorderColor,
-              backgroundColor: modalPanelColor,
-            }}
+              {props.activePendingApproval || props.activePendingUserInput ? (
+                <View className="gap-3 px-4 pb-3" style={{ flexShrink: 0 }}>
+                  {props.activePendingApproval ? (
+                    <PendingApprovalCard
+                      approval={props.activePendingApproval}
+                      respondingApprovalId={props.respondingApprovalId}
+                      onRespond={props.onRespondToApproval}
+                    />
+                  ) : null}
+                  {props.activePendingUserInput ? (
+                    <PendingUserInputCard
+                      pendingUserInput={props.activePendingUserInput}
+                      drafts={props.activePendingUserInputDrafts}
+                      answers={props.activePendingUserInputAnswers}
+                      respondingUserInputId={props.respondingUserInputId}
+                      onSelectOption={props.onSelectUserInputOption}
+                      onChangeCustomAnswer={props.onChangeUserInputCustomAnswer}
+                      onSubmit={props.onSubmitUserInput}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+
+              <ThreadComposer
+                draftMessage={props.draftMessage}
+                draftAttachments={props.draftAttachments}
+                placeholder="Ask the repo agent, or run a command…"
+                connectionState={props.connectionStateLabel}
+                selectedThread={props.selectedThread}
+                queueCount={props.selectedThreadQueueCount}
+                activeThreadBusy={props.activeThreadBusy}
+                layoutVariant={layoutVariant}
+                bottomInset={composerBottomInset}
+                onChangeDraftMessage={props.onChangeDraftMessage}
+                onPickDraftImages={props.onPickDraftImages}
+                onPasteIntoDraft={props.onPasteIntoDraft}
+                onRemoveDraftImage={props.onRemoveDraftImage}
+                onRefresh={props.onRefresh}
+                onStopThread={props.onStopThread}
+                onSendMessage={props.onSendMessage}
+              />
+            </>
+          ) : (
+            <View style={{ flex: 1 }} />
+          )}
+
+          <Modal
+            transparent
+            animationType="fade"
+            visible={renameVisible}
+            onRequestClose={() => setRenameVisible(false)}
           >
-            <View className="gap-2">
-              <Text
-                className="text-[11px] font-bold uppercase"
-                style={{ color: modalMutedColor, letterSpacing: 1.2 }}
-              >
-                Thread name
-              </Text>
-              <Text
-                className="text-[20px] font-extrabold leading-[24px]"
-                style={{ color: modalPrimaryColor }}
-              >
-                Rename thread
-              </Text>
-            </View>
-
-            <TextInput
-              autoFocus
-              value={renameDraft}
-              onChangeText={setRenameDraft}
-              placeholder="Thread title"
-              className="min-h-[56px] px-4 py-3 text-[15px]"
-              style={{
-                borderWidth: 1,
-                borderColor: modalBorderColor,
-                backgroundColor: isDarkMode ? "#0f172a" : "#ffffff",
-                color: modalPrimaryColor,
-              }}
-              onSubmitEditing={() => {
-                void handleSubmitRename();
-              }}
-            />
-
-            <View className="flex-row gap-3">
-              <Pressable
-                className="min-h-[48px] flex-1 items-center justify-center px-4 py-3"
+            <View
+              className="flex-1 items-center justify-center px-5"
+              style={{ backgroundColor: modalBackdropColor }}
+            >
+              <View
+                className="w-full gap-4 px-4 py-4"
                 style={{
+                  maxWidth: 420,
                   borderWidth: 1,
                   borderColor: modalBorderColor,
-                  backgroundColor: isDarkMode ? "#1f2937" : "#f8fafc",
-                }}
-                onPress={() => {
-                  setRenameDraft(props.selectedThread.title);
-                  setRenameVisible(false);
+                  backgroundColor: modalPanelColor,
                 }}
               >
-                <Text
-                  className="text-sm font-extrabold uppercase"
-                  style={{ color: modalPrimaryColor, letterSpacing: 1 }}
-                >
-                  Cancel
-                </Text>
-              </Pressable>
-              <Pressable
-                className="min-h-[48px] flex-1 items-center justify-center px-4 py-3"
-                style={{ backgroundColor: modalPrimaryColor }}
-                onPress={() => {
-                  void handleSubmitRename();
-                }}
-              >
-                <Text
-                  className="text-sm font-extrabold uppercase"
-                  style={{ color: isDarkMode ? "#020617" : "#f8fafc", letterSpacing: 1 }}
-                >
-                  Save
-                </Text>
-              </Pressable>
+                <View className="gap-2">
+                  <Text
+                    className="text-[11px] font-bold uppercase"
+                    style={{ color: modalMutedColor, letterSpacing: 1.2 }}
+                  >
+                    Thread name
+                  </Text>
+                  <Text
+                    className="text-[20px] font-extrabold leading-[24px]"
+                    style={{ color: modalPrimaryColor }}
+                  >
+                    Rename thread
+                  </Text>
+                </View>
+
+                <TextInput
+                  value={renameDraft}
+                  onChangeText={setRenameDraft}
+                  placeholder="Thread title"
+                  className="min-h-[56px] px-4 py-3 text-[15px]"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: modalBorderColor,
+                    backgroundColor: isDarkMode ? "#0f172a" : "#ffffff",
+                    color: modalPrimaryColor,
+                  }}
+                  onSubmitEditing={() => {
+                    void handleSubmitRename();
+                  }}
+                />
+
+                <View className="flex-row gap-3">
+                  <Pressable
+                    className="min-h-[48px] flex-1 items-center justify-center px-4 py-3"
+                    style={{
+                      borderWidth: 1,
+                      borderColor: modalBorderColor,
+                      backgroundColor: isDarkMode ? "#1f2937" : "#f8fafc",
+                    }}
+                    onPress={() => {
+                      setRenameDraft(props.selectedThread.title);
+                      setRenameVisible(false);
+                    }}
+                  >
+                    <Text
+                      className="text-sm font-extrabold uppercase"
+                      style={{ color: modalPrimaryColor, letterSpacing: 1 }}
+                    >
+                      Cancel
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    className="min-h-[48px] flex-1 items-center justify-center px-4 py-3"
+                    style={{ backgroundColor: modalPrimaryColor }}
+                    onPress={() => {
+                      void handleSubmitRename();
+                    }}
+                  >
+                    <Text
+                      className="text-sm font-extrabold uppercase"
+                      style={{ color: isDarkMode ? "#020617" : "#f8fafc", letterSpacing: 1 }}
+                    >
+                      Save
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
-          </View>
-        </View>
-      </Modal>
-    </KeyboardAvoidingView>
+          </Modal>
+        </KeyboardAvoidingView>
+      </Animated.View>
+    </GestureDetector>
   );
 }

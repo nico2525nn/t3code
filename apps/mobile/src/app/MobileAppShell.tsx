@@ -1,198 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { StatusBar, useWindowDimensions, View } from "react-native";
-import Animated, {
-  Easing,
-  interpolate,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
+import { useState } from "react";
+import { StatusBar, View } from "react-native";
 
 import { ConnectionSheet } from "../features/connection/ConnectionSheet";
+import { HomeScreen } from "../features/home/HomeScreen";
+import { NewTaskSheet } from "../features/threads/NewTaskSheet";
 import { ThreadDetailScreen } from "../features/threads/ThreadDetailScreen";
-import { ThreadListScreen, type TransitionSourceFrame } from "../features/threads/ThreadListScreen";
-import type { ScopedMobileThread } from "../lib/scopedEntities";
+import { ThreadNavigationDrawer } from "../features/threads/ThreadNavigationDrawer";
+import { scopedThreadKey } from "../lib/scopedEntities";
 import type { RemoteAppModel } from "./useRemoteAppState";
-
-function revealCenter(
-  sourceFrame: TransitionSourceFrame | null,
-  width: number,
-  height: number,
-): { readonly x: number; readonly y: number } {
-  "worklet";
-  if (!sourceFrame) {
-    return {
-      x: width / 2,
-      y: height / 2,
-    };
-  }
-
-  return {
-    x: sourceFrame.x + sourceFrame.width / 2,
-    y: sourceFrame.y + sourceFrame.height / 2,
-  };
-}
-
-function revealRadius(centerX: number, centerY: number, width: number, height: number): number {
-  "worklet";
-  const distances = [
-    Math.hypot(centerX, centerY),
-    Math.hypot(width - centerX, centerY),
-    Math.hypot(centerX, height - centerY),
-    Math.hypot(width - centerX, height - centerY),
-  ];
-
-  return Math.max(...distances);
-}
-
-function useRevealTransition(
-  selectedThread: ScopedMobileThread | null,
-  onSelectThread: (thread: ScopedMobileThread) => void,
-  onBackFromThread: () => void,
-  width: number,
-  height: number,
-) {
-  const [transitionSource, setTransitionSource] = useState<TransitionSourceFrame | null>(null);
-  const [transitionPhase, setTransitionPhase] = useState<"idle" | "opening" | "closing">("idle");
-  const revealProgress = useSharedValue(1);
-  const openingAnimationFrameRef = useRef<number | null>(null);
-
-  const revealMaskStyle = useAnimatedStyle(() => {
-    const center = revealCenter(transitionSource, width, height);
-    const startRadius = transitionSource
-      ? Math.max(transitionSource.width, transitionSource.height) * 0.3
-      : 20;
-    const endRadius = revealRadius(center.x, center.y, width, height);
-    const radius = startRadius + (endRadius - startRadius) * revealProgress.value;
-
-    return {
-      position: "absolute",
-      left: center.x - radius,
-      top: center.y - radius,
-      width: radius * 2,
-      height: radius * 2,
-      borderRadius: radius,
-      overflow: "hidden",
-      opacity: interpolate(revealProgress.value, [0, 0.12, 1], [0, 1, 1]),
-    };
-  });
-
-  const revealContentStyle = useAnimatedStyle(() => {
-    const center = revealCenter(transitionSource, width, height);
-    const startRadius = transitionSource
-      ? Math.max(transitionSource.width, transitionSource.height) * 0.3
-      : 20;
-    const endRadius = revealRadius(center.x, center.y, width, height);
-    const radius = startRadius + (endRadius - startRadius) * revealProgress.value;
-
-    return {
-      width,
-      height,
-      transform: [{ translateX: -(center.x - radius) }, { translateY: -(center.y - radius) }],
-    };
-  });
-
-  const handleSelectThread = useCallback(
-    (thread: ScopedMobileThread, sourceFrame: TransitionSourceFrame | null): void => {
-      setTransitionSource(sourceFrame);
-      setTransitionPhase("opening");
-      revealProgress.value = 0;
-      onSelectThread(thread);
-    },
-    [onSelectThread, revealProgress],
-  );
-
-  const handleBackFromThread = useCallback((): void => {
-    if (!selectedThread) {
-      return;
-    }
-
-    setTransitionPhase("closing");
-    revealProgress.value = withTiming(
-      0,
-      {
-        duration: 260,
-        easing: Easing.inOut(Easing.cubic),
-      },
-      (finished) => {
-        if (!finished) {
-          return;
-        }
-        runOnJS(onBackFromThread)();
-        runOnJS(setTransitionPhase)("idle");
-        runOnJS(setTransitionSource)(null);
-        revealProgress.value = 1;
-      },
-    );
-  }, [onBackFromThread, revealProgress, selectedThread]);
-
-  useEffect(() => {
-    if (transitionPhase !== "opening" || !selectedThread) {
-      return;
-    }
-
-    if (openingAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(openingAnimationFrameRef.current);
-    }
-
-    openingAnimationFrameRef.current = requestAnimationFrame(() => {
-      openingAnimationFrameRef.current = null;
-      revealProgress.value = withTiming(
-        1,
-        {
-          duration: 420,
-          easing: Easing.out(Easing.cubic),
-        },
-        (finished) => {
-          if (!finished) {
-            return;
-          }
-          runOnJS(setTransitionPhase)("idle");
-        },
-      );
-    });
-
-    return () => {
-      if (openingAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(openingAnimationFrameRef.current);
-        openingAnimationFrameRef.current = null;
-      }
-    };
-  }, [selectedThread, revealProgress, transitionPhase]);
-
-  return {
-    transitionPhase,
-    revealMaskStyle,
-    revealContentStyle,
-    handleSelectThread,
-    handleBackFromThread,
-  };
-}
 
 export function MobileAppShell(props: {
   readonly app: RemoteAppModel;
   readonly isDarkMode: boolean;
 }) {
   const { app } = props;
-  const { width, height } = useWindowDimensions();
-  const backgroundColor = props.isDarkMode ? "#020617" : "#f8fafc";
+  const [threadsSheetVisible, setThreadsSheetVisible] = useState(false);
+  const [newTaskVisible, setNewTaskVisible] = useState(false);
+  const backgroundColor = props.isDarkMode ? "#020617" : "#f6f4ef";
 
-  const {
-    transitionPhase,
-    revealMaskStyle,
-    revealContentStyle,
-    handleSelectThread,
-    handleBackFromThread,
-  } = useRevealTransition(
-    app.selectedThread,
-    app.onSelectThread,
-    app.onBackFromThread,
-    width,
-    height,
-  );
+  const selectedThreadKey = app.selectedThread
+    ? scopedThreadKey(app.selectedThread.environmentId, app.selectedThread.id)
+    : null;
 
-  const sharedDetailProps = app.selectedThread
+  const selectedThreadDetailProps = app.selectedThread
     ? {
         selectedThread: app.selectedThread,
         screenTone: app.screenTone,
@@ -211,14 +41,24 @@ export function MobileAppShell(props: {
         draftAttachments: app.draftAttachments,
         connectionStateLabel: app.connectionState,
         activeThreadBusy: app.activeThreadBusy,
+        selectedThreadGitStatus: app.selectedThreadGitStatus,
+        gitOperationLabel: app.gitOperationLabel,
         selectedThreadQueueCount: app.selectedThreadQueueCount,
-        onBack: handleBackFromThread,
+        onBack: app.onBackFromThread,
+        onOpenDrawer: () => setThreadsSheetVisible(true),
         onOpenConnectionEditor: app.onOpenConnectionEditor,
         onChangeDraftMessage: app.onChangeDraftMessage,
         onPickDraftImages: app.onPickDraftImages,
         onPasteIntoDraft: app.onPasteIntoDraft,
         onRemoveDraftImage: app.onRemoveDraftImage,
         onRefresh: app.onRefresh,
+        onRefreshSelectedThreadGitStatus: app.onRefreshSelectedThreadGitStatus,
+        onListSelectedThreadBranches: app.onListSelectedThreadBranches,
+        onCheckoutSelectedThreadBranch: app.onCheckoutSelectedThreadBranch,
+        onCreateSelectedThreadBranch: app.onCreateSelectedThreadBranch,
+        onCreateSelectedThreadWorktree: app.onCreateSelectedThreadWorktree,
+        onPullSelectedThreadBranch: app.onPullSelectedThreadBranch,
+        onRunSelectedThreadGitAction: app.onRunSelectedThreadGitAction,
         onRenameThread: app.onRenameThread,
         onStopThread: app.onStopThread,
         onSendMessage: app.onSendMessage,
@@ -237,47 +77,19 @@ export function MobileAppShell(props: {
         translucent
       />
 
-      <View style={{ flex: 1 }} pointerEvents={app.selectedThread ? "none" : "auto"}>
-        <ThreadListScreen
-          heroTitle={app.heroTitle}
-          showBrandWordmark={app.showBrandWordmark}
-          screenTone={app.screenTone}
-          connectionState={app.connectionState}
-          connectionPulse={app.hasRemoteActivity}
+      {app.selectedThread && selectedThreadDetailProps ? (
+        <ThreadDetailScreen {...selectedThreadDetailProps} />
+      ) : (
+        <HomeScreen
           projects={app.projects}
           threads={app.threads}
-          connectedEnvironmentCount={app.connectedEnvironmentCount}
-          hasClient={app.hasClient}
-          hasServerConfig={app.serverConfig !== null}
-          hiddenThreadKey={
-            app.selectedThread
-              ? `${app.selectedThread.environmentId}:${app.selectedThread.id}`
-              : null
-          }
-          connectionError={app.connectionError}
+          connectionState={app.connectionState}
+          connectionPulse={app.hasRemoteActivity}
           onOpenConnectionEditor={app.onOpenConnectionEditor}
-          onRefresh={app.onRefresh}
-          onCreateThread={app.onCreateThread}
-          onSelectThread={handleSelectThread}
+          onOpenNewTask={() => setNewTaskVisible(true)}
+          onSelectThread={app.onSelectThread}
         />
-      </View>
-
-      {app.selectedThread && sharedDetailProps ? (
-        <View className="absolute inset-0">
-          <ThreadDetailScreen {...sharedDetailProps} showContent={transitionPhase === "idle"} />
-          {transitionPhase !== "idle" ? (
-            <Animated.View
-              className="absolute inset-0"
-              pointerEvents="none"
-              style={revealMaskStyle}
-            >
-              <Animated.View style={revealContentStyle}>
-                <ThreadDetailScreen {...sharedDetailProps} showHeader={false} />
-              </Animated.View>
-            </Animated.View>
-          ) : null}
-        </View>
-      ) : null}
+      )}
 
       <ConnectionSheet
         visible={app.connectionSheetRequired}
@@ -288,9 +100,31 @@ export function MobileAppShell(props: {
         onRequestClose={app.onRequestCloseConnectionEditor}
         onChangePairingUrl={app.onChangeConnectionPairingUrl}
         onConnect={app.onConnectPress}
-        onClose={app.onCloseConnectionEditor}
+        onUpdateEnvironment={app.onUpdateEnvironment}
         onRemoveEnvironment={app.onRemoveEnvironmentPress}
       />
+
+      <ThreadNavigationDrawer
+        visible={threadsSheetVisible}
+        projects={app.projects}
+        threads={app.threads}
+        selectedThreadKey={selectedThreadKey}
+        onClose={() => setThreadsSheetVisible(false)}
+        onSelectThread={app.onSelectThread}
+        onStartNewTask={() => setNewTaskVisible(true)}
+      />
+
+      {newTaskVisible ? (
+        <NewTaskSheet
+          visible={newTaskVisible}
+          projects={app.projects}
+          threads={app.threads}
+          serverConfigByEnvironmentId={app.serverConfigByEnvironmentId}
+          onRequestClose={() => setNewTaskVisible(false)}
+          onCreateThreadWithOptions={app.onCreateThreadWithOptions}
+          onListProjectBranches={app.onListProjectBranches}
+        />
+      ) : null}
     </View>
   );
 }

@@ -1,5 +1,19 @@
 import {
   type ClientOrchestrationCommand,
+  type GitCheckoutInput,
+  type GitCheckoutResult,
+  type GitCreateBranchInput,
+  type GitCreateBranchResult,
+  type GitCreateWorktreeInput,
+  type GitCreateWorktreeResult,
+  type GitListBranchesInput,
+  type GitListBranchesResult,
+  type GitPullInput,
+  type GitPullResult,
+  type GitRunStackedActionInput,
+  type GitRunStackedActionResult,
+  type GitStatusInput,
+  type GitStatusResult,
   ORCHESTRATION_WS_METHODS,
   type OrchestrationEvent,
   type OrchestrationReadModel,
@@ -257,6 +271,54 @@ export class RemoteClient {
       ORCHESTRATION_WS_METHODS.dispatchCommand,
       command,
       "Request timed out: orchestration.dispatchCommand",
+    );
+  }
+
+  async gitRefreshStatus(input: GitStatusInput): Promise<GitStatusResult> {
+    return await this.request(
+      WS_METHODS.gitRefreshStatus,
+      input,
+      "Request timed out: git.refreshStatus",
+    );
+  }
+
+  async gitListBranches(input: GitListBranchesInput): Promise<GitListBranchesResult> {
+    return await this.request(
+      WS_METHODS.gitListBranches,
+      input,
+      "Request timed out: git.listBranches",
+    );
+  }
+
+  async gitCreateBranch(input: GitCreateBranchInput): Promise<GitCreateBranchResult> {
+    return await this.request(
+      WS_METHODS.gitCreateBranch,
+      input,
+      "Request timed out: git.createBranch",
+    );
+  }
+
+  async gitCheckout(input: GitCheckoutInput): Promise<GitCheckoutResult> {
+    return await this.request(WS_METHODS.gitCheckout, input, "Request timed out: git.checkout");
+  }
+
+  async gitCreateWorktree(input: GitCreateWorktreeInput): Promise<GitCreateWorktreeResult> {
+    return await this.request(
+      WS_METHODS.gitCreateWorktree,
+      input,
+      "Request timed out: git.createWorktree",
+    );
+  }
+
+  async gitPull(input: GitPullInput): Promise<GitPullResult> {
+    return await this.request(WS_METHODS.gitPull, input, "Request timed out: git.pull");
+  }
+
+  async gitRunStackedAction(input: GitRunStackedActionInput): Promise<GitRunStackedActionResult> {
+    return await this.request(
+      WS_METHODS.gitRunStackedAction,
+      input,
+      "Request timed out: git.runStackedAction",
     );
   }
 

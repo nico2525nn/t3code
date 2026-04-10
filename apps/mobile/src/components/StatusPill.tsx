@@ -9,10 +9,29 @@ export interface StatusTone {
   readonly textClassName: string;
 }
 
-export function StatusPill(props: StatusTone) {
+export function StatusPill(
+  props: StatusTone & {
+    readonly size?: "default" | "compact";
+  },
+) {
+  const size = props.size ?? "default";
   return (
-    <View className={cx("rounded-full px-3 py-1.5", props.pillClassName)}>
-      <Text className={cx("font-t3-bold text-xs", props.textClassName)}>{props.label}</Text>
+    <View
+      className={cx(
+        "rounded-full",
+        size === "compact" ? "px-2.5 py-1" : "px-3 py-1.5",
+        props.pillClassName,
+      )}
+    >
+      <Text
+        className={cx(
+          "font-t3-bold",
+          size === "compact" ? "text-[11px]" : "text-xs",
+          props.textClassName,
+        )}
+      >
+        {props.label}
+      </Text>
     </View>
   );
 }

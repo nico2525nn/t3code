@@ -6,6 +6,7 @@ import { Image, Pressable, ScrollView, View } from "react-native";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { cx } from "../../lib/classNames";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
+import type { MobileLayoutVariant } from "../../lib/mobileLayout";
 import type { RemoteClientConnectionState } from "../../lib/remoteClient";
 
 function ComposerAction(props: {
@@ -47,6 +48,7 @@ export interface ThreadComposerProps {
   readonly selectedThread: OrchestrationThread;
   readonly queueCount: number;
   readonly activeThreadBusy: boolean;
+  readonly layoutVariant?: MobileLayoutVariant;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftImages: () => Promise<void>;
   readonly onPasteIntoDraft: () => Promise<void>;
@@ -64,13 +66,17 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.selectedThread.session?.status === "running" ||
     props.selectedThread.session?.status === "starting" ||
     props.queueCount > 0;
+  const isSplitLayout = props.layoutVariant === "split";
 
   return (
     <View
-      className="gap-3 border-t border-slate-200 bg-white/92 px-4 pt-3.5 dark:border-white/6 dark:bg-slate-950/92"
+      className="gap-3 border-t border-slate-200 bg-stone-50/96 px-4 pt-3.5 dark:border-white/6 dark:bg-slate-950/92"
       style={{ paddingBottom: (props.bottomInset ?? 0) + 16 }}
     >
-      <View className="rounded-[24px] border border-slate-200 bg-white px-3.5 py-3 dark:border-white/8 dark:bg-slate-900">
+      <View
+        className="w-full self-center rounded-[24px] border border-slate-200 bg-white px-3.5 py-3 dark:border-white/8 dark:bg-slate-900"
+        style={{ maxWidth: isSplitLayout ? 960 : undefined }}
+      >
         <TextInput
           multiline
           value={props.draftMessage}
@@ -84,19 +90,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           <View className="flex-row flex-wrap gap-2.5">
             <ComposerAction
               icon="photo.on.rectangle"
-              backgroundClassName="bg-slate-200 dark:bg-slate-800"
+              backgroundClassName="bg-stone-200 dark:bg-slate-800"
               iconTintColor="#0f172a"
               onPress={() => void props.onPickDraftImages()}
             />
             <ComposerAction
               icon="doc.on.clipboard"
-              backgroundClassName="bg-slate-200 dark:bg-slate-800"
+              backgroundClassName="bg-stone-200 dark:bg-slate-800"
               iconTintColor="#0f172a"
               onPress={() => void props.onPasteIntoDraft()}
             />
             <ComposerAction
               icon="arrow.clockwise"
-              backgroundClassName="bg-slate-200 dark:bg-slate-800"
+              backgroundClassName="bg-stone-200 dark:bg-slate-800"
               iconTintColor="#0f172a"
               onPress={() => void props.onRefresh()}
             />
@@ -117,7 +123,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   : "paperplane.fill"
               }
               backgroundClassName={cx(
-                canSend ? "bg-orange-500" : "bg-slate-200 dark:bg-slate-700/60",
+                canSend ? "bg-neutral-900" : "bg-slate-200 dark:bg-slate-700/60",
               )}
               iconTintColor="#ffffff"
               disabled={!canSend}
@@ -127,7 +133,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         </View>
       </View>
       {props.draftAttachments.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={isSplitLayout ? { alignSelf: "center", width: "100%", maxWidth: 960 } : undefined}
+        >
           <View className="flex-row gap-2">
             {props.draftAttachments.map((image) => (
               <View key={image.id} className="gap-2">
@@ -150,7 +160,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         </ScrollView>
       ) : null}
       {props.queueCount > 0 ? (
-        <Text className="font-t3-medium text-xs leading-[18px] text-slate-500 dark:text-slate-400">
+        <Text
+          className="self-center font-t3-medium text-xs leading-[18px] text-slate-500 dark:text-slate-400"
+          style={{ maxWidth: 960, width: "100%" }}
+        >
           {props.queueCount} queued message{props.queueCount === 1 ? "" : "s"} will send
           automatically.
         </Text>

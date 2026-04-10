@@ -2,7 +2,7 @@ import { Platform } from "react-native";
 
 import type { SavedRemoteConnection } from "./connection";
 
-const CONNECTIONS_KEY = "t3remote:connections";
+const CONNECTIONS_KEY = "t3code:connections";
 const memoryStorage = new Map<string, string>();
 
 type AsyncStorageModule = typeof import("@react-native-async-storage/async-storage");
@@ -89,7 +89,7 @@ async function removeStorageItem(key: string): Promise<void> {
 }
 
 function connectionTokenKey(environmentId: string): string {
-  return `t3remote:bearer-token:${environmentId}`;
+  return `t3code:bearer-token:${environmentId}`;
 }
 
 async function loadSecureToken(environmentId: string): Promise<string> {

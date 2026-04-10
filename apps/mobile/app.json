@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "T3 Remote",
-    "slug": "t3-remote",
-    "scheme": "t3remote",
+    "name": "T3 Code",
+    "slug": "t3-code",
+    "scheme": "t3code",
     "version": "0.1.0",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -12,7 +12,7 @@
     "userInterfaceStyle": "automatic",
     "updates": {
       "enabled": true,
-      "url": "https://u.expo.dev/525f875b-b769-4d0b-88d7-c55e97e42943",
+      "url": "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
@@ -24,7 +24,7 @@
     "ios": {
       "icon": "./assets/icon.png",
       "supportsTablet": true,
-      "bundleIdentifier": "com.t3tools.t3remote",
+      "bundleIdentifier": "com.t3tools.t3code",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
@@ -34,7 +34,7 @@
     },
     "android": {
       "icon": "./assets/icon.png",
-      "package": "com.t3tools.t3remote",
+      "package": "com.t3tools.t3code",
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -49,6 +49,13 @@
     },
     "plugins": [
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow T3 Code to access your camera so you can scan pairing QR codes.",
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
@@ -61,8 +68,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "525f875b-b769-4d0b-88d7-c55e97e42943"
+        "projectId": "d763fcb8-d37c-41ea-a773-b54a0ab4a454"
       }
-    }
+    },
+    "owner": "pingdotgg"
   }
 }

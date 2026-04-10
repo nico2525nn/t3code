@@ -55,6 +55,7 @@ function activeToken(token: string, isDarkMode: boolean) {
 function resolveTextStyle(className: string | undefined, isDarkMode: boolean): TextStyle {
   const style: TextStyle = {
     color: isDarkMode ? "#f8fafc" : "#020617",
+    fontFamily: "DMSans_400Regular",
   };
 
   let hasLeadingNone = false;
@@ -70,37 +71,37 @@ function resolveTextStyle(className: string | undefined, isDarkMode: boolean): T
     }
 
     if (token === "font-sans") {
-      style.fontWeight = "400";
+      style.fontFamily = "DMSans_400Regular";
       continue;
     }
 
     if (token === "font-medium") {
-      style.fontWeight = "500";
+      style.fontFamily = "DMSans_500Medium";
       continue;
     }
 
     if (token === "font-bold") {
-      style.fontWeight = "700";
+      style.fontFamily = "DMSans_700Bold";
       continue;
     }
 
     if (token === "font-extrabold") {
-      style.fontWeight = "800";
+      style.fontFamily = "DMSans_700Bold";
       continue;
     }
 
     if (token === "font-t3-medium") {
-      style.fontWeight = "500";
+      style.fontFamily = "DMSans_500Medium";
       continue;
     }
 
     if (token === "font-t3-bold") {
-      style.fontWeight = "700";
+      style.fontFamily = "DMSans_700Bold";
       continue;
     }
 
     if (token === "font-t3-extrabold") {
-      style.fontWeight = "800";
+      style.fontFamily = "DMSans_700Bold";
       continue;
     }
 
@@ -197,6 +198,7 @@ function resolveTextInputStyle(
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
+    fontFamily: "DMSans_400Regular",
     minHeight: 54,
   };
 
@@ -252,7 +254,7 @@ function resolveTextInputStyle(
     }
 
     if (token === "font-sans") {
-      style.fontWeight = "400";
+      style.fontFamily = "DMSans_400Regular";
       continue;
     }
 

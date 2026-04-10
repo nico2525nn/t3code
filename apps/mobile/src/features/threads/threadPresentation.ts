@@ -76,5 +76,5 @@ export function screenTitle(config: T3ServerConfig | null, serverUrl: string | n
     const candidate = segments.at(-1) ?? config.cwd;
     return /^t3[-_\s]?code$/i.test(candidate) ? "T3 Code" : candidate;
   }
-  return serverUrl ?? "T3 Remote";
+  return serverUrl ?? "T3 Code";
 }
