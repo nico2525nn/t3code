@@ -349,9 +349,16 @@ function claudeAuthMetadata(input: {
 }
 
 /**
+ * Models where 1M context is included in premium Claude Code subscriptions
+ * without needing extra usage enabled.
+ */
+const MODELS_WITH_INCLUDED_1M_CONTEXT = new Set(["claude-opus-4-6"]);
+
+/**
  * Adjust the built-in model list based on the user's detected subscription.
  *
- * - Premium tiers (Max, Enterprise, Team): 1M context becomes the default.
+ * - Premium tiers (Max, Enterprise, Team): 1M context becomes the default
+ *   for models that include it in the plan (currently only Opus).
  * - Other tiers (Pro, free, unknown): 200k context stays the default;
  *   1M remains available as a manual option so users can still enable it.
  */
@@ -364,10 +371,11 @@ export function adjustModelsForSubscription(
     return baseModels;
   }
 
-  // Flip 1M to be the default for premium users
+  // Flip 1M to be the default only for models that include it in the plan
   return baseModels.map((model) => {
     const caps = model.capabilities;
     if (!caps || caps.contextWindowOptions.length === 0) return model;
+    if (!MODELS_WITH_INCLUDED_1M_CONTEXT.has(model.slug)) return model;
 
     return {
       ...model,
