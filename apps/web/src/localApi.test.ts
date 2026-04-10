@@ -140,6 +140,13 @@ function getWindowForTest(): Window & typeof globalThis & { desktopBridge?: unkn
 function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridge {
   return {
     getLocalEnvironmentBootstrap: () => null,
+    getClientSettings: async () => null,
+    setClientSettings: async () => undefined,
+    getSavedEnvironmentRegistry: async () => [],
+    setSavedEnvironmentRegistry: async () => undefined,
+    getSavedEnvironmentSecret: async () => null,
+    setSavedEnvironmentSecret: async () => true,
+    removeSavedEnvironmentSecret: async () => undefined,
     getServerExposureState: async () => ({
       mode: "local-only",
       endpointUrl: null,

@@ -22,7 +22,6 @@ describe("environment runtime catalog stores", () => {
       label: "Remote environment",
       httpBaseUrl: "https://remote.example.com/",
       wsBaseUrl: "wss://remote.example.com/",
-      bearerToken: "token",
       createdAt: "2026-04-09T00:00:00.000Z",
       lastConnectedAt: null,
     });

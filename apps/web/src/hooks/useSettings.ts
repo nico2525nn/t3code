@@ -9,7 +9,7 @@
  * write. The hook transparently routes reads/writes to the correct backing
  * store.
  */
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import {
   ServerSettings,
   ServerSettingsPatch,
@@ -18,7 +18,6 @@ import {
 } from "@t3tools/contracts";
 import {
   type ClientSettings,
-  ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
   DEFAULT_UNIFIED_SETTINGS,
   SidebarProjectSortOrder,
@@ -26,16 +25,80 @@ import {
   TimestampFormat,
   UnifiedSettings,
 } from "@t3tools/contracts/settings";
+import {
+  migrateBrowserClientSettingsToDesktopPersistence,
+  readPersistedClientSettings,
+  writePersistedClientSettings,
+} from "~/clientPersistence";
 import { ensureLocalApi } from "~/localApi";
-import { useLocalStorage } from "./useLocalStorage";
 import { normalizeCustomModelSlugs } from "~/modelSelection";
 import { Predicate, Schema, Struct } from "effect";
 import { DeepMutable } from "effect/Types";
 import { deepMerge } from "@t3tools/shared/Struct";
 import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/serverState";
 
-const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";
 const OLD_SETTINGS_KEY = "t3code:app-settings:v1";
+const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
+
+const clientSettingsListeners = new Set<() => void>();
+let clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
+let clientSettingsHydrationPromise: Promise<void> | null = null;
+
+function emitClientSettingsChange() {
+  for (const listener of clientSettingsListeners) {
+    listener();
+  }
+}
+
+function getClientSettingsSnapshot(): ClientSettings {
+  return clientSettingsSnapshot;
+}
+
+function replaceClientSettingsSnapshot(settings: ClientSettings): void {
+  clientSettingsSnapshot = settings;
+  emitClientSettingsChange();
+}
+
+function subscribeClientSettings(listener: () => void): () => void {
+  clientSettingsListeners.add(listener);
+  void hydrateClientSettings();
+  return () => {
+    clientSettingsListeners.delete(listener);
+  };
+}
+
+async function hydrateClientSettings(): Promise<void> {
+  if (clientSettingsHydrationPromise) {
+    return clientSettingsHydrationPromise;
+  }
+
+  const nextHydration = (async () => {
+    try {
+      const migratedSettings = await migrateBrowserClientSettingsToDesktopPersistence();
+      const persistedSettings = migratedSettings ?? (await readPersistedClientSettings());
+      if (persistedSettings) {
+        replaceClientSettingsSnapshot(persistedSettings);
+      }
+    } catch (error) {
+      console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`, error);
+    }
+  })();
+
+  clientSettingsHydrationPromise = nextHydration.finally(() => {
+    if (clientSettingsHydrationPromise === nextHydration) {
+      clientSettingsHydrationPromise = null;
+    }
+  });
+
+  return clientSettingsHydrationPromise;
+}
+
+function persistClientSettings(settings: ClientSettings): void {
+  replaceClientSettingsSnapshot(settings);
+  void writePersistedClientSettings(settings).catch((error) => {
+    console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} persist failed`, error);
+  });
+}
 
 // ── Key sets for routing patches ─────────────────────────────────────
 
@@ -69,10 +132,10 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
 
 export function useSettings<T = UnifiedSettings>(selector?: (s: UnifiedSettings) => T): T {
   const serverSettings = useServerSettings();
-  const [clientSettings] = useLocalStorage(
-    CLIENT_SETTINGS_STORAGE_KEY,
-    DEFAULT_CLIENT_SETTINGS,
-    ClientSettingsSchema,
+  const clientSettings = useSyncExternalStore(
+    subscribeClientSettings,
+    getClientSettingsSnapshot,
+    () => DEFAULT_CLIENT_SETTINGS,
   );
 
   const merged = useMemo<UnifiedSettings>(
@@ -90,34 +153,28 @@ export function useSettings<T = UnifiedSettings>(selector?: (s: UnifiedSettings)
  * Returns an updater that routes each key to the correct backing store.
  *
  * Server keys are optimistically patched in atom-backed server state, then
- * persisted via RPC. Client keys go straight to localStorage.
+ * persisted via RPC. Client keys go through client persistence.
  */
 export function useUpdateSettings() {
-  const [, setClientSettings] = useLocalStorage(
-    CLIENT_SETTINGS_STORAGE_KEY,
-    DEFAULT_CLIENT_SETTINGS,
-    ClientSettingsSchema,
-  );
+  const updateSettings = useCallback((patch: Partial<UnifiedSettings>) => {
+    const { serverPatch, clientPatch } = splitPatch(patch);
 
-  const updateSettings = useCallback(
-    (patch: Partial<UnifiedSettings>) => {
-      const { serverPatch, clientPatch } = splitPatch(patch);
-
-      if (Object.keys(serverPatch).length > 0) {
-        const currentServerConfig = getServerConfig();
-        if (currentServerConfig) {
-          applySettingsUpdated(deepMerge(currentServerConfig.settings, serverPatch));
-        }
-        // Fire-and-forget RPC — push will reconcile on success
-        void ensureLocalApi().server.updateSettings(serverPatch);
+    if (Object.keys(serverPatch).length > 0) {
+      const currentServerConfig = getServerConfig();
+      if (currentServerConfig) {
+        applySettingsUpdated(deepMerge(currentServerConfig.settings, serverPatch));
       }
+      // Fire-and-forget RPC — push will reconcile on success
+      void ensureLocalApi().server.updateSettings(serverPatch);
+    }
 
-      if (Object.keys(clientPatch).length > 0) {
-        setClientSettings((prev) => ({ ...prev, ...clientPatch }));
-      }
-    },
-    [setClientSettings],
-  );
+    if (Object.keys(clientPatch).length > 0) {
+      persistClientSettings({
+        ...getClientSettingsSnapshot(),
+        ...clientPatch,
+      });
+    }
+  }, []);
 
   const resetSettings = useCallback(() => {
     updateSettings(DEFAULT_UNIFIED_SETTINGS);
@@ -244,12 +301,17 @@ export function migrateLocalSettingsToServer(): void {
     // Migrate client-only keys to the new localStorage key
     const clientPatch = buildLegacyClientSettingsMigrationPatch(old);
     if (Object.keys(clientPatch).length > 0) {
-      const existing = localStorage.getItem(CLIENT_SETTINGS_STORAGE_KEY);
-      const current = existing ? (JSON.parse(existing) as Record<string, unknown>) : {};
-      localStorage.setItem(
-        CLIENT_SETTINGS_STORAGE_KEY,
-        JSON.stringify({ ...current, ...clientPatch }),
-      );
+      void (async () => {
+        const migratedSettings = await migrateBrowserClientSettingsToDesktopPersistence();
+        const current =
+          migratedSettings ?? (await readPersistedClientSettings()) ?? DEFAULT_CLIENT_SETTINGS;
+        persistClientSettings({
+          ...current,
+          ...clientPatch,
+        });
+      })().catch((error) => {
+        console.error("[MIGRATION] Error persisting migrated client settings:", error);
+      });
     }
   } catch (error) {
     console.error("[MIGRATION] Error migrating local settings:", error);

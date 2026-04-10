@@ -3,22 +3,26 @@ import type {
   AuthSessionRole,
   EnvironmentId,
   ExecutionEnvironmentDescriptor,
+  PersistedSavedEnvironmentRecord,
   ServerConfig,
 } from "@t3tools/contracts";
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
 
-import { resolveStorage } from "../../lib/storage";
+import {
+  migrateBrowserSavedEnvironmentRegistryToDesktopPersistence,
+  readPersistedSavedEnvironmentRegistry,
+  readPersistedSavedEnvironmentSecret,
+  removePersistedSavedEnvironmentSecret,
+  writePersistedSavedEnvironmentRegistry,
+  writePersistedSavedEnvironmentSecret,
+} from "../../clientPersistence";
 import { getPrimaryKnownEnvironment } from "../primary";
-
-const SAVED_ENVIRONMENT_REGISTRY_STORAGE_KEY = "t3code:saved-environment-registry:v1";
 
 export interface SavedEnvironmentRecord {
   readonly environmentId: EnvironmentId;
   readonly label: string;
   readonly wsBaseUrl: string;
   readonly httpBaseUrl: string;
-  readonly bearerToken: string;
   readonly createdAt: string;
   readonly lastConnectedAt: string | null;
 }
@@ -34,62 +38,117 @@ interface SavedEnvironmentRegistryStore extends SavedEnvironmentRegistryState {
   readonly reset: () => void;
 }
 
-function createSavedEnvironmentRegistryStorage() {
-  return resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined);
+let savedEnvironmentRegistryHydrated = false;
+let savedEnvironmentRegistryHydrationPromise: Promise<void> | null = null;
+
+function toPersistedSavedEnvironmentRecord(
+  record: SavedEnvironmentRecord,
+): PersistedSavedEnvironmentRecord {
+  return {
+    environmentId: record.environmentId,
+    label: record.label,
+    httpBaseUrl: record.httpBaseUrl,
+    wsBaseUrl: record.wsBaseUrl,
+    createdAt: record.createdAt,
+    lastConnectedAt: record.lastConnectedAt,
+  };
 }
 
-export const useSavedEnvironmentRegistryStore = create<SavedEnvironmentRegistryStore>()(
-  persist(
-    (set) => ({
-      byId: {},
-      upsert: (record) =>
-        set((state) => ({
-          byId: {
-            ...state.byId,
-            [record.environmentId]: record,
-          },
-        })),
-      remove: (environmentId) =>
-        set((state) => {
-          const { [environmentId]: _removed, ...remaining } = state.byId;
-          return {
-            byId: remaining,
-          };
-        }),
-      markConnected: (environmentId, connectedAt) =>
-        set((state) => {
-          const existing = state.byId[environmentId];
-          if (!existing) {
-            return state;
-          }
-          return {
-            byId: {
-              ...state.byId,
-              [environmentId]: {
-                ...existing,
-                lastConnectedAt: connectedAt,
-              },
-            },
-          };
-        }),
-      reset: () =>
-        set({
-          byId: {},
-        }),
+function persistSavedEnvironmentRegistryState(
+  byId: Record<EnvironmentId, SavedEnvironmentRecord>,
+): void {
+  void writePersistedSavedEnvironmentRegistry(
+    Object.values(byId).map((record) => toPersistedSavedEnvironmentRecord(record)),
+  ).catch((error) => {
+    console.error("[SAVED_ENVIRONMENTS] persist failed", error);
+  });
+}
+
+function replaceSavedEnvironmentRegistryState(
+  records: ReadonlyArray<SavedEnvironmentRecord>,
+): void {
+  useSavedEnvironmentRegistryStore.setState({
+    byId: Object.fromEntries(records.map((record) => [record.environmentId, record])),
+  });
+}
+
+async function hydrateSavedEnvironmentRegistry(): Promise<void> {
+  if (savedEnvironmentRegistryHydrated) {
+    return;
+  }
+  if (savedEnvironmentRegistryHydrationPromise) {
+    return savedEnvironmentRegistryHydrationPromise;
+  }
+
+  const nextHydration = (async () => {
+    try {
+      const migratedRecords = await migrateBrowserSavedEnvironmentRegistryToDesktopPersistence();
+      const persistedRecords =
+        migratedRecords.length > 0
+          ? migratedRecords
+          : await readPersistedSavedEnvironmentRegistry();
+      replaceSavedEnvironmentRegistryState(persistedRecords);
+    } catch (error) {
+      console.error("[SAVED_ENVIRONMENTS] hydrate failed", error);
+    } finally {
+      savedEnvironmentRegistryHydrated = true;
+    }
+  })();
+
+  savedEnvironmentRegistryHydrationPromise = nextHydration.finally(() => {
+    if (savedEnvironmentRegistryHydrationPromise === nextHydration) {
+      savedEnvironmentRegistryHydrationPromise = null;
+    }
+  });
+
+  return savedEnvironmentRegistryHydrationPromise;
+}
+
+export const useSavedEnvironmentRegistryStore = create<SavedEnvironmentRegistryStore>()((set) => ({
+  byId: {},
+  upsert: (record) =>
+    set((state) => {
+      const byId = {
+        ...state.byId,
+        [record.environmentId]: record,
+      };
+      persistSavedEnvironmentRegistryState(byId);
+      return { byId };
     }),
-    {
-      name: SAVED_ENVIRONMENT_REGISTRY_STORAGE_KEY,
-      version: 1,
-      storage: createJSONStorage(createSavedEnvironmentRegistryStorage),
-      partialize: (state) => ({
-        byId: state.byId,
-      }),
-    },
-  ),
-);
+  remove: (environmentId) =>
+    set((state) => {
+      const { [environmentId]: _removed, ...remaining } = state.byId;
+      persistSavedEnvironmentRegistryState(remaining);
+      return {
+        byId: remaining,
+      };
+    }),
+  markConnected: (environmentId, connectedAt) =>
+    set((state) => {
+      const existing = state.byId[environmentId];
+      if (!existing) {
+        return state;
+      }
+      const byId = {
+        ...state.byId,
+        [environmentId]: {
+          ...existing,
+          lastConnectedAt: connectedAt,
+        },
+      };
+      persistSavedEnvironmentRegistryState(byId);
+      return { byId };
+    }),
+  reset: () => {
+    persistSavedEnvironmentRegistryState({});
+    set({
+      byId: {},
+    });
+  },
+}));
 
 export function hasSavedEnvironmentRegistryHydrated(): boolean {
-  return useSavedEnvironmentRegistryStore.persist.hasHydrated();
+  return savedEnvironmentRegistryHydrated;
 }
 
 export function waitForSavedEnvironmentRegistryHydration(): Promise<void> {
@@ -97,17 +156,7 @@ export function waitForSavedEnvironmentRegistryHydration(): Promise<void> {
     return Promise.resolve();
   }
 
-  return new Promise((resolve) => {
-    const unsubscribe = useSavedEnvironmentRegistryStore.persist.onFinishHydration(() => {
-      unsubscribe();
-      resolve();
-    });
-
-    if (hasSavedEnvironmentRegistryHydrated()) {
-      unsubscribe();
-      resolve();
-    }
-  });
+  return hydrateSavedEnvironmentRegistry();
 }
 
 export function listSavedEnvironmentRecords(): ReadonlyArray<SavedEnvironmentRecord> {
@@ -150,7 +199,28 @@ export function resolveEnvironmentHttpUrl(input: {
 }
 
 export function resetSavedEnvironmentRegistryStoreForTests() {
+  savedEnvironmentRegistryHydrated = false;
+  savedEnvironmentRegistryHydrationPromise = null;
   useSavedEnvironmentRegistryStore.getState().reset();
+}
+
+export async function readSavedEnvironmentBearerToken(
+  environmentId: EnvironmentId,
+): Promise<string | null> {
+  return readPersistedSavedEnvironmentSecret(environmentId);
+}
+
+export async function writeSavedEnvironmentBearerToken(
+  environmentId: EnvironmentId,
+  bearerToken: string,
+): Promise<boolean> {
+  return writePersistedSavedEnvironmentSecret(environmentId, bearerToken);
+}
+
+export async function removeSavedEnvironmentBearerToken(
+  environmentId: EnvironmentId,
+): Promise<void> {
+  await removePersistedSavedEnvironmentSecret(environmentId);
 }
 
 export type SavedEnvironmentConnectionState = "connecting" | "connected" | "disconnected" | "error";
