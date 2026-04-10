@@ -59,6 +59,10 @@
     "./remote": {
       "types": "./src/remote.ts",
       "import": "./src/remote.ts"
+    },
+    "./qrCode": {
+      "types": "./src/qrCode.ts",
+      "import": "./src/qrCode.ts"
     }
   },
   "scripts": {
