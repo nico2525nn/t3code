@@ -16,10 +16,13 @@ import {
   createOrchestrationRecoveryCoordinator,
   type ReplayRetryTracker,
 } from "../../orchestrationRecovery";
+import { isTransportConnectionErrorMessage } from "~/rpc/transportError";
 import type { WsRpcClient } from "~/rpc/wsRpcClient";
 
 const REPLAY_RECOVERY_RETRY_DELAY_MS = 100;
 const MAX_NO_PROGRESS_REPLAY_RETRIES = 3;
+const RECOVERY_TRANSPORT_RETRY_DELAY_MS = 250;
+const MAX_RECOVERY_TRANSPORT_RETRIES = 20;
 
 export interface EnvironmentConnection {
   readonly kind: "primary" | "saved";
@@ -128,6 +131,34 @@ export function createEnvironmentConnection(
     queueMicrotask(flushPendingDomainEvents);
   };
 
+  const retryTransportRecoveryOperation = async <T>(operation: () => Promise<T>): Promise<T> => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await operation();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (
+          disposed ||
+          !isTransportConnectionErrorMessage(message) ||
+          attempt >= MAX_RECOVERY_TRANSPORT_RETRIES - 1
+        ) {
+          throw error;
+        }
+
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, RECOVERY_TRANSPORT_RETRY_DELAY_MS);
+        });
+
+        if (disposed) {
+          throw error;
+        }
+      }
+    }
+  };
+  const scheduleReplayRecovery = (reason: "sequence-gap" | "resubscribe") => {
+    void runReplayRecovery(reason).catch(() => undefined);
+  };
+
   const runReplayRecovery = async (reason: "sequence-gap" | "resubscribe"): Promise<void> => {
     if (!recovery.beginReplayRecovery(reason)) {
       return;
@@ -135,7 +166,9 @@ export function createEnvironmentConnection(
 
     const fromSequenceExclusive = recovery.getState().latestSequence;
     try {
-      const events = await input.client.orchestration.replayEvents({ fromSequenceExclusive });
+      const events = await retryTransportRecoveryOperation(() =>
+        input.client.orchestration.replayEvents({ fromSequenceExclusive }),
+      );
       if (!disposed) {
         const nextEvents = recovery.markEventBatchApplied(events);
         if (nextEvents.length > 0) {
@@ -145,6 +178,9 @@ export function createEnvironmentConnection(
     } catch {
       replayRetryTracker = null;
       recovery.failReplayRecovery();
+      if (disposed) {
+        return;
+      }
       await snapshotBootstrap.ensureSnapshotRecovery("replay-failed");
       return;
     }
@@ -172,7 +208,7 @@ export function createEnvironmentConnection(
           return;
         }
       }
-      void runReplayRecovery(reason);
+      scheduleReplayRecovery(reason);
     } else if (replayCompletion.shouldReplay && import.meta.env.MODE !== "test") {
       console.warn(
         "[orchestration-recovery]",
@@ -194,11 +230,13 @@ export function createEnvironmentConnection(
     }
 
     try {
-      const snapshot = await input.client.orchestration.getSnapshot();
+      const snapshot = await retryTransportRecoveryOperation(() =>
+        input.client.orchestration.getSnapshot(),
+      );
       if (!disposed) {
         input.syncSnapshot(snapshot, environmentId);
         if (recovery.completeSnapshotRecovery(snapshot.snapshotSequence)) {
-          void runReplayRecovery("sequence-gap");
+          scheduleReplayRecovery("sequence-gap");
         }
       }
     } catch (error) {
@@ -245,7 +283,7 @@ export function createEnvironmentConnection(
       }
       if (action === "recover") {
         flushPendingDomainEvents();
-        void runReplayRecovery("sequence-gap");
+        scheduleReplayRecovery("sequence-gap");
       }
     },
     {
@@ -254,7 +292,7 @@ export function createEnvironmentConnection(
           return;
         }
         flushPendingDomainEvents();
-        void runReplayRecovery("resubscribe");
+        scheduleReplayRecovery("resubscribe");
       },
     },
   );
