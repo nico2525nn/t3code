@@ -177,3 +177,10 @@ export function useUpdateSettings() {
     resetSettings,
   };
 }
+
+export function __resetClientSettingsPersistenceForTests(): void {
+  clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
+  clientSettingsHydrated = false;
+  clientSettingsHydrationPromise = null;
+  clientSettingsListeners.clear();
+}
