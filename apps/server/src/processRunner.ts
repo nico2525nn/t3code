@@ -1,4 +1,6 @@
 import { type ChildProcess as ChildProcessHandle, spawn, spawnSync } from "node:child_process";
+import { accessSync } from "node:fs";
+import { delimiter, extname, join } from "node:path";
 
 export interface ProcessRunOptions {
   cwd?: string | undefined;
@@ -82,6 +84,45 @@ function normalizeBufferError(
 const DEFAULT_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 /**
+ * On Windows, `.cmd` / `.bat` shims (created by npm, Scoop, etc.) can only be
+ * executed by `spawn` when `shell: true`.  When the caller explicitly requests
+ * `shell: false` we still need to honour that for `.exe` binaries, but we must
+ * fall back to `shell: true` when the resolved command is a script shim.
+ */
+function resolveShellOption(command: string, explicit: boolean | undefined): boolean {
+  if (process.platform !== "win32") return explicit ?? false;
+  if (explicit === true) return true;
+
+  if (extname(command)) {
+    const ext = extname(command).toLowerCase();
+    return ext === ".cmd" || ext === ".bat";
+  }
+
+  const pathEnv = process.env["PATH"] ?? process.env["Path"] ?? "";
+  const dirs = pathEnv.split(delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    for (const ext of [".cmd", ".bat"]) {
+      try {
+        accessSync(join(dir, `${command}${ext}`));
+        return true;
+      } catch {
+        // not found, continue
+      }
+    }
+    for (const ext of [".exe", ".com", ""]) {
+      try {
+        accessSync(join(dir, `${command}${ext}`));
+        return false;
+      } catch {
+        // not found, continue
+      }
+    }
+  }
+
+  return explicit ?? false;
+}
+
+/**
  * On Windows with `shell: true`, `child.kill()` only terminates the `cmd.exe`
  * wrapper, leaving the actual command running. Use `taskkill /T` to kill the
  * entire process tree instead.
@@ -140,7 +181,7 @@ export async function runProcess(
       cwd: options.cwd,
       env: options.env,
       stdio: "pipe",
-      shell: options.shell ?? (process.platform === "win32"),
+      shell: resolveShellOption(command, options.shell),
     });
 
     let stdout = "";
