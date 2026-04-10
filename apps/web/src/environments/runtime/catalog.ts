@@ -74,8 +74,13 @@ function persistSavedEnvironmentRegistryState(
 function replaceSavedEnvironmentRegistryState(
   records: ReadonlyArray<SavedEnvironmentRecord>,
 ): void {
+  const currentById = useSavedEnvironmentRegistryStore.getState().byId;
+  const hydratedById = Object.fromEntries(records.map((record) => [record.environmentId, record]));
   useSavedEnvironmentRegistryStore.setState({
-    byId: Object.fromEntries(records.map((record) => [record.environmentId, record])),
+    byId: {
+      ...hydratedById,
+      ...currentById,
+    },
   });
 }
 
