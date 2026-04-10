@@ -56,15 +56,19 @@ function valuesOfSavedEnvironmentRegistry(
 function persistSavedEnvironmentRegistryState(
   byId: Record<EnvironmentId, SavedEnvironmentRecord>,
 ): void {
-  void ensureLocalApi()
-    .persistence.setSavedEnvironmentRegistry(
-      valuesOfSavedEnvironmentRegistry(byId).map((record) =>
-        toPersistedSavedEnvironmentRecord(record),
-      ),
-    )
-    .catch((error) => {
-      console.error("[SAVED_ENVIRONMENTS] persist failed", error);
-    });
+  try {
+    void ensureLocalApi()
+      .persistence.setSavedEnvironmentRegistry(
+        valuesOfSavedEnvironmentRegistry(byId).map((record) =>
+          toPersistedSavedEnvironmentRecord(record),
+        ),
+      )
+      .catch((error) => {
+        console.error("[SAVED_ENVIRONMENTS] persist failed", error);
+      });
+  } catch (error) {
+    console.error("[SAVED_ENVIRONMENTS] persist failed", error);
+  }
 }
 
 function replaceSavedEnvironmentRegistryState(

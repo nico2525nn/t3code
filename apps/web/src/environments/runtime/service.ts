@@ -23,6 +23,7 @@ import {
   markPromotedDraftThreadsByRef,
   useComposerDraftStore,
 } from "~/composerDraftStore";
+import { ensureLocalApi } from "~/localApi";
 import { collectActiveTerminalThreadIds } from "~/lib/terminalStateCleanup";
 import { deriveOrchestrationBatchEffects } from "~/orchestrationEventEffects";
 import { projectQueryKeys } from "~/lib/projectReactQuery";
@@ -614,7 +615,23 @@ export async function addSavedEnvironment(input: {
   };
 
   await persistSavedEnvironmentRecord(record);
-  await writeSavedEnvironmentBearerToken(environmentId, bearerSession.sessionToken);
+  const didPersistBearerToken = await writeSavedEnvironmentBearerToken(
+    environmentId,
+    bearerSession.sessionToken,
+  );
+  if (!didPersistBearerToken) {
+    await ensureLocalApi().persistence.setSavedEnvironmentRegistry(
+      listSavedEnvironmentRecords().map((entry) => ({
+        environmentId: entry.environmentId,
+        label: entry.label,
+        httpBaseUrl: entry.httpBaseUrl,
+        wsBaseUrl: entry.wsBaseUrl,
+        createdAt: entry.createdAt,
+        lastConnectedAt: entry.lastConnectedAt,
+      })),
+    );
+    throw new Error("Unable to persist saved environment credentials.");
+  }
   await ensureSavedEnvironmentConnection(record, {
     bearerToken: bearerSession.sessionToken,
     role: bearerSession.role,
