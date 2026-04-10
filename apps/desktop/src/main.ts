@@ -97,7 +97,6 @@ const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
 const CLIENT_SETTINGS_PATH = Path.join(STATE_DIR, "client-settings.json");
 const SAVED_ENVIRONMENT_REGISTRY_PATH = Path.join(STATE_DIR, "saved-environments.json");
-const SAVED_ENVIRONMENT_SECRETS_PATH = Path.join(STATE_DIR, "saved-environment-secrets.json");
 const DESKTOP_SCHEME = "t3";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -1411,7 +1410,7 @@ function registerIpcHandlers(): void {
       }
 
       return readSavedEnvironmentSecret({
-        secretsPath: SAVED_ENVIRONMENT_SECRETS_PATH,
+        registryPath: SAVED_ENVIRONMENT_REGISTRY_PATH,
         environmentId: rawEnvironmentId,
         secretStorage: getDesktopSecretStorage(),
       });
@@ -1430,7 +1429,7 @@ function registerIpcHandlers(): void {
       }
 
       return writeSavedEnvironmentSecret({
-        secretsPath: SAVED_ENVIRONMENT_SECRETS_PATH,
+        registryPath: SAVED_ENVIRONMENT_REGISTRY_PATH,
         environmentId: rawEnvironmentId,
         secret: rawSecret,
         secretStorage: getDesktopSecretStorage(),
@@ -1447,7 +1446,7 @@ function registerIpcHandlers(): void {
       }
 
       removeSavedEnvironmentSecret({
-        secretsPath: SAVED_ENVIRONMENT_SECRETS_PATH,
+        registryPath: SAVED_ENVIRONMENT_REGISTRY_PATH,
         environmentId: rawEnvironmentId,
       });
     },

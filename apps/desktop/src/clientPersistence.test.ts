@@ -84,12 +84,12 @@ describe("clientPersistence", () => {
   });
 
   it("persists encrypted saved environment secrets when encryption is available", () => {
-    const secretsPath = makeTempPath("saved-environment-secrets.json");
+    const registryPath = makeTempPath("saved-environments.json");
     const secretStorage = makeSecretStorage(true);
 
     expect(
       writeSavedEnvironmentSecret({
-        secretsPath,
+        registryPath,
         environmentId: savedRegistryRecord.environmentId,
         secret: "bearer-token",
         secretStorage,
@@ -98,7 +98,7 @@ describe("clientPersistence", () => {
 
     expect(
       readSavedEnvironmentSecret({
-        secretsPath,
+        registryPath,
         environmentId: savedRegistryRecord.environmentId,
         secretStorage,
       }),
@@ -106,11 +106,11 @@ describe("clientPersistence", () => {
   });
 
   it("preserves existing secrets when encryption is unavailable", () => {
-    const secretsPath = makeTempPath("saved-environment-secrets.json");
+    const registryPath = makeTempPath("saved-environments.json");
     const availableSecretStorage = makeSecretStorage(true);
 
     writeSavedEnvironmentSecret({
-      secretsPath,
+      registryPath,
       environmentId: savedRegistryRecord.environmentId,
       secret: "bearer-token",
       secretStorage: availableSecretStorage,
@@ -118,7 +118,7 @@ describe("clientPersistence", () => {
 
     expect(
       writeSavedEnvironmentSecret({
-        secretsPath,
+        registryPath,
         environmentId: savedRegistryRecord.environmentId,
         secret: "next-token",
         secretStorage: makeSecretStorage(false),
@@ -127,7 +127,7 @@ describe("clientPersistence", () => {
 
     expect(
       readSavedEnvironmentSecret({
-        secretsPath,
+        registryPath,
         environmentId: savedRegistryRecord.environmentId,
         secretStorage: availableSecretStorage,
       }),
@@ -135,24 +135,24 @@ describe("clientPersistence", () => {
   });
 
   it("removes saved environment secrets", () => {
-    const secretsPath = makeTempPath("saved-environment-secrets.json");
+    const registryPath = makeTempPath("saved-environments.json");
     const secretStorage = makeSecretStorage(true);
 
     writeSavedEnvironmentSecret({
-      secretsPath,
+      registryPath,
       environmentId: savedRegistryRecord.environmentId,
       secret: "bearer-token",
       secretStorage,
     });
 
     removeSavedEnvironmentSecret({
-      secretsPath,
+      registryPath,
       environmentId: savedRegistryRecord.environmentId,
     });
 
     expect(
       readSavedEnvironmentSecret({
-        secretsPath,
+        registryPath,
         environmentId: savedRegistryRecord.environmentId,
         secretStorage,
       }),
@@ -160,12 +160,12 @@ describe("clientPersistence", () => {
   });
 
   it("treats malformed secrets documents as empty", () => {
-    const secretsPath = makeTempPath("saved-environment-secrets.json");
-    fs.writeFileSync(secretsPath, "{}\n", "utf8");
+    const registryPath = makeTempPath("saved-environments.json");
+    fs.writeFileSync(registryPath, "{}\n", "utf8");
 
     expect(
       readSavedEnvironmentSecret({
-        secretsPath,
+        registryPath,
         environmentId: savedRegistryRecord.environmentId,
         secretStorage: makeSecretStorage(true),
       }),
@@ -173,9 +173,32 @@ describe("clientPersistence", () => {
 
     expect(() =>
       removeSavedEnvironmentSecret({
-        secretsPath,
+        registryPath,
         environmentId: savedRegistryRecord.environmentId,
       }),
     ).not.toThrow();
+  });
+
+  it("preserves encrypted secrets when metadata is rewritten", () => {
+    const registryPath = makeTempPath("saved-environments.json");
+    const secretStorage = makeSecretStorage(true);
+
+    writeSavedEnvironmentSecret({
+      registryPath,
+      environmentId: savedRegistryRecord.environmentId,
+      secret: "bearer-token",
+      secretStorage,
+    });
+
+    writeSavedEnvironmentRegistry(registryPath, [savedRegistryRecord]);
+
+    expect(readSavedEnvironmentRegistry(registryPath)).toEqual([savedRegistryRecord]);
+    expect(
+      readSavedEnvironmentSecret({
+        registryPath,
+        environmentId: savedRegistryRecord.environmentId,
+        secretStorage,
+      }),
+    ).toBe("bearer-token");
   });
 });
