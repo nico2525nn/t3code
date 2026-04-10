@@ -8,13 +8,7 @@ import type {
 } from "@t3tools/contracts";
 import { create } from "zustand";
 
-import {
-  readPersistedSavedEnvironmentRegistry,
-  readPersistedSavedEnvironmentSecret,
-  removePersistedSavedEnvironmentSecret,
-  writePersistedSavedEnvironmentRegistry,
-  writePersistedSavedEnvironmentSecret,
-} from "../../clientPersistence";
+import { ensureLocalApi } from "../../localApi";
 import { getPrimaryKnownEnvironment } from "../primary";
 
 export interface SavedEnvironmentRecord {
@@ -56,11 +50,13 @@ function toPersistedSavedEnvironmentRecord(
 function persistSavedEnvironmentRegistryState(
   byId: Record<EnvironmentId, SavedEnvironmentRecord>,
 ): void {
-  void writePersistedSavedEnvironmentRegistry(
-    Object.values(byId).map((record) => toPersistedSavedEnvironmentRecord(record)),
-  ).catch((error) => {
-    console.error("[SAVED_ENVIRONMENTS] persist failed", error);
-  });
+  void ensureLocalApi()
+    .persistence.setSavedEnvironmentRegistry(
+      Object.values(byId).map((record) => toPersistedSavedEnvironmentRecord(record)),
+    )
+    .catch((error) => {
+      console.error("[SAVED_ENVIRONMENTS] persist failed", error);
+    });
 }
 
 function replaceSavedEnvironmentRegistryState(
@@ -81,7 +77,7 @@ async function hydrateSavedEnvironmentRegistry(): Promise<void> {
 
   const nextHydration = (async () => {
     try {
-      const persistedRecords = await readPersistedSavedEnvironmentRegistry();
+      const persistedRecords = await ensureLocalApi().persistence.getSavedEnvironmentRegistry();
       replaceSavedEnvironmentRegistryState(persistedRecords);
     } catch (error) {
       console.error("[SAVED_ENVIRONMENTS] hydrate failed", error);
@@ -203,20 +199,20 @@ export function resetSavedEnvironmentRegistryStoreForTests() {
 export async function readSavedEnvironmentBearerToken(
   environmentId: EnvironmentId,
 ): Promise<string | null> {
-  return readPersistedSavedEnvironmentSecret(environmentId);
+  return ensureLocalApi().persistence.getSavedEnvironmentSecret(environmentId);
 }
 
 export async function writeSavedEnvironmentBearerToken(
   environmentId: EnvironmentId,
   bearerToken: string,
 ): Promise<boolean> {
-  return writePersistedSavedEnvironmentSecret(environmentId, bearerToken);
+  return ensureLocalApi().persistence.setSavedEnvironmentSecret(environmentId, bearerToken);
 }
 
 export async function removeSavedEnvironmentBearerToken(
   environmentId: EnvironmentId,
 ): Promise<void> {
-  await removePersistedSavedEnvironmentSecret(environmentId);
+  await ensureLocalApi().persistence.removeSavedEnvironmentSecret(environmentId);
 }
 
 export type SavedEnvironmentConnectionState = "connecting" | "connected" | "disconnected" | "error";

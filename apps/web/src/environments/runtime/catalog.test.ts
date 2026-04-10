@@ -1,5 +1,5 @@
-import { EnvironmentId } from "@t3tools/contracts";
-import { afterEach, describe, expect, it } from "vitest";
+import { EnvironmentId, type LocalApi } from "@t3tools/contracts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   resetSavedEnvironmentRegistryStoreForTests,
@@ -9,9 +9,30 @@ import {
 } from "./catalog";
 
 describe("environment runtime catalog stores", () => {
-  afterEach(() => {
+  beforeEach(async () => {
+    vi.stubGlobal("window", {
+      nativeApi: {
+        persistence: {
+          getClientSettings: async () => null,
+          setClientSettings: async () => undefined,
+          getSavedEnvironmentRegistry: async () => [],
+          setSavedEnvironmentRegistry: async () => undefined,
+          getSavedEnvironmentSecret: async () => null,
+          setSavedEnvironmentSecret: async () => true,
+          removeSavedEnvironmentSecret: async () => undefined,
+        },
+      } satisfies Pick<LocalApi, "persistence">,
+    });
+    const { __resetLocalApiForTests } = await import("../../localApi");
+    await __resetLocalApiForTests();
+  });
+
+  afterEach(async () => {
     resetSavedEnvironmentRegistryStoreForTests();
     resetSavedEnvironmentRuntimeStoreForTests();
+    const { __resetLocalApiForTests } = await import("../../localApi");
+    await __resetLocalApiForTests();
+    vi.unstubAllGlobals();
   });
 
   it("resets the saved environment registry store state", () => {

@@ -25,7 +25,6 @@ import {
   TimestampFormat,
   UnifiedSettings,
 } from "@t3tools/contracts/settings";
-import { readPersistedClientSettings, writePersistedClientSettings } from "~/clientPersistence";
 import { ensureLocalApi } from "~/localApi";
 import { normalizeCustomModelSlugs } from "~/modelSelection";
 import { Predicate, Schema, Struct } from "effect";
@@ -74,7 +73,7 @@ async function hydrateClientSettings(): Promise<void> {
 
   const nextHydration = (async () => {
     try {
-      const persistedSettings = await readPersistedClientSettings();
+      const persistedSettings = await ensureLocalApi().persistence.getClientSettings();
       if (persistedSettings) {
         replaceClientSettingsSnapshot(persistedSettings);
       }
@@ -97,9 +96,11 @@ async function hydrateClientSettings(): Promise<void> {
 
 function persistClientSettings(settings: ClientSettings): void {
   replaceClientSettingsSnapshot(settings);
-  void writePersistedClientSettings(settings).catch((error) => {
-    console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} persist failed`, error);
-  });
+  void ensureLocalApi()
+    .persistence.setClientSettings(settings)
+    .catch((error) => {
+      console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} persist failed`, error);
+    });
 }
 
 // ── Key sets for routing patches ─────────────────────────────────────
@@ -304,7 +305,8 @@ export function migrateLocalSettingsToServer(): void {
     const clientPatch = buildLegacyClientSettingsMigrationPatch(old);
     if (Object.keys(clientPatch).length > 0) {
       void (async () => {
-        const current = (await readPersistedClientSettings()) ?? DEFAULT_CLIENT_SETTINGS;
+        const current =
+          (await ensureLocalApi().persistence.getClientSettings()) ?? DEFAULT_CLIENT_SETTINGS;
         persistClientSettings({
           ...current,
           ...clientPatch,
