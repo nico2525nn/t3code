@@ -14,6 +14,15 @@ import {
 } from "./environments/runtime";
 import { type WsRpcClient } from "./rpc/wsRpcClient";
 import { showContextMenuFallback } from "./contextMenuFallback";
+import {
+  readBrowserClientSettings,
+  readBrowserSavedEnvironmentRegistry,
+  readBrowserSavedEnvironmentSecret,
+  removeBrowserSavedEnvironmentSecret,
+  writeBrowserClientSettings,
+  writeBrowserSavedEnvironmentRegistry,
+  writeBrowserSavedEnvironmentSecret,
+} from "./clientPersistenceStorage";
 
 let cachedApi: LocalApi | undefined;
 
@@ -54,6 +63,50 @@ export function createLocalApi(rpcClient: WsRpcClient): LocalApi {
           return window.desktopBridge.showContextMenu(items, position) as Promise<T | null>;
         }
         return showContextMenuFallback(items, position);
+      },
+    },
+    persistence: {
+      getClientSettings: async () => {
+        if (window.desktopBridge) {
+          return window.desktopBridge.getClientSettings();
+        }
+        return readBrowserClientSettings();
+      },
+      setClientSettings: async (settings) => {
+        if (window.desktopBridge) {
+          return window.desktopBridge.setClientSettings(settings);
+        }
+        writeBrowserClientSettings(settings);
+      },
+      getSavedEnvironmentRegistry: async () => {
+        if (window.desktopBridge) {
+          return window.desktopBridge.getSavedEnvironmentRegistry();
+        }
+        return readBrowserSavedEnvironmentRegistry();
+      },
+      setSavedEnvironmentRegistry: async (records) => {
+        if (window.desktopBridge) {
+          return window.desktopBridge.setSavedEnvironmentRegistry(records);
+        }
+        writeBrowserSavedEnvironmentRegistry(records);
+      },
+      getSavedEnvironmentSecret: async (environmentId) => {
+        if (window.desktopBridge) {
+          return window.desktopBridge.getSavedEnvironmentSecret(environmentId);
+        }
+        return readBrowserSavedEnvironmentSecret(environmentId);
+      },
+      setSavedEnvironmentSecret: async (environmentId, secret) => {
+        if (window.desktopBridge) {
+          return window.desktopBridge.setSavedEnvironmentSecret(environmentId, secret);
+        }
+        return writeBrowserSavedEnvironmentSecret(environmentId, secret);
+      },
+      removeSavedEnvironmentSecret: async (environmentId) => {
+        if (window.desktopBridge) {
+          return window.desktopBridge.removeSavedEnvironmentSecret(environmentId);
+        }
+        removeBrowserSavedEnvironmentSecret(environmentId);
       },
     },
     server: {

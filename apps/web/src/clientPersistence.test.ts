@@ -1,16 +1,23 @@
-import { EnvironmentId, type ClientSettings, type DesktopBridge } from "@t3tools/contracts";
+import { EnvironmentId, type ClientSettings, type LocalApi } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CLIENT_SETTINGS_STORAGE_KEY,
-  SAVED_ENVIRONMENT_REGISTRY_STORAGE_KEY,
-  migrateBrowserSavedEnvironmentRegistryToDesktopPersistence,
   readPersistedClientSettings,
   readPersistedSavedEnvironmentSecret,
   writePersistedClientSettings,
   writePersistedSavedEnvironmentRegistry,
   writePersistedSavedEnvironmentSecret,
 } from "./clientPersistence";
+import {
+  readBrowserClientSettings,
+  readBrowserSavedEnvironmentRegistry,
+  readBrowserSavedEnvironmentSecret,
+  removeBrowserSavedEnvironmentSecret,
+  writeBrowserClientSettings,
+  writeBrowserSavedEnvironmentRegistry,
+  writeBrowserSavedEnvironmentSecret,
+} from "./clientPersistenceStorage";
 
 const testEnvironmentId = EnvironmentId.makeUnsafe("environment-1");
 
@@ -47,20 +54,61 @@ function getTestWindow(): Window & typeof globalThis {
   const localStorage = createLocalStorageStub();
   const testWindow = {
     localStorage,
+    location: {
+      origin: "http://localhost:3000",
+    },
   } as Window & typeof globalThis;
   vi.stubGlobal("window", testWindow);
   vi.stubGlobal("localStorage", localStorage);
   return testWindow;
 }
 
-afterEach(() => {
+function installBrowserPersistenceApi(windowForTest: Window & typeof globalThis): void {
+  windowForTest.nativeApi = {
+    persistence: {
+      getClientSettings: async () => readBrowserClientSettings(),
+      setClientSettings: async (settings: ClientSettings) => {
+        writeBrowserClientSettings(settings);
+      },
+      getSavedEnvironmentRegistry: async () => readBrowserSavedEnvironmentRegistry(),
+      setSavedEnvironmentRegistry: async (
+        records: Awaited<ReturnType<LocalApi["persistence"]["getSavedEnvironmentRegistry"]>>,
+      ) => {
+        writeBrowserSavedEnvironmentRegistry(records);
+      },
+      getSavedEnvironmentSecret: async (
+        environmentId: Parameters<LocalApi["persistence"]["getSavedEnvironmentSecret"]>[0],
+      ) => readBrowserSavedEnvironmentSecret(environmentId),
+      setSavedEnvironmentSecret: async (
+        environmentId: Parameters<LocalApi["persistence"]["setSavedEnvironmentSecret"]>[0],
+        secret: Parameters<LocalApi["persistence"]["setSavedEnvironmentSecret"]>[1],
+      ) => writeBrowserSavedEnvironmentSecret(environmentId, secret),
+      removeSavedEnvironmentSecret: async (
+        environmentId: Parameters<LocalApi["persistence"]["removeSavedEnvironmentSecret"]>[0],
+      ) => {
+        removeBrowserSavedEnvironmentSecret(environmentId);
+      },
+    },
+  } as unknown as LocalApi;
+}
+
+afterEach(async () => {
+  const { __resetLocalApiForTests } = await import("./localApi");
+  await __resetLocalApiForTests();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
+async function resetLocalApiForTest(): Promise<void> {
+  const { __resetLocalApiForTests } = await import("./localApi");
+  await __resetLocalApiForTests();
+}
+
 describe("clientPersistence", () => {
   it("reads and writes client settings in browser storage mode", async () => {
-    getTestWindow();
+    const testWindow = getTestWindow();
+    installBrowserPersistenceApi(testWindow);
+    await resetLocalApiForTest();
 
     await writePersistedClientSettings(clientSettings);
 
@@ -69,25 +117,19 @@ describe("clientPersistence", () => {
 
   it("reads saved environment bearer tokens from browser storage mode", async () => {
     const testWindow = getTestWindow();
-    testWindow.localStorage.setItem(
-      SAVED_ENVIRONMENT_REGISTRY_STORAGE_KEY,
-      JSON.stringify({
-        version: 1,
-        state: {
-          byId: {
-            [testEnvironmentId]: {
-              environmentId: testEnvironmentId,
-              label: "Remote environment",
-              httpBaseUrl: "https://remote.example.com/",
-              wsBaseUrl: "wss://remote.example.com/",
-              bearerToken: "bearer-token",
-              createdAt: "2026-04-09T00:00:00.000Z",
-              lastConnectedAt: null,
-            },
-          },
-        },
-      }),
-    );
+    installBrowserPersistenceApi(testWindow);
+    await resetLocalApiForTest();
+    writeBrowserSavedEnvironmentRegistry([
+      {
+        environmentId: testEnvironmentId,
+        label: "Remote environment",
+        httpBaseUrl: "https://remote.example.com/",
+        wsBaseUrl: "wss://remote.example.com/",
+        createdAt: "2026-04-09T00:00:00.000Z",
+        lastConnectedAt: null,
+      },
+    ]);
+    writeBrowserSavedEnvironmentSecret(testEnvironmentId, "bearer-token");
 
     await expect(readPersistedSavedEnvironmentSecret(testEnvironmentId)).resolves.toBe(
       "bearer-token",
@@ -95,7 +137,9 @@ describe("clientPersistence", () => {
   });
 
   it("preserves browser-mode secrets when the secret is written before metadata", async () => {
-    getTestWindow();
+    const testWindow = getTestWindow();
+    installBrowserPersistenceApi(testWindow);
+    await resetLocalApiForTest();
 
     await writePersistedSavedEnvironmentSecret(testEnvironmentId, "bearer-token");
     await writePersistedSavedEnvironmentRegistry([
@@ -114,136 +158,20 @@ describe("clientPersistence", () => {
     );
   });
 
-  it("migrates saved environment metadata and tokens into desktop persistence", async () => {
-    const testWindow = getTestWindow();
-    const setSavedEnvironmentRegistry = vi.fn().mockResolvedValue(undefined);
-    const setSavedEnvironmentSecret = vi.fn().mockResolvedValue(true);
-
-    testWindow.localStorage.setItem(
-      SAVED_ENVIRONMENT_REGISTRY_STORAGE_KEY,
-      JSON.stringify({
-        version: 1,
-        state: {
-          byId: {
-            [testEnvironmentId]: {
-              environmentId: testEnvironmentId,
-              label: "Remote environment",
-              httpBaseUrl: "https://remote.example.com/",
-              wsBaseUrl: "wss://remote.example.com/",
-              bearerToken: "bearer-token",
-              createdAt: "2026-04-09T00:00:00.000Z",
-              lastConnectedAt: "2026-04-09T01:00:00.000Z",
-            },
-          },
-        },
-      }),
-    );
-
-    testWindow.desktopBridge = {
-      getLocalEnvironmentBootstrap: () => null,
-      getClientSettings: async () => null,
-      setClientSettings: async () => undefined,
-      getSavedEnvironmentRegistry: async () => [],
-      setSavedEnvironmentRegistry,
-      getSavedEnvironmentSecret: async () => null,
-      setSavedEnvironmentSecret,
-      removeSavedEnvironmentSecret: async () => undefined,
-      getServerExposureState: async () => ({
-        mode: "local-only",
-        endpointUrl: null,
-        advertisedHost: null,
-      }),
-      setServerExposureMode: async () => ({
-        mode: "local-only",
-        endpointUrl: null,
-        advertisedHost: null,
-      }),
-      pickFolder: async () => null,
-      confirm: async () => true,
-      setTheme: async () => undefined,
-      showContextMenu: async () => null,
-      openExternal: async () => true,
-      onMenuAction: () => () => undefined,
-      getUpdateState: async () => {
-        throw new Error("not implemented");
-      },
-      checkForUpdate: async () => {
-        throw new Error("not implemented");
-      },
-      downloadUpdate: async () => {
-        throw new Error("not implemented");
-      },
-      installUpdate: async () => {
-        throw new Error("not implemented");
-      },
-      onUpdateState: () => () => undefined,
-    } satisfies DesktopBridge;
-
-    await expect(migrateBrowserSavedEnvironmentRegistryToDesktopPersistence()).resolves.toEqual([
-      {
-        environmentId: testEnvironmentId,
-        label: "Remote environment",
-        httpBaseUrl: "https://remote.example.com/",
-        wsBaseUrl: "wss://remote.example.com/",
-        createdAt: "2026-04-09T00:00:00.000Z",
-        lastConnectedAt: "2026-04-09T01:00:00.000Z",
-      },
-    ]);
-
-    expect(setSavedEnvironmentRegistry).toHaveBeenCalledWith([
-      {
-        environmentId: testEnvironmentId,
-        label: "Remote environment",
-        httpBaseUrl: "https://remote.example.com/",
-        wsBaseUrl: "wss://remote.example.com/",
-        createdAt: "2026-04-09T00:00:00.000Z",
-        lastConnectedAt: "2026-04-09T01:00:00.000Z",
-      },
-    ]);
-    expect(setSavedEnvironmentSecret).toHaveBeenCalledWith(testEnvironmentId, "bearer-token");
-  });
-
   it("can read client settings through the desktop bridge", async () => {
     const testWindow = getTestWindow();
-    testWindow.desktopBridge = {
-      getLocalEnvironmentBootstrap: () => null,
-      getClientSettings: async () => clientSettings,
-      setClientSettings: async () => undefined,
-      getSavedEnvironmentRegistry: async () => [],
-      setSavedEnvironmentRegistry: async () => undefined,
-      getSavedEnvironmentSecret: async () => null,
-      setSavedEnvironmentSecret: async () => true,
-      removeSavedEnvironmentSecret: async () => undefined,
-      getServerExposureState: async () => ({
-        mode: "local-only",
-        endpointUrl: null,
-        advertisedHost: null,
-      }),
-      setServerExposureMode: async () => ({
-        mode: "local-only",
-        endpointUrl: null,
-        advertisedHost: null,
-      }),
-      pickFolder: async () => null,
-      confirm: async () => true,
-      setTheme: async () => undefined,
-      showContextMenu: async () => null,
-      openExternal: async () => true,
-      onMenuAction: () => () => undefined,
-      getUpdateState: async () => {
-        throw new Error("not implemented");
+    testWindow.nativeApi = {
+      persistence: {
+        getClientSettings: async () => clientSettings,
+        setClientSettings: async () => undefined,
+        getSavedEnvironmentRegistry: async () => [],
+        setSavedEnvironmentRegistry: async () => undefined,
+        getSavedEnvironmentSecret: async () => null,
+        setSavedEnvironmentSecret: async () => true,
+        removeSavedEnvironmentSecret: async () => undefined,
       },
-      checkForUpdate: async () => {
-        throw new Error("not implemented");
-      },
-      downloadUpdate: async () => {
-        throw new Error("not implemented");
-      },
-      installUpdate: async () => {
-        throw new Error("not implemented");
-      },
-      onUpdateState: () => () => undefined,
-    } satisfies DesktopBridge;
+    } as unknown as LocalApi;
+    await resetLocalApiForTest();
 
     await expect(readPersistedClientSettings()).resolves.toEqual(clientSettings);
     expect(testWindow.localStorage.getItem(CLIENT_SETTINGS_STORAGE_KEY)).toBeNull();

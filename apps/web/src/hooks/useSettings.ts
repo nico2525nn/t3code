@@ -25,11 +25,7 @@ import {
   TimestampFormat,
   UnifiedSettings,
 } from "@t3tools/contracts/settings";
-import {
-  migrateBrowserClientSettingsToDesktopPersistence,
-  readPersistedClientSettings,
-  writePersistedClientSettings,
-} from "~/clientPersistence";
+import { readPersistedClientSettings, writePersistedClientSettings } from "~/clientPersistence";
 import { ensureLocalApi } from "~/localApi";
 import { normalizeCustomModelSlugs } from "~/modelSelection";
 import { Predicate, Schema, Struct } from "effect";
@@ -78,8 +74,7 @@ async function hydrateClientSettings(): Promise<void> {
 
   const nextHydration = (async () => {
     try {
-      const migratedSettings = await migrateBrowserClientSettingsToDesktopPersistence();
-      const persistedSettings = migratedSettings ?? (await readPersistedClientSettings());
+      const persistedSettings = await readPersistedClientSettings();
       if (persistedSettings) {
         replaceClientSettingsSnapshot(persistedSettings);
       }
@@ -309,9 +304,7 @@ export function migrateLocalSettingsToServer(): void {
     const clientPatch = buildLegacyClientSettingsMigrationPatch(old);
     if (Object.keys(clientPatch).length > 0) {
       void (async () => {
-        const migratedSettings = await migrateBrowserClientSettingsToDesktopPersistence();
-        const current =
-          migratedSettings ?? (await readPersistedClientSettings()) ?? DEFAULT_CLIENT_SETTINGS;
+        const current = (await readPersistedClientSettings()) ?? DEFAULT_CLIENT_SETTINGS;
         persistClientSettings({
           ...current,
           ...clientPatch,

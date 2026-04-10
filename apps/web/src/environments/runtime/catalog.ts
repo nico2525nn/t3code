@@ -9,7 +9,6 @@ import type {
 import { create } from "zustand";
 
 import {
-  migrateBrowserSavedEnvironmentRegistryToDesktopPersistence,
   readPersistedSavedEnvironmentRegistry,
   readPersistedSavedEnvironmentSecret,
   removePersistedSavedEnvironmentSecret,
@@ -82,11 +81,7 @@ async function hydrateSavedEnvironmentRegistry(): Promise<void> {
 
   const nextHydration = (async () => {
     try {
-      const migratedRecords = await migrateBrowserSavedEnvironmentRegistryToDesktopPersistence();
-      const persistedRecords =
-        migratedRecords.length > 0
-          ? migratedRecords
-          : await readPersistedSavedEnvironmentRegistry();
+      const persistedRecords = await readPersistedSavedEnvironmentRegistry();
       replaceSavedEnvironmentRegistryState(persistedRecords);
     } catch (error) {
       console.error("[SAVED_ENVIRONMENTS] hydrate failed", error);
