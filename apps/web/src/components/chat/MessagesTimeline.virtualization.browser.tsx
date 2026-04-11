@@ -618,17 +618,6 @@ async function mountMessagesTimeline(input: {
   };
 }
 
-async function measureRenderedRowActualHeight(input: {
-  host: HTMLElement;
-  targetRowId: string;
-}): Promise<number> {
-  const rowElement = await waitForElement(
-    () => input.host.querySelector<HTMLElement>(`[data-timeline-row-id="${input.targetRowId}"]`),
-    `Unable to locate rendered row ${input.targetRowId}.`,
-  );
-  return rowElement.getBoundingClientRect().height;
-}
-
 describe("MessagesTimeline virtualization harness", () => {
   beforeEach(async () => {
     document.body.innerHTML = "";
@@ -833,7 +822,7 @@ describe("MessagesTimeline virtualization harness", () => {
     }
   });
 
-  it("preserves measured tail row heights when rows transition into virtualization", async () => {
+  it("keeps assistant row sizes stable when additional rows are appended", async () => {
     const beforeMessages = createFillerMessages({
       prefix: "tail-transition-before",
       startOffsetSeconds: 0,
@@ -895,10 +884,14 @@ describe("MessagesTimeline virtualization harness", () => {
     const mounted = await mountMessagesTimeline({ props: initialProps });
 
     try {
-      const initiallyRenderedHeight = await measureRenderedRowActualHeight({
+      const beforeAppend = await measureTimelineRow({
         host: mounted.host,
+        props: initialProps,
         targetRowId: targetMessage.id,
       });
+      expect(
+        Math.abs(beforeAppend.actualHeightPx - beforeAppend.virtualizerSizePx),
+      ).toBeLessThanOrEqual(8);
 
       const appendedProps = createBaseTimelineProps({
         messages: [
@@ -916,26 +909,23 @@ describe("MessagesTimeline virtualization harness", () => {
       await mounted.rerender(appendedProps);
       await waitForLayout();
 
-      await vi.waitFor(
-        () => {
-          const virtualRow = mounted.host.querySelector<HTMLElement>(
-            `[data-virtual-row-id="${targetMessage.id}"]`,
-          );
-          expect(
-            virtualRow,
-            "Expected target row to transition into virtualized list.",
-          ).toBeTruthy();
-          const knownSize = Number.parseFloat(virtualRow?.dataset.virtualRowSize ?? "0");
-          expect(Math.abs(knownSize - initiallyRenderedHeight)).toBeLessThanOrEqual(8);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
+      const afterAppend = await measureTimelineRow({
+        host: mounted.host,
+        props: appendedProps,
+        targetRowId: targetMessage.id,
+      });
+      expect(
+        Math.abs(afterAppend.actualHeightPx - afterAppend.virtualizerSizePx),
+      ).toBeLessThanOrEqual(8);
+      expect(
+        Math.abs(afterAppend.actualHeightPx - beforeAppend.actualHeightPx),
+      ).toBeLessThanOrEqual(8);
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("preserves measured tail image row heights when rows transition into virtualization", async () => {
+  it("keeps image row sizes stable when additional rows are appended", async () => {
     const beforeMessages = createFillerMessages({
       prefix: "tail-image-before",
       startOffsetSeconds: 0,
@@ -979,10 +969,14 @@ describe("MessagesTimeline virtualization harness", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      const initiallyRenderedHeight = await measureRenderedRowActualHeight({
+      const beforeAppend = await measureTimelineRow({
         host: mounted.host,
+        props: initialProps,
         targetRowId: targetMessage.id,
       });
+      expect(
+        Math.abs(beforeAppend.actualHeightPx - beforeAppend.virtualizerSizePx),
+      ).toBeLessThanOrEqual(8);
       const appendedProps = createBaseTimelineProps({
         messages: [
           ...beforeMessages,
@@ -998,20 +992,17 @@ describe("MessagesTimeline virtualization harness", () => {
       await mounted.rerender(appendedProps);
       await waitForLayout();
 
-      await vi.waitFor(
-        () => {
-          const virtualRow = mounted.host.querySelector<HTMLElement>(
-            `[data-virtual-row-id="${targetMessage.id}"]`,
-          );
-          expect(
-            virtualRow,
-            "Expected target image row to transition into virtualized list.",
-          ).toBeTruthy();
-          const knownSize = Number.parseFloat(virtualRow?.dataset.virtualRowSize ?? "0");
-          expect(Math.abs(knownSize - initiallyRenderedHeight)).toBeLessThanOrEqual(8);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
+      const afterAppend = await measureTimelineRow({
+        host: mounted.host,
+        props: appendedProps,
+        targetRowId: targetMessage.id,
+      });
+      expect(
+        Math.abs(afterAppend.actualHeightPx - afterAppend.virtualizerSizePx),
+      ).toBeLessThanOrEqual(8);
+      expect(
+        Math.abs(afterAppend.actualHeightPx - beforeAppend.actualHeightPx),
+      ).toBeLessThanOrEqual(8);
     } finally {
       await mounted.cleanup();
     }

@@ -3,15 +3,15 @@ import {
   forwardRef,
   memo,
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import { Virtuoso, type ItemProps, type ListProps } from "react-virtuoso";
+import { Virtuoso, type ItemProps, type ListProps, type VirtuosoHandle } from "react-virtuoso";
 import { deriveTimelineEntries, formatElapsed } from "../../session-logic";
+import { isScrollContainerNearBottom } from "../../chat-scroll";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
@@ -30,7 +30,6 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
-import { clamp } from "effect/Number";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
@@ -60,7 +59,6 @@ import {
   textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
 
-const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 const VIRTUALIZED_VIEWPORT_PADDING_PX = 640;
 
 interface MessagesTimelineProps {
@@ -119,12 +117,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   workspaceRoot,
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
+  const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
-  const rowMeasurementObserversRef = useRef(new Map<string, ResizeObserver>());
-  const rowMeasurementCallbacksRef = useRef(
-    new Map<string, (element: HTMLDivElement | null) => void>(),
-  );
-  const [measuredRowHeightsById, setMeasuredRowHeightsById] = useState<Record<string, number>>({});
 
   useLayoutEffect(() => {
     const timelineRoot = timelineRootRef.current;
@@ -162,154 +156,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [timelineEntries, completionDividerBeforeEntryId, isWorking, activeTurnStartedAt],
   );
 
-  const firstUnvirtualizedRowIndex = useMemo(() => {
-    const firstTailRowIndex = Math.max(rows.length - ALWAYS_UNVIRTUALIZED_TAIL_ROWS, 0);
-    if (!activeTurnInProgress) return firstTailRowIndex;
-
-    const turnStartedAtMs =
-      typeof activeTurnStartedAt === "string" ? Date.parse(activeTurnStartedAt) : Number.NaN;
-    let firstCurrentTurnRowIndex = -1;
-    if (!Number.isNaN(turnStartedAtMs)) {
-      firstCurrentTurnRowIndex = rows.findIndex((row) => {
-        if (row.kind === "working") return true;
-        if (!row.createdAt) return false;
-        const rowCreatedAtMs = Date.parse(row.createdAt);
-        return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= turnStartedAtMs;
-      });
-    }
-
-    if (firstCurrentTurnRowIndex < 0) {
-      firstCurrentTurnRowIndex = rows.findIndex(
-        (row) => row.kind === "message" && row.message.streaming,
-      );
-    }
-
-    if (firstCurrentTurnRowIndex < 0) return firstTailRowIndex;
-
-    for (let index = firstCurrentTurnRowIndex - 1; index >= 0; index -= 1) {
-      const previousRow = rows[index];
-      if (!previousRow || previousRow.kind !== "message") continue;
-      if (previousRow.message.role === "user") {
-        return Math.min(index, firstTailRowIndex);
-      }
-      if (previousRow.message.role === "assistant" && !previousRow.message.streaming) {
-        break;
-      }
-    }
-
-    return Math.min(firstCurrentTurnRowIndex, firstTailRowIndex);
-  }, [activeTurnInProgress, activeTurnStartedAt, rows]);
-
-  const virtualizedRowCount = clamp(firstUnvirtualizedRowIndex, {
-    minimum: 0,
-    maximum: rows.length,
-  });
-  const handleMeasuredRowHeight = useCallback((rowId: string, nextHeight: number) => {
-    if (!Number.isFinite(nextHeight) || nextHeight <= 0) {
-      return;
-    }
-    setMeasuredRowHeightsById((current) => {
-      const previousHeight = current[rowId];
-      if (previousHeight !== undefined && Math.abs(previousHeight - nextHeight) < 0.5) {
-        return current;
-      }
-      return {
-        ...current,
-        [rowId]: nextHeight,
-      };
-    });
-  }, []);
-  const attachMeasuredRowElement = useCallback(
-    (rowId: string, element: HTMLDivElement | null) => {
-      const existingObserver = rowMeasurementObserversRef.current.get(rowId);
-      if (existingObserver) {
-        existingObserver.disconnect();
-        rowMeasurementObserversRef.current.delete(rowId);
-      }
-
-      if (!element) {
-        return;
-      }
-
-      handleMeasuredRowHeight(rowId, element.getBoundingClientRect().height);
-
-      if (typeof ResizeObserver === "undefined") {
-        return;
-      }
-
-      const observer = new ResizeObserver((entries) => {
-        const entry = entries[0];
-        if (!entry) return;
-        handleMeasuredRowHeight(rowId, entry.target.getBoundingClientRect().height);
-      });
-      observer.observe(element);
-      rowMeasurementObserversRef.current.set(rowId, observer);
-    },
-    [handleMeasuredRowHeight],
-  );
-  const getMeasuredRowRef = useCallback(
-    (rowId: string) => {
-      const existingCallback = rowMeasurementCallbacksRef.current.get(rowId);
-      if (existingCallback) {
-        return existingCallback;
-      }
-      const callback = (element: HTMLDivElement | null) => {
-        attachMeasuredRowElement(rowId, element);
-      };
-      rowMeasurementCallbacksRef.current.set(rowId, callback);
-      return callback;
-    },
-    [attachMeasuredRowElement],
-  );
-  useEffect(() => {
-    const rowMeasurementObservers = rowMeasurementObserversRef.current;
-    const rowMeasurementCallbacks = rowMeasurementCallbacksRef.current;
-    return () => {
-      for (const observer of rowMeasurementObservers.values()) {
-        observer.disconnect();
-      }
-      rowMeasurementObservers.clear();
-      rowMeasurementCallbacks.clear();
-    };
-  }, []);
-
-  const canVirtualize = scrollContainer !== null && virtualizedRowCount > 0;
-  const virtualizedRows = useMemo(
-    () => (canVirtualize ? rows.slice(0, virtualizedRowCount) : []),
-    [canVirtualize, rows, virtualizedRowCount],
-  );
-  const virtualizedRowHeightEstimates = useMemo(
+  const canVirtualize = scrollContainer !== null && rows.length > 0;
+  const rowHeightEstimates = useMemo(
     () =>
-      virtualizedRows.map((row) => {
-        const measuredHeight = measuredRowHeightsById[row.id];
-        if (typeof measuredHeight === "number") {
-          return measuredHeight;
-        }
-        return estimateMessagesTimelineRowHeight(row, {
+      rows.map((row) =>
+        estimateMessagesTimelineRowHeight(row, {
           expandedWorkGroups,
           timelineWidthPx,
           turnDiffSummaryByAssistantMessageId,
-        });
-      }),
-    [
-      expandedWorkGroups,
-      measuredRowHeightsById,
-      timelineWidthPx,
-      turnDiffSummaryByAssistantMessageId,
-      virtualizedRows,
-    ],
+        }),
+      ),
+    [expandedWorkGroups, rows, timelineWidthPx, turnDiffSummaryByAssistantMessageId],
   );
-  const nonVirtualizedRows = canVirtualize ? rows.slice(virtualizedRowCount) : rows;
-  const virtualizationWidthKey =
-    timelineWidthPx === null ? "width:unknown" : `width:${Math.round(timelineWidthPx)}`;
-  const defaultVirtualizedRowHeight = virtualizedRowHeightEstimates[0];
-  useEffect(() => {
-    setMeasuredRowHeightsById({});
-  }, [virtualizationWidthKey]);
+  const defaultRowHeight = rowHeightEstimates[0];
+  const onTimelineImageLoad = useCallback(() => {
+    const activeScrollContainer = scrollContainer;
+    if (!activeScrollContainer || !isScrollContainerNearBottom(activeScrollContainer)) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      virtuosoRef.current?.autoscrollToBottom();
+    });
+  }, [scrollContainer]);
 
   const renderRowContent = (row: TimelineRow) => (
     <div
-      ref={getMeasuredRowRef(row.id)}
       className={cn(
         "pb-4",
         row.kind === "message" && row.message.role === "assistant" ? "group/assistant" : null,
@@ -394,6 +265,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                                 src={image.previewUrl}
                                 alt={image.name}
                                 className="block h-auto max-h-[220px] w-full object-cover"
+                                onLoad={onTimelineImageLoad}
+                                onError={onTimelineImageLoad}
                               />
                             </button>
                           ) : (
@@ -604,11 +477,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     >
       {canVirtualize && (
         <Virtuoso
-          key={virtualizationWidthKey}
+          ref={virtuosoRef}
           customScrollParent={scrollContainer ?? undefined}
-          data={virtualizedRows}
+          data={rows}
           computeItemKey={(_index, row) => row.id}
-          heightEstimates={virtualizedRowHeightEstimates}
+          followOutput={(isAtBottom) => (isAtBottom ? "auto" : false)}
+          heightEstimates={rowHeightEstimates}
           increaseViewportBy={{
             top: VIRTUALIZED_VIEWPORT_PADDING_PX,
             bottom: VIRTUALIZED_VIEWPORT_PADDING_PX,
@@ -618,15 +492,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             Item: VirtualizedTimelineRowItem,
           }}
           itemContent={(_index, row) => renderRowContent(row)}
-          {...(typeof defaultVirtualizedRowHeight === "number"
-            ? { defaultItemHeight: defaultVirtualizedRowHeight }
-            : {})}
+          {...(typeof defaultRowHeight === "number" ? { defaultItemHeight: defaultRowHeight } : {})}
         />
       )}
-
-      {nonVirtualizedRows.map((row) => (
-        <div key={`non-virtual-row:${row.id}`}>{renderRowContent(row)}</div>
-      ))}
+      {!canVirtualize &&
+        rows.map((row) => <div key={`row:${row.id}`}>{renderRowContent(row)}</div>)}
     </div>
   );
 });
