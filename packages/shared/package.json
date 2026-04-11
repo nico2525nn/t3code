@@ -60,6 +60,10 @@
       "types": "./src/remote.ts",
       "import": "./src/remote.ts"
     },
+    "./searchRanking": {
+      "types": "./src/searchRanking.ts",
+      "import": "./src/searchRanking.ts"
+    },
     "./qrCode": {
       "types": "./src/qrCode.ts",
       "import": "./src/qrCode.ts"
