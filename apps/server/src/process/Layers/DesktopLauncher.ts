@@ -9,11 +9,10 @@
  */
 import OS from "node:os";
 import { spawn as spawnNodeChildProcess } from "node:child_process";
-import { pathToFileURL } from "node:url";
-
 import { EDITORS, type EditorId } from "@t3tools/contracts";
 import { Array, Effect, FileSystem, Layer, Option, Path, Scope } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { LINE_COLUMN_SUFFIX_PATTERN, makeWindowsEditorProtocolTarget } from "../../editorProtocol";
 import {
   isWindowsBatchShim,
   makeWindowsCmdSpawnArguments,
@@ -113,7 +112,6 @@ type LaunchAttemptError =
 
 type LaunchPlanError = LaunchAttemptError | DesktopLauncherLaunchAttemptsExhaustedError;
 
-const LINE_COLUMN_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
 const WINDOWS_POWERSHELL_CANDIDATES = ["powershell.exe", "powershell", "pwsh.exe", "pwsh"] as const;
 const WSL_POWERSHELL_CANDIDATES = [
   "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
@@ -121,36 +119,12 @@ const WSL_POWERSHELL_CANDIDATES = [
   "powershell.exe",
   "pwsh.exe",
 ] as const;
-const WINDOWS_EDITOR_URI_SCHEMES: Partial<Record<EditorId, string>> = {
-  vscode: "vscode",
-  "vscode-insiders": "vscode-insiders",
-  vscodium: "vscodium",
-};
-
 function shouldUseGotoFlag(editor: (typeof EDITORS)[number], target: string): boolean {
   return editor.supportsGoto && LINE_COLUMN_SUFFIX_PATTERN.test(target);
 }
 
 function stripWrappingQuotes(value: string): string {
   return value.replace(/^"+|"+$/g, "");
-}
-
-function splitLineColumnSuffix(target: string): {
-  readonly filePath: string;
-  readonly suffix: string;
-} {
-  const match = target.match(LINE_COLUMN_SUFFIX_PATTERN);
-  if (!match) {
-    return {
-      filePath: target,
-      suffix: "",
-    };
-  }
-
-  return {
-    filePath: target.slice(0, -match[0].length),
-    suffix: match[0],
-  };
 }
 
 function resolvePathEnvironmentVariable(env: NodeJS.ProcessEnv): string {
@@ -245,19 +219,6 @@ function isUriLikeTarget(target: string): boolean {
 
 function shouldPreferWindowsOpenerOnWsl(input: OpenExternalInput, runtime: LaunchRuntime): boolean {
   return runtime.isWsl && !runtime.isInsideContainer && isUriLikeTarget(input.target);
-}
-
-function makeWindowsEditorProtocolTarget(editor: EditorId, target: string): string | undefined {
-  const scheme = WINDOWS_EDITOR_URI_SCHEMES[editor];
-  if (!scheme) return undefined;
-
-  const { filePath, suffix } = splitLineColumnSuffix(target);
-  const fileUrl = pathToFileURL(filePath).href;
-  const fileTarget = fileUrl.startsWith("file:///")
-    ? fileUrl.slice("file:///".length)
-    : fileUrl.replace(/^file:\/\//, "");
-
-  return `${scheme}://file/${fileTarget}${suffix}`;
 }
 
 function makeLaunchPlan(
