@@ -9,6 +9,7 @@
  */
 import OS from "node:os";
 import { spawn as spawnNodeChildProcess } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 import { EDITORS, type EditorId } from "@t3tools/contracts";
 import { Array, Effect, FileSystem, Layer, Option, Path, Scope } from "effect";
@@ -38,6 +39,7 @@ export interface DetachedSpawnInput {
   readonly detached?: boolean;
   readonly shell?: boolean;
   readonly windowsVerbatimArguments?: boolean;
+  readonly windowsHide?: boolean;
   readonly stdin?: "ignore";
   readonly stdout?: "ignore";
   readonly stderr?: "ignore";
@@ -119,6 +121,11 @@ const WSL_POWERSHELL_CANDIDATES = [
   "powershell.exe",
   "pwsh.exe",
 ] as const;
+const WINDOWS_EDITOR_URI_SCHEMES: Partial<Record<EditorId, string>> = {
+  vscode: "vscode",
+  "vscode-insiders": "vscode-insiders",
+  vscodium: "vscodium",
+};
 
 function shouldUseGotoFlag(editor: (typeof EDITORS)[number], target: string): boolean {
   return editor.supportsGoto && LINE_COLUMN_SUFFIX_PATTERN.test(target);
@@ -126,6 +133,24 @@ function shouldUseGotoFlag(editor: (typeof EDITORS)[number], target: string): bo
 
 function stripWrappingQuotes(value: string): string {
   return value.replace(/^"+|"+$/g, "");
+}
+
+function splitLineColumnSuffix(target: string): {
+  readonly filePath: string;
+  readonly suffix: string;
+} {
+  const match = target.match(LINE_COLUMN_SUFFIX_PATTERN);
+  if (!match) {
+    return {
+      filePath: target,
+      suffix: "",
+    };
+  }
+
+  return {
+    filePath: target.slice(0, -match[0].length),
+    suffix: match[0],
+  };
 }
 
 function resolvePathEnvironmentVariable(env: NodeJS.ProcessEnv): string {
@@ -188,6 +213,10 @@ function quotePowerShellValue(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
+function quotePowerShellArgument(value: string): string {
+  return `"\`"${value.replaceAll("`", "``").replaceAll('"', '`"')}\`""`;
+}
+
 function encodePowerShellCommand(command: string): string {
   return Buffer.from(command, "utf16le").toString("base64");
 }
@@ -216,6 +245,19 @@ function isUriLikeTarget(target: string): boolean {
 
 function shouldPreferWindowsOpenerOnWsl(input: OpenExternalInput, runtime: LaunchRuntime): boolean {
   return runtime.isWsl && !runtime.isInsideContainer && isUriLikeTarget(input.target);
+}
+
+function makeWindowsEditorProtocolTarget(editor: EditorId, target: string): string | undefined {
+  const scheme = WINDOWS_EDITOR_URI_SCHEMES[editor];
+  if (!scheme) return undefined;
+
+  const { filePath, suffix } = splitLineColumnSuffix(target);
+  const fileUrl = pathToFileURL(filePath).href;
+  const fileTarget = fileUrl.startsWith("file:///")
+    ? fileUrl.slice("file:///".length)
+    : fileUrl.replace(/^file:\/\//, "");
+
+  return `${scheme}://file/${fileTarget}${suffix}`;
 }
 
 function makeLaunchPlan(
@@ -309,8 +351,8 @@ function makePowerShellStartProcessArgs(
   args: ReadonlyArray<string>,
 ): ReadonlyArray<string> {
   const argumentList =
-    args.length > 0 ? ` -ArgumentList ${args.map(quotePowerShellValue).join(", ")}` : "";
-  const command = `Start-Process -FilePath ${quotePowerShellValue(commandPath)}${argumentList} -WindowStyle Hidden`;
+    args.length > 0 ? ` -ArgumentList ${args.map(quotePowerShellArgument).join(",")}` : "";
+  const command = `Start ${quotePowerShellArgument(commandPath)}${argumentList} -WindowStyle Hidden`;
   return [
     "-NoProfile",
     "-NonInteractive",
@@ -336,6 +378,8 @@ function makeWindowsExplorerPlan(input: OpenExternalInput): LaunchPlan {
   return makeLaunchPlan("explorer", [input.target], {
     wait: false,
     allowNonzeroExitCode: false,
+    detached: true,
+    stdio: "ignore",
     shell: false,
   });
 }
@@ -408,6 +452,9 @@ function resolveSpawnInput(
       args: makePowerShellStartProcessArgs(resolvedCommand.path, plan.args),
       ...(plan.detached !== undefined ? { detached: plan.detached } : {}),
       ...(plan.shell !== undefined ? { shell: plan.shell } : {}),
+      ...(runtime.platform === "win32"
+        ? { windowsVerbatimArguments: true, windowsHide: true }
+        : {}),
       ...(plan.stdio === "ignore"
         ? {
             stdin: "ignore" as const,
@@ -417,6 +464,7 @@ function resolveSpawnInput(
         : {}),
     };
   }
+  const windowsHide = runtime.platform === "win32" && plan.detached ? true : undefined;
   return {
     command: resolvedCommand.usesCmdWrapper
       ? resolveWindowsCommandShell(runtime.env)
@@ -426,6 +474,7 @@ function resolveSpawnInput(
       : [...plan.args],
     ...(plan.detached !== undefined ? { detached: plan.detached } : {}),
     ...(plan.shell !== undefined ? { shell: plan.shell } : {}),
+    ...(windowsHide ? { windowsHide } : {}),
     ...(resolvedCommand.usesCmdWrapper ? { windowsVerbatimArguments: true } : {}),
     ...(plan.stdio === "ignore"
       ? {
@@ -525,6 +574,7 @@ function defaultSpawnDetached(
       spawnNodeChildProcess(input.command, [...input.args], {
         ...(input.detached !== undefined ? { detached: input.detached } : {}),
         ...(input.shell !== undefined ? { shell: input.shell } : {}),
+        ...(input.windowsHide !== undefined ? { windowsHide: input.windowsHide } : {}),
         ...(input.windowsVerbatimArguments !== undefined
           ? { windowsVerbatimArguments: input.windowsVerbatimArguments }
           : {}),
@@ -889,6 +939,21 @@ export const make = Effect.fn("makeDesktopLauncher")(function* (
       const editor = EDITORS.find((candidate) => candidate.id === input.editor);
       if (!editor) {
         return yield* new DesktopLauncherUnknownEditorError({ editor: input.editor });
+      }
+
+      const windowsEditorProtocolTarget =
+        runtime.platform === "win32"
+          ? makeWindowsEditorProtocolTarget(input.editor, input.cwd)
+          : undefined;
+      if (windowsEditorProtocolTarget) {
+        return yield* runFirstAvailablePlan(
+          [makeWindowsExplorerPlan({ target: windowsEditorProtocolTarget })],
+          {
+            operation: "openInEditor",
+            target: input.cwd,
+            editor: input.editor,
+          },
+        );
       }
 
       if (editor.command) {
