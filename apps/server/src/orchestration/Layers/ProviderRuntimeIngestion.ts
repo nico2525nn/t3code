@@ -1147,7 +1147,7 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
-    if (event.type === "session.exited") {
+    if (event.type === "session.exited" && shouldApplyThreadLifecycle) {
       yield* clearTurnStateForSession(thread.id);
     }
 

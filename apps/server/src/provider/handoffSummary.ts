@@ -72,11 +72,7 @@ function looksLikeCompactionItem(value: unknown): boolean {
   if (COMPACTION_TYPE_SNIPPETS.some((snippet) => type.includes(snippet))) {
     return true;
   }
-  return (
-    typeof record.compact_summary === "string" ||
-    typeof record.compactSummary === "string" ||
-    typeof record.summary === "string"
-  );
+  return typeof record.compact_summary === "string" || typeof record.compactSummary === "string";
 }
 
 export function extractCompactionSummaryFromSnapshot(snapshot: {
