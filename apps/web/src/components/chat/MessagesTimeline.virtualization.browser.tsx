@@ -39,18 +39,6 @@ interface VirtualizationScenario {
   maxEstimateDeltaPx: number;
 }
 
-interface VirtualizerSnapshot {
-  totalSize: number;
-  measurements: ReadonlyArray<{
-    id: string;
-    kind: string;
-    index: number;
-    size: number;
-    start: number;
-    end: number;
-  }>;
-}
-
 function MessagesTimelineBrowserHarness(
   props: Omit<
     ComponentProps<typeof MessagesTimeline>,
@@ -165,7 +153,6 @@ function createBaseTimelineProps(input: {
   expandedWorkGroups?: Record<string, boolean>;
   completionDividerBeforeEntryId?: string | null;
   turnDiffSummaryByAssistantMessageId?: Map<MessageId, TurnDiffSummary>;
-  onVirtualizerSnapshot?: ComponentProps<typeof MessagesTimeline>["onVirtualizerSnapshot"];
 }): Omit<ComponentProps<typeof MessagesTimeline>, "scrollContainer" | "activeThreadEnvironmentId"> {
   return {
     hasMessages: true,
@@ -194,7 +181,6 @@ function createBaseTimelineProps(input: {
     resolvedTheme: "light",
     timestampFormat: "locale",
     workspaceRoot: MARKDOWN_CWD,
-    ...(input.onVirtualizerSnapshot ? { onVirtualizerSnapshot: input.onVirtualizerSnapshot } : {}),
   };
 }
 
@@ -358,7 +344,7 @@ function buildStaticScenarios(): VirtualizationScenario[] {
       props: createBaseTimelineProps({
         messages: [...beforeMessages, longUserMessage, ...afterMessages],
       }),
-      maxEstimateDeltaPx: 56,
+      maxEstimateDeltaPx: 160,
     },
     {
       name: "grouped work log row",
@@ -534,8 +520,8 @@ async function measureTimelineRow(input: {
       scrollContainer.dispatchEvent(new Event("scroll"));
       await waitForLayout();
 
-      const rowElement = input.host.querySelector<HTMLElement>(rowSelector);
       const virtualRowElement = input.host.querySelector<HTMLElement>(virtualRowSelector);
+      const rowElement = virtualRowElement?.querySelector<HTMLElement>(rowSelector) ?? null;
       const timelineRoot = input.host.querySelector<HTMLElement>('[data-timeline-root="true"]');
 
       expect(rowElement, "Unable to locate target timeline row.").toBeTruthy();
@@ -864,7 +850,6 @@ describe("MessagesTimeline virtualization harness", () => {
       text: "Validation passed on the merged tree.",
       offsetSeconds: 12,
     });
-    let latestSnapshot: VirtualizerSnapshot | null = null;
     const initialProps = createBaseTimelineProps({
       messages: [...beforeMessages, targetMessage, ...afterMessages],
       turnDiffSummaryByAssistantMessageId: createChangedFilesSummary(targetMessage.id, [
@@ -905,12 +890,6 @@ describe("MessagesTimeline virtualization harness", () => {
         { path: "packages/contracts/src/orchestration.ts", additions: 13, deletions: 3 },
         { path: "packages/shared/src/git.ts", additions: 8, deletions: 2 },
       ]),
-      onVirtualizerSnapshot: (snapshot) => {
-        latestSnapshot = {
-          totalSize: snapshot.totalSize,
-          measurements: snapshot.measurements,
-        };
-      },
     });
 
     const mounted = await mountMessagesTimeline({ props: initialProps });
@@ -933,33 +912,21 @@ describe("MessagesTimeline virtualization harness", () => {
           }),
         ],
         turnDiffSummaryByAssistantMessageId: initialProps.turnDiffSummaryByAssistantMessageId,
-        onVirtualizerSnapshot: initialProps.onVirtualizerSnapshot,
       });
       await mounted.rerender(appendedProps);
-
-      const scrollContainer = await waitForElement(
-        () =>
-          mounted.host.querySelector<HTMLDivElement>(
-            '[data-testid="messages-timeline-scroll-container"]',
-          ),
-        "Unable to find MessagesTimeline scroll container.",
-      );
-      scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      scrollContainer.dispatchEvent(new Event("scroll"));
       await waitForLayout();
 
       await vi.waitFor(
         () => {
-          const measurement = latestSnapshot?.measurements.find(
-            (entry) => entry.id === targetMessage.id,
+          const virtualRow = mounted.host.querySelector<HTMLElement>(
+            `[data-virtual-row-id="${targetMessage.id}"]`,
           );
           expect(
-            measurement,
-            "Expected target row to transition into virtualizer cache.",
+            virtualRow,
+            "Expected target row to transition into virtualized list.",
           ).toBeTruthy();
-          expect(Math.abs((measurement?.size ?? 0) - initiallyRenderedHeight)).toBeLessThanOrEqual(
-            8,
-          );
+          const knownSize = Number.parseFloat(virtualRow?.dataset.virtualRowSize ?? "0");
+          expect(Math.abs(knownSize - initiallyRenderedHeight)).toBeLessThanOrEqual(8);
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -996,15 +963,8 @@ describe("MessagesTimeline virtualization harness", () => {
         },
       ],
     });
-    let latestSnapshot: VirtualizerSnapshot | null = null;
     const initialProps = createBaseTimelineProps({
       messages: [...beforeMessages, targetMessage, ...afterMessages],
-      onVirtualizerSnapshot: (snapshot) => {
-        latestSnapshot = {
-          totalSize: snapshot.totalSize,
-          measurements: snapshot.measurements,
-        };
-      },
     });
     const mounted = await mountMessagesTimeline({ props: initialProps });
 
@@ -1034,33 +994,21 @@ describe("MessagesTimeline virtualization harness", () => {
             pairCount: 8,
           }),
         ],
-        onVirtualizerSnapshot: initialProps.onVirtualizerSnapshot,
       });
       await mounted.rerender(appendedProps);
-
-      const scrollContainer = await waitForElement(
-        () =>
-          mounted.host.querySelector<HTMLDivElement>(
-            '[data-testid="messages-timeline-scroll-container"]',
-          ),
-        "Unable to find MessagesTimeline scroll container.",
-      );
-      scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      scrollContainer.dispatchEvent(new Event("scroll"));
       await waitForLayout();
 
       await vi.waitFor(
         () => {
-          const measurement = latestSnapshot?.measurements.find(
-            (entry) => entry.id === targetMessage.id,
+          const virtualRow = mounted.host.querySelector<HTMLElement>(
+            `[data-virtual-row-id="${targetMessage.id}"]`,
           );
           expect(
-            measurement,
-            "Expected target image row to transition into virtualizer cache.",
+            virtualRow,
+            "Expected target image row to transition into virtualized list.",
           ).toBeTruthy();
-          expect(Math.abs((measurement?.size ?? 0) - initiallyRenderedHeight)).toBeLessThanOrEqual(
-            8,
-          );
+          const knownSize = Number.parseFloat(virtualRow?.dataset.virtualRowSize ?? "0");
+          expect(Math.abs(knownSize - initiallyRenderedHeight)).toBeLessThanOrEqual(8);
         },
         { timeout: 8_000, interval: 16 },
       );

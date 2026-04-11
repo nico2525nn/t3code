@@ -1,5 +1,6 @@
 import { type EnvironmentId, type MessageId, type TurnId } from "@t3tools/contracts";
 import {
+  forwardRef,
   memo,
   useCallback,
   useEffect,
@@ -9,13 +10,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  measureElement as measureVirtualElement,
-  type VirtualItem,
-  useVirtualizer,
-} from "@tanstack/react-virtual";
+import { Virtuoso, type ItemProps, type ListProps } from "react-virtuoso";
 import { deriveTimelineEntries, formatElapsed } from "../../session-logic";
-import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX } from "../../chat-scroll";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
@@ -65,6 +61,7 @@ import {
 } from "./userMessageTerminalContexts";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
+const VIRTUALIZED_VIEWPORT_PADDING_PX = 640;
 
 interface MessagesTimelineProps {
   hasMessages: boolean;
@@ -92,17 +89,6 @@ interface MessagesTimelineProps {
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
-  onVirtualizerSnapshot?: (snapshot: {
-    totalSize: number;
-    measurements: ReadonlyArray<{
-      id: string;
-      kind: MessagesTimelineRow["kind"];
-      index: number;
-      size: number;
-      start: number;
-      end: number;
-    }>;
-  }) => void;
 }
 
 export const MessagesTimeline = memo(function MessagesTimeline({
@@ -131,10 +117,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
-  onVirtualizerSnapshot,
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
+  const rowMeasurementObserversRef = useRef(new Map<string, ResizeObserver>());
+  const rowMeasurementCallbacksRef = useRef(
+    new Map<string, (element: HTMLDivElement | null) => void>(),
+  );
+  const [measuredRowHeightsById, setMeasuredRowHeightsById] = useState<Record<string, number>>({});
 
   useLayoutEffect(() => {
     const timelineRoot = timelineRootRef.current;
@@ -214,99 +204,112 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     minimum: 0,
     maximum: rows.length,
   });
-  const virtualMeasurementScopeKey =
-    timelineWidthPx === null ? "width:unknown" : `width:${Math.round(timelineWidthPx)}`;
-
-  const rowVirtualizer = useVirtualizer({
-    count: virtualizedRowCount,
-    getScrollElement: () => scrollContainer,
-    // Scope cached row measurements to the current timeline width so offscreen
-    // rows do not keep stale heights after wrapping changes.
-    getItemKey: (index: number) => {
-      const rowId = rows[index]?.id ?? String(index);
-      return `${virtualMeasurementScopeKey}:${rowId}`;
-    },
-    estimateSize: (index: number) => {
-      const row = rows[index];
-      if (!row) return 96;
-      return estimateMessagesTimelineRowHeight(row, {
-        expandedWorkGroups,
-        timelineWidthPx,
-        turnDiffSummaryByAssistantMessageId,
-      });
-    },
-    measureElement: measureVirtualElement,
-    useAnimationFrameWithResizeObserver: true,
-    overscan: 8,
-  });
-  useEffect(() => {
-    if (timelineWidthPx === null) return;
-    rowVirtualizer.measure();
-  }, [rowVirtualizer, timelineWidthPx]);
-  useEffect(() => {
-    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
-      const viewportHeight = instance.scrollRect?.height ?? 0;
-      const scrollOffset = instance.scrollOffset ?? 0;
-      const itemIntersectsViewport =
-        item.end > scrollOffset && item.start < scrollOffset + viewportHeight;
-      if (itemIntersectsViewport) {
-        return false;
-      }
-      const remainingDistance = instance.getTotalSize() - (scrollOffset + viewportHeight);
-      return remainingDistance > AUTO_SCROLL_BOTTOM_THRESHOLD_PX;
-    };
-    return () => {
-      rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = undefined;
-    };
-  }, [rowVirtualizer]);
-  const pendingMeasureFrameRef = useRef<number | null>(null);
-  const onTimelineImageLoad = useCallback(() => {
-    if (pendingMeasureFrameRef.current !== null) return;
-    pendingMeasureFrameRef.current = window.requestAnimationFrame(() => {
-      pendingMeasureFrameRef.current = null;
-      rowVirtualizer.measure();
-    });
-  }, [rowVirtualizer]);
-  useEffect(() => {
-    return () => {
-      const frame = pendingMeasureFrameRef.current;
-      if (frame !== null) {
-        window.cancelAnimationFrame(frame);
-      }
-    };
-  }, []);
-  useLayoutEffect(() => {
-    if (!onVirtualizerSnapshot) {
+  const handleMeasuredRowHeight = useCallback((rowId: string, nextHeight: number) => {
+    if (!Number.isFinite(nextHeight) || nextHeight <= 0) {
       return;
     }
-    onVirtualizerSnapshot({
-      totalSize: rowVirtualizer.getTotalSize(),
-      measurements: rowVirtualizer.measurementsCache
-        .slice(0, virtualizedRowCount)
-        .flatMap((measurement) => {
-          const row = rows[measurement.index];
-          if (!row) {
-            return [];
-          }
-          return [
-            {
-              id: row.id,
-              kind: row.kind,
-              index: measurement.index,
-              size: measurement.size,
-              start: measurement.start,
-              end: measurement.end,
-            },
-          ];
-        }),
+    setMeasuredRowHeightsById((current) => {
+      const previousHeight = current[rowId];
+      if (previousHeight !== undefined && Math.abs(previousHeight - nextHeight) < 0.5) {
+        return current;
+      }
+      return {
+        ...current,
+        [rowId]: nextHeight,
+      };
     });
-  }, [onVirtualizerSnapshot, rowVirtualizer, rows, virtualizedRowCount]);
+  }, []);
+  const attachMeasuredRowElement = useCallback(
+    (rowId: string, element: HTMLDivElement | null) => {
+      const existingObserver = rowMeasurementObserversRef.current.get(rowId);
+      if (existingObserver) {
+        existingObserver.disconnect();
+        rowMeasurementObserversRef.current.delete(rowId);
+      }
 
-  const virtualRows = rowVirtualizer.getVirtualItems();
-  const nonVirtualizedRows = rows.slice(virtualizedRowCount);
+      if (!element) {
+        return;
+      }
+
+      handleMeasuredRowHeight(rowId, element.getBoundingClientRect().height);
+
+      if (typeof ResizeObserver === "undefined") {
+        return;
+      }
+
+      const observer = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        handleMeasuredRowHeight(rowId, entry.target.getBoundingClientRect().height);
+      });
+      observer.observe(element);
+      rowMeasurementObserversRef.current.set(rowId, observer);
+    },
+    [handleMeasuredRowHeight],
+  );
+  const getMeasuredRowRef = useCallback(
+    (rowId: string) => {
+      const existingCallback = rowMeasurementCallbacksRef.current.get(rowId);
+      if (existingCallback) {
+        return existingCallback;
+      }
+      const callback = (element: HTMLDivElement | null) => {
+        attachMeasuredRowElement(rowId, element);
+      };
+      rowMeasurementCallbacksRef.current.set(rowId, callback);
+      return callback;
+    },
+    [attachMeasuredRowElement],
+  );
+  useEffect(() => {
+    const rowMeasurementObservers = rowMeasurementObserversRef.current;
+    const rowMeasurementCallbacks = rowMeasurementCallbacksRef.current;
+    return () => {
+      for (const observer of rowMeasurementObservers.values()) {
+        observer.disconnect();
+      }
+      rowMeasurementObservers.clear();
+      rowMeasurementCallbacks.clear();
+    };
+  }, []);
+
+  const canVirtualize = scrollContainer !== null && virtualizedRowCount > 0;
+  const virtualizedRows = useMemo(
+    () => (canVirtualize ? rows.slice(0, virtualizedRowCount) : []),
+    [canVirtualize, rows, virtualizedRowCount],
+  );
+  const virtualizedRowHeightEstimates = useMemo(
+    () =>
+      virtualizedRows.map((row) => {
+        const measuredHeight = measuredRowHeightsById[row.id];
+        if (typeof measuredHeight === "number") {
+          return measuredHeight;
+        }
+        return estimateMessagesTimelineRowHeight(row, {
+          expandedWorkGroups,
+          timelineWidthPx,
+          turnDiffSummaryByAssistantMessageId,
+        });
+      }),
+    [
+      expandedWorkGroups,
+      measuredRowHeightsById,
+      timelineWidthPx,
+      turnDiffSummaryByAssistantMessageId,
+      virtualizedRows,
+    ],
+  );
+  const nonVirtualizedRows = canVirtualize ? rows.slice(virtualizedRowCount) : rows;
+  const virtualizationWidthKey =
+    timelineWidthPx === null ? "width:unknown" : `width:${Math.round(timelineWidthPx)}`;
+  const defaultVirtualizedRowHeight = virtualizedRowHeightEstimates[0];
+  useEffect(() => {
+    setMeasuredRowHeightsById({});
+  }, [virtualizationWidthKey]);
 
   const renderRowContent = (row: TimelineRow) => (
     <div
+      ref={getMeasuredRowRef(row.id)}
       className={cn(
         "pb-4",
         row.kind === "message" && row.message.role === "assistant" ? "group/assistant" : null,
@@ -391,8 +394,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                                 src={image.previewUrl}
                                 alt={image.name}
                                 className="block h-auto max-h-[220px] w-full object-cover"
-                                onLoad={onTimelineImageLoad}
-                                onError={onTimelineImageLoad}
                               />
                             </button>
                           ) : (
@@ -601,29 +602,26 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       data-timeline-root="true"
       className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
     >
-      {virtualizedRowCount > 0 && (
-        <div className="relative" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-          {virtualRows.map((virtualRow: VirtualItem) => {
-            const row = rows[virtualRow.index];
-            if (!row) return null;
-
-            return (
-              <div
-                key={`virtual-row:${row.id}`}
-                data-index={virtualRow.index}
-                data-virtual-row-id={row.id}
-                data-virtual-row-kind={row.kind}
-                data-virtual-row-size={virtualRow.size}
-                data-virtual-row-start={virtualRow.start}
-                ref={rowVirtualizer.measureElement}
-                className="absolute left-0 top-0 w-full"
-                style={{ transform: `translateY(${virtualRow.start}px)` }}
-              >
-                {renderRowContent(row)}
-              </div>
-            );
-          })}
-        </div>
+      {canVirtualize && (
+        <Virtuoso
+          key={virtualizationWidthKey}
+          customScrollParent={scrollContainer ?? undefined}
+          data={virtualizedRows}
+          computeItemKey={(_index, row) => row.id}
+          heightEstimates={virtualizedRowHeightEstimates}
+          increaseViewportBy={{
+            top: VIRTUALIZED_VIEWPORT_PADDING_PX,
+            bottom: VIRTUALIZED_VIEWPORT_PADDING_PX,
+          }}
+          components={{
+            List: VirtualizedTimelineList,
+            Item: VirtualizedTimelineRowItem,
+          }}
+          itemContent={(_index, row) => renderRowContent(row)}
+          {...(typeof defaultVirtualizedRowHeight === "number"
+            ? { defaultItemHeight: defaultVirtualizedRowHeight }
+            : {})}
+        />
       )}
 
       {nonVirtualizedRows.map((row) => (
@@ -637,6 +635,44 @@ type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
 type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
 type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"][number];
 type TimelineRow = MessagesTimelineRow;
+
+const VirtualizedTimelineList = forwardRef<HTMLDivElement, ListProps>(
+  function VirtualizedTimelineList(props, ref) {
+    const { children, style, ...domProps } = props;
+    return (
+      <div
+        {...domProps}
+        ref={ref}
+        style={{
+          ...style,
+          width: "100%",
+        }}
+      >
+        {children}
+      </div>
+    );
+  },
+);
+
+const VirtualizedTimelineRowItem = memo(function VirtualizedTimelineRowItem(
+  props: ItemProps<TimelineRow>,
+) {
+  const { children, item, style, ...domProps } = props;
+  return (
+    <div
+      {...domProps}
+      data-virtual-row-id={item.id}
+      data-virtual-row-kind={item.kind}
+      data-virtual-row-size={domProps["data-known-size"]}
+      style={{
+        ...style,
+        width: "100%",
+      }}
+    >
+      {children}
+    </div>
+  );
+});
 
 function formatWorkingTimer(startIso: string, endIso: string): string | null {
   const startedAtMs = Date.parse(startIso);
