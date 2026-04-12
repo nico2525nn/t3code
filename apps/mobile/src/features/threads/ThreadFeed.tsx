@@ -1,19 +1,19 @@
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import { FlashList, type FlashListRef, type ListRenderItemInfo } from "@shopify/flash-list";
+import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { SymbolView } from "expo-symbols";
 import { memo, useCallback, useEffect, useState, useRef } from "react";
 import Markdown from "react-native-markdown-display";
 import {
+  Dimensions,
   Image,
+  Modal,
   Pressable,
-  RefreshControl,
   ScrollView,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
   useColorScheme,
   View,
 } from "react-native";
+import { TouchableOpacity } from "react-native-gesture-handler";
 
 import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
@@ -35,6 +35,7 @@ export interface ThreadFeedProps {
   readonly refreshing?: boolean;
   readonly onRefresh?: () => void;
   readonly layoutVariant?: MobileLayoutVariant;
+  readonly composerExpanded?: boolean;
 }
 
 function stripShellWrapper(value: string): string {
@@ -77,11 +78,15 @@ function buildActivityRows(
     const detail = compactActivityDetail(activity.detail);
     const previous = rows.at(-1);
 
-    if (previous && previous.summary === activity.summary) {
+    if (
+      previous &&
+      normalizeCompactActivityLabel(previous.summary) ===
+        normalizeCompactActivityLabel(activity.summary)
+    ) {
       rows[rows.length - 1] = {
         ...previous,
         createdAt: activity.createdAt,
-        detail,
+        detail: detail ?? previous.detail,
         status: activity.status ?? previous.status,
       };
       continue;
@@ -102,59 +107,114 @@ function buildActivityRows(
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
 function makeMarkdownStyles(isDarkMode: boolean) {
-  const bodyColor = isDarkMode ? "#e2e8f0" : "#020617";
-  const strongColor = isDarkMode ? "#f8fafc" : "#020617";
-  const linkColor = isDarkMode ? "#7dd3fc" : "#0369a1";
-  const blockquoteBorder = isDarkMode
-    ? "rgba(148,163,184,0.35)"
-    : "rgba(100,116,139,0.35)";
-  const codeBg = isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.08)";
-  const codeText = isDarkMode ? "#e2e8f0" : "#0f172a";
-  const userCodeBg = isDarkMode ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.55)";
-  const userCodeText = isDarkMode ? "#e2e8f0" : "#0f172a";
-  const userFenceBg = isDarkMode ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.6)";
+  const bodyColor = isDarkMode ? "#e5e5e5" : "#262626";
+  const strongColor = isDarkMode ? "#f5f5f5" : "#171717";
+  const linkColor = isDarkMode ? "#60a5fa" : "#2563eb";
+  const blockquoteBg = isDarkMode ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)";
+  const blockquoteBorder = isDarkMode ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+  const codeBg = isDarkMode ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+  const codeText = isDarkMode ? "#e5e5e5" : "#262626";
+  const hrColor = isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const userCodeBg = isDarkMode ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.05)";
+  const userCodeText = isDarkMode ? "#e5e5e5" : "#1e3a5f";
+  const userFenceBg = isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)";
 
   const base = {
     body: {
       color: bodyColor,
       fontSize: 15,
       lineHeight: 22,
+      fontFamily: "DMSans_400Regular",
     },
-    paragraph: { marginTop: 0, marginBottom: 0 },
-    bullet_list: { marginTop: 0, marginBottom: 0 },
-    ordered_list: { marginTop: 0, marginBottom: 0 },
-    list_item: { marginTop: 0, marginBottom: 2 },
-    strong: { fontWeight: "800" as const, color: strongColor },
+    paragraph: { marginTop: 0, marginBottom: 8 },
+    bullet_list: { marginTop: 4, marginBottom: 4 },
+    ordered_list: { marginTop: 4, marginBottom: 4 },
+    list_item: { marginTop: 0, marginBottom: 4, flexDirection: "row" as const },
+    strong: { fontWeight: "700" as const, color: strongColor, fontFamily: "DMSans_700Bold" },
     em: { fontStyle: "italic" as const },
-    link: { color: linkColor },
+    link: { color: linkColor, textDecorationLine: "underline" as const },
     blockquote: {
       borderLeftWidth: 3,
       borderLeftColor: blockquoteBorder,
+      backgroundColor: blockquoteBg,
       paddingLeft: 12,
+      paddingVertical: 6,
       marginLeft: 0,
+      marginVertical: 4,
+      borderRadius: 4,
+    },
+    heading1: {
+      fontSize: 22,
+      lineHeight: 28,
+      fontWeight: "800" as const,
+      fontFamily: "DMSans_700Bold",
+      color: strongColor,
+      marginTop: 16,
+      marginBottom: 8,
+    },
+    heading2: {
+      fontSize: 19,
+      lineHeight: 26,
+      fontWeight: "700" as const,
+      fontFamily: "DMSans_700Bold",
+      color: strongColor,
+      marginTop: 14,
+      marginBottom: 6,
+    },
+    heading3: {
+      fontSize: 17,
+      lineHeight: 24,
+      fontWeight: "700" as const,
+      fontFamily: "DMSans_700Bold",
+      color: strongColor,
+      marginTop: 12,
+      marginBottom: 4,
+    },
+    heading4: {
+      fontSize: 15,
+      lineHeight: 22,
+      fontWeight: "700" as const,
+      fontFamily: "DMSans_700Bold",
+      color: strongColor,
+      marginTop: 10,
+      marginBottom: 4,
+    },
+    hr: {
+      backgroundColor: hrColor,
+      height: 1,
+      marginVertical: 12,
     },
   };
 
   const user = {
     ...base,
+    paragraph: { marginTop: 0, marginBottom: 0 },
     code_inline: {
       backgroundColor: userCodeBg,
       color: userCodeText,
-      borderRadius: 6,
-      paddingHorizontal: 6,
-      paddingVertical: 2,
+      borderRadius: 5,
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      fontFamily: "ui-monospace",
+      fontSize: 13,
     },
     code_block: {
       backgroundColor: userFenceBg,
       color: userCodeText,
-      borderRadius: 14,
+      borderRadius: 12,
       padding: 12,
+      fontFamily: "ui-monospace",
+      fontSize: 13,
+      lineHeight: 19,
     },
     fence: {
       backgroundColor: userFenceBg,
       color: userCodeText,
-      borderRadius: 14,
+      borderRadius: 12,
       padding: 12,
+      fontFamily: "ui-monospace",
+      fontSize: 13,
+      lineHeight: 19,
     },
   };
 
@@ -163,21 +223,29 @@ function makeMarkdownStyles(isDarkMode: boolean) {
     code_inline: {
       backgroundColor: codeBg,
       color: codeText,
-      borderRadius: 6,
-      paddingHorizontal: 6,
-      paddingVertical: 2,
+      borderRadius: 5,
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      fontFamily: "ui-monospace",
+      fontSize: 13,
     },
     code_block: {
       backgroundColor: codeBg,
       color: codeText,
-      borderRadius: 14,
+      borderRadius: 12,
       padding: 12,
+      fontFamily: "ui-monospace",
+      fontSize: 13,
+      lineHeight: 19,
     },
     fence: {
       backgroundColor: codeBg,
       color: codeText,
-      borderRadius: 14,
+      borderRadius: 12,
       padding: 12,
+      fontFamily: "ui-monospace",
+      fontSize: 13,
+      lineHeight: 19,
     },
   };
 
@@ -185,12 +253,13 @@ function makeMarkdownStyles(isDarkMode: boolean) {
 }
 
 function renderFeedEntry(
-  info: ListRenderItemInfo<ThreadFeedEntry>,
+  info: { item: ThreadFeedEntry; index: number },
   props: Pick<ThreadFeedProps, "bearerToken" | "httpBaseUrl"> & {
     readonly copiedRowId: string | null;
     readonly expandedWorkGroups: Record<string, boolean>;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string) => void;
+    readonly onPressImage: (uri: string, headers?: Record<string, string>) => void;
     readonly isDarkMode: boolean;
   },
 ) {
@@ -208,7 +277,7 @@ function renderFeedEntry(
     if (isUser) {
       return (
         <View className="mb-3.5 items-end gap-1.5">
-          <View className="max-w-[85%] gap-2 rounded-[22px] rounded-br-[10px] border border-orange-300/60 bg-orange-100/70 px-4 py-4 dark:border-orange-300/22 dark:bg-orange-300/14">
+          <View className="max-w-[85%] gap-2 rounded-[22px] rounded-br-[10px] border border-blue-300/50 bg-blue-50/80 px-4 py-4 dark:border-blue-400/20 dark:bg-blue-500/12">
             {message.text.trim().length > 0 ? (
               <Markdown style={styles}>{message.text}</Markdown>
             ) : null}
@@ -217,63 +286,65 @@ function renderFeedEntry(
               if (!uri) {
                 return null;
               }
+              const headers = props.bearerToken
+                ? { Authorization: `Bearer ${props.bearerToken}` }
+                : undefined;
 
               return (
-                <Image
+                <TouchableOpacity
                   key={attachment.id}
-                  source={{
-                    uri,
-                    ...(props.bearerToken
-                      ? {
-                          headers: {
-                            Authorization: `Bearer ${props.bearerToken}`,
-                          },
-                        }
-                      : {}),
-                  }}
-                  className="aspect-[1.3] w-full rounded-[18px] bg-slate-200 dark:bg-slate-800"
-                  resizeMode="cover"
-                />
+                  activeOpacity={0.7}
+                  onPress={() => props.onPressImage(uri, headers)}
+                >
+                  <Image
+                    source={{ uri, ...(headers ? { headers } : {}) }}
+                    className="aspect-[1.3] w-full rounded-[18px] bg-neutral-200 dark:bg-neutral-800"
+                    resizeMode="cover"
+                  />
+                </TouchableOpacity>
               );
             })}
           </View>
-          <Text className="px-1 text-right font-t3-medium text-xs text-slate-500 dark:text-slate-500">
+          <Text className="px-1 text-right font-t3-medium text-xs text-neutral-500 dark:text-neutral-500">
             {timestampLabel}
           </Text>
         </View>
       );
     }
 
+    // Skip empty assistant messages (no text, no attachments) — they would
+    // render as an orphaned timestamp and break adjacent activity-group merging.
+    if (message.text.trim().length === 0 && attachments.length === 0) {
+      return null;
+    }
+
     return (
       <View className="mb-3.5 gap-1.5 px-1">
-        {message.text.trim().length > 0 ? (
-          <Markdown style={styles}>{message.text}</Markdown>
-        ) : null}
+        {message.text.trim().length > 0 ? <Markdown style={styles}>{message.text}</Markdown> : null}
         {attachments.map((attachment) => {
           const uri = messageImageUrl(props.httpBaseUrl, attachment.id);
           if (!uri) {
             return null;
           }
+          const headers = props.bearerToken
+            ? { Authorization: `Bearer ${props.bearerToken}` }
+            : undefined;
 
           return (
-            <Image
+            <TouchableOpacity
               key={attachment.id}
-              source={{
-                uri,
-                ...(props.bearerToken
-                  ? {
-                      headers: {
-                        Authorization: `Bearer ${props.bearerToken}`,
-                      },
-                    }
-                  : {}),
-              }}
-              className="aspect-[1.3] w-full rounded-[18px] bg-slate-200 dark:bg-slate-800"
-              resizeMode="cover"
-            />
+              activeOpacity={0.7}
+              onPress={() => props.onPressImage(uri, headers)}
+            >
+              <Image
+                source={{ uri, ...(headers ? { headers } : {}) }}
+                className="aspect-[1.3] w-full rounded-[18px] bg-neutral-200 dark:bg-neutral-800"
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
           );
         })}
-        <Text className="font-t3-medium text-xs text-slate-500 dark:text-slate-500">
+        <Text className="font-t3-medium text-xs text-neutral-500 dark:text-neutral-500">
           {timestampLabel}
         </Text>
       </View>
@@ -284,17 +355,17 @@ function renderFeedEntry(
     return (
       <View className="mb-3.5 gap-1.5 items-end">
         <View className="max-w-[85%] gap-2 rounded-[22px] rounded-br-[10px] border border-sky-300/60 bg-sky-100/75 px-4 py-4 dark:border-sky-300/20 dark:bg-sky-400/10">
-          <Text className="font-sans text-[15px] leading-[22px] text-slate-950 dark:text-slate-50">
+          <Text className="font-sans text-[15px] leading-[22px] text-neutral-950 dark:text-neutral-50">
             {entry.queuedMessage.text}
           </Text>
           {entry.queuedMessage.attachments.length > 0 ? (
-            <Text className="font-t3-medium text-xs text-slate-500 dark:text-slate-500">
+            <Text className="font-t3-medium text-xs text-neutral-500 dark:text-neutral-500">
               {entry.queuedMessage.attachments.length} image
               {entry.queuedMessage.attachments.length === 1 ? "" : "s"} attached
             </Text>
           ) : null}
         </View>
-        <Text className="px-1 text-right font-t3-medium text-xs text-slate-500 dark:text-slate-500">
+        <Text className="px-1 text-right font-t3-medium text-xs text-neutral-500 dark:text-neutral-500">
           {entry.sending ? "dispatching" : `${relativeTime(entry.createdAt)} • pending`}
         </Text>
       </View>
@@ -309,14 +380,14 @@ function renderFeedEntry(
   const showHeader = hasOverflow;
 
   return (
-    <View className="mb-3 rounded-[20px] border border-slate-200/80 bg-slate-50/85 px-3 py-2 dark:border-white/4 dark:bg-white/[0.025]">
+    <View className="mb-3 rounded-[20px] border border-neutral-200/80 bg-neutral-50/85 px-3 py-2 dark:border-white/[0.06] dark:bg-white/[0.025]">
       {showHeader ? (
         <View className="mb-1.5 flex-row items-center justify-between gap-3 px-0.5">
-          <Text className="font-t3-bold text-[10px] uppercase tracking-[0.8px] text-slate-500 dark:text-slate-500">
+          <Text className="font-t3-bold text-[10px] uppercase tracking-[0.8px] text-neutral-500 dark:text-neutral-500">
             Tool calls ({rows.length})
           </Text>
           <Pressable onPress={() => props.onToggleWorkGroup(entry.id)}>
-            <Text className="font-t3-medium text-[10px] uppercase tracking-[0.8px] text-slate-500 dark:text-slate-500">
+            <Text className="font-t3-medium text-[10px] uppercase tracking-[0.8px] text-neutral-500 dark:text-neutral-500">
               {isExpanded ? "Show less" : `Show ${hiddenCount} more`}
             </Text>
           </Pressable>
@@ -327,11 +398,16 @@ function renderFeedEntry(
           key={row.id}
           className={cx(
             "flex-row items-center gap-2 rounded-lg px-1 py-1",
-            index > 0 && "border-t border-slate-200/80 dark:border-white/4",
+            index > 0 && "border-t border-neutral-200/80 dark:border-white/[0.06]",
           )}
         >
           <View className="items-center justify-center pt-0.5">
-            <SymbolView name="terminal" size={13} tintColor={palette.iconSubtle} type="monochrome" />
+            <SymbolView
+              name="terminal"
+              size={13}
+              tintColor={palette.iconSubtle}
+              type="monochrome"
+            />
           </View>
           <ScrollView
             horizontal
@@ -344,7 +420,7 @@ function renderFeedEntry(
             style={{ flex: 1 }}
           >
             <Text
-              className="text-[11px] leading-[18px] text-slate-500 dark:text-slate-500"
+              className="text-[12px] leading-[18px] text-neutral-600 dark:text-neutral-400"
               onLongPress={() => {
                 const copyValue = row.detail ?? normalizeCompactActivityLabel(row.summary);
                 props.onCopyWorkRow(row.id, copyValue);
@@ -369,59 +445,34 @@ function renderFeedEntry(
   );
 }
 
-function useAutoScrollToLatest(
-  listRef: React.RefObject<FlashListRef<ThreadFeedEntry> | null>,
-  threadId: string,
-  feed: ReadonlyArray<ThreadFeedEntry>,
-) {
-  const shouldFollowLatestRef = useRef(true);
-  const previousThreadIdRef = useRef(threadId);
-  const previousFeedLengthRef = useRef(feed.length);
-
-  const updateFollowLatest = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
-    shouldFollowLatestRef.current = distanceFromBottom <= 96;
-  }, []);
-
-  useEffect(() => {
-    const isNewThread = previousThreadIdRef.current !== threadId;
-    if (isNewThread) {
-      previousThreadIdRef.current = threadId;
-      previousFeedLengthRef.current = feed.length;
-      shouldFollowLatestRef.current = true;
-    }
-
-    const feedGrew = feed.length >= previousFeedLengthRef.current;
-    previousFeedLengthRef.current = feed.length;
-
-    if (!shouldFollowLatestRef.current || (!feedGrew && !isNewThread)) {
-      return;
-    }
-
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToEnd({
-        animated: !isNewThread,
-      });
-    });
-  }, [feed, feed.length, listRef, threadId]);
-
-  return updateFollowLatest;
-}
-
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const isDarkMode = useColorScheme() === "dark";
-  const listRef = useRef<FlashListRef<ThreadFeedEntry>>(null);
+  const listRef = useRef<LegendListRef>(null);
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
-  const updateFollowLatest = useAutoScrollToLatest(listRef, props.threadId, props.feed);
+  const [expandedImage, setExpandedImage] = useState<{
+    uri: string;
+    headers?: Record<string, string>;
+  } | null>(null);
   const horizontalPadding = props.layoutVariant === "split" ? 20 : 16;
 
   useEffect(() => {
     setCopiedRowId(null);
     setExpandedWorkGroups({});
   }, [props.threadId]);
+
+  // Scroll to end when the composer expands (keyboard opens) so the latest
+  // message stays visible above the taller composer + keyboard.
+  useEffect(() => {
+    if (props.composerExpanded && props.feed.length > 0) {
+      // Small delay to let KAV + layout settle before scrolling
+      const timer = setTimeout(() => {
+        void listRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [props.composerExpanded, props.feed.length]);
 
   useEffect(() => {
     return () => {
@@ -450,8 +501,16 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       [groupId]: !(current[groupId] ?? false),
     }));
   }, []);
+
+  const onPressImage = useCallback(
+    (uri: string, headers?: Record<string, string>) => {
+      setExpandedImage({ uri, headers });
+    },
+    [],
+  );
+
   const renderItem = useCallback(
-    (info: ListRenderItemInfo<ThreadFeedEntry>) =>
+    (info: { item: ThreadFeedEntry; index: number }) =>
       renderFeedEntry(info, {
         bearerToken: props.bearerToken,
         copiedRowId,
@@ -459,6 +518,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         expandedWorkGroups,
         onCopyWorkRow,
         onToggleWorkGroup,
+        onPressImage,
         isDarkMode,
       }),
     [
@@ -466,6 +526,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       expandedWorkGroups,
       isDarkMode,
       onCopyWorkRow,
+      onPressImage,
       onToggleWorkGroup,
       props.bearerToken,
       props.httpBaseUrl,
@@ -491,34 +552,77 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     );
   }
 
+  const screenWidth = Dimensions.get("window").width;
+
   return (
     <View className="flex-1" style={{ minHeight: 0 }}>
-      <FlashList
+      <LegendList
         ref={listRef}
         key={props.threadId}
         style={{ flex: 1 }}
-        data={props.feed}
+        data={props.feed as ThreadFeedEntry[]}
         renderItem={renderItem}
         keyExtractor={(entry) => `${entry.type}:${entry.id}`}
         keyboardShouldPersistTaps="handled"
-        onScroll={updateFollowLatest}
-        scrollEventThrottle={16}
-        refreshControl={
-          props.onRefresh ? (
-            <RefreshControl refreshing={props.refreshing ?? false} onRefresh={props.onRefresh} />
-          ) : undefined
-        }
-        maintainVisibleContentPosition={{
-          autoscrollToBottomThreshold: 0.2,
-          animateAutoScrollToBottom: true,
-          startRenderingFromBottom: true,
-        }}
+        estimatedItemSize={80}
+        initialScrollAtEnd
+        maintainScrollAtEnd={{ onLayout: true, onItemLayout: true, onDataChange: true }}
+        maintainScrollAtEndThreshold={0.1}
+        maintainVisibleContentPosition
+        refreshing={props.refreshing ?? false}
+        onRefresh={props.onRefresh}
         contentContainerStyle={{
           paddingHorizontal: horizontalPadding,
           paddingTop: props.contentTopInset ?? 18,
           paddingBottom: props.contentBottomInset ?? 18,
         }}
       />
+
+      {/* Full-screen image preview modal */}
+      <Modal
+        visible={expandedImage !== null}
+        transparent={false}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setExpandedImage(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: "#000" }}>
+          <Pressable
+            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+            onPress={() => setExpandedImage(null)}
+          >
+            {expandedImage ? (
+              <Image
+                source={{
+                  uri: expandedImage.uri,
+                  ...(expandedImage.headers ? { headers: expandedImage.headers } : {}),
+                }}
+                style={{
+                  width: screenWidth,
+                  height: Dimensions.get("window").height * 0.75,
+                }}
+                resizeMode="contain"
+              />
+            ) : null}
+          </Pressable>
+          <Pressable
+            style={{
+              position: "absolute",
+              top: 60,
+              right: 20,
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: "rgba(255,255,255,0.15)",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            onPress={() => setExpandedImage(null)}
+          >
+            <SymbolView name="xmark" size={16} tintColor="#ffffff" type="monochrome" />
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 });

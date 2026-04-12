@@ -1,8 +1,8 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, View, useColorScheme } from "react-native";
+import { Alert, Pressable, ScrollView, View, useColorScheme } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
@@ -119,62 +119,55 @@ export function NewConnectionRouteScreen() {
   }, [app, codeInput, hostInput, router]);
 
   return (
-    <View
-      collapsable={false}
-      style={{
-        flex: 1,
-        backgroundColor: palette.sheet,
-        paddingHorizontal: 20,
-        paddingTop: 28,
-        paddingBottom: Math.max(insets.bottom, 18) + 18,
-      }}
-    >
-      <View className="flex-row items-start justify-between gap-3 pb-4">
-        <View className="flex-1">
-          <Text
-            className="text-[24px] font-t3-bold"
-            style={{ color: palette.text, letterSpacing: -0.2 }}
-          >
-            Add backend
-          </Text>
-        </View>
+    <View collapsable={false} style={{ flex: 1, backgroundColor: palette.sheet }}>
+      <Stack.Screen
+        options={{
+          title: showScanner ? "Scan QR Code" : "Add Backend",
+          headerRight: () => (
+            <Pressable
+              className="h-10 w-10 items-center justify-center rounded-full"
+              onPress={() => {
+                if (showScanner) {
+                  closeScanner();
+                } else {
+                  void openScanner();
+                }
+              }}
+              style={{
+                backgroundColor: palette.secondaryButton,
+                borderWidth: 1,
+                borderColor: palette.border,
+              }}
+            >
+              <SymbolView
+                name={showScanner ? "xmark" : "qrcode.viewfinder"}
+                size={showScanner ? 14 : 18}
+                tintColor={palette.text}
+                type="monochrome"
+                weight="semibold"
+              />
+            </Pressable>
+          ),
+        }}
+      />
 
-        <Pressable
-          className="h-11 w-11 items-center justify-center rounded-full"
-          onPress={() => {
-            if (showScanner) {
-              closeScanner();
-            } else {
-              void openScanner();
-            }
-          }}
-          style={{
-            backgroundColor: palette.secondaryButton,
-            borderWidth: 1,
-            borderColor: palette.border,
-          }}
-        >
-          <SymbolView
-            name={showScanner ? "xmark" : "qrcode.viewfinder"}
-            size={showScanner ? 14 : 18}
-            tintColor={palette.text}
-            type="monochrome"
-            weight="semibold"
-          />
-        </Pressable>
-      </View>
-
-      <View
-        collapsable={false}
-        style={{
-          flex: 1,
-          paddingBottom: 8,
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        showsVerticalScrollIndicator={false}
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: 16,
+          paddingBottom: Math.max(insets.bottom, 18) + 18,
         }}
       >
         <View collapsable={false} className="gap-5">
           {showScanner ? (
             cameraPermission?.granted ? (
-              <View className="overflow-hidden rounded-[24px]" style={{ borderCurve: "continuous" }}>
+              <View
+                className="overflow-hidden rounded-[24px]"
+                style={{ borderCurve: "continuous" }}
+              >
                 <CameraView
                   barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
                   onBarcodeScanned={handleQrScan}
@@ -276,7 +269,7 @@ export function NewConnectionRouteScreen() {
             </View>
           )}
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }

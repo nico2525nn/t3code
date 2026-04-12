@@ -5,10 +5,7 @@ import { AppText as Text } from "./AppText";
 
 const BRAND_MARK_SOURCE = require("../../../../assets/dev/blueprint-ios-1024.png");
 
-export function BrandMark(props: {
-  readonly compact?: boolean;
-  readonly stageLabel?: string;
-}) {
+export function BrandMark(props: { readonly compact?: boolean; readonly stageLabel?: string }) {
   const isDarkMode = useColorScheme() === "dark";
   const palette = makeAppPalette(isDarkMode);
   const compact = props.compact ?? false;

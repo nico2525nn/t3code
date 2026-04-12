@@ -1,43 +1,50 @@
-import type { OrchestrationThread } from "@t3tools/contracts";
+import { isLiquidGlassSupported, LiquidGlassView } from "@callstack/liquid-glass";
+import { MenuView } from "@react-native-menu/menu";
 import { SymbolView } from "expo-symbols";
-import { memo } from "react";
-import { Image, Pressable, ScrollView, useColorScheme, View } from "react-native";
+import type {
+  ModelSelection,
+  OrchestrationThread,
+  ProviderInteractionMode,
+  RuntimeMode,
+  ServerConfig as T3ServerConfig,
+} from "@t3tools/contracts";
+import { CLAUDE_CODE_EFFORT_OPTIONS } from "@t3tools/contracts";
+import { TextInputWrapper } from "expo-paste-input";
+import type { ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Dimensions,
+  Image,
+  Modal,
+  Pressable as RNPressable,
+  TextInput as RNTextInput,
+  useColorScheme,
+  View,
+  type ViewStyle,
+} from "react-native";
 
-import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
-import { cx } from "../../lib/classNames";
+import { AppText as Text } from "../../components/AppText";
+import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
+import { ControlPill } from "../../components/ControlPill";
+import { ProviderIcon } from "../../components/ProviderIcon";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import type { MobileLayoutVariant } from "../../lib/mobileLayout";
+import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import type { RemoteClientConnectionState } from "../../lib/remoteClient";
+import { makeAppPalette } from "../../lib/theme";
+import { useNativePaste } from "../../hooks/useNativePaste";
 
-function ComposerAction(props: {
-  readonly icon:
-    | "photo.on.rectangle"
-    | "doc.on.clipboard"
-    | "arrow.clockwise"
-    | "stop.fill"
-    | "tray.and.arrow.down.fill"
-    | "paperplane.fill";
-  readonly onPress: () => void;
-  readonly disabled?: boolean;
-  readonly iconTintColor: string;
-  readonly backgroundClassName: string;
-}) {
-  return (
-    <Pressable
-      className={`items-center justify-center ${props.backgroundClassName} rounded-[16px] px-3 py-3`}
-      disabled={props.disabled}
-      onPress={props.onPress}
-    >
-      <SymbolView
-        name={props.icon}
-        size={20}
-        tintColor={props.iconTintColor}
-        type="monochrome"
-        weight="medium"
-      />
-    </Pressable>
-  );
-}
+/**
+ * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
+ * Exported so the parent can compute feed overlap / content insets.
+ */
+export const COMPOSER_COLLAPSED_CHROME = 68;
+
+/**
+ * Height of the expanded composer (card + toolbar + vertical padding, excluding safe-area inset).
+ * Used by the parent to compute the larger feed bottom inset when the composer is focused.
+ */
+export const COMPOSER_EXPANDED_CHROME = 174;
 
 export interface ThreadComposerProps {
   readonly draftMessage: string;
@@ -46,130 +53,533 @@ export interface ThreadComposerProps {
   readonly bottomInset?: number;
   readonly connectionState: RemoteClientConnectionState;
   readonly selectedThread: OrchestrationThread;
+  readonly serverConfig: T3ServerConfig | null;
   readonly queueCount: number;
   readonly activeThreadBusy: boolean;
   readonly layoutVariant?: MobileLayoutVariant;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftImages: () => Promise<void>;
-  readonly onPasteIntoDraft: () => Promise<void>;
+  readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onRefresh: () => Promise<void>;
   readonly onStopThread: () => Promise<void>;
   readonly onSendMessage: () => void;
+  readonly onUpdateModelSelection: (modelSelection: ModelSelection) => Promise<void>;
+  readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => Promise<void>;
+  readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => Promise<void>;
+  readonly onExpandedChange?: (expanded: boolean) => void;
+}
+
+/**
+ * The pill / card container — renders as LiquidGlassView on supported
+ * iOS 26+ devices (progressive blur, native morph), opaque View otherwise.
+ */
+function ComposerSurface(props: {
+  readonly children: ReactNode;
+  readonly style: ViewStyle;
+  readonly isDarkMode: boolean;
+}) {
+  if (isLiquidGlassSupported) {
+    return (
+      <LiquidGlassView
+        effect="clear"
+        interactive
+        tintColor={props.isDarkMode ? "rgba(15,23,42,0.45)" : "rgba(255,255,255,0.45)"}
+        colorScheme={props.isDarkMode ? "dark" : "light"}
+        style={props.style}
+      >
+        {props.children}
+      </LiquidGlassView>
+    );
+  }
+
+  return (
+    <View
+      style={[
+        props.style,
+        {
+          backgroundColor: props.isDarkMode ? "rgba(22,27,34,0.96)" : "rgba(255,255,255,0.96)",
+          borderWidth: 1,
+          borderColor: props.isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+        },
+      ]}
+    >
+      {props.children}
+    </View>
+  );
 }
 
 export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposerProps) {
   const isDarkMode = useColorScheme() === "dark";
-  const actionIconTint = isDarkMode ? "#e2e8f0" : "#0f172a";
-  const canSend =
-    props.connectionState === "ready" &&
-    (props.draftMessage.trim().length > 0 || props.draftAttachments.length > 0);
+  const palette = makeAppPalette(isDarkMode);
+  const inputRef = useRef<RNTextInput>(null);
+  const [isFocused, setIsFocused] = useState(false);
+  const wasExpandedBeforePreviewRef = useRef(false);
+
+  const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
+  const hasContent = props.draftMessage.trim().length > 0 || props.draftAttachments.length > 0;
+  const isExpanded = isFocused || previewImageUri !== null;
+  const canSend = props.connectionState === "ready" && hasContent;
+
+  const onPressImage = useCallback((uri: string) => {
+    wasExpandedBeforePreviewRef.current = isFocused;
+    setPreviewImageUri(uri);
+  }, [isFocused]);
+
+  const closePreview = useCallback(() => {
+    setPreviewImageUri(null);
+    if (wasExpandedBeforePreviewRef.current) {
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, []);
+
+  useEffect(() => {
+    props.onExpandedChange?.(isExpanded);
+  }, [isExpanded]);
   const showStopAction =
     props.selectedThread.session?.status === "running" ||
     props.selectedThread.session?.status === "starting" ||
     props.queueCount > 0;
   const isSplitLayout = props.layoutVariant === "split";
+  const sendLabel = props.activeThreadBusy || props.queueCount > 0 ? "Queue" : "Send";
+  const modelProvider = props.selectedThread.modelSelection?.provider ?? null;
+  const currentModelSelection = props.selectedThread.modelSelection;
+  const currentRuntimeMode = props.selectedThread.runtimeMode;
+  const currentInteractionMode = props.selectedThread.interactionMode ?? "default";
+
+  // Extract current model options (effort, fastMode, contextWindow)
+  const currentEffort =
+    currentModelSelection.provider === "claudeAgent"
+      ? (currentModelSelection.options?.effort ?? "high")
+      : "high";
+  const currentFastMode =
+    currentModelSelection.options && "fastMode" in currentModelSelection.options
+      ? (currentModelSelection.options.fastMode ?? false)
+      : false;
+  const currentContextWindow =
+    currentModelSelection.provider === "claudeAgent"
+      ? (currentModelSelection.options?.contextWindow ?? "1M")
+      : "1M";
+
+  const handleNativePaste = useNativePaste((uris) => {
+    void props.onNativePasteImages(uris);
+  });
+
+  // ── Model menu ───────────────────────────────────────────
+  const providerGroups = useMemo(() => {
+    const options = buildModelOptions(props.serverConfig, currentModelSelection);
+    return groupByProvider(options);
+  }, [props.serverConfig, currentModelSelection]);
+
+  const modelMenuActions = useMemo(
+    () =>
+      providerGroups.map((group) => ({
+        id: `provider:${group.providerKey}`,
+        title: group.providerLabel,
+        subtitle: group.models.find(
+          (model) =>
+            model.selection.provider === currentModelSelection.provider &&
+            model.selection.model === currentModelSelection.model,
+        )?.label,
+        subactions: group.models.map((option) => ({
+          id: `model:${option.key}`,
+          title: option.label,
+          state:
+            option.selection.provider === currentModelSelection.provider &&
+            option.selection.model === currentModelSelection.model
+              ? ("on" as const)
+              : undefined,
+        })),
+      })),
+    [providerGroups, currentModelSelection],
+  );
+
+  // ── Options menu ─────────────────────────────────────────
+  const optionsMenuActions = useMemo(
+    () => [
+      {
+        id: "options-effort",
+        title: "Effort",
+        subtitle: `${currentEffort.charAt(0).toUpperCase()}${currentEffort.slice(1)}`,
+        subactions: CLAUDE_CODE_EFFORT_OPTIONS.map((level) => ({
+          id: `options:effort:${level}`,
+          title: `${level}${level === "high" ? " (default)" : ""}`,
+          state: currentEffort === level ? ("on" as const) : undefined,
+        })),
+      },
+      {
+        id: "options-fast-mode",
+        title: "Fast Mode",
+        subtitle: currentFastMode ? "On" : "Off",
+        subactions: ([false, true] as const).map((value) => ({
+          id: `options:fast-mode:${value ? "on" : "off"}`,
+          title: value ? "On" : "Off",
+          state: currentFastMode === value ? ("on" as const) : undefined,
+        })),
+      },
+      {
+        id: "options-context-window",
+        title: "Context Window",
+        subtitle: currentContextWindow,
+        subactions: (["200k", "1M"] as const).map((value) => ({
+          id: `options:context-window:${value}`,
+          title: `${value}${value === "1M" ? " (default)" : ""}`,
+          state: currentContextWindow === value ? ("on" as const) : undefined,
+        })),
+      },
+      {
+        id: "options-runtime",
+        title: "Runtime",
+        subtitle:
+          currentRuntimeMode === "approval-required"
+            ? "Approve actions"
+            : currentRuntimeMode === "auto-accept-edits"
+              ? "Auto-accept edits"
+              : "Full access",
+        subactions: [
+          { id: "options:runtime:approval-required", title: "Approve actions" },
+          { id: "options:runtime:auto-accept-edits", title: "Auto-accept edits" },
+          { id: "options:runtime:full-access", title: "Full access" },
+        ].map((option) => {
+          const value = option.id.replace("options:runtime:", "");
+          return {
+            id: option.id,
+            title: option.title,
+            state: currentRuntimeMode === value ? ("on" as const) : undefined,
+          };
+        }),
+      },
+      {
+        id: "options-interaction",
+        title: "Interaction",
+        subtitle: currentInteractionMode === "plan" ? "Plan" : "Default",
+        subactions: [
+          { id: "options:interaction:default", title: "Default" },
+          { id: "options:interaction:plan", title: "Plan" },
+        ].map((option) => {
+          const value = option.id.replace("options:interaction:", "");
+          return {
+            id: option.id,
+            title: option.title,
+            state: currentInteractionMode === value ? ("on" as const) : undefined,
+          };
+        }),
+      },
+    ],
+    [
+      currentEffort,
+      currentFastMode,
+      currentContextWindow,
+      currentRuntimeMode,
+      currentInteractionMode,
+    ],
+  );
+
+  // ── Menu handlers ────────────────────────────────────────
+  function handleModelMenuAction(event: string) {
+    if (!event.startsWith("model:")) {
+      return;
+    }
+    const modelKey = event.slice("model:".length);
+    const options = buildModelOptions(props.serverConfig, currentModelSelection);
+    const option = options.find((o) => o.key === modelKey);
+    if (option) {
+      void props.onUpdateModelSelection(option.selection);
+    }
+  }
+
+  function handleOptionsMenuAction(event: string) {
+    if (event.startsWith("options:effort:")) {
+      const effort = event.slice("options:effort:".length);
+      const updated: ModelSelection =
+        currentModelSelection.provider === "claudeAgent"
+          ? {
+              ...currentModelSelection,
+              options: { ...currentModelSelection.options, effort: effort as typeof currentEffort },
+            }
+          : currentModelSelection;
+      void props.onUpdateModelSelection(updated);
+      return;
+    }
+    if (event.startsWith("options:fast-mode:")) {
+      const fastMode = event.endsWith(":on");
+      const updated: ModelSelection = {
+        ...currentModelSelection,
+        options: { ...currentModelSelection.options, fastMode: fastMode || undefined },
+      };
+      void props.onUpdateModelSelection(updated);
+      return;
+    }
+    if (event.startsWith("options:context-window:")) {
+      const contextWindow = event.slice("options:context-window:".length);
+      const updated: ModelSelection =
+        currentModelSelection.provider === "claudeAgent"
+          ? {
+              ...currentModelSelection,
+              options: { ...currentModelSelection.options, contextWindow },
+            }
+          : currentModelSelection;
+      void props.onUpdateModelSelection(updated);
+      return;
+    }
+    if (event.startsWith("options:runtime:")) {
+      const runtimeMode = event.slice("options:runtime:".length) as RuntimeMode;
+      void props.onUpdateRuntimeMode(runtimeMode);
+      return;
+    }
+    if (event.startsWith("options:interaction:")) {
+      const interactionMode = event.slice("options:interaction:".length) as ProviderInteractionMode;
+      void props.onUpdateInteractionMode(interactionMode);
+    }
+  }
 
   return (
     <View
-      className="gap-3 border-t border-slate-200 bg-stone-50/96 px-4 pt-3.5 dark:border-white/6 dark:bg-slate-950/92"
-      style={{ paddingBottom: (props.bottomInset ?? 0) + 16 }}
+      style={{
+        paddingHorizontal: 16,
+        paddingTop: isExpanded ? 12 : 10,
+        paddingBottom: (props.bottomInset ?? 0) + (isExpanded ? 4 : 10),
+        // Always opaque — the glass effect lives on the ComposerSurface (pill/card),
+        // not the container.  This prevents chat feed text from bleeding through
+        // the padding areas around and below the pill.
+        backgroundColor: palette.screenBackground,
+      }}
     >
       <View
-        className="w-full self-center rounded-[24px] border border-slate-200 bg-white px-3.5 py-3 dark:border-white/8 dark:bg-slate-900"
-        style={{ maxWidth: isSplitLayout ? 960 : undefined }}
+        style={{
+          maxWidth: isSplitLayout ? 960 : undefined,
+          alignSelf: isSplitLayout ? "center" : undefined,
+          width: "100%",
+        }}
       >
-        <TextInput
-          multiline
-          value={props.draftMessage}
-          onChangeText={props.onChangeDraftMessage}
-          placeholder={props.placeholder}
-          className="max-h-[180px] min-h-[92px] px-1 py-1 font-sans text-[15px] leading-[22px] text-slate-950 dark:text-slate-50"
-          editable={props.connectionState === "ready"}
-          textAlignVertical="top"
-        />
-        <View className="mt-3 flex-row flex-wrap items-center justify-between gap-2.5">
-          <View className="flex-row flex-wrap gap-2.5">
-            <ComposerAction
-              icon="photo.on.rectangle"
-              backgroundClassName="bg-stone-200 dark:bg-slate-800"
-              iconTintColor={actionIconTint}
-              onPress={() => void props.onPickDraftImages()}
-            />
-            <ComposerAction
-              icon="doc.on.clipboard"
-              backgroundClassName="bg-stone-200 dark:bg-slate-800"
-              iconTintColor={actionIconTint}
-              onPress={() => void props.onPasteIntoDraft()}
-            />
-            <ComposerAction
-              icon="arrow.clockwise"
-              backgroundClassName="bg-stone-200 dark:bg-slate-800"
-              iconTintColor={actionIconTint}
-              onPress={() => void props.onRefresh()}
-            />
+        {/* Input surface — the pill/card IS the glass element */}
+        <ComposerSurface
+          isDarkMode={isDarkMode}
+          style={
+            isExpanded
+              ? {
+                  borderRadius: 20,
+                  overflow: "hidden" as const,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                }
+              : {
+                  borderRadius: 999,
+                  overflow: "hidden" as const,
+                  flexDirection: "row" as const,
+                  alignItems: "center" as const,
+                  paddingLeft: 18,
+                  paddingRight: 5,
+                  paddingVertical: 5,
+                }
+          }
+        >
+          {/* Attachment strip — inside the card, above the text input */}
+          {isExpanded ? (
+            <View style={{ paddingBottom: props.draftAttachments.length > 0 ? 10 : 0 }}>
+              <ComposerAttachmentStrip
+                attachments={props.draftAttachments}
+                onRemove={props.onRemoveDraftImage}
+                onPressImage={onPressImage}
+              />
+            </View>
+          ) : null}
+
+          <View style={isExpanded ? undefined : { flex: 1, minWidth: 0 }}>
+            <TextInputWrapper onPaste={handleNativePaste}>
+              <RNTextInput
+                ref={inputRef}
+                multiline
+                value={props.draftMessage}
+                onChangeText={props.onChangeDraftMessage}
+                placeholder={props.placeholder}
+                placeholderTextColor={palette.placeholder}
+                editable={props.connectionState === "ready"}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                textAlignVertical={isExpanded ? "top" : "center"}
+                style={
+                  isExpanded
+                    ? {
+                        minHeight: 80,
+                        maxHeight: 160,
+                        paddingHorizontal: 4,
+                        paddingVertical: 4,
+                        fontSize: 15,
+                        lineHeight: 22,
+                        color: palette.text,
+                        fontFamily: "DMSans_400Regular",
+                      }
+                    : {
+                        maxHeight: 36,
+                        paddingVertical: 6,
+                        fontSize: 15,
+                        lineHeight: 20,
+                        color: palette.text,
+                        fontFamily: "DMSans_400Regular",
+                      }
+                }
+              />
+            </TextInputWrapper>
           </View>
-          <View className="flex-row flex-wrap gap-2.5">
-            {showStopAction ? (
-              <ComposerAction
+          {!isExpanded && props.draftAttachments.length > 0 ? (
+            <View style={{ flexDirection: "row", gap: 4, paddingLeft: 4 }}>
+              {props.draftAttachments.slice(0, 3).map((image) => (
+                <RNPressable key={image.id} onPress={() => onPressImage(image.previewUri)}>
+                  <Image
+                    source={{ uri: image.previewUri }}
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: 8,
+                      backgroundColor: palette.subtleBg,
+                    }}
+                    resizeMode="cover"
+                  />
+                </RNPressable>
+              ))}
+              {props.draftAttachments.length > 3 ? (
+                <View
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 8,
+                    backgroundColor: palette.subtleBgStrong,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontFamily: "DMSans_700Bold",
+                      color: palette.textMuted,
+                    }}
+                  >
+                    +{props.draftAttachments.length - 3}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+          {!isExpanded ? (
+            showStopAction ? (
+              <ControlPill
                 icon="stop.fill"
-                backgroundClassName="bg-rose-100 dark:bg-rose-500/18"
-                iconTintColor={isDarkMode ? "#fda4af" : "#be123c"}
+                variant="danger"
+                onPress={() => void props.onStopThread()}
+              />
+            ) : (
+              <ControlPill
+                icon="arrow.up"
+                variant="primary"
+                disabled={!canSend}
+                onPress={props.onSendMessage}
+              />
+            )
+          ) : null}
+        </ComposerSurface>
+
+        {/* Toolbar row — matches draft page layout (expanded only) */}
+        {isExpanded ? (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingTop: 10,
+              gap: 8,
+            }}
+          >
+            <ControlPill icon="plus" onPress={() => void props.onPickDraftImages()} />
+            <MenuView
+              actions={modelMenuActions}
+              onPressAction={({ nativeEvent }) => handleModelMenuAction(nativeEvent.event)}
+            >
+              <ControlPill iconNode={<ProviderIcon provider={modelProvider} size={16} />} />
+            </MenuView>
+            <MenuView
+              actions={optionsMenuActions}
+              onPressAction={({ nativeEvent }) => handleOptionsMenuAction(nativeEvent.event)}
+            >
+              <ControlPill icon="slider.horizontal.3" />
+            </MenuView>
+            <ControlPill icon="arrow.clockwise" onPress={() => void props.onRefresh()} />
+            {showStopAction ? (
+              <ControlPill
+                icon="stop.fill"
+                variant="danger"
                 onPress={() => void props.onStopThread()}
               />
             ) : null}
-            <ComposerAction
-              icon={
-                props.activeThreadBusy || props.queueCount > 0
-                  ? "tray.and.arrow.down.fill"
-                  : "paperplane.fill"
-              }
-              backgroundClassName={cx(
-                canSend ? "bg-neutral-900" : "bg-slate-200 dark:bg-slate-700/60",
-              )}
-              iconTintColor="#ffffff"
+            <ControlPill
+              icon="arrow.up"
+              label={sendLabel}
+              variant="primary"
               disabled={!canSend}
               onPress={props.onSendMessage}
             />
           </View>
-        </View>
+        ) : null}
+
+        {/* Queue count */}
+        {props.queueCount > 0 ? (
+          <Text
+            style={{
+              color: palette.textMuted,
+              fontSize: 12,
+              lineHeight: 18,
+              paddingTop: 8,
+            }}
+          >
+            {props.queueCount} queued message{props.queueCount === 1 ? "" : "s"} will send
+            automatically.
+          </Text>
+        ) : null}
       </View>
-      {props.draftAttachments.length > 0 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={isSplitLayout ? { alignSelf: "center", width: "100%", maxWidth: 960 } : undefined}
-        >
-          <View className="flex-row gap-2">
-            {props.draftAttachments.map((image) => (
-              <View key={image.id} className="gap-2">
-                <Image
-                  source={{ uri: image.previewUri }}
-                  className="h-[84px] w-[84px] rounded-[18px] bg-slate-200 dark:bg-slate-800"
-                  resizeMode="cover"
-                />
-                <Pressable
-                  className="items-center rounded-[12px] bg-slate-200 px-2.5 py-2 dark:bg-slate-800"
-                  onPress={() => props.onRemoveDraftImage(image.id)}
-                >
-                  <Text className="font-t3-bold text-xs text-slate-950 dark:text-slate-50">
-                    Remove
-                  </Text>
-                </Pressable>
-              </View>
-            ))}
-          </View>
-        </ScrollView>
-      ) : null}
-      {props.queueCount > 0 ? (
-        <Text
-          className="self-center font-t3-medium text-xs leading-[18px] text-slate-500 dark:text-slate-400"
-          style={{ maxWidth: 960, width: "100%" }}
-        >
-          {props.queueCount} queued message{props.queueCount === 1 ? "" : "s"} will send
-          automatically.
-        </Text>
-      ) : null}
+
+      {/* Full-screen image preview modal */}
+      <Modal
+        visible={previewImageUri !== null}
+        transparent={false}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        onRequestClose={closePreview}
+      >
+        <View style={{ flex: 1, backgroundColor: "#000" }}>
+          <RNPressable
+            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+            onPress={closePreview}
+          >
+            {previewImageUri ? (
+              <Image
+                source={{ uri: previewImageUri }}
+                style={{
+                  width: Dimensions.get("window").width,
+                  height: Dimensions.get("window").height * 0.75,
+                }}
+                resizeMode="contain"
+              />
+            ) : null}
+          </RNPressable>
+          <RNPressable
+            style={{
+              position: "absolute",
+              top: 60,
+              right: 20,
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: "rgba(255,255,255,0.15)",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            onPress={closePreview}
+          >
+            <SymbolView name="xmark" size={16} tintColor="#ffffff" type="monochrome" />
+          </RNPressable>
+        </View>
+      </Modal>
     </View>
   );
 });

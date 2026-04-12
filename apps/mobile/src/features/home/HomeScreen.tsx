@@ -1,8 +1,8 @@
+import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, ScrollView, useColorScheme, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Path } from "react-native-svg";
 
 import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
@@ -14,20 +14,6 @@ import { relativeTime } from "../../lib/time";
 import { makeAppPalette } from "../../lib/theme";
 import { ConnectionStatusDot } from "../connection/ConnectionStatusDot";
 import { threadStatusTone } from "../threads/threadPresentation";
-
-function T3Wordmark(props: { readonly fill: string }) {
-  return (
-    <Svg
-      viewBox="15.5309 37 94.3941 56.96"
-      style={{ height: 16, width: 24 }}
-    >
-      <Path
-        d="M33.4509 93V47.56H15.5309V37H64.3309V47.56H46.4109V93H33.4509ZM86.7253 93.96C82.832 93.96 78.9653 93.4533 75.1253 92.44C71.2853 91.3733 68.032 89.88 65.3653 87.96L70.4053 78.04C72.5386 79.5867 75.0186 80.8133 77.8453 81.72C80.672 82.6267 83.5253 83.08 86.4053 83.08C89.6586 83.08 92.2186 82.44 94.0853 81.16C95.952 79.88 96.8853 78.12 96.8853 75.88C96.8853 73.7467 96.0586 72.0667 94.4053 70.84C92.752 69.6133 90.0853 69 86.4053 69H80.4853V60.44L96.0853 42.76L97.5253 47.4H68.1653V37H107.365V45.4L91.8453 63.08L85.2853 59.32H89.0453C95.9253 59.32 101.125 60.8667 104.645 63.96C108.165 67.0533 109.925 71.0267 109.925 75.88C109.925 79.0267 109.099 81.9867 107.445 84.76C105.792 87.48 103.259 89.6933 99.8453 91.4C96.432 93.1067 92.0586 93.96 86.7253 93.96Z"
-        fill={props.fill}
-      />
-    </Svg>
-  );
-}
 
 export function HomeScreen(props: {
   readonly projects: ReadonlyArray<ScopedMobileProject>;
@@ -43,6 +29,7 @@ export function HomeScreen(props: {
   const isDarkMode = useColorScheme() === "dark";
   const palette = makeAppPalette(isDarkMode);
   const insets = useSafeAreaInsets();
+  const [newTaskPressed, setNewTaskPressed] = useState(false);
   const repositoryGroups = useMemo(
     () => groupProjectsByRepository({ projects: props.projects, threads: props.threads }),
     [props.projects, props.threads],
@@ -76,49 +63,29 @@ export function HomeScreen(props: {
         contentContainerStyle={{
           paddingBottom: Math.max(insets.bottom, 24) + (props.showFloatingNewTaskButton ? 92 : 24),
           paddingHorizontal: 20,
-          paddingTop: insets.top + 16,
-          gap: 20,
+          paddingTop: insets.top + 6,
+          gap: 16,
         }}
       >
         <View className="flex-row items-center justify-between">
-          <View className="flex-row items-center gap-2">
-            <T3Wordmark fill={palette.wordmarkFill} />
-            <Text
-              className="text-[18px] font-medium"
-              style={{ color: palette.text }}
-            >
-              Code
-            </Text>
-            <View
-              className="rounded-[6px] px-2 py-0.5"
-              style={{ backgroundColor: palette.subtleBg }}
-            >
-              <Text
-                className="text-[11px] font-t3-bold uppercase"
-                style={{ color: palette.textMuted, letterSpacing: 0.8 }}
-              >
-                Alpha
-              </Text>
-            </View>
-          </View>
+          <Text className="text-[34px] font-t3-bold" style={{ color: palette.text }}>
+            Recents
+          </Text>
 
           {props.showFloatingConnectionButton ? (
             <Pressable
               onPress={props.onOpenConnectionEditor}
-              className="h-10 w-10 items-center justify-center rounded-full"
-              style={{ backgroundColor: palette.subtleBg }}
+              className="h-14 min-w-[56px] items-center justify-center rounded-full px-4"
+              style={{
+                backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.9)",
+                borderWidth: isDarkMode ? 1 : 0,
+                borderColor: isDarkMode ? palette.border : "transparent",
+              }}
             >
               <ConnectionStatusDot state={props.connectionState} pulse={props.connectionPulse} />
             </Pressable>
           ) : null}
         </View>
-
-        <Text
-          className="text-[28px] font-t3-bold"
-          style={{ color: palette.text, letterSpacing: -0.3 }}
-        >
-          Recents
-        </Text>
 
         {props.threads.length === 0 ? (
           <EmptyState
@@ -126,7 +93,10 @@ export function HomeScreen(props: {
             detail="Create a task to start a new coding session in one of your connected projects."
           />
         ) : (
-          <View className="overflow-hidden rounded-[24px]" style={{ backgroundColor: palette.card }}>
+          <View
+            className="overflow-hidden rounded-[24px]"
+            style={{ backgroundColor: palette.card }}
+          >
             {props.threads.map((thread, index) => {
               const projectKey = scopedProjectKey(thread.environmentId, thread.projectId);
               const projectLabel = projectLabelsByKey.get(projectKey);
@@ -200,17 +170,43 @@ export function HomeScreen(props: {
           }}
         >
           <Pressable
-            onPress={props.onOpenNewTask}
-            className="flex-row items-center gap-3 rounded-full px-6 py-4"
-            style={{
-              backgroundColor: palette.primaryButton,
-              boxShadow: `0 20px 36px ${palette.primaryButtonShadow}`,
+            accessibilityRole="button"
+            hitSlop={6}
+            onPressIn={() => {
+              setNewTaskPressed(true);
+              void Haptics.selectionAsync();
             }}
+            onPressOut={() => {
+              setNewTaskPressed(false);
+            }}
+            onPress={props.onOpenNewTask}
           >
-            <SymbolView name="square.and.pencil" size={20} tintColor={palette.primaryButtonText} type="monochrome" />
-            <Text className="text-[18px] font-t3-bold" style={{ color: palette.primaryButtonText }}>
-              New task
-            </Text>
+            <View
+              className="flex-row items-center gap-3 rounded-full px-6 py-4"
+              style={{
+                backgroundColor: palette.primaryButton,
+                borderWidth: isDarkMode ? 1 : 0,
+                borderColor: isDarkMode ? "rgba(255,255,255,0.08)" : "transparent",
+                boxShadow: newTaskPressed
+                  ? `0 12px 24px ${palette.primaryButtonShadow}`
+                  : `0 20px 36px ${palette.primaryButtonShadow}`,
+                opacity: newTaskPressed ? 0.96 : 1,
+                transform: [{ scale: newTaskPressed ? 0.985 : 1 }],
+              }}
+            >
+              <SymbolView
+                name="square.and.pencil"
+                size={20}
+                tintColor={palette.primaryButtonText}
+                type="monochrome"
+              />
+              <Text
+                className="text-[18px] font-t3-bold"
+                style={{ color: palette.primaryButtonText }}
+              >
+                New task
+              </Text>
+            </View>
           </Pressable>
         </View>
       ) : null}

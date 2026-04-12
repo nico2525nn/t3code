@@ -30,8 +30,8 @@ export function connectionTone(state: RemoteClientConnectionState): StatusTone {
     case "idle":
       return {
         label: "Idle",
-        pillClassName: "bg-slate-500/10 dark:bg-slate-500/16",
-        textClassName: "text-slate-600 dark:text-slate-300",
+        pillClassName: "bg-neutral-500/10 dark:bg-neutral-500/16",
+        textClassName: "text-neutral-600 dark:text-neutral-300",
       };
   }
 }

@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { Link, Stack } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useState } from "react";
 import { Pressable, ScrollView, View, useColorScheme } from "react-native";
@@ -8,7 +8,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { useRemoteApp } from "../../state/remote-app-state-provider";
 import type { ConnectedEnvironmentSummary } from "../../state/use-remote-app-state";
-import { dismissRoute } from "../../lib/routes";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 import { makeConnectionSheetPalette as makePalette } from "./connection-sheet-shared";
 
@@ -175,7 +174,6 @@ function EnvironmentRow(props: {
 
 export function ConnectionsRouteScreen() {
   const app = useRemoteApp();
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const isDarkMode = useColorScheme() === "dark";
   const palette = makePalette(isDarkMode);
@@ -187,50 +185,37 @@ export function ConnectionsRouteScreen() {
   }, []);
 
   return (
-    <View
-      collapsable={false}
-      style={{
-        flex: 1,
-        backgroundColor: palette.sheet,
-        paddingHorizontal: 20,
-        paddingTop: 28,
-        paddingBottom: Math.max(insets.bottom, 18) + 18,
-      }}
-    >
-      <View className="flex-row items-center justify-between pb-4 pt-1">
-        <View className="flex-1 gap-1">
-          <Text
-            className="text-[28px] font-t3-bold"
-            style={{ color: palette.text, letterSpacing: -0.3 }}
-          >
-            Backends
-          </Text>
-          <Text className="text-[14px] leading-[20px]" style={{ color: palette.muted }}>
-            Manage your connected environments.
-          </Text>
-        </View>
-
-        <Pressable
-          className="h-11 w-11 items-center justify-center rounded-full"
-          onPress={() => router.push("/connections/new")}
-          style={{
-            backgroundColor: palette.primaryButton,
-          }}
-        >
-          <SymbolView
-            name="plus"
-            size={18}
-            tintColor={palette.primaryButtonText}
-            type="monochrome"
-            weight="semibold"
-          />
-        </Pressable>
-      </View>
-
+    <View collapsable={false} style={{ flex: 1, backgroundColor: palette.sheet }}>
+      <Stack.Screen
+        options={{
+          title: "Backends",
+          headerRight: () => (
+            <Link href="/connections/new" asChild>
+              <Pressable
+                className="h-10 w-10 items-center justify-center rounded-full"
+                style={{ backgroundColor: palette.primaryButton }}
+              >
+                <SymbolView
+                  name="plus"
+                  size={18}
+                  tintColor={palette.primaryButtonText}
+                  type="monochrome"
+                  weight="semibold"
+                />
+              </Pressable>
+            </Link>
+          ),
+        }}
+      />
       <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 8 }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: 16,
+          paddingBottom: Math.max(insets.bottom, 18) + 18,
+        }}
       >
         {hasEnvironments ? (
           <View

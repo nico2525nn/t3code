@@ -103,7 +103,10 @@ export function ProjectPickerSheet(props: {
             paddingBottom: Math.max(insets.bottom, 18) + 18,
           }}
         >
-          <View className="overflow-hidden rounded-[24px]" style={{ backgroundColor: palette.card }}>
+          <View
+            className="overflow-hidden rounded-[24px]"
+            style={{ backgroundColor: palette.card }}
+          >
             {logicalProjects.map((entry, index) => (
               <Pressable
                 key={entry.key}

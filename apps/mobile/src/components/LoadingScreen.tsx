@@ -20,7 +20,7 @@ export function LoadingScreen(props: { readonly message: string }) {
       <View className="flex-1 items-center justify-center gap-5 px-6">
         <BrandMark compact />
         <ActivityIndicator size="large" />
-        <Text className="font-t3-bold text-lg text-slate-950 dark:text-slate-50">
+        <Text className="font-t3-bold text-lg text-neutral-950 dark:text-neutral-50">
           {props.message}
         </Text>
       </View>

@@ -1,7 +1,7 @@
 import type { Router } from "expo-router";
 
 import type { SelectedThreadRef } from "../state/use-remote-app-state";
-import type { ScopedMobileProject, ScopedMobileThread } from "./scopedEntities";
+import type { ScopedMobileThread } from "./scopedEntities";
 
 type ThreadRouteInput =
   | Pick<SelectedThreadRef, "environmentId" | "threadId">
@@ -12,17 +12,6 @@ export function buildThreadRoutePath(input: ThreadRouteInput): string {
   const threadId = "threadId" in input ? input.threadId : input.id;
 
   return `/threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}`;
-}
-
-export function buildNewTaskDraftRoutePath(
-  project: Pick<ScopedMobileProject, "environmentId" | "id">,
-): string {
-  const params = new URLSearchParams({
-    environmentId: project.environmentId,
-    projectId: project.id,
-  });
-
-  return `/new-draft?${params.toString()}`;
 }
 
 export function dismissRoute(router: Router) {

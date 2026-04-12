@@ -8,8 +8,9 @@ import {
 } from "@expo-google-fonts/dm-sans";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import Stack from "expo-router/stack";
-import { Platform, StatusBar, useColorScheme } from "react-native";
+import { StatusBar, useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { LoadingScreen } from "../components/LoadingScreen";
@@ -55,23 +56,14 @@ function AppNavigator() {
         translucent
       />
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen
-          name="index"
-          options={{
-            headerShown: Platform.OS === "ios",
-            headerShadowVisible: false,
-            headerTitle: "",
-            headerTransparent: true,
-            headerBlurEffect: "none",
-          }}
-        />
         <Stack.Screen name="connections" options={connectionSheetScreenOptions} />
         <Stack.Screen name="new" options={newTaskScreenOptions} />
         <Stack.Screen
           name="threads/[environmentId]/[threadId]"
           options={{
             animation: "slide_from_right",
-            gestureEnabled: false,
+            contentStyle: { backgroundColor: palette.screenBackground },
+            gestureEnabled: true,
             headerShown: false,
           }}
         />
@@ -89,17 +81,19 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <BottomSheetModalProvider>
-        <SafeAreaProvider>
-          <RemoteAppStateProvider>
-            {fontsLoaded ? (
-              <AppNavigator />
-            ) : (
-              <LoadingScreen message="Loading remote workspace…" />
-            )}
-          </RemoteAppStateProvider>
-        </SafeAreaProvider>
-      </BottomSheetModalProvider>
+      <KeyboardProvider statusBarTranslucent>
+        <BottomSheetModalProvider>
+          <SafeAreaProvider>
+            <RemoteAppStateProvider>
+              {fontsLoaded ? (
+                <AppNavigator />
+              ) : (
+                <LoadingScreen message="Loading remote workspace…" />
+              )}
+            </RemoteAppStateProvider>
+          </SafeAreaProvider>
+        </BottomSheetModalProvider>
+      </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }

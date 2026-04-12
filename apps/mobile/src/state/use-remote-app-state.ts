@@ -27,7 +27,11 @@ import { deriveActiveWorkStartedAt, formatElapsed } from "@t3tools/shared/orches
 
 import { connectionTone } from "../features/connection/connectionTone";
 import type { DraftComposerImageAttachment } from "../lib/composerImages";
-import { pasteComposerClipboard, pickComposerImages } from "../lib/composerImages";
+import {
+  convertPastedImagesToAttachments,
+  pasteComposerClipboard,
+  pickComposerImages,
+} from "../lib/composerImages";
 import {
   bootstrapRemoteConnection,
   type RemoteConnectionInput,
@@ -130,6 +134,7 @@ export interface RemoteAppModel {
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftImages: () => Promise<void>;
   readonly onPasteIntoDraft: () => Promise<void>;
+  readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onRefreshSelectedThreadGitStatus: (options?: {
     readonly quiet?: boolean;
@@ -159,6 +164,11 @@ export interface RemoteAppModel {
     input: GitActionRequestInput,
   ) => Promise<GitRunStackedActionResult | null>;
   readonly onSendMessage: () => void;
+  readonly onUpdateThreadModelSelection: (modelSelection: ModelSelection) => Promise<void>;
+  readonly onUpdateThreadRuntimeMode: (runtimeMode: RuntimeMode) => Promise<void>;
+  readonly onUpdateThreadInteractionMode: (
+    interactionMode: ProviderInteractionMode,
+  ) => Promise<void>;
   readonly onRenameThread: (title: string) => Promise<void>;
   readonly onStopThread: () => Promise<void>;
   readonly onRespondToApproval: (
@@ -1380,6 +1390,71 @@ export function useRemoteAppState(): RemoteAppModel {
     }));
   }, [draftAttachmentsByThreadKey, draftMessageByThreadKey, enqueueThreadMessage, selectedThread]);
 
+  const onUpdateThreadModelSelection = useCallback(
+    async (modelSelection: ModelSelection) => {
+      if (!selectedThread) {
+        return;
+      }
+
+      const client = clientsRef.current.get(selectedThread.environmentId);
+      if (!client) {
+        return;
+      }
+
+      await client.dispatchCommand({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe(newClientId("command")),
+        threadId: selectedThread.id,
+        modelSelection,
+      });
+    },
+    [selectedThread],
+  );
+
+  const onUpdateThreadRuntimeMode = useCallback(
+    async (runtimeMode: RuntimeMode) => {
+      if (!selectedThread) {
+        return;
+      }
+
+      const client = clientsRef.current.get(selectedThread.environmentId);
+      if (!client) {
+        return;
+      }
+
+      await client.dispatchCommand({
+        type: "thread.runtime-mode.set",
+        commandId: CommandId.makeUnsafe(newClientId("command")),
+        threadId: selectedThread.id,
+        runtimeMode,
+        createdAt: new Date().toISOString(),
+      });
+    },
+    [selectedThread],
+  );
+
+  const onUpdateThreadInteractionMode = useCallback(
+    async (interactionMode: ProviderInteractionMode) => {
+      if (!selectedThread) {
+        return;
+      }
+
+      const client = clientsRef.current.get(selectedThread.environmentId);
+      if (!client) {
+        return;
+      }
+
+      await client.dispatchCommand({
+        type: "thread.interaction-mode.set",
+        commandId: CommandId.makeUnsafe(newClientId("command")),
+        threadId: selectedThread.id,
+        interactionMode,
+        createdAt: new Date().toISOString(),
+      });
+    },
+    [selectedThread],
+  );
+
   const onStopThread = useCallback(async () => {
     if (!selectedThread) {
       return;
@@ -1597,6 +1672,31 @@ export function useRemoteAppState(): RemoteAppModel {
     }
   }, [draftAttachmentsByThreadKey, selectedThread]);
 
+  const onNativePasteImages = useCallback(
+    async (uris: ReadonlyArray<string>) => {
+      if (!selectedThread || uris.length === 0) {
+        return;
+      }
+
+      const threadKey = scopedThreadKey(selectedThread.environmentId, selectedThread.id);
+      try {
+        const images = await convertPastedImagesToAttachments({
+          uris,
+          existingCount: draftAttachmentsByThreadKey[threadKey]?.length ?? 0,
+        });
+        if (images.length > 0) {
+          setDraftAttachmentsByThreadKey((current) => ({
+            ...current,
+            [threadKey]: [...(current[threadKey] ?? []), ...images],
+          }));
+        }
+      } catch (error) {
+        console.error("[native paste] error converting images", error);
+      }
+    },
+    [draftAttachmentsByThreadKey, selectedThread],
+  );
+
   const onRemoveDraftImage = useCallback(
     (imageId: string) => {
       if (!selectedThread) {
@@ -1697,6 +1797,7 @@ export function useRemoteAppState(): RemoteAppModel {
     onChangeDraftMessage,
     onPickDraftImages,
     onPasteIntoDraft,
+    onNativePasteImages,
     onRemoveDraftImage,
     onRefreshSelectedThreadGitStatus: async (options) => {
       await refreshSelectedThreadGitStatus(options);
@@ -1710,6 +1811,9 @@ export function useRemoteAppState(): RemoteAppModel {
     onPullSelectedThreadBranch,
     onRunSelectedThreadGitAction,
     onSendMessage,
+    onUpdateThreadModelSelection,
+    onUpdateThreadRuntimeMode,
+    onUpdateThreadInteractionMode,
     onRenameThread,
     onStopThread,
     onRespondToApproval,

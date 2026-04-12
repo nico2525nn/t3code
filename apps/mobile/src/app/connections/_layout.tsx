@@ -9,7 +9,6 @@ export default function ConnectionsLayout() {
     <Stack
       screenOptions={{
         contentStyle: { backgroundColor: "rgba(246,244,239,0.98)" },
-        headerShown: false,
       }}
     >
       <Stack.Screen name="index" options={{ animation: "none" }} />

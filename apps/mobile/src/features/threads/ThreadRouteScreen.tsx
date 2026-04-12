@@ -129,7 +129,7 @@ export function ThreadRouteScreen() {
         onOpenConnectionEditor={() => router.push("/connections")}
         onChangeDraftMessage={app.onChangeDraftMessage}
         onPickDraftImages={app.onPickDraftImages}
-        onPasteIntoDraft={app.onPasteIntoDraft}
+        onNativePasteImages={app.onNativePasteImages}
         onRemoveDraftImage={app.onRemoveDraftImage}
         onRefresh={app.onRefresh}
         onRefreshSelectedThreadGitStatus={app.onRefreshSelectedThreadGitStatus}
@@ -139,9 +139,13 @@ export function ThreadRouteScreen() {
         onCreateSelectedThreadWorktree={app.onCreateSelectedThreadWorktree}
         onPullSelectedThreadBranch={app.onPullSelectedThreadBranch}
         onRunSelectedThreadGitAction={app.onRunSelectedThreadGitAction}
+        serverConfig={app.serverConfig}
         onRenameThread={app.onRenameThread}
         onStopThread={app.onStopThread}
         onSendMessage={app.onSendMessage}
+        onUpdateThreadModelSelection={app.onUpdateThreadModelSelection}
+        onUpdateThreadRuntimeMode={app.onUpdateThreadRuntimeMode}
+        onUpdateThreadInteractionMode={app.onUpdateThreadInteractionMode}
         onRespondToApproval={app.onRespondToApproval}
         onSelectUserInputOption={app.onSelectUserInputOption}
         onChangeUserInputCustomAnswer={app.onChangeUserInputCustomAnswer}

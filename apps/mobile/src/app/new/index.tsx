@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { Link, Stack } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useMemo } from "react";
 import { Pressable, ScrollView, useColorScheme, View } from "react-native";
@@ -11,7 +11,6 @@ import { useRemoteApp } from "../../state/remote-app-state-provider";
 
 export default function NewTaskRoute() {
   const app = useRemoteApp();
-  const router = useRouter();
   const isDarkMode = useColorScheme() === "dark";
   const palette = makeAppPalette(isDarkMode);
   const insets = useSafeAreaInsets();
@@ -40,32 +39,17 @@ export default function NewTaskRoute() {
   );
 
   return (
-    <View
-      collapsable={false}
-      style={{
-        flex: 1,
-        backgroundColor: palette.sheetBackground,
-        paddingHorizontal: 20,
-        paddingTop: 28,
-        paddingBottom: Math.max(insets.bottom, 18) + 18,
-      }}
-    >
-      <View collapsable={false} className="items-center gap-1 pb-4">
-        <Text
-          className="text-[12px] font-t3-bold uppercase"
-          style={{ color: palette.textMuted, letterSpacing: 1 }}
-        >
-          New task
-        </Text>
-        <Text className="text-[28px] font-t3-bold" style={{ color: palette.text }}>
-          Choose project
-        </Text>
-      </View>
-
+    <View collapsable={false} style={{ flex: 1, backgroundColor: palette.sheetBackground }}>
+      <Stack.Screen options={{ title: "Choose Project" }} />
       <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 8 }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: 16,
+          paddingBottom: Math.max(insets.bottom, 18) + 18,
+        }}
       >
         {items.length === 0 ? (
           <View
@@ -88,44 +72,46 @@ export default function NewTaskRoute() {
               const isLast = index === items.length - 1;
 
               return (
-                <Pressable
+                <Link
                   key={item.key}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/new/draft",
-                      params: {
-                        environmentId: item.environmentId,
-                        projectId: item.id,
-                        title: item.title,
-                      },
-                    })
-                  }
-                  style={{
-                    paddingHorizontal: 16,
-                    paddingVertical: 18,
-                    borderTopWidth: isFirst ? 0 : 1,
-                    borderTopColor: palette.borderSubtle,
-                    backgroundColor: palette.card,
-                    borderTopLeftRadius: isFirst ? 24 : 0,
-                    borderTopRightRadius: isFirst ? 24 : 0,
-                    borderBottomLeftRadius: isLast ? 24 : 0,
-                    borderBottomRightRadius: isLast ? 24 : 0,
+                  href={{
+                    pathname: "/new/draft",
+                    params: {
+                      environmentId: item.environmentId,
+                      projectId: item.id,
+                      title: item.title,
+                    },
                   }}
+                  asChild
                 >
-                  <View className="flex-row items-center justify-between gap-3">
-                    <View className="flex-1">
-                      <Text className="text-[18px] font-t3-bold" style={{ color: palette.text }}>
-                        {item.title}
-                      </Text>
+                  <Pressable
+                    style={{
+                      paddingHorizontal: 16,
+                      paddingVertical: 18,
+                      borderTopWidth: isFirst ? 0 : 1,
+                      borderTopColor: palette.borderSubtle,
+                      backgroundColor: palette.card,
+                      borderTopLeftRadius: isFirst ? 24 : 0,
+                      borderTopRightRadius: isFirst ? 24 : 0,
+                      borderBottomLeftRadius: isLast ? 24 : 0,
+                      borderBottomRightRadius: isLast ? 24 : 0,
+                    }}
+                  >
+                    <View className="flex-row items-center justify-between gap-3">
+                      <View className="flex-1">
+                        <Text className="text-[18px] font-t3-bold" style={{ color: palette.text }}>
+                          {item.title}
+                        </Text>
+                      </View>
+                      <SymbolView
+                        name="chevron.right"
+                        size={14}
+                        tintColor={palette.chevronColor}
+                        type="monochrome"
+                      />
                     </View>
-                    <SymbolView
-                      name="chevron.right"
-                      size={14}
-                      tintColor={palette.chevronColor}
-                      type="monochrome"
-                    />
-                  </View>
-                </Pressable>
+                  </Pressable>
+                </Link>
               );
             })}
           </View>

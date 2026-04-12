@@ -22,9 +22,9 @@ export function GlassSafeAreaView({
   const headerPaddingTop = insets.top + 16;
   const surfaceStyle = {
     borderRadius: 0,
-    backgroundColor: isDarkMode ? "rgba(2,6,23,0.18)" : "rgba(248,250,252,0.2)",
+    backgroundColor: isDarkMode ? "rgba(10,10,10,0.97)" : "rgba(255,255,255,0.97)",
     borderBottomWidth: 1,
-    borderBottomColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(148,163,184,0.16)",
+    borderBottomColor: isDarkMode ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
   } as const;
 
   return (
@@ -36,12 +36,24 @@ export function GlassSafeAreaView({
         style={{ borderRadius: 0, backgroundColor: "transparent" }}
       >
         <View
-          className="flex-row items-center px-5 pb-4 pt-4"
-          style={{ paddingTop: headerPaddingTop }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            paddingHorizontal: 20,
+            paddingTop: headerPaddingTop,
+            paddingBottom: 16,
+            gap: 10,
+          }}
         >
-          <View className="min-w-[48px] items-start justify-center">{leftSlot}</View>
-          <View className="flex-1 items-center justify-center">{centerSlot}</View>
-          <View className="min-w-[48px] items-end justify-center">{rightSlot}</View>
+          <View style={{ alignItems: "flex-start", justifyContent: "center" }}>
+            {leftSlot}
+          </View>
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+            {centerSlot}
+          </View>
+          <View style={{ alignItems: "flex-end", justifyContent: "center" }}>
+            {rightSlot}
+          </View>
         </View>
       </GlassSurface>
     </View>

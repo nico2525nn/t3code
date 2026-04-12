@@ -238,10 +238,24 @@ function compareFeedEntries(left: RawThreadFeedEntry, right: RawThreadFeedEntry)
   return left.id.localeCompare(right.id);
 }
 
+function isEmptyMessage(entry: RawThreadFeedEntry): boolean {
+  if (entry.type !== "message") {
+    return false;
+  }
+  const hasText = entry.message.text.trim().length > 0;
+  const hasAttachments = (entry.message.attachments ?? []).length > 0;
+  return !hasText && !hasAttachments;
+}
+
 function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): ThreadFeedEntry[] {
   const grouped: ThreadFeedEntry[] = [];
 
   for (const entry of entries) {
+    // Skip empty messages so they don't break activity grouping.
+    if (isEmptyMessage(entry)) {
+      continue;
+    }
+
     if (entry.type !== "activity") {
       grouped.push(entry);
       continue;

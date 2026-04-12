@@ -1,9 +1,9 @@
-import type { ComponentProps, ReactNode } from "react";
 import { MenuView } from "@react-native-menu/menu";
 import { useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useMemo } from "react";
-import { Image, Pressable, ScrollView, useColorScheme, View } from "react-native";
+import { TextInputWrapper } from "expo-paste-input";
+import { useCallback, useEffect, useMemo } from "react";
+import { Pressable, useColorScheme, View } from "react-native";
 import Animated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -11,66 +11,16 @@ import type { ModelSelection } from "@t3tools/contracts";
 import { CLAUDE_CODE_EFFORT_OPTIONS } from "@t3tools/contracts";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
+import { ControlPill } from "../../components/ControlPill";
 import { ProviderIcon } from "../../components/ProviderIcon";
 
-import {
-  type DraftComposerImageAttachment,
-  convertPastedImagesToAttachments,
-  pickComposerImages,
-} from "../../lib/composerImages";
+import { convertPastedImagesToAttachments, pickComposerImages } from "../../lib/composerImages";
 import { buildThreadRoutePath } from "../../lib/routes";
 import { makeAppPalette } from "../../lib/theme";
 import { useRemoteApp } from "../../state/remote-app-state-provider";
-import { branchBadgeLabel } from "./new-task-flow-provider";
-import { useNewTaskFlow } from "./new-task-flow-provider";
-import { PasteEventPayload, TextInputWrapper } from "expo-paste-input";
-
-function ControlPill(props: {
-  readonly icon?: ComponentProps<typeof SymbolView>["name"];
-  readonly iconNode?: ReactNode;
-  readonly label?: string;
-  readonly onPress?: () => void;
-  readonly variant?: "circle" | "pill" | "primary";
-  readonly disabled?: boolean;
-}) {
-  const isDarkMode = useColorScheme() === "dark";
-  const palette = makeAppPalette(isDarkMode);
-  const variant = props.variant ?? "circle";
-  const backgroundColor =
-    variant === "primary"
-      ? props.disabled
-        ? palette.subtleBgStrong
-        : palette.primaryButton
-      : palette.subtleBg;
-  const iconTintColor = variant === "primary" ? palette.primaryButtonText : palette.icon;
-  const textColor = variant === "primary" ? palette.primaryButtonText : palette.text;
-
-  return (
-    <Pressable
-      onPress={props.onPress}
-      disabled={props.disabled}
-      className={
-        variant === "circle"
-          ? "h-11 w-11 items-center justify-center rounded-full"
-          : variant === "primary"
-            ? "h-11 flex-row items-center justify-center gap-2 rounded-full px-5"
-            : "h-11 flex-row items-center justify-center gap-2 rounded-full px-3.5"
-      }
-      style={{ backgroundColor }}
-    >
-      {props.iconNode ? (
-        <View className="h-4 w-4 items-center justify-center">{props.iconNode}</View>
-      ) : props.icon ? (
-        <SymbolView name={props.icon} size={16} tintColor={iconTintColor} type="monochrome" />
-      ) : null}
-      {props.label ? (
-        <Text className="text-center text-[12px] font-t3-bold" style={{ color: textColor }}>
-          {props.label}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
-}
+import { useNativePaste } from "../../hooks/useNativePaste";
+import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 
 export function NewTaskDraftScreen(props: {
   readonly initialProjectRef?: {
@@ -362,24 +312,26 @@ export function NewTaskDraftScreen(props: {
     }
   }
 
-  async function handleNativePaste(payload: PasteEventPayload): Promise<void> {
-    console.log("handleNativePaste", payload);
-    if (payload.type === "images" && payload.uris && payload.uris.length > 0) {
+  const handleNativePasteImages = useCallback(
+    async (uris: ReadonlyArray<string>) => {
       try {
         const images = await convertPastedImagesToAttachments({
-          uris: payload.uris,
+          uris,
           existingCount: flow.attachments.length,
         });
-        console.log("convertPastedImagesToAttachments returned", images.length, "images");
         if (images.length > 0) {
           flow.setAttachments((current) => [...current, ...images]);
         }
       } catch (error) {
-        console.error("handleNativePaste error", error);
+        console.error("[native paste] error converting images", error);
       }
-    }
-    // Text paste is handled natively by the TextInput — no action needed
-  }
+    },
+    [flow],
+  );
+
+  const handleNativePaste = useNativePaste((uris) => {
+    void handleNativePasteImages(uris);
+  });
 
   async function handleStart(): Promise<void> {
     if (
@@ -511,46 +463,18 @@ export function NewTaskDraftScreen(props: {
         ]}
       >
         {flow.attachments.length > 0 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ flexGrow: 0, paddingHorizontal: 16, paddingTop: 12 }}
-          >
-            <View className="flex-row gap-3">
-              {flow.attachments.map((attachment: DraftComposerImageAttachment) => (
-                <View key={attachment.id} style={{ position: "relative" }}>
-                  <Image
-                    source={{ uri: attachment.previewUri }}
-                    className="h-[88px] w-[88px] rounded-[20px]"
-                    resizeMode="cover"
-                  />
-                  <Pressable
-                    className="h-6 w-6 items-center justify-center rounded-full"
-                    hitSlop={6}
-                    onPress={() =>
-                      flow.setAttachments((current) =>
-                        current.filter((candidate) => candidate.id !== attachment.id),
-                      )
-                    }
-                    style={{
-                      position: "absolute",
-                      top: 4,
-                      right: 4,
-                      backgroundColor: "rgba(0,0,0,0.55)",
-                    }}
-                  >
-                    <SymbolView
-                      name="xmark"
-                      size={10}
-                      tintColor="#ffffff"
-                      type="monochrome"
-                      weight="bold"
-                    />
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          </ScrollView>
+          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+            <ComposerAttachmentStrip
+              attachments={flow.attachments}
+              onRemove={(imageId) =>
+                flow.setAttachments((current) =>
+                  current.filter((candidate) => candidate.id !== imageId),
+                )
+              }
+              imageSize={88}
+              imageBorderRadius={20}
+            />
+          </View>
         ) : null}
         <View className="flex-row items-center justify-between gap-2 px-4 pb-1 pt-4">
           <ControlPill icon="plus" onPress={() => void handlePickImages()} />

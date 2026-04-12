@@ -1,6 +1,13 @@
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, useColorScheme, useWindowDimensions, View } from "react-native";
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  useColorScheme,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
@@ -194,7 +201,10 @@ export function ThreadNavigationDrawer(props: {
                   >
                     {group.threads.length === 0 ? (
                       <View className="px-4 py-4">
-                        <Text className="text-[14px] font-medium" style={{ color: palette.textTertiary }}>
+                        <Text
+                          className="text-[14px] font-medium"
+                          style={{ color: palette.textTertiary }}
+                        >
                           No threads yet
                         </Text>
                       </View>

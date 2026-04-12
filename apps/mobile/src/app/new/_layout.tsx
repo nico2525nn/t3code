@@ -17,7 +17,6 @@ export default function NewTaskLayout() {
       <Stack
         screenOptions={{
           contentStyle: { backgroundColor: palette.sheetBackground },
-          headerShown: false,
         }}
       >
         <Stack.Screen name="index" options={{ animation: "none" }} />

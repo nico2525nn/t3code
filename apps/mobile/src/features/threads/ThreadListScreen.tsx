@@ -121,7 +121,12 @@ function StatCard(props: {
       }}
     >
       <View className="flex-row items-center gap-2">
-        <SymbolView name={props.icon} size={15} tintColor={palette.textSecondary} type="monochrome" />
+        <SymbolView
+          name={props.icon}
+          size={15}
+          tintColor={palette.textSecondary}
+          type="monochrome"
+        />
         <Text
           className="text-[11px] font-t3-bold uppercase"
           style={{ color: palette.textSecondary, letterSpacing: 1 }}
@@ -181,7 +186,10 @@ function ThreadRow(props: {
           <Text className="text-[17px] font-t3-bold" style={{ color: palette.text }}>
             {props.thread.title}
           </Text>
-          <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
+          <Text
+            className="text-[13px] font-medium leading-[19px]"
+            style={{ color: palette.textSecondary }}
+          >
             {lastConversationLine(props.thread)}
           </Text>
         </View>
@@ -217,16 +225,16 @@ function ProjectSection(props: {
   const hiddenCount = Math.max(props.threads.length - visibleThreads.length, 0);
 
   return (
-    <View
-      className="gap-3 rounded-[22px] border px-4 py-4"
-      style={{ borderColor: palette.border }}
-    >
+    <View className="gap-3 rounded-[22px] border px-4 py-4" style={{ borderColor: palette.border }}>
       <View className="flex-row items-start justify-between gap-3">
         <View className="flex-1 gap-1">
           <Text className="text-[15px] font-t3-bold" style={{ color: palette.text }}>
             {props.project.environmentLabel}
           </Text>
-          <Text className="text-[12px] font-medium leading-[18px]" style={{ color: palette.textSecondary }}>
+          <Text
+            className="text-[12px] font-medium leading-[18px]"
+            style={{ color: palette.textSecondary }}
+          >
             {props.project.workspaceRoot}
           </Text>
         </View>
@@ -307,7 +315,10 @@ function CreateThreadModal(props: {
             <Text className="text-[22px] font-t3-bold" style={{ color: palette.text }}>
               New thread in {props.group.title}
             </Text>
-            <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
+            <Text
+              className="text-[13px] font-medium leading-[19px]"
+              style={{ color: palette.textSecondary }}
+            >
               Choose which environment should own the new thread.
             </Text>
           </View>
@@ -396,9 +407,7 @@ export function ThreadListScreen(props: ThreadListScreenProps) {
       }}
     >
       <View className="absolute inset-x-0 top-0 z-20">
-        <GlassSafeAreaView
-          leftSlot={props.showBrandWordmark ? <BrandMark compact /> : null}
-        />
+        <GlassSafeAreaView leftSlot={props.showBrandWordmark ? <BrandMark compact /> : null} />
       </View>
 
       <ScrollView
@@ -435,7 +444,10 @@ export function ThreadListScreen(props: ThreadListScreenProps) {
               <Text className="text-[26px] font-t3-bold" style={{ color: palette.text }}>
                 {isSplitLayout ? "Native workspace" : "Repo board"}
               </Text>
-              <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
+              <Text
+                className="text-[13px] font-medium leading-[19px]"
+                style={{ color: palette.textSecondary }}
+              >
                 {isSplitLayout
                   ? "Keep your repositories visible while you move between active threads."
                   : "Your connected repositories, grouped by identity across environments."}

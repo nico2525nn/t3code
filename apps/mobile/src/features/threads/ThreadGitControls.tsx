@@ -765,10 +765,7 @@ export function ThreadGitControls(props: {
                 {sheetMenuItems.map(({ item, disabledReason }, index) => (
                   <View key={`${item.id}-${item.label}`}>
                     {index > 0 ? (
-                      <View
-                        className="ml-12 h-px"
-                        style={{ backgroundColor: palette.border }}
-                      />
+                      <View className="ml-12 h-px" style={{ backgroundColor: palette.border }} />
                     ) : null}
                     <SheetListRow
                       icon={menuItemIconName(item.icon)}
@@ -783,10 +780,7 @@ export function ThreadGitControls(props: {
                 ))}
                 {(gitStatus?.behindCount ?? 0) > 0 ? (
                   <>
-                    <View
-                      className="ml-12 h-px"
-                      style={{ backgroundColor: palette.border }}
-                    />
+                    <View className="ml-12 h-px" style={{ backgroundColor: palette.border }} />
                     <SheetListRow
                       icon="arrow.down.circle"
                       title="Pull latest"
@@ -815,8 +809,8 @@ export function ThreadGitControls(props: {
               <View className="self-start">
                 <StatusPill
                   label={gitOperationLabel}
-                  pillClassName="bg-slate-900/8"
-                  textClassName="text-slate-700"
+                  pillClassName="bg-neutral-900/8"
+                  textClassName="text-neutral-700"
                   size="compact"
                 />
               </View>
@@ -852,7 +846,10 @@ export function ThreadGitControls(props: {
               <Text className="text-[24px] font-t3-bold" style={{ color: palette.text }}>
                 Commit changes
               </Text>
-              <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
+              <Text
+                className="text-[13px] font-medium leading-[19px]"
+                style={{ color: palette.textSecondary }}
+              >
                 Review the file set, optionally write a message, then commit here or on a new
                 feature branch.
               </Text>
@@ -871,7 +868,10 @@ export function ThreadGitControls(props: {
                 </Text>
               </View>
               {isDefaultBranch ? (
-                <Text className="text-[12px] leading-[18px]" style={{ color: isDarkMode ? "#fbbf24" : "#b45309" }}>
+                <Text
+                  className="text-[12px] leading-[18px]"
+                  style={{ color: isDarkMode ? "#fbbf24" : "#b45309" }}
+                >
                   Warning: this is the default branch.
                 </Text>
               ) : null}
@@ -921,7 +921,10 @@ export function ThreadGitControls(props: {
               </View>
 
               {allFiles.length === 0 ? (
-                <Text className="text-[13px] leading-[19px]" style={{ color: palette.textSecondary }}>
+                <Text
+                  className="text-[13px] leading-[19px]"
+                  style={{ color: palette.textSecondary }}
+                >
                   No changed files are available to commit.
                 </Text>
               ) : !isEditingFiles ? (
@@ -944,7 +947,10 @@ export function ThreadGitControls(props: {
                     </View>
                   ))}
                   {selectedFiles.length > selectedFilePreview.length ? (
-                    <Text className="text-[12px] leading-[17px]" style={{ color: palette.textMuted }}>
+                    <Text
+                      className="text-[12px] leading-[17px]"
+                      style={{ color: palette.textMuted }}
+                    >
                       +{selectedFiles.length - selectedFilePreview.length} more files
                     </Text>
                   ) : null}
@@ -1075,7 +1081,10 @@ export function ThreadGitControls(props: {
             <Text className="text-[22px] font-t3-bold" style={{ color: palette.text }}>
               {pendingDefaultBranchActionCopy?.title ?? "Run action on default branch?"}
             </Text>
-            <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
+            <Text
+              className="text-[13px] font-medium leading-[19px]"
+              style={{ color: palette.textSecondary }}
+            >
               {pendingDefaultBranchActionCopy?.description ?? "Choose how to continue."}
             </Text>
           </View>
@@ -1126,7 +1135,10 @@ export function ThreadGitControls(props: {
               <Text className="text-[22px] font-t3-bold" style={{ color: palette.text }}>
                 Branches & worktrees
               </Text>
-              <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
+              <Text
+                className="text-[13px] font-medium leading-[19px]"
+                style={{ color: palette.textSecondary }}
+              >
                 Switch this thread, create a branch, or move work onto its own worktree.
               </Text>
             </View>
@@ -1277,7 +1289,10 @@ export function ThreadGitControls(props: {
                     <Text className="text-[15px] font-t3-bold" style={{ color: palette.text }}>
                       {branch.name}
                     </Text>
-                    <Text className="text-[12px] font-medium" style={{ color: palette.textSecondary }}>
+                    <Text
+                      className="text-[12px] font-medium"
+                      style={{ color: palette.textSecondary }}
+                    >
                       {subtitle}
                     </Text>
                   </Pressable>

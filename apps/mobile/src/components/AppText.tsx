@@ -15,13 +15,13 @@ type ClassNameProp = {
 
 const colorMap = {
   "text-white": "#ffffff",
-  "text-slate-50": "#f8fafc",
-  "text-slate-300": "#cbd5e1",
-  "text-slate-400": "#94a3b8",
-  "text-slate-500": "#64748b",
-  "text-slate-600": "#475569",
-  "text-slate-700": "#334155",
-  "text-slate-950": "#020617",
+  "text-neutral-50": "#fafafa",
+  "text-neutral-300": "#d4d4d4",
+  "text-neutral-400": "#a3a3a3",
+  "text-neutral-500": "#737373",
+  "text-neutral-600": "#525252",
+  "text-neutral-700": "#404040",
+  "text-neutral-950": "#0a0a0a",
   "text-orange-300": "#fdba74",
   "text-orange-600": "#ea580c",
   "text-orange-700": "#c2410c",
@@ -35,12 +35,12 @@ const colorMap = {
 
 const backgroundColorMap = {
   "bg-white": "#ffffff",
-  "bg-slate-900": "#0f172a",
-  "bg-slate-950/70": "rgba(2, 6, 23, 0.7)",
+  "bg-neutral-900": "#171717",
+  "bg-neutral-950/70": "rgba(10, 10, 10, 0.7)",
 } satisfies Record<string, string>;
 
 const borderColorMap = {
-  "border-slate-200": "#e2e8f0",
+  "border-neutral-200": "#e5e5e5",
   "border-white/8": "rgba(255, 255, 255, 0.08)",
 } satisfies Record<string, string>;
 
@@ -54,7 +54,7 @@ function activeToken(token: string, isDarkMode: boolean) {
 
 function resolveTextStyle(className: string | undefined, isDarkMode: boolean): TextStyle {
   const style: TextStyle = {
-    color: isDarkMode ? "#f8fafc" : "#020617",
+    color: isDarkMode ? "#f5f5f5" : "#262626",
     fontFamily: "DMSans_400Regular",
   };
 
@@ -190,9 +190,9 @@ function resolveTextInputStyle(
   isDarkMode: boolean,
 ): ViewStyle & TextStyle {
   const style: ViewStyle & TextStyle = {
-    color: isDarkMode ? "#f8fafc" : "#020617",
-    backgroundColor: isDarkMode ? "#0f172a" : "#ffffff",
-    borderColor: isDarkMode ? "rgba(255, 255, 255, 0.08)" : "#e2e8f0",
+    color: isDarkMode ? "#f5f5f5" : "#262626",
+    backgroundColor: isDarkMode ? "#141414" : "#ffffff",
+    borderColor: isDarkMode ? "rgba(255, 255, 255, 0.08)" : "#e5e5e5",
     borderWidth: 1,
     borderRadius: 16,
     paddingHorizontal: 14,
@@ -311,7 +311,7 @@ export function AppTextInput({
   return (
     <RNTextInput
       {...props}
-      placeholderTextColor={placeholderTextColor ?? (isDarkMode ? "#94a3b8" : "#64748b")}
+      placeholderTextColor={placeholderTextColor ?? (isDarkMode ? "#737373" : "#a3a3a3")}
       style={[resolvedStyle as StyleProp<TextStyle>, style]}
     />
   );
