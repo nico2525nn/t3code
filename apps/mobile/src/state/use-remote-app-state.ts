@@ -106,14 +106,14 @@ export interface RemoteAppModel {
   readonly onCloseConnectionEditor: () => void;
   readonly onRequestCloseConnectionEditor: () => void;
   readonly onChangeConnectionPairingUrl: (pairingUrl: string) => void;
-  readonly onConnectPress: () => void;
+  readonly onConnectPress: (pairingUrl?: string) => Promise<void>;
   readonly onUpdateEnvironment: (
     environmentId: string,
     updates: { readonly label: string; readonly displayUrl: string },
   ) => Promise<void>;
   readonly onRemoveEnvironmentPress: (environmentId: string) => void;
   readonly onRefresh: () => Promise<void>;
-  readonly onCreateThread: (project: ScopedMobileProject) => Promise<void>;
+  readonly onCreateThread: (project: ScopedMobileProject) => Promise<SelectedThreadRef | null>;
   readonly onCreateThreadWithOptions: (input: {
     readonly project: ScopedMobileProject;
     readonly modelSelection: ModelSelection;
@@ -124,7 +124,7 @@ export interface RemoteAppModel {
     readonly interactionMode: ProviderInteractionMode;
     readonly initialMessageText: string;
     readonly initialAttachments: ReadonlyArray<DraftComposerImageAttachment>;
-  }) => Promise<void>;
+  }) => Promise<SelectedThreadRef | null>;
   readonly onSelectThread: (thread: ScopedMobileThread) => void;
   readonly onBackFromThread: () => void;
   readonly onChangeDraftMessage: (value: string) => void;
@@ -181,10 +181,10 @@ interface EnvironmentRuntimeState {
   readonly serverConfig: T3ServerConfig | null;
 }
 
-type SelectedThreadRef = {
+export interface SelectedThreadRef {
   readonly environmentId: string;
   readonly threadId: string;
-};
+}
 
 function defaultEnvironmentRuntimeState(): EnvironmentRuntimeState {
   return {
@@ -1157,7 +1157,7 @@ export function useRemoteAppState(): RemoteAppModel {
     }) => {
       const client = clientsRef.current.get(input.project.environmentId);
       if (!client) {
-        return;
+        return null;
       }
 
       const threadId = ThreadId.makeUnsafe(newClientId("thread"));
@@ -1166,7 +1166,7 @@ export function useRemoteAppState(): RemoteAppModel {
       const nextTitle = deriveThreadTitleFromPrompt(input.initialMessageText);
       if (input.envMode === "worktree") {
         if (!input.branch || initialMessageText.length === 0) {
-          return;
+          return null;
         }
 
         await client.dispatchCommand({
@@ -1241,6 +1241,10 @@ export function useRemoteAppState(): RemoteAppModel {
         threadId,
       });
       await onRefresh();
+      return {
+        environmentId: input.project.environmentId,
+        threadId,
+      };
     },
     [onRefresh],
   );
@@ -1256,10 +1260,10 @@ export function useRemoteAppState(): RemoteAppModel {
         project.defaultModelSelection ?? latestProjectThread?.modelSelection ?? null;
       if (!modelSelection) {
         setPendingConnectionError("This project does not have a default model configured yet.");
-        return;
+        return null;
       }
 
-      await onCreateThreadWithOptions({
+      return await onCreateThreadWithOptions({
         project,
         modelSelection,
         envMode: "local",
@@ -1274,20 +1278,24 @@ export function useRemoteAppState(): RemoteAppModel {
     [onCreateThreadWithOptions, threads],
   );
 
-  const onConnectPress = useCallback(() => {
-    void bootstrapRemoteConnection(connectionInput)
-      .then(async (connection) => {
+  const onConnectPress = useCallback(
+    async (pairingUrl?: string) => {
+      try {
+        const nextConnectionInput = pairingUrl !== undefined ? { pairingUrl } : connectionInput;
+        const connection = await bootstrapRemoteConnection(nextConnectionInput);
         setPendingConnectionError(null);
         await connectSavedEnvironment(connection);
         setConnectionInput({ pairingUrl: "" });
         setConnectionEditorVisible(false);
-      })
-      .catch((error) => {
+      } catch (error) {
         setPendingConnectionError(
           error instanceof Error ? error.message : "Failed to pair with the environment.",
         );
-      });
-  }, [connectSavedEnvironment, connectionInput]);
+        throw error;
+      }
+    },
+    [connectSavedEnvironment, connectionInput],
+  );
 
   const onRemoveEnvironmentPress = useCallback(
     (environmentId: string) => {

@@ -35,6 +35,7 @@ import type { StatusTone } from "../../components/StatusPill";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import type { MobileLayoutVariant } from "../../lib/mobileLayout";
 import type { ScopedMobileThread } from "../../lib/scopedEntities";
+import { makeAppPalette } from "../../lib/theme";
 import type {
   PendingApproval,
   PendingUserInput,
@@ -182,17 +183,12 @@ function useStreamingHaptics(threadId: string, feed: ReadonlyArray<ThreadFeedEnt
 export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
   const { onBack, onOpenDrawer, onRefresh, onRefreshSelectedThreadGitStatus } = props;
   const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const agentLabel = `${props.selectedThread.modelSelection.provider} agent`;
   const headerOverlayHeight = insets.top + 118;
   const composerBottomInset = Math.max(insets.bottom, 12);
-  const screenBackgroundColor = isDarkMode ? "#0c1118" : "#f7f7f5";
-  const modalBackdropColor = isDarkMode ? "rgba(2,6,23,0.68)" : "rgba(15,23,42,0.22)";
-  const modalPanelColor = isDarkMode ? "#111827" : "#ffffff";
-  const modalBorderColor = isDarkMode ? "rgba(255,255,255,0.08)" : "#e2e8f0";
-  const modalMutedColor = isDarkMode ? "#94a3b8" : "#64748b";
-  const modalPrimaryColor = isDarkMode ? "#f8fafc" : "#020617";
   const [renameVisible, setRenameVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [renameDraft, setRenameDraft] = useState(props.selectedThread.title);
@@ -306,15 +302,15 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
       <Animated.View style={edgeSwipeStyle}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={{ flex: 1, backgroundColor: screenBackgroundColor }}
+          style={{ flex: 1, backgroundColor: palette.screenBackground }}
         >
           {showHeader ? (
             <View className="absolute inset-x-0 top-0 z-20">
               <View
                 style={{
-                  backgroundColor: isDarkMode ? "rgba(12,17,24,0.94)" : "rgba(247,247,245,0.94)",
+                  backgroundColor: palette.headerBackground,
                   borderBottomWidth: 1,
-                  borderBottomColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(23,23,23,0.06)",
+                  borderBottomColor: palette.headerBorder,
                 }}
               >
                 <GlassSafeAreaView
@@ -323,16 +319,14 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
                       <Pressable
                         className="h-11 w-11 items-center justify-center rounded-full"
                         style={{
-                          backgroundColor: isDarkMode
-                            ? "rgba(255,255,255,0.06)"
-                            : "rgba(23,23,23,0.05)",
+                          backgroundColor: palette.subtleBg,
                         }}
                         onPress={props.onBack}
                       >
                         <SymbolView
                           name="chevron.left"
                           size={18}
-                          tintColor={isDarkMode ? "#fafaf9" : "#171717"}
+                          tintColor={palette.icon}
                           type="monochrome"
                         />
                       </Pressable>
@@ -349,7 +343,7 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
                         <Animated.Text
                           numberOfLines={1}
                           style={{
-                            color: isDarkMode ? "#f8fafc" : "#020617",
+                            color: palette.text,
                             fontSize: 18,
                             fontWeight: "800",
                             lineHeight: 22,
@@ -360,7 +354,7 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
                       </Pressable>
                       <Text
                         className="text-[11px] font-bold uppercase"
-                        style={{ color: modalMutedColor, letterSpacing: 1.05 }}
+                        style={{ color: palette.textMuted, letterSpacing: 1.05 }}
                       >
                         {props.activeWorkDurationLabel ? props.activeWorkDurationLabel : ""}
                       </Text>
@@ -457,27 +451,27 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
           >
             <View
               className="flex-1 items-center justify-center px-5"
-              style={{ backgroundColor: modalBackdropColor }}
+              style={{ backgroundColor: palette.backdrop }}
             >
               <View
                 className="w-full gap-4 px-4 py-4"
                 style={{
                   maxWidth: 420,
                   borderWidth: 1,
-                  borderColor: modalBorderColor,
-                  backgroundColor: modalPanelColor,
+                  borderColor: palette.border,
+                  backgroundColor: palette.card,
                 }}
               >
                 <View className="gap-2">
                   <Text
                     className="text-[11px] font-bold uppercase"
-                    style={{ color: modalMutedColor, letterSpacing: 1.2 }}
+                    style={{ color: palette.textMuted, letterSpacing: 1.2 }}
                   >
                     Thread name
                   </Text>
                   <Text
                     className="text-[20px] font-extrabold leading-[24px]"
-                    style={{ color: modalPrimaryColor }}
+                    style={{ color: palette.text }}
                   >
                     Rename thread
                   </Text>
@@ -490,9 +484,9 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
                   className="min-h-[56px] px-4 py-3 text-[15px]"
                   style={{
                     borderWidth: 1,
-                    borderColor: modalBorderColor,
-                    backgroundColor: isDarkMode ? "#0f172a" : "#ffffff",
-                    color: modalPrimaryColor,
+                    borderColor: palette.border,
+                    backgroundColor: palette.inputBackground,
+                    color: palette.text,
                   }}
                   onSubmitEditing={() => {
                     void handleSubmitRename();
@@ -504,8 +498,8 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
                     className="min-h-[48px] flex-1 items-center justify-center px-4 py-3"
                     style={{
                       borderWidth: 1,
-                      borderColor: modalBorderColor,
-                      backgroundColor: isDarkMode ? "#1f2937" : "#f8fafc",
+                      borderColor: palette.border,
+                      backgroundColor: palette.secondaryButton,
                     }}
                     onPress={() => {
                       setRenameDraft(props.selectedThread.title);
@@ -514,21 +508,21 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
                   >
                     <Text
                       className="text-sm font-extrabold uppercase"
-                      style={{ color: modalPrimaryColor, letterSpacing: 1 }}
+                      style={{ color: palette.text, letterSpacing: 1 }}
                     >
                       Cancel
                     </Text>
                   </Pressable>
                   <Pressable
                     className="min-h-[48px] flex-1 items-center justify-center px-4 py-3"
-                    style={{ backgroundColor: modalPrimaryColor }}
+                    style={{ backgroundColor: palette.primaryButton }}
                     onPress={() => {
                       void handleSubmitRename();
                     }}
                   >
                     <Text
                       className="text-sm font-extrabold uppercase"
-                      style={{ color: isDarkMode ? "#020617" : "#f8fafc", letterSpacing: 1 }}
+                      style={{ color: palette.primaryButtonText, letterSpacing: 1 }}
                     >
                       Save
                     </Text>

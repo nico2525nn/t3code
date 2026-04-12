@@ -1,7 +1,7 @@
 import type { OrchestrationThread } from "@t3tools/contracts";
 import { SymbolView } from "expo-symbols";
 import { memo } from "react";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import { Image, Pressable, ScrollView, useColorScheme, View } from "react-native";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { cx } from "../../lib/classNames";
@@ -59,6 +59,8 @@ export interface ThreadComposerProps {
 }
 
 export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposerProps) {
+  const isDarkMode = useColorScheme() === "dark";
+  const actionIconTint = isDarkMode ? "#e2e8f0" : "#0f172a";
   const canSend =
     props.connectionState === "ready" &&
     (props.draftMessage.trim().length > 0 || props.draftAttachments.length > 0);
@@ -91,19 +93,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             <ComposerAction
               icon="photo.on.rectangle"
               backgroundClassName="bg-stone-200 dark:bg-slate-800"
-              iconTintColor="#0f172a"
+              iconTintColor={actionIconTint}
               onPress={() => void props.onPickDraftImages()}
             />
             <ComposerAction
               icon="doc.on.clipboard"
               backgroundClassName="bg-stone-200 dark:bg-slate-800"
-              iconTintColor="#0f172a"
+              iconTintColor={actionIconTint}
               onPress={() => void props.onPasteIntoDraft()}
             />
             <ComposerAction
               icon="arrow.clockwise"
               backgroundClassName="bg-stone-200 dark:bg-slate-800"
-              iconTintColor="#0f172a"
+              iconTintColor={actionIconTint}
               onPress={() => void props.onRefresh()}
             />
           </View>
@@ -112,7 +114,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               <ComposerAction
                 icon="stop.fill"
                 backgroundClassName="bg-rose-100 dark:bg-rose-500/18"
-                iconTintColor="#be123c"
+                iconTintColor={isDarkMode ? "#fda4af" : "#be123c"}
                 onPress={() => void props.onStopThread()}
               />
             ) : null}

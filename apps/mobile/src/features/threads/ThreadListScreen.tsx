@@ -17,6 +17,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { GlassSafeAreaView } from "../../components/GlassSafeAreaView";
 import { StatusPill } from "../../components/StatusPill";
 import type { MobileLayout } from "../../lib/mobileLayout";
+import { makeAppPalette } from "../../lib/theme";
 import {
   scopedThreadKey,
   type ScopedMobileProject,
@@ -69,27 +70,30 @@ function ActionButton(props: {
   readonly primary?: boolean;
   readonly onPress: () => void;
 }) {
+  const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
+
   return (
     <Pressable
       className="min-h-[50px] flex-1 flex-row items-center justify-center gap-2 rounded-[16px] px-3 py-3"
       style={{
-        backgroundColor: props.primary ? "#171717" : "#ffffff",
+        backgroundColor: props.primary ? palette.primaryButton : palette.secondaryButton,
         borderWidth: props.primary ? 0 : 1,
-        borderColor: props.primary ? "transparent" : "rgba(23,23,23,0.08)",
+        borderColor: props.primary ? "transparent" : palette.secondaryButtonBorder,
       }}
       onPress={props.onPress}
     >
       <SymbolView
         name={props.icon}
         size={18}
-        tintColor={props.primary ? "#fafaf9" : "#171717"}
+        tintColor={props.primary ? palette.primaryButtonText : palette.secondaryButtonText}
         type="monochrome"
         weight="medium"
       />
       <Text
         className="text-[13px] font-t3-bold uppercase"
         style={{
-          color: props.primary ? "#fafaf9" : "#171717",
+          color: props.primary ? palette.primaryButtonText : palette.secondaryButtonText,
           letterSpacing: 0.9,
         }}
       >
@@ -104,25 +108,28 @@ function StatCard(props: {
   readonly value: string;
   readonly icon: React.ComponentProps<typeof SymbolView>["name"];
 }) {
+  const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
+
   return (
     <View
       className="flex-1 gap-2 rounded-[18px] px-4 py-4"
       style={{
-        backgroundColor: "#ffffff",
+        backgroundColor: palette.card,
         borderWidth: 1,
-        borderColor: "rgba(23,23,23,0.08)",
+        borderColor: palette.border,
       }}
     >
       <View className="flex-row items-center gap-2">
-        <SymbolView name={props.icon} size={15} tintColor="#57534e" type="monochrome" />
+        <SymbolView name={props.icon} size={15} tintColor={palette.textSecondary} type="monochrome" />
         <Text
           className="text-[11px] font-t3-bold uppercase"
-          style={{ color: "#57534e", letterSpacing: 1 }}
+          style={{ color: palette.textSecondary, letterSpacing: 1 }}
         >
           {props.label}
         </Text>
       </View>
-      <Text className="text-[28px] font-t3-bold" style={{ color: "#171717" }}>
+      <Text className="text-[28px] font-t3-bold" style={{ color: palette.text }}>
         {props.value}
       </Text>
     </View>
@@ -135,10 +142,20 @@ function ThreadRow(props: {
   readonly selected?: boolean;
   readonly onPress: (sourceFrame: TransitionSourceFrame | null) => void;
 }) {
+  const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
   const containerRef = useRef<RNView>(null);
   const tone = threadStatusTone(props.thread);
-  const backgroundColor = props.selected ? "rgba(249,115,22,0.09)" : "#ffffff";
-  const borderColor = props.selected ? "rgba(249,115,22,0.28)" : "rgba(23,23,23,0.08)";
+  const backgroundColor = props.selected
+    ? isDarkMode
+      ? "rgba(249,115,22,0.12)"
+      : "rgba(249,115,22,0.09)"
+    : palette.card;
+  const borderColor = props.selected
+    ? isDarkMode
+      ? "rgba(249,115,22,0.32)"
+      : "rgba(249,115,22,0.28)"
+    : palette.border;
 
   return (
     <Pressable
@@ -161,10 +178,10 @@ function ThreadRow(props: {
     >
       <View className="flex-row items-start justify-between gap-3">
         <View className="flex-1 gap-2">
-          <Text className="text-[17px] font-t3-bold" style={{ color: "#171717" }}>
+          <Text className="text-[17px] font-t3-bold" style={{ color: palette.text }}>
             {props.thread.title}
           </Text>
-          <Text className="text-[13px] font-medium leading-[19px]" style={{ color: "#57534e" }}>
+          <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
             {lastConversationLine(props.thread)}
           </Text>
         </View>
@@ -173,7 +190,7 @@ function ThreadRow(props: {
 
       <Text
         className="text-[11px] font-t3-bold uppercase"
-        style={{ color: "#78716c", letterSpacing: 0.9 }}
+        style={{ color: palette.textMuted, letterSpacing: 0.9 }}
       >
         {props.thread.environmentLabel} · {props.thread.modelSelection.provider} ·{" "}
         {relativeTime(props.thread.updatedAt ?? props.thread.createdAt)}
@@ -193,6 +210,8 @@ function ProjectSection(props: {
     sourceFrame: TransitionSourceFrame | null,
   ) => void;
 }) {
+  const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
   const [expanded, setExpanded] = useState(false);
   const visibleThreads = expanded ? props.threads : props.threads.slice(0, 2);
   const hiddenCount = Math.max(props.threads.length - visibleThreads.length, 0);
@@ -200,25 +219,25 @@ function ProjectSection(props: {
   return (
     <View
       className="gap-3 rounded-[22px] border px-4 py-4"
-      style={{ borderColor: "rgba(23,23,23,0.08)" }}
+      style={{ borderColor: palette.border }}
     >
       <View className="flex-row items-start justify-between gap-3">
         <View className="flex-1 gap-1">
-          <Text className="text-[15px] font-t3-bold" style={{ color: "#171717" }}>
+          <Text className="text-[15px] font-t3-bold" style={{ color: palette.text }}>
             {props.project.environmentLabel}
           </Text>
-          <Text className="text-[12px] font-medium leading-[18px]" style={{ color: "#57534e" }}>
+          <Text className="text-[12px] font-medium leading-[18px]" style={{ color: palette.textSecondary }}>
             {props.project.workspaceRoot}
           </Text>
         </View>
         <Pressable
           className="rounded-full px-3 py-2"
-          style={{ backgroundColor: "rgba(23,23,23,0.06)" }}
+          style={{ backgroundColor: palette.subtleBg }}
           onPress={() => void props.onCreateThread(props.project)}
         >
           <Text
             className="text-[11px] font-t3-bold uppercase"
-            style={{ color: "#171717", letterSpacing: 0.9 }}
+            style={{ color: palette.text, letterSpacing: 0.9 }}
           >
             New thread
           </Text>
@@ -247,12 +266,12 @@ function ProjectSection(props: {
           {hiddenCount > 0 ? (
             <Pressable
               className="items-center rounded-[16px] px-3 py-3"
-              style={{ backgroundColor: "rgba(23,23,23,0.04)" }}
+              style={{ backgroundColor: palette.separator }}
               onPress={() => setExpanded((current) => !current)}
             >
               <Text
                 className="text-[11px] font-t3-bold uppercase"
-                style={{ color: "#57534e", letterSpacing: 1 }}
+                style={{ color: palette.textSecondary, letterSpacing: 1 }}
               >
                 {expanded ? "Show less" : `Show ${hiddenCount} more`}
               </Text>
@@ -270,19 +289,25 @@ function CreateThreadModal(props: {
   readonly onClose: () => void;
   readonly onSelectProject: (project: ScopedMobileProject) => Promise<void>;
 }) {
+  const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
+
   if (!props.group) {
     return null;
   }
 
   return (
     <Modal transparent animationType="slide" visible={props.visible} onRequestClose={props.onClose}>
-      <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(10,10,10,0.24)" }}>
-        <View className="gap-4 rounded-t-[28px] bg-stone-50 px-5 pb-8 pt-5">
+      <View className="flex-1 justify-end" style={{ backgroundColor: palette.backdrop }}>
+        <View
+          className="gap-4 rounded-t-[28px] px-5 pb-8 pt-5"
+          style={{ backgroundColor: palette.screenBackground }}
+        >
           <View className="gap-1">
-            <Text className="text-[22px] font-t3-bold" style={{ color: "#171717" }}>
+            <Text className="text-[22px] font-t3-bold" style={{ color: palette.text }}>
               New thread in {props.group.title}
             </Text>
-            <Text className="text-[13px] font-medium leading-[19px]" style={{ color: "#57534e" }}>
+            <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
               Choose which environment should own the new thread.
             </Text>
           </View>
@@ -291,31 +316,31 @@ function CreateThreadModal(props: {
             {props.group.projects.map(({ project, threads }) => (
               <Pressable
                 key={project.environmentId + project.id}
-                className="gap-2 rounded-[20px] border bg-white px-4 py-4"
-                style={{ borderColor: "rgba(23,23,23,0.08)" }}
+                className="gap-2 rounded-[20px] border px-4 py-4"
+                style={{ backgroundColor: palette.card, borderColor: palette.border }}
                 onPress={() => {
                   void props.onSelectProject(project).then(props.onClose);
                 }}
               >
                 <View className="flex-row items-start justify-between gap-3">
                   <View className="flex-1 gap-1">
-                    <Text className="text-[16px] font-t3-bold" style={{ color: "#171717" }}>
+                    <Text className="text-[16px] font-t3-bold" style={{ color: palette.text }}>
                       {project.environmentLabel}
                     </Text>
                     <Text
                       className="text-[12px] font-medium leading-[18px]"
-                      style={{ color: "#57534e" }}
+                      style={{ color: palette.textSecondary }}
                     >
                       {project.workspaceRoot}
                     </Text>
                   </View>
                   <View
                     className="rounded-full px-3 py-2"
-                    style={{ backgroundColor: "rgba(23,23,23,0.06)" }}
+                    style={{ backgroundColor: palette.subtleBg }}
                   >
                     <Text
                       className="text-[11px] font-t3-bold uppercase"
-                      style={{ color: "#171717", letterSpacing: 0.9 }}
+                      style={{ color: palette.text, letterSpacing: 0.9 }}
                     >
                       {threads.length} thread{threads.length === 1 ? "" : "s"}
                     </Text>
@@ -334,6 +359,7 @@ function CreateThreadModal(props: {
 
 export function ThreadListScreen(props: ThreadListScreenProps) {
   const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
   const repositoryGroups = useMemo(
     () => groupProjectsByRepository({ projects: props.projects, threads: props.threads }),
     [props.projects, props.threads],
@@ -342,8 +368,7 @@ export function ThreadListScreen(props: ThreadListScreenProps) {
   const [refreshing, setRefreshing] = useState(false);
   const isSplitLayout = props.layout.usesSplitView;
   const contentHorizontalPadding = isSplitLayout ? 18 : 20;
-  const panelBorderColor = isSplitLayout ? "rgba(23,23,23,0.08)" : "transparent";
-  const panelBackgroundColor = isDarkMode ? "#0c1118" : "#f7f7f5";
+  const panelBorderColor = isSplitLayout ? palette.border : "transparent";
   const refreshThreads = props.onRefresh;
 
   const handleRefresh = useCallback(async (): Promise<void> => {
@@ -363,7 +388,7 @@ export function ThreadListScreen(props: ThreadListScreenProps) {
     <View
       className="flex-1"
       style={{
-        backgroundColor: panelBackgroundColor,
+        backgroundColor: palette.screenBackground,
         borderRadius: isSplitLayout ? 32 : 0,
         borderWidth: isSplitLayout ? 1 : 0,
         borderColor: panelBorderColor,
@@ -372,7 +397,7 @@ export function ThreadListScreen(props: ThreadListScreenProps) {
     >
       <View className="absolute inset-x-0 top-0 z-20">
         <GlassSafeAreaView
-          leftSlot={props.showBrandWordmark ? <BrandMark compact dark={isDarkMode} /> : null}
+          leftSlot={props.showBrandWordmark ? <BrandMark compact /> : null}
         />
       </View>
 
@@ -394,23 +419,23 @@ export function ThreadListScreen(props: ThreadListScreenProps) {
           layout={LinearTransition.springify().damping(18).stiffness(180)}
           className="gap-4 rounded-[26px] px-4 py-4"
           style={{
-            backgroundColor: "rgba(255,255,255,0.94)",
+            backgroundColor: palette.cardTranslucent,
             borderWidth: 1,
-            borderColor: "rgba(23,23,23,0.08)",
+            borderColor: palette.border,
           }}
         >
           <View className="flex-row items-start justify-between gap-4">
             <View className="flex-1 gap-2">
               <Text
                 className="text-[11px] font-t3-bold uppercase"
-                style={{ color: "#78716c", letterSpacing: 1.1 }}
+                style={{ color: palette.textMuted, letterSpacing: 1.1 }}
               >
                 {props.heroTitle}
               </Text>
-              <Text className="text-[26px] font-t3-bold" style={{ color: "#171717" }}>
+              <Text className="text-[26px] font-t3-bold" style={{ color: palette.text }}>
                 {isSplitLayout ? "Native workspace" : "Repo board"}
               </Text>
-              <Text className="text-[13px] font-medium leading-[19px]" style={{ color: "#57534e" }}>
+              <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
                 {isSplitLayout
                   ? "Keep your repositories visible while you move between active threads."
                   : "Your connected repositories, grouped by identity across environments."}
@@ -462,27 +487,27 @@ export function ThreadListScreen(props: ThreadListScreenProps) {
             layout={LinearTransition.springify().damping(18).stiffness(180)}
             className="gap-4 rounded-[26px] px-4 py-4"
             style={{
-              backgroundColor: "rgba(255,255,255,0.94)",
+              backgroundColor: palette.cardTranslucent,
               borderWidth: 1,
-              borderColor: "rgba(23,23,23,0.08)",
+              borderColor: palette.border,
             }}
           >
             <View className="flex-row items-start justify-between gap-4">
               <View className="flex-1 gap-1">
-                <Text className="text-[22px] font-t3-bold" style={{ color: "#171717" }}>
+                <Text className="text-[22px] font-t3-bold" style={{ color: palette.text }}>
                   {group.title}
                 </Text>
                 {group.subtitle ? (
                   <Text
                     className="text-[13px] font-medium leading-[19px]"
-                    style={{ color: "#57534e" }}
+                    style={{ color: palette.textSecondary }}
                   >
                     {group.subtitle}
                   </Text>
                 ) : null}
                 <Text
                   className="text-[11px] font-t3-bold uppercase"
-                  style={{ color: "#78716c", letterSpacing: 0.9 }}
+                  style={{ color: palette.textMuted, letterSpacing: 0.9 }}
                 >
                   {group.projectCount} environment{group.projectCount === 1 ? "" : "s"} ·{" "}
                   {group.threadCount} active thread{group.threadCount === 1 ? "" : "s"}
@@ -491,7 +516,7 @@ export function ThreadListScreen(props: ThreadListScreenProps) {
 
               <Pressable
                 className="rounded-full px-3 py-2"
-                style={{ backgroundColor: "#171717" }}
+                style={{ backgroundColor: palette.primaryButton }}
                 onPress={() => {
                   if (group.projects.length === 1) {
                     void props.onCreateThread(group.projects[0]!.project);
@@ -502,7 +527,7 @@ export function ThreadListScreen(props: ThreadListScreenProps) {
               >
                 <Text
                   className="text-[11px] font-t3-bold uppercase"
-                  style={{ color: "#fafaf9", letterSpacing: 0.9 }}
+                  style={{ color: palette.primaryButtonText, letterSpacing: 0.9 }}
                 >
                   New thread
                 </Text>

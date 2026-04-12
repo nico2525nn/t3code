@@ -194,3 +194,57 @@ export async function pasteComposerClipboard(input: { readonly existingCount: nu
     error: "Clipboard does not contain pasteable text or image content.",
   };
 }
+
+function mimeTypeFromUri(uri: string): string {
+  const ext = uri.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "png":
+      return "image/png";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "heic":
+      return "image/heic";
+    default:
+      return "image/png";
+  }
+}
+
+export async function convertPastedImagesToAttachments(input: {
+  readonly uris: ReadonlyArray<string>;
+  readonly existingCount: number;
+}): Promise<ReadonlyArray<DraftComposerImageAttachment>> {
+  const { File } = await import("expo-file-system");
+  const remainingSlots = PROVIDER_SEND_TURN_MAX_ATTACHMENTS - input.existingCount;
+  const uris = input.uris.slice(0, Math.max(0, remainingSlots));
+  const results: DraftComposerImageAttachment[] = [];
+
+  for (const uri of uris) {
+    try {
+      const file = new File(uri);
+      const base64 = await file.base64();
+      const sizeBytes = estimateBase64ByteSize(base64);
+      if (sizeBytes <= 0 || sizeBytes > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+        continue;
+      }
+      const mimeType = mimeTypeFromUri(uri);
+      results.push({
+        id: newClientId("attachment"),
+        type: "image",
+        name: `pasted-image.${mimeType.split("/")[1] ?? "png"}`,
+        mimeType,
+        sizeBytes,
+        dataUrl: `data:${mimeType};base64,${base64}`,
+        previewUri: uri,
+      });
+    } catch (error) {
+      console.warn("Failed to read pasted image", uri, error);
+    }
+  }
+
+  return results;
+}

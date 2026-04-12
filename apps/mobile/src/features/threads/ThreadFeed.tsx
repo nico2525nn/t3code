@@ -11,6 +11,7 @@ import {
   ScrollView,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  useColorScheme,
   View,
 } from "react-native";
 
@@ -18,6 +19,7 @@ import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
 import { cx } from "../../lib/classNames";
 import type { MobileLayoutVariant } from "../../lib/mobileLayout";
+import { makeAppPalette } from "../../lib/theme";
 import type { ThreadFeedEntry } from "../../lib/threadActivity";
 import { relativeTime } from "../../lib/time";
 import { messageImageUrl } from "./threadPresentation";
@@ -99,72 +101,88 @@ function buildActivityRows(
 
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
-const MARKDOWN_BASE = {
-  body: {
-    color: "#020617",
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  paragraph: { marginTop: 0, marginBottom: 0 },
-  bullet_list: { marginTop: 0, marginBottom: 0 },
-  ordered_list: { marginTop: 0, marginBottom: 0 },
-  list_item: { marginTop: 0, marginBottom: 2 },
-  strong: { fontWeight: "800" as const, color: "#020617" },
-  em: { fontStyle: "italic" as const },
-  link: { color: "#0369a1" },
-  blockquote: {
-    borderLeftWidth: 3,
-    borderLeftColor: "rgba(100,116,139,0.35)",
-    paddingLeft: 12,
-    marginLeft: 0,
-  },
-};
+function makeMarkdownStyles(isDarkMode: boolean) {
+  const bodyColor = isDarkMode ? "#e2e8f0" : "#020617";
+  const strongColor = isDarkMode ? "#f8fafc" : "#020617";
+  const linkColor = isDarkMode ? "#7dd3fc" : "#0369a1";
+  const blockquoteBorder = isDarkMode
+    ? "rgba(148,163,184,0.35)"
+    : "rgba(100,116,139,0.35)";
+  const codeBg = isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.08)";
+  const codeText = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const userCodeBg = isDarkMode ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.55)";
+  const userCodeText = isDarkMode ? "#e2e8f0" : "#0f172a";
+  const userFenceBg = isDarkMode ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.6)";
 
-const USER_MARKDOWN_STYLES = {
-  ...MARKDOWN_BASE,
-  code_inline: {
-    backgroundColor: "rgba(255,255,255,0.55)",
-    color: "#0f172a",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  code_block: {
-    backgroundColor: "rgba(255,255,255,0.6)",
-    color: "#0f172a",
-    borderRadius: 14,
-    padding: 12,
-  },
-  fence: {
-    backgroundColor: "rgba(255,255,255,0.6)",
-    color: "#0f172a",
-    borderRadius: 14,
-    padding: 12,
-  },
-};
+  const base = {
+    body: {
+      color: bodyColor,
+      fontSize: 15,
+      lineHeight: 22,
+    },
+    paragraph: { marginTop: 0, marginBottom: 0 },
+    bullet_list: { marginTop: 0, marginBottom: 0 },
+    ordered_list: { marginTop: 0, marginBottom: 0 },
+    list_item: { marginTop: 0, marginBottom: 2 },
+    strong: { fontWeight: "800" as const, color: strongColor },
+    em: { fontStyle: "italic" as const },
+    link: { color: linkColor },
+    blockquote: {
+      borderLeftWidth: 3,
+      borderLeftColor: blockquoteBorder,
+      paddingLeft: 12,
+      marginLeft: 0,
+    },
+  };
 
-const ASSISTANT_MARKDOWN_STYLES = {
-  ...MARKDOWN_BASE,
-  code_inline: {
-    backgroundColor: "rgba(15,23,42,0.08)",
-    color: "#0f172a",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  code_block: {
-    backgroundColor: "rgba(15,23,42,0.08)",
-    color: "#0f172a",
-    borderRadius: 14,
-    padding: 12,
-  },
-  fence: {
-    backgroundColor: "rgba(15,23,42,0.08)",
-    color: "#0f172a",
-    borderRadius: 14,
-    padding: 12,
-  },
-};
+  const user = {
+    ...base,
+    code_inline: {
+      backgroundColor: userCodeBg,
+      color: userCodeText,
+      borderRadius: 6,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    code_block: {
+      backgroundColor: userFenceBg,
+      color: userCodeText,
+      borderRadius: 14,
+      padding: 12,
+    },
+    fence: {
+      backgroundColor: userFenceBg,
+      color: userCodeText,
+      borderRadius: 14,
+      padding: 12,
+    },
+  };
+
+  const assistant = {
+    ...base,
+    code_inline: {
+      backgroundColor: codeBg,
+      color: codeText,
+      borderRadius: 6,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    code_block: {
+      backgroundColor: codeBg,
+      color: codeText,
+      borderRadius: 14,
+      padding: 12,
+    },
+    fence: {
+      backgroundColor: codeBg,
+      color: codeText,
+      borderRadius: 14,
+      padding: 12,
+    },
+  };
+
+  return { user, assistant };
+}
 
 function renderFeedEntry(
   info: ListRenderItemInfo<ThreadFeedEntry>,
@@ -173,14 +191,17 @@ function renderFeedEntry(
     readonly expandedWorkGroups: Record<string, boolean>;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string) => void;
+    readonly isDarkMode: boolean;
   },
 ) {
   const entry = info.item;
+  const markdownStyles = makeMarkdownStyles(props.isDarkMode);
+  const palette = makeAppPalette(props.isDarkMode);
 
   if (entry.type === "message") {
     const { message } = entry;
     const isUser = message.role === "user";
-    const markdownStyles = isUser ? USER_MARKDOWN_STYLES : ASSISTANT_MARKDOWN_STYLES;
+    const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
     const timestampLabel = `${relativeTime(message.createdAt)}${message.streaming ? " • live" : ""}`;
     const attachments = message.attachments ?? [];
 
@@ -189,7 +210,7 @@ function renderFeedEntry(
         <View className="mb-3.5 items-end gap-1.5">
           <View className="max-w-[85%] gap-2 rounded-[22px] rounded-br-[10px] border border-orange-300/60 bg-orange-100/70 px-4 py-4 dark:border-orange-300/22 dark:bg-orange-300/14">
             {message.text.trim().length > 0 ? (
-              <Markdown style={markdownStyles}>{message.text}</Markdown>
+              <Markdown style={styles}>{message.text}</Markdown>
             ) : null}
             {attachments.map((attachment) => {
               const uri = messageImageUrl(props.httpBaseUrl, attachment.id);
@@ -226,7 +247,7 @@ function renderFeedEntry(
     return (
       <View className="mb-3.5 gap-1.5 px-1">
         {message.text.trim().length > 0 ? (
-          <Markdown style={markdownStyles}>{message.text}</Markdown>
+          <Markdown style={styles}>{message.text}</Markdown>
         ) : null}
         {attachments.map((attachment) => {
           const uri = messageImageUrl(props.httpBaseUrl, attachment.id);
@@ -310,7 +331,7 @@ function renderFeedEntry(
           )}
         >
           <View className="items-center justify-center pt-0.5">
-            <SymbolView name="terminal" size={13} tintColor="#64748b" type="monochrome" />
+            <SymbolView name="terminal" size={13} tintColor={palette.iconSubtle} type="monochrome" />
           </View>
           <ScrollView
             horizontal
@@ -389,6 +410,7 @@ function useAutoScrollToLatest(
 }
 
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
+  const isDarkMode = useColorScheme() === "dark";
   const listRef = useRef<FlashListRef<ThreadFeedEntry>>(null);
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
@@ -437,10 +459,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         expandedWorkGroups,
         onCopyWorkRow,
         onToggleWorkGroup,
+        isDarkMode,
       }),
     [
       copiedRowId,
       expandedWorkGroups,
+      isDarkMode,
       onCopyWorkRow,
       onToggleWorkGroup,
       props.bearerToken,

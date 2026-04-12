@@ -18,11 +18,12 @@ import { resolveAutoFeatureBranchName, sanitizeFeatureBranchName } from "@t3tool
 import { SymbolView } from "expo-symbols";
 import type { ComponentProps, RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Linking, Pressable, View } from "react-native";
+import { Alert, Linking, Pressable, useColorScheme, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { StatusPill } from "../../components/StatusPill";
+import { makeAppPalette } from "../../lib/theme";
 
 type PendingDefaultBranchAction = {
   readonly action: Extract<
@@ -172,24 +173,26 @@ function SheetActionButton(props: {
   readonly tone?: "primary" | "secondary" | "danger";
   readonly onPress: () => void;
 }) {
+  const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
   const tone = props.tone ?? "secondary";
   const colors =
     tone === "primary"
       ? {
-          backgroundColor: "#171717",
+          backgroundColor: palette.primaryButton,
           borderColor: "transparent",
-          textColor: "#fafaf9",
+          textColor: palette.primaryButtonText,
         }
       : tone === "danger"
         ? {
-            backgroundColor: "#fff1f2",
-            borderColor: "rgba(225,29,72,0.12)",
-            textColor: "#be123c",
+            backgroundColor: palette.dangerButton,
+            borderColor: palette.dangerBorder,
+            textColor: palette.dangerText,
           }
         : {
-            backgroundColor: "#ffffff",
-            borderColor: "rgba(23,23,23,0.08)",
-            textColor: "#171717",
+            backgroundColor: palette.secondaryButton,
+            borderColor: palette.secondaryButtonBorder,
+            textColor: palette.secondaryButtonText,
           };
 
   return (
@@ -216,14 +219,16 @@ function SheetActionButton(props: {
 }
 
 function MetaCard(props: { readonly label: string; readonly value: string }) {
+  const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
   return (
     <View
       className="rounded-[18px] border px-4 py-3"
-      style={{ backgroundColor: "#ffffff", borderColor: "rgba(23,23,23,0.08)" }}
+      style={{ backgroundColor: palette.card, borderColor: palette.border }}
     >
       <Text
         className="text-[11px] font-t3-bold uppercase"
-        style={{ color: "#78716c", letterSpacing: 0.9 }}
+        style={{ color: palette.textMuted, letterSpacing: 0.9 }}
       >
         {props.label}
       </Text>
@@ -231,7 +236,7 @@ function MetaCard(props: { readonly label: string; readonly value: string }) {
         selectable
         className="text-[13px] font-medium"
         numberOfLines={1}
-        style={{ color: "#292524" }}
+        style={{ color: palette.text }}
       >
         {props.value}
       </Text>
@@ -246,6 +251,8 @@ function SheetListRow(props: {
   readonly disabled?: boolean;
   readonly onPress: () => void;
 }) {
+  const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
   return (
     <Pressable
       className="flex-row items-center gap-3 px-1 py-3"
@@ -255,21 +262,21 @@ function SheetListRow(props: {
     >
       <View
         className="h-9 w-9 items-center justify-center rounded-full"
-        style={{ backgroundColor: "rgba(23,23,23,0.05)" }}
+        style={{ backgroundColor: palette.subtleBg }}
       >
-        <SymbolView name={props.icon} size={16} tintColor="#171717" type="monochrome" />
+        <SymbolView name={props.icon} size={16} tintColor={palette.icon} type="monochrome" />
       </View>
       <View className="flex-1 gap-0.5">
-        <Text className="text-[16px] font-t3-bold" style={{ color: "#171717" }}>
+        <Text className="text-[16px] font-t3-bold" style={{ color: palette.text }}>
           {props.title}
         </Text>
         {props.subtitle ? (
-          <Text className="text-[12px] leading-[17px]" style={{ color: "#78716c" }}>
+          <Text className="text-[12px] leading-[17px]" style={{ color: palette.textMuted }}>
             {props.subtitle}
           </Text>
         ) : null}
       </View>
-      <SymbolView name="chevron.right" size={13} tintColor="#a8a29e" type="monochrome" />
+      <SymbolView name="chevron.right" size={13} tintColor={palette.iconSubtle} type="monochrome" />
     </Pressable>
   );
 }
@@ -290,6 +297,8 @@ export function ThreadGitControls(props: {
   readonly onPull: () => Promise<void>;
   readonly onRunAction: (input: GitActionRequestInput) => Promise<GitRunStackedActionResult | null>;
 }) {
+  const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
   const insets = useSafeAreaInsets();
   const {
     currentWorktreePath,
@@ -659,26 +668,26 @@ export function ThreadGitControls(props: {
       <MenuView actions={nativeMenuActions} onPressAction={onPressNativeMenuAction}>
         <Pressable
           className="flex-row items-center gap-2 rounded-full px-3 py-2"
-          style={{ backgroundColor: "rgba(23,23,23,0.05)" }}
+          style={{ backgroundColor: palette.subtleBg }}
         >
           <SymbolView
             name="point.topleft.down.curvedto.point.bottomright.up"
             size={14}
-            tintColor="#171717"
+            tintColor={palette.icon}
             type="monochrome"
           />
           <View className="shrink">
             <Text
               className="text-[11px] font-t3-bold uppercase"
               numberOfLines={1}
-              style={{ color: "#78716c", letterSpacing: 0.8 }}
+              style={{ color: palette.textMuted, letterSpacing: 0.8 }}
             >
               Git
             </Text>
             <Text
               className="text-[12px] font-t3-bold"
               numberOfLines={1}
-              style={{ color: "#171717" }}
+              style={{ color: palette.text }}
             >
               {triggerStatus}
             </Text>
@@ -686,7 +695,7 @@ export function ThreadGitControls(props: {
           <SymbolView
             name="chevron.down"
             size={11}
-            tintColor="#78716c"
+            tintColor={palette.textMuted}
             type="monochrome"
             weight="medium"
           />
@@ -701,8 +710,8 @@ export function ThreadGitControls(props: {
         enablePanDownToClose
         backdropComponent={renderBackdrop}
         onDismiss={() => setGitSheetVisible(false)}
-        backgroundStyle={{ backgroundColor: "rgba(247,247,245,0.98)" }}
-        handleIndicatorStyle={{ backgroundColor: "rgba(120,113,108,0.32)" }}
+        backgroundStyle={{ backgroundColor: palette.sheetBackground }}
+        handleIndicatorStyle={{ backgroundColor: palette.dotSeparator }}
       >
         <BottomSheetView style={{ flex: 1 }}>
           <BottomSheetScrollView
@@ -718,16 +727,16 @@ export function ThreadGitControls(props: {
               <View className="flex-1 gap-1">
                 <Text
                   className="text-[11px] font-t3-bold uppercase"
-                  style={{ color: "#78716c", letterSpacing: 1 }}
+                  style={{ color: palette.textMuted, letterSpacing: 1 }}
                 >
                   Branch
                 </Text>
-                <Text className="text-[24px] font-t3-bold" style={{ color: "#171717" }}>
+                <Text className="text-[24px] font-t3-bold" style={{ color: palette.text }}>
                   {currentBranchLabel}
                 </Text>
                 <Text
                   className="text-[13px] font-medium leading-[19px]"
-                  style={{ color: "#57534e" }}
+                  style={{ color: palette.textSecondary }}
                 >
                   {statusSummary(gitStatus)}
                 </Text>
@@ -735,13 +744,13 @@ export function ThreadGitControls(props: {
               <Pressable
                 className="rounded-full p-2"
                 disabled={busy}
-                style={{ backgroundColor: "rgba(23,23,23,0.05)", opacity: busy ? 0.45 : 1 }}
+                style={{ backgroundColor: palette.subtleBg, opacity: busy ? 0.45 : 1 }}
                 onPress={() => void onRefreshStatus()}
               >
                 <SymbolView
                   name="arrow.clockwise"
                   size={16}
-                  tintColor="#171717"
+                  tintColor={palette.icon}
                   type="monochrome"
                   weight="medium"
                 />
@@ -751,14 +760,14 @@ export function ThreadGitControls(props: {
             <View className="gap-3">
               <View
                 className="overflow-hidden rounded-[22px] border px-4 py-1"
-                style={{ backgroundColor: "#ffffff", borderColor: "rgba(23,23,23,0.08)" }}
+                style={{ backgroundColor: palette.card, borderColor: palette.border }}
               >
                 {sheetMenuItems.map(({ item, disabledReason }, index) => (
                   <View key={`${item.id}-${item.label}`}>
                     {index > 0 ? (
                       <View
                         className="ml-12 h-px"
-                        style={{ backgroundColor: "rgba(23,23,23,0.08)" }}
+                        style={{ backgroundColor: palette.border }}
                       />
                     ) : null}
                     <SheetListRow
@@ -776,7 +785,7 @@ export function ThreadGitControls(props: {
                   <>
                     <View
                       className="ml-12 h-px"
-                      style={{ backgroundColor: "rgba(23,23,23,0.08)" }}
+                      style={{ backgroundColor: palette.border }}
                     />
                     <SheetListRow
                       icon="arrow.down.circle"
@@ -789,7 +798,7 @@ export function ThreadGitControls(props: {
                     />
                   </>
                 ) : null}
-                <View className="ml-12 h-px" style={{ backgroundColor: "rgba(23,23,23,0.08)" }} />
+                <View className="ml-12 h-px" style={{ backgroundColor: palette.border }} />
                 <SheetListRow
                   icon="point.topleft.down.curvedto.point.bottomright.up"
                   title="Branches & worktrees"
@@ -825,8 +834,8 @@ export function ThreadGitControls(props: {
         enablePanDownToClose
         backdropComponent={renderBackdrop}
         onDismiss={() => setCommitSheetVisible(false)}
-        backgroundStyle={{ backgroundColor: "rgba(247,247,245,0.98)" }}
-        handleIndicatorStyle={{ backgroundColor: "rgba(120,113,108,0.32)" }}
+        backgroundStyle={{ backgroundColor: palette.sheetBackground }}
+        handleIndicatorStyle={{ backgroundColor: palette.dotSeparator }}
       >
         <BottomSheetView style={{ flex: 1 }}>
           <BottomSheetScrollView
@@ -840,10 +849,10 @@ export function ThreadGitControls(props: {
             }}
           >
             <View className="gap-1">
-              <Text className="text-[24px] font-t3-bold" style={{ color: "#171717" }}>
+              <Text className="text-[24px] font-t3-bold" style={{ color: palette.text }}>
                 Commit changes
               </Text>
-              <Text className="text-[13px] font-medium leading-[19px]" style={{ color: "#57534e" }}>
+              <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
                 Review the file set, optionally write a message, then commit here or on a new
                 feature branch.
               </Text>
@@ -851,18 +860,18 @@ export function ThreadGitControls(props: {
 
             <View
               className="gap-3 rounded-[22px] border px-4 py-4"
-              style={{ backgroundColor: "#ffffff", borderColor: "rgba(23,23,23,0.08)" }}
+              style={{ backgroundColor: palette.card, borderColor: palette.border }}
             >
               <View className="flex-row items-center justify-between gap-3">
-                <Text className="text-[13px] font-medium" style={{ color: "#78716c" }}>
+                <Text className="text-[13px] font-medium" style={{ color: palette.textMuted }}>
                   Branch
                 </Text>
-                <Text className="text-[15px] font-t3-bold" style={{ color: "#171717" }}>
+                <Text className="text-[15px] font-t3-bold" style={{ color: palette.text }}>
                   {gitStatus?.branch ?? "(detached HEAD)"}
                 </Text>
               </View>
               {isDefaultBranch ? (
-                <Text className="text-[12px] leading-[18px]" style={{ color: "#b45309" }}>
+                <Text className="text-[12px] leading-[18px]" style={{ color: isDarkMode ? "#fbbf24" : "#b45309" }}>
                   Warning: this is the default branch.
                 </Text>
               ) : null}
@@ -870,14 +879,14 @@ export function ThreadGitControls(props: {
 
             <View
               className="gap-3 rounded-[22px] border px-4 py-4"
-              style={{ backgroundColor: "#ffffff", borderColor: "rgba(23,23,23,0.08)" }}
+              style={{ backgroundColor: palette.card, borderColor: palette.border }}
             >
               <View className="flex-row items-center justify-between gap-3">
                 <View className="gap-1">
-                  <Text className="text-[16px] font-t3-bold" style={{ color: "#171717" }}>
+                  <Text className="text-[16px] font-t3-bold" style={{ color: palette.text }}>
                     Files
                   </Text>
-                  <Text className="text-[12px] leading-[18px]" style={{ color: "#78716c" }}>
+                  <Text className="text-[12px] leading-[18px]" style={{ color: palette.textMuted }}>
                     {selectedFiles.length} selected · +{selectedInsertions} / -{selectedDeletions}
                   </Text>
                 </View>
@@ -885,12 +894,12 @@ export function ThreadGitControls(props: {
                   {!allSelected && isEditingFiles ? (
                     <Pressable
                       className="rounded-full px-3 py-2"
-                      style={{ backgroundColor: "rgba(23,23,23,0.05)" }}
+                      style={{ backgroundColor: palette.subtleBg }}
                       onPress={() => setExcludedFiles(new Set())}
                     >
                       <Text
                         className="text-[11px] font-t3-bold uppercase"
-                        style={{ color: "#171717" }}
+                        style={{ color: palette.text }}
                       >
                         Reset
                       </Text>
@@ -898,12 +907,12 @@ export function ThreadGitControls(props: {
                   ) : null}
                   <Pressable
                     className="rounded-full px-3 py-2"
-                    style={{ backgroundColor: "rgba(23,23,23,0.05)" }}
+                    style={{ backgroundColor: palette.subtleBg }}
                     onPress={() => setIsEditingFiles((current) => !current)}
                   >
                     <Text
                       className="text-[11px] font-t3-bold uppercase"
-                      style={{ color: "#171717" }}
+                      style={{ color: palette.text }}
                     >
                       {isEditingFiles ? "Done" : "Edit"}
                     </Text>
@@ -912,7 +921,7 @@ export function ThreadGitControls(props: {
               </View>
 
               {allFiles.length === 0 ? (
-                <Text className="text-[13px] leading-[19px]" style={{ color: "#57534e" }}>
+                <Text className="text-[13px] leading-[19px]" style={{ color: palette.textSecondary }}>
                   No changed files are available to commit.
                 </Text>
               ) : !isEditingFiles ? (
@@ -922,7 +931,7 @@ export function ThreadGitControls(props: {
                       <Text
                         className="flex-1 text-[13px] font-medium"
                         numberOfLines={1}
-                        style={{ color: "#292524" }}
+                        style={{ color: palette.text }}
                       >
                         {file.path}
                       </Text>
@@ -935,7 +944,7 @@ export function ThreadGitControls(props: {
                     </View>
                   ))}
                   {selectedFiles.length > selectedFilePreview.length ? (
-                    <Text className="text-[12px] leading-[17px]" style={{ color: "#78716c" }}>
+                    <Text className="text-[12px] leading-[17px]" style={{ color: palette.textMuted }}>
                       +{selectedFiles.length - selectedFilePreview.length} more files
                     </Text>
                   ) : null}
@@ -949,8 +958,8 @@ export function ThreadGitControls(props: {
                         key={file.path}
                         className="rounded-[18px] border px-4 py-3"
                         style={{
-                          backgroundColor: included ? "#fcfbf8" : "rgba(120,113,108,0.08)",
-                          borderColor: included ? "rgba(23,23,23,0.08)" : "rgba(120,113,108,0.15)",
+                          backgroundColor: included ? palette.card : palette.subtleBg,
+                          borderColor: included ? palette.border : palette.borderSubtle,
                         }}
                         onPress={() => {
                           setExcludedFiles((current) => {
@@ -969,14 +978,14 @@ export function ThreadGitControls(props: {
                             <Text
                               selectable
                               className="text-[13px] font-t3-bold"
-                              style={{ color: included ? "#171717" : "#78716c" }}
+                              style={{ color: included ? palette.text : palette.textMuted }}
                             >
                               {file.path}
                             </Text>
                             {!included ? (
                               <Text
                                 className="text-[11px] leading-[16px]"
-                                style={{ color: "#78716c" }}
+                                style={{ color: palette.textMuted }}
                               >
                                 Excluded from this commit
                               </Text>
@@ -999,7 +1008,7 @@ export function ThreadGitControls(props: {
             </View>
 
             <View className="gap-2">
-              <Text className="text-[13px] font-t3-bold" style={{ color: "#171717" }}>
+              <Text className="text-[13px] font-t3-bold" style={{ color: palette.text }}>
                 Commit message
               </Text>
               <TextInput
@@ -1008,13 +1017,13 @@ export function ThreadGitControls(props: {
                 onChangeText={setDialogCommitMessage}
                 placeholder="Leave empty to auto-generate"
                 textAlignVertical="top"
-                className="min-h-[128px] rounded-[20px] border border-slate-200 bg-white px-4 py-3.5 font-sans text-[15px] text-slate-950"
+                className="min-h-[128px] rounded-[20px] px-4 py-3.5 font-sans text-[15px]"
                 style={{
                   minHeight: 128,
                   borderWidth: 1,
-                  borderColor: "rgba(23,23,23,0.08)",
-                  backgroundColor: "#ffffff",
-                  color: "#171717",
+                  borderColor: palette.inputBorder,
+                  backgroundColor: palette.inputBackground,
+                  color: palette.text,
                 }}
               />
             </View>
@@ -1055,18 +1064,18 @@ export function ThreadGitControls(props: {
         enablePanDownToClose
         backdropComponent={renderBackdrop}
         onDismiss={() => setDefaultBranchSheetVisible(false)}
-        backgroundStyle={{ backgroundColor: "rgba(247,247,245,0.98)" }}
-        handleIndicatorStyle={{ backgroundColor: "rgba(120,113,108,0.32)" }}
+        backgroundStyle={{ backgroundColor: palette.sheetBackground }}
+        handleIndicatorStyle={{ backgroundColor: palette.dotSeparator }}
       >
         <BottomSheetView
           className="gap-4 px-5 pt-2"
           style={{ paddingBottom: Math.max(insets.bottom, 18) + 8 }}
         >
           <View className="gap-1">
-            <Text className="text-[22px] font-t3-bold" style={{ color: "#171717" }}>
+            <Text className="text-[22px] font-t3-bold" style={{ color: palette.text }}>
               {pendingDefaultBranchActionCopy?.title ?? "Run action on default branch?"}
             </Text>
-            <Text className="text-[13px] font-medium leading-[19px]" style={{ color: "#57534e" }}>
+            <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
               {pendingDefaultBranchActionCopy?.description ?? "Choose how to continue."}
             </Text>
           </View>
@@ -1100,8 +1109,8 @@ export function ThreadGitControls(props: {
         enablePanDownToClose
         backdropComponent={renderBackdrop}
         onDismiss={() => setBranchSheetVisible(false)}
-        backgroundStyle={{ backgroundColor: "rgba(247,247,245,0.98)" }}
-        handleIndicatorStyle={{ backgroundColor: "rgba(120,113,108,0.32)" }}
+        backgroundStyle={{ backgroundColor: palette.sheetBackground }}
+        handleIndicatorStyle={{ backgroundColor: palette.dotSeparator }}
       >
         <BottomSheetView style={{ flex: 1 }}>
           <BottomSheetScrollView
@@ -1114,18 +1123,21 @@ export function ThreadGitControls(props: {
             }}
           >
             <View className="gap-1">
-              <Text className="text-[22px] font-t3-bold" style={{ color: "#171717" }}>
+              <Text className="text-[22px] font-t3-bold" style={{ color: palette.text }}>
                 Branches & worktrees
               </Text>
-              <Text className="text-[13px] font-medium leading-[19px]" style={{ color: "#57534e" }}>
+              <Text className="text-[13px] font-medium leading-[19px]" style={{ color: palette.textSecondary }}>
                 Switch this thread, create a branch, or move work onto its own worktree.
               </Text>
             </View>
 
-            <View className="gap-2 rounded-[18px] border border-black/8 bg-white px-4 py-4">
+            <View
+              className="gap-2 rounded-[18px] border px-4 py-4"
+              style={{ backgroundColor: palette.card, borderColor: palette.border }}
+            >
               <Text
                 className="text-[11px] font-t3-bold uppercase"
-                style={{ color: "#57534e", letterSpacing: 1 }}
+                style={{ color: palette.textSecondary, letterSpacing: 1 }}
               >
                 New branch
               </Text>
@@ -1133,7 +1145,13 @@ export function ThreadGitControls(props: {
                 value={newBranchName}
                 onChangeText={setNewBranchName}
                 placeholder="feature/mobile-polish"
-                className="rounded-[18px] border border-slate-200 bg-white px-3.5 py-3 font-sans text-[15px] text-slate-950"
+                className="rounded-[18px] px-3.5 py-3 font-sans text-[15px]"
+                style={{
+                  borderWidth: 1,
+                  borderColor: palette.inputBorder,
+                  backgroundColor: palette.inputBackground,
+                  color: palette.text,
+                }}
               />
               <SheetActionButton
                 icon="plus"
@@ -1153,10 +1171,13 @@ export function ThreadGitControls(props: {
               />
             </View>
 
-            <View className="gap-2 rounded-[18px] border border-black/8 bg-white px-4 py-4">
+            <View
+              className="gap-2 rounded-[18px] border px-4 py-4"
+              style={{ backgroundColor: palette.card, borderColor: palette.border }}
+            >
               <Text
                 className="text-[11px] font-t3-bold uppercase"
-                style={{ color: "#57534e", letterSpacing: 1 }}
+                style={{ color: palette.textSecondary, letterSpacing: 1 }}
               >
                 New worktree
               </Text>
@@ -1164,13 +1185,25 @@ export function ThreadGitControls(props: {
                 value={worktreeBaseBranch}
                 onChangeText={setWorktreeBaseBranch}
                 placeholder="main"
-                className="rounded-[18px] border border-slate-200 bg-white px-3.5 py-3 font-sans text-[15px] text-slate-950"
+                className="rounded-[18px] px-3.5 py-3 font-sans text-[15px]"
+                style={{
+                  borderWidth: 1,
+                  borderColor: palette.inputBorder,
+                  backgroundColor: palette.inputBackground,
+                  color: palette.text,
+                }}
               />
               <TextInput
                 value={worktreeBranchName}
                 onChangeText={setWorktreeBranchName}
                 placeholder="feature/mobile-thread"
-                className="rounded-[18px] border border-slate-200 bg-white px-3.5 py-3 font-sans text-[15px] text-slate-950"
+                className="rounded-[18px] px-3.5 py-3 font-sans text-[15px]"
+                style={{
+                  borderWidth: 1,
+                  borderColor: palette.inputBorder,
+                  backgroundColor: palette.inputBackground,
+                  color: palette.text,
+                }}
               />
               <SheetActionButton
                 icon="square.split.2x1"
@@ -1201,17 +1234,17 @@ export function ThreadGitControls(props: {
             <View className="gap-2">
               <Text
                 className="text-[11px] font-t3-bold uppercase"
-                style={{ color: "#57534e", letterSpacing: 1 }}
+                style={{ color: palette.textSecondary, letterSpacing: 1 }}
               >
                 Existing branches
               </Text>
               {branchesLoading ? (
-                <Text className="text-[13px] font-medium" style={{ color: "#57534e" }}>
+                <Text className="text-[13px] font-medium" style={{ color: palette.textSecondary }}>
                   Loading branches…
                 </Text>
               ) : null}
               {!branchesLoading && availableBranches.length === 0 ? (
-                <Text className="text-[13px] font-medium" style={{ color: "#57534e" }}>
+                <Text className="text-[13px] font-medium" style={{ color: palette.textSecondary }}>
                   No local branches found.
                 </Text>
               ) : null}
@@ -1231,8 +1264,8 @@ export function ThreadGitControls(props: {
                     className="gap-1 rounded-[18px] border px-4 py-3"
                     disabled={busy || disabled}
                     style={{
-                      backgroundColor: "#ffffff",
-                      borderColor: branch.current ? "rgba(23,23,23,0.25)" : "rgba(23,23,23,0.08)",
+                      backgroundColor: palette.card,
+                      borderColor: branch.current ? palette.subtleBgStrong : palette.border,
                       opacity: busy || disabled ? 0.45 : 1,
                     }}
                     onPress={() => {
@@ -1241,10 +1274,10 @@ export function ThreadGitControls(props: {
                       });
                     }}
                   >
-                    <Text className="text-[15px] font-t3-bold" style={{ color: "#171717" }}>
+                    <Text className="text-[15px] font-t3-bold" style={{ color: palette.text }}>
                       {branch.name}
                     </Text>
-                    <Text className="text-[12px] font-medium" style={{ color: "#57534e" }}>
+                    <Text className="text-[12px] font-medium" style={{ color: palette.textSecondary }}>
                       {subtitle}
                     </Text>
                   </Pressable>

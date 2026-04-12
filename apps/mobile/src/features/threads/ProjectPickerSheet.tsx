@@ -5,11 +5,12 @@ import {
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, useColorScheme, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/AppText";
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
+import { makeAppPalette } from "../../lib/theme";
 import type { ScopedMobileProject, ScopedMobileThread } from "../../lib/scopedEntities";
 
 export function ProjectPickerSheet(props: {
@@ -19,6 +20,8 @@ export function ProjectPickerSheet(props: {
   readonly onClose: () => void;
   readonly onSelectProject: (project: ScopedMobileProject) => void;
 }) {
+  const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
   const insets = useSafeAreaInsets();
   const sheetRef = useRef<BottomSheetModal>(null);
   const repositoryGroups = useMemo(
@@ -78,18 +81,18 @@ export function ProjectPickerSheet(props: {
       enablePanDownToClose
       backdropComponent={renderBackdrop}
       onDismiss={props.onClose}
-      backgroundStyle={{ backgroundColor: "rgba(250,248,242,0.98)" }}
-      handleIndicatorStyle={{ backgroundColor: "rgba(120,113,108,0.35)" }}
+      backgroundStyle={{ backgroundColor: palette.sheetBackground }}
+      handleIndicatorStyle={{ backgroundColor: palette.dotSeparator }}
     >
       <BottomSheetView className="px-4 pt-1">
         <View className="mb-4 items-center gap-1">
           <Text
             className="text-[12px] font-t3-bold uppercase"
-            style={{ color: "#78716c", letterSpacing: 1 }}
+            style={{ color: palette.textMuted, letterSpacing: 1 }}
           >
             New task
           </Text>
-          <Text className="text-[28px] font-t3-bold" style={{ color: "#171717" }}>
+          <Text className="text-[28px] font-t3-bold" style={{ color: palette.text }}>
             Choose project
           </Text>
         </View>
@@ -100,7 +103,7 @@ export function ProjectPickerSheet(props: {
             paddingBottom: Math.max(insets.bottom, 18) + 18,
           }}
         >
-          <View className="overflow-hidden rounded-[24px]" style={{ backgroundColor: "#ffffff" }}>
+          <View className="overflow-hidden rounded-[24px]" style={{ backgroundColor: palette.card }}>
             {logicalProjects.map((entry, index) => (
               <Pressable
                 key={entry.key}
@@ -109,12 +112,12 @@ export function ProjectPickerSheet(props: {
                   paddingHorizontal: 16,
                   paddingVertical: 18,
                   borderTopWidth: index === 0 ? 0 : 1,
-                  borderTopColor: "rgba(23,23,23,0.06)",
+                  borderTopColor: palette.borderSubtle,
                 }}
               >
                 <View className="flex-row items-center justify-between gap-3">
                   <View className="flex-1">
-                    <Text className="text-[18px] font-t3-bold" style={{ color: "#171717" }}>
+                    <Text className="text-[18px] font-t3-bold" style={{ color: palette.text }}>
                       {entry.project.title}
                     </Text>
                   </View>

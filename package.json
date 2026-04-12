@@ -25,6 +25,7 @@
   },
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/patch-expo-dev-launcher.mjs",
     "dev": "node scripts/dev-runner.ts dev",
     "dev:server": "node scripts/dev-runner.ts dev:server",
     "dev:web": "node scripts/dev-runner.ts dev:web",

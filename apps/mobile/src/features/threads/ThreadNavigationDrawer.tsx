@@ -1,6 +1,6 @@
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { Modal, Pressable, ScrollView, useColorScheme, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
@@ -16,6 +16,7 @@ import { groupProjectsByRepository } from "../../lib/repositoryGroups";
 import type { ScopedMobileProject, ScopedMobileThread } from "../../lib/scopedEntities";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { relativeTime } from "../../lib/time";
+import { makeAppPalette } from "../../lib/theme";
 import { threadStatusTone } from "./threadPresentation";
 
 function compareThreadActivity(left: ScopedMobileThread, right: ScopedMobileThread): number {
@@ -34,6 +35,8 @@ export function ThreadNavigationDrawer(props: {
   readonly onSelectThread: (thread: ScopedMobileThread) => void;
   readonly onStartNewTask: () => void;
 }) {
+  const isDarkMode = useColorScheme() === "dark";
+  const palette = makeAppPalette(isDarkMode);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const drawerWidth = Math.min(width * 0.84, 360);
@@ -120,7 +123,7 @@ export function ThreadNavigationDrawer(props: {
               right: 0,
               top: 0,
               bottom: 0,
-              backgroundColor: "rgba(15,23,42,0.22)",
+              backgroundColor: palette.backdrop,
             },
             backdropStyle,
           ]}
@@ -139,16 +142,16 @@ export function ThreadNavigationDrawer(props: {
                 top: 0,
                 bottom: 0,
                 width: drawerWidth,
-                backgroundColor: "rgba(250,248,242,0.99)",
+                backgroundColor: palette.drawerBackground,
                 paddingTop: insets.top + 10,
                 paddingBottom: Math.max(insets.bottom, 18),
-                boxShadow: "20px 0 36px rgba(15,23,42,0.12)",
+                boxShadow: `20px 0 36px ${palette.drawerShadow}`,
               },
               drawerStyle,
             ]}
           >
             <View className="flex-row items-center justify-between px-4 pb-5">
-              <Text className="text-[26px] font-t3-bold" style={{ color: "#171717" }}>
+              <Text className="text-[26px] font-t3-bold" style={{ color: palette.text }}>
                 Threads
               </Text>
               <Pressable
@@ -157,12 +160,12 @@ export function ThreadNavigationDrawer(props: {
                   props.onStartNewTask();
                 }}
                 className="h-11 w-11 items-center justify-center rounded-full"
-                style={{ backgroundColor: "#171717" }}
+                style={{ backgroundColor: palette.primaryButton }}
               >
                 <SymbolView
                   name="square.and.pencil"
                   size={17}
-                  tintColor="#fafaf9"
+                  tintColor={palette.primaryButtonText}
                   type="monochrome"
                 />
               </Pressable>
@@ -180,18 +183,18 @@ export function ThreadNavigationDrawer(props: {
                 <View key={group.key} className="gap-3">
                   <Text
                     className="px-1 text-[15px] font-t3-bold"
-                    style={{ color: "#78716c", letterSpacing: -0.2 }}
+                    style={{ color: palette.textMuted, letterSpacing: -0.2 }}
                   >
                     {group.title}
                   </Text>
 
                   <View
                     className="overflow-hidden rounded-[22px]"
-                    style={{ backgroundColor: "#ffffff" }}
+                    style={{ backgroundColor: palette.card }}
                   >
                     {group.threads.length === 0 ? (
                       <View className="px-4 py-4">
-                        <Text className="text-[14px] font-medium" style={{ color: "#a8a29e" }}>
+                        <Text className="text-[14px] font-medium" style={{ color: palette.textTertiary }}>
                           No threads yet
                         </Text>
                       </View>
@@ -211,8 +214,8 @@ export function ThreadNavigationDrawer(props: {
                               paddingHorizontal: 16,
                               paddingVertical: 15,
                               borderTopWidth: index === 0 ? 0 : 1,
-                              borderTopColor: "rgba(23,23,23,0.06)",
-                              backgroundColor: selected ? "rgba(23,23,23,0.04)" : "transparent",
+                              borderTopColor: palette.borderSubtle,
+                              backgroundColor: selected ? palette.subtleBg : "transparent",
                             }}
                           >
                             <View className="flex-row items-start justify-between gap-3">
@@ -220,14 +223,14 @@ export function ThreadNavigationDrawer(props: {
                                 <Text
                                   className="text-[16px] font-t3-bold"
                                   numberOfLines={1}
-                                  style={{ color: "#171717" }}
+                                  style={{ color: palette.text }}
                                 >
                                   {thread.title}
                                 </Text>
                                 <Text
                                   className="text-[13px] font-medium"
                                   numberOfLines={1}
-                                  style={{ color: "#78716c" }}
+                                  style={{ color: palette.textMuted }}
                                 >
                                   {relativeTime(thread.updatedAt ?? thread.createdAt)}
                                 </Text>

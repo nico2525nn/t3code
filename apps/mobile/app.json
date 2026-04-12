@@ -35,7 +35,6 @@
     "android": {
       "icon": "./assets/icon.png",
       "package": "com.t3tools.t3code",
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -64,7 +63,9 @@
           "imageWidth": 220
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-router",
+      "./plugins/withAndroidCleartextTraffic.cjs"
     ],
     "extra": {
       "eas": {
