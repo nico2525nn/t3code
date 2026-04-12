@@ -379,6 +379,7 @@ function OpenCommandPaletteDialog() {
   return (
     <CommandDialogPopup
       aria-label="Command palette"
+      backdropClassName="bg-background/60 backdrop-blur-none"
       className="overflow-hidden p-0"
       data-testid="command-palette"
       finalFocus={() => {
@@ -394,29 +395,32 @@ function OpenCommandPaletteDialog() {
         onValueChange={handleQueryChange}
         value={query}
       >
-        <CommandInput
-          placeholder={inputPlaceholder}
-          wrapperClassName={
+        <div
+          className={
             isSubmenu
               ? "[&_[data-slot=autocomplete-start-addon]]:pointer-events-auto [&_[data-slot=autocomplete-start-addon]]:cursor-pointer"
               : undefined
           }
-          {...(isSubmenu
-            ? {
-                startAddon: (
-                  <button
-                    type="button"
-                    className="flex cursor-pointer items-center"
-                    aria-label="Back"
-                    onClick={popView}
-                  >
-                    <ArrowLeftIcon />
-                  </button>
-                ),
-              }
-            : {})}
-          onKeyDown={handleKeyDown}
-        />
+        >
+          <CommandInput
+            placeholder={inputPlaceholder}
+            {...(isSubmenu
+              ? {
+                  startAddon: (
+                    <button
+                      type="button"
+                      className="flex cursor-pointer items-center"
+                      aria-label="Back"
+                      onClick={popView}
+                    >
+                      <ArrowLeftIcon />
+                    </button>
+                  ),
+                }
+              : {})}
+            onKeyDown={handleKeyDown}
+          />
+        </div>
         <CommandPanel className="max-h-[min(28rem,70vh)]">
           <CommandPaletteResults
             groups={displayedGroups}
