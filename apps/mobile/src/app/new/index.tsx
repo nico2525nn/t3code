@@ -7,16 +7,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/AppText";
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
 import { makeAppPalette } from "../../lib/theme";
-import { useRemoteApp } from "../../state/remote-app-state-provider";
+import { useRemoteCatalog } from "../../state/use-remote-catalog";
 
 export default function NewTaskRoute() {
-  const app = useRemoteApp();
+  const { projects, threads } = useRemoteCatalog();
   const isDarkMode = useColorScheme() === "dark";
   const palette = makeAppPalette(isDarkMode);
   const insets = useSafeAreaInsets();
   const repositoryGroups = useMemo(
-    () => groupProjectsByRepository({ projects: app.projects, threads: app.threads }),
-    [app.projects, app.threads],
+    () => groupProjectsByRepository({ projects, threads }),
+    [projects, threads],
   );
   const items = useMemo(
     () =>

@@ -1,6 +1,6 @@
 import type { Router } from "expo-router";
 
-import type { SelectedThreadRef } from "../state/use-remote-app-state";
+import type { SelectedThreadRef } from "../state/remote-runtime-types";
 import type { ScopedMobileThread } from "./scopedEntities";
 
 type ThreadRouteInput =

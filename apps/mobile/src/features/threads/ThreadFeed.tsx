@@ -4,16 +4,9 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { SymbolView } from "expo-symbols";
 import { memo, useCallback, useEffect, useState, useRef } from "react";
 import Markdown from "react-native-markdown-display";
-import {
-  Dimensions,
-  Image,
-  Modal,
-  Pressable,
-  ScrollView,
-  useColorScheme,
-  View,
-} from "react-native";
+import { Image, Pressable, ScrollView, useColorScheme, View } from "react-native";
 import { TouchableOpacity } from "react-native-gesture-handler";
+import ImageViewing from "react-native-image-viewing";
 
 import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
@@ -502,12 +495,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }));
   }, []);
 
-  const onPressImage = useCallback(
-    (uri: string, headers?: Record<string, string>) => {
-      setExpandedImage({ uri, headers });
-    },
-    [],
-  );
+  const onPressImage = useCallback((uri: string, headers?: Record<string, string>) => {
+    setExpandedImage({ uri, headers });
+  }, []);
 
   const renderItem = useCallback(
     (info: { item: ThreadFeedEntry; index: number }) =>
@@ -552,8 +542,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     );
   }
 
-  const screenWidth = Dimensions.get("window").width;
-
   return (
     <View className="flex-1" style={{ minHeight: 0 }}>
       <LegendList
@@ -566,7 +554,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         keyboardShouldPersistTaps="handled"
         estimatedItemSize={80}
         initialScrollAtEnd
-        maintainScrollAtEnd={{ onLayout: true, onItemLayout: true, onDataChange: true }}
+        maintainScrollAtEnd={{ on: { layout: true, itemLayout: true, dataChange: true } }}
         maintainScrollAtEndThreshold={0.1}
         maintainVisibleContentPosition
         refreshing={props.refreshing ?? false}
@@ -578,51 +566,23 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         }}
       />
 
-      {/* Full-screen image preview modal */}
-      <Modal
-        visible={expandedImage !== null}
-        transparent={false}
-        animationType="fade"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setExpandedImage(null)}
-      >
-        <View style={{ flex: 1, backgroundColor: "#000" }}>
-          <Pressable
-            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
-            onPress={() => setExpandedImage(null)}
-          >
-            {expandedImage ? (
-              <Image
-                source={{
+      <ImageViewing
+        images={
+          expandedImage
+            ? [
+                {
                   uri: expandedImage.uri,
-                  ...(expandedImage.headers ? { headers: expandedImage.headers } : {}),
-                }}
-                style={{
-                  width: screenWidth,
-                  height: Dimensions.get("window").height * 0.75,
-                }}
-                resizeMode="contain"
-              />
-            ) : null}
-          </Pressable>
-          <Pressable
-            style={{
-              position: "absolute",
-              top: 60,
-              right: 20,
-              width: 36,
-              height: 36,
-              borderRadius: 18,
-              backgroundColor: "rgba(255,255,255,0.15)",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-            onPress={() => setExpandedImage(null)}
-          >
-            <SymbolView name="xmark" size={16} tintColor="#ffffff" type="monochrome" />
-          </Pressable>
-        </View>
-      </Modal>
+                  headers: expandedImage.headers,
+                },
+              ]
+            : []
+        }
+        imageIndex={0}
+        visible={expandedImage !== null}
+        onRequestClose={() => setExpandedImage(null)}
+        swipeToCloseEnabled
+        doubleTapToZoomEnabled
+      />
     </View>
   );
 });

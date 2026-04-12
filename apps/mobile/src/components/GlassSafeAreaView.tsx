@@ -45,15 +45,13 @@ export function GlassSafeAreaView({
             gap: 10,
           }}
         >
-          <View style={{ alignItems: "flex-start", justifyContent: "center" }}>
-            {leftSlot}
-          </View>
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+          <View style={{ alignItems: "flex-start", justifyContent: "center" }}>{leftSlot}</View>
+          <View
+            style={{ flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" }}
+          >
             {centerSlot}
           </View>
-          <View style={{ alignItems: "flex-end", justifyContent: "center" }}>
-            {rightSlot}
-          </View>
+          <View style={{ alignItems: "flex-end", justifyContent: "center" }}>{rightSlot}</View>
         </View>
       </GlassSurface>
     </View>

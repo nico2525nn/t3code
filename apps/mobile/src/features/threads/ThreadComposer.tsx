@@ -1,6 +1,5 @@
 import { isLiquidGlassSupported, LiquidGlassView } from "@callstack/liquid-glass";
 import { MenuView } from "@react-native-menu/menu";
-import { SymbolView } from "expo-symbols";
 import type {
   ModelSelection,
   OrchestrationThread,
@@ -13,15 +12,14 @@ import { TextInputWrapper } from "expo-paste-input";
 import type { ReactNode } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Dimensions,
   Image,
-  Modal,
-  Pressable as RNPressable,
+  Pressable,
   TextInput as RNTextInput,
   useColorScheme,
   View,
   type ViewStyle,
 } from "react-native";
+import ImageViewing from "react-native-image-viewing";
 
 import { AppText as Text } from "../../components/AppText";
 import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
@@ -115,16 +113,20 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const inputRef = useRef<RNTextInput>(null);
   const [isFocused, setIsFocused] = useState(false);
   const wasExpandedBeforePreviewRef = useRef(false);
+  const { onExpandedChange } = props;
 
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
   const hasContent = props.draftMessage.trim().length > 0 || props.draftAttachments.length > 0;
-  const isExpanded = isFocused || previewImageUri !== null;
+  const isExpanded = isFocused;
   const canSend = props.connectionState === "ready" && hasContent;
 
-  const onPressImage = useCallback((uri: string) => {
-    wasExpandedBeforePreviewRef.current = isFocused;
-    setPreviewImageUri(uri);
-  }, [isFocused]);
+  const onPressImage = useCallback(
+    (uri: string) => {
+      wasExpandedBeforePreviewRef.current = isFocused;
+      setPreviewImageUri(uri);
+    },
+    [isFocused],
+  );
 
   const closePreview = useCallback(() => {
     setPreviewImageUri(null);
@@ -134,8 +136,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   }, []);
 
   useEffect(() => {
-    props.onExpandedChange?.(isExpanded);
-  }, [isExpanded]);
+    onExpandedChange?.(isExpanded);
+  }, [isExpanded, onExpandedChange]);
   const showStopAction =
     props.selectedThread.session?.status === "running" ||
     props.selectedThread.session?.status === "starting" ||
@@ -425,7 +427,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           {!isExpanded && props.draftAttachments.length > 0 ? (
             <View style={{ flexDirection: "row", gap: 4, paddingLeft: 4 }}>
               {props.draftAttachments.slice(0, 3).map((image) => (
-                <RNPressable key={image.id} onPress={() => onPressImage(image.previewUri)}>
+                <Pressable key={image.id} onPress={() => onPressImage(image.previewUri)}>
                   <Image
                     source={{ uri: image.previewUri }}
                     style={{
@@ -436,7 +438,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     }}
                     resizeMode="cover"
                   />
-                </RNPressable>
+                </Pressable>
               ))}
               {props.draftAttachments.length > 3 ? (
                 <View
@@ -538,48 +540,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         ) : null}
       </View>
 
-      {/* Full-screen image preview modal */}
-      <Modal
+      <ImageViewing
+        images={previewImageUri ? [{ uri: previewImageUri }] : []}
+        imageIndex={0}
         visible={previewImageUri !== null}
-        transparent={false}
-        animationType="fade"
-        presentationStyle="fullScreen"
         onRequestClose={closePreview}
-      >
-        <View style={{ flex: 1, backgroundColor: "#000" }}>
-          <RNPressable
-            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
-            onPress={closePreview}
-          >
-            {previewImageUri ? (
-              <Image
-                source={{ uri: previewImageUri }}
-                style={{
-                  width: Dimensions.get("window").width,
-                  height: Dimensions.get("window").height * 0.75,
-                }}
-                resizeMode="contain"
-              />
-            ) : null}
-          </RNPressable>
-          <RNPressable
-            style={{
-              position: "absolute",
-              top: 60,
-              right: 20,
-              width: 36,
-              height: 36,
-              borderRadius: 18,
-              backgroundColor: "rgba(255,255,255,0.15)",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-            onPress={closePreview}
-          >
-            <SymbolView name="xmark" size={16} tintColor="#ffffff" type="monochrome" />
-          </RNPressable>
-        </View>
-      </Modal>
+        swipeToCloseEnabled
+        doubleTapToZoomEnabled
+      />
     </View>
   );
 });

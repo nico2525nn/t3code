@@ -6,8 +6,8 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanim
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
-import { useRemoteApp } from "../../state/remote-app-state-provider";
-import type { ConnectedEnvironmentSummary } from "../../state/use-remote-app-state";
+import { useRemoteConnections } from "../../state/use-remote-environment-registry";
+import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 import { makeConnectionSheetPalette as makePalette } from "./connection-sheet-shared";
 
@@ -173,11 +173,12 @@ function EnvironmentRow(props: {
 }
 
 export function ConnectionsRouteScreen() {
-  const app = useRemoteApp();
+  const { connectedEnvironments, onRemoveEnvironmentPress, onUpdateEnvironment } =
+    useRemoteConnections();
   const insets = useSafeAreaInsets();
   const isDarkMode = useColorScheme() === "dark";
   const palette = makePalette(isDarkMode);
-  const hasEnvironments = app.connectedEnvironments.length > 0;
+  const hasEnvironments = connectedEnvironments.length > 0;
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const handleToggle = useCallback((environmentId: string) => {
@@ -223,7 +224,7 @@ export function ConnectionsRouteScreen() {
             className="overflow-hidden rounded-[24px]"
             style={{ backgroundColor: palette.card }}
           >
-            {app.connectedEnvironments.map((environment, index) => (
+            {connectedEnvironments.map((environment, index) => (
               <View
                 key={environment.environmentId}
                 collapsable={false}
@@ -236,8 +237,8 @@ export function ConnectionsRouteScreen() {
                   environment={environment}
                   expanded={expandedId === environment.environmentId}
                   onToggle={() => handleToggle(environment.environmentId)}
-                  onRemove={app.onRemoveEnvironmentPress}
-                  onUpdate={app.onUpdateEnvironment}
+                  onRemove={onRemoveEnvironmentPress}
+                  onUpdate={onUpdateEnvironment}
                   palette={palette}
                 />
               </View>

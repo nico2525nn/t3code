@@ -1,6 +1,7 @@
+import * as Order from "effect/Order";
+import * as Arr from "effect/Array";
 import type { RepositoryIdentity } from "@t3tools/contracts";
 
-import { sortCopy } from "./arrayCompat";
 import type { ScopedMobileProject, ScopedMobileThread } from "./scopedEntities";
 import { scopedProjectKey } from "./scopedEntities";
 
@@ -76,12 +77,12 @@ export function groupProjectsByRepository(input: {
   for (const project of input.projects) {
     const key = deriveRepositoryGroupKey(project);
     const projectKey = scopedProjectKey(project.environmentId, project.id);
-    const threads = sortCopy(threadsByProjectKey.get(projectKey) ?? [], (left, right) =>
-      compareIsoDateDescending(
-        left.updatedAt ?? left.createdAt,
-        right.updatedAt ?? right.createdAt,
-      ),
+    const threads = Arr.sortWith(
+      threadsByProjectKey.get(projectKey) ?? [],
+      (s) => new Date(s.updatedAt ?? s.createdAt),
+      Order.Date,
     );
+
     const latestActivityAt = deriveProjectLatestActivity(project, threads);
     const projectGroup: MobileRepositoryProjectGroup = {
       key: projectKey,
@@ -116,20 +117,13 @@ export function groupProjectsByRepository(input: {
         compareIsoDateDescending(existing.latestActivityAt, latestActivityAt) > 0
           ? latestActivityAt
           : existing.latestActivityAt,
-      projects: sortCopy(
+      projects: Arr.sortWith(
         [...existing.projects, projectGroup],
-        (left, right) =>
-          compareIsoDateDescending(left.latestActivityAt, right.latestActivityAt) ||
-          left.project.environmentLabel.localeCompare(right.project.environmentLabel) ||
-          left.project.title.localeCompare(right.project.title),
+        (s) => new Date(s.latestActivityAt),
+        Order.Date,
       ),
     });
   }
 
-  return sortCopy(
-    [...grouped.values()],
-    (left, right) =>
-      compareIsoDateDescending(left.latestActivityAt, right.latestActivityAt) ||
-      left.title.localeCompare(right.title),
-  );
+  return Arr.sortWith([...grouped.values()], (s) => new Date(s.latestActivityAt), Order.Date);
 }

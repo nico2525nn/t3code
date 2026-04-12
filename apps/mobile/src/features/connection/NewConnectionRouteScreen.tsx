@@ -9,7 +9,7 @@ import { AppText as Text, AppTextInput as TextInput } from "../../components/App
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { dismissRoute } from "../../lib/routes";
 import { extractPairingUrlFromQrPayload } from "../../lib/pairingQr";
-import { useRemoteApp } from "../../state/remote-app-state-provider";
+import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import {
   buildPairingUrl,
   ConnectionSheetButton as SheetButton,
@@ -18,7 +18,13 @@ import {
 } from "./connection-sheet-shared";
 
 export function NewConnectionRouteScreen() {
-  const app = useRemoteApp();
+  const {
+    connectionError,
+    connectionPairingUrl,
+    connectionState,
+    onChangeConnectionPairingUrl,
+    onConnectPress,
+  } = useRemoteConnections();
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string }>();
   const insets = useSafeAreaInsets();
@@ -32,19 +38,19 @@ export function NewConnectionRouteScreen() {
   const [scannerLocked, setScannerLocked] = useState(false);
 
   const connectDisabled =
-    isSubmitting || app.connectionState === "connecting" || hostInput.trim().length === 0;
+    isSubmitting || connectionState === "connecting" || hostInput.trim().length === 0;
 
   useEffect(() => {
-    const { host, code } = parsePairingUrl(app.connectionInput.pairingUrl);
+    const { host, code } = parsePairingUrl(connectionPairingUrl);
     setHostInput(host);
     setCodeInput(code);
-  }, [app.connectionInput.pairingUrl]);
+  }, [connectionPairingUrl]);
 
   useEffect(() => {
-    if (app.connectionError) {
+    if (connectionError) {
       setIsSubmitting(false);
     }
-  }, [app.connectionError]);
+  }, [connectionError]);
 
   const handleHostChange = useCallback((value: string) => {
     setHostInput(value);
@@ -89,7 +95,7 @@ export function NewConnectionRouteScreen() {
         const { host, code } = parsePairingUrl(pairingUrl);
         setHostInput(host);
         setCodeInput(code);
-        app.onChangeConnectionPairingUrl(pairingUrl);
+        onChangeConnectionPairingUrl(pairingUrl);
         setShowScanner(false);
       } catch (error) {
         Alert.alert(
@@ -102,7 +108,7 @@ export function NewConnectionRouteScreen() {
         }, 600);
       }
     },
-    [app, scannerLocked],
+    [onChangeConnectionPairingUrl, scannerLocked],
   );
 
   const handleSubmit = useCallback(async () => {
@@ -110,13 +116,13 @@ export function NewConnectionRouteScreen() {
 
     try {
       const pairingUrl = buildPairingUrl(hostInput, codeInput);
-      app.onChangeConnectionPairingUrl(pairingUrl);
-      await app.onConnectPress(pairingUrl);
+      onChangeConnectionPairingUrl(pairingUrl);
+      await onConnectPress(pairingUrl);
       dismissRoute(router);
     } catch {
       setIsSubmitting(false);
     }
-  }, [app, codeInput, hostInput, router]);
+  }, [codeInput, hostInput, onChangeConnectionPairingUrl, onConnectPress, router]);
 
   return (
     <View collapsable={false} style={{ flex: 1, backgroundColor: palette.sheet }}>
@@ -252,12 +258,12 @@ export function NewConnectionRouteScreen() {
                 />
               </View>
 
-              {app.connectionError ? <ErrorBanner message={app.connectionError} /> : null}
+              {connectionError ? <ErrorBanner message={connectionError} /> : null}
 
               <SheetButton
                 icon="plus"
                 label={
-                  isSubmitting || app.connectionState === "connecting" ? "Pairing…" : "Add backend"
+                  isSubmitting || connectionState === "connecting" ? "Pairing…" : "Add backend"
                 }
                 disabled={connectDisabled}
                 palette={palette}

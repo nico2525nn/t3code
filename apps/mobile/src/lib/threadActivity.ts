@@ -7,7 +7,8 @@ import type {
 } from "@t3tools/contracts";
 
 import type { DraftComposerImageAttachment } from "./composerImages";
-import { sortCopy } from "./arrayCompat";
+import * as Arr from "effect/Array";
+import * as Order from "effect/Order";
 
 export interface PendingApproval {
   readonly requestId: ApprovalRequestId;
@@ -75,23 +76,6 @@ export type ThreadFeedEntry =
       readonly createdAt: string;
       readonly activities: ReadonlyArray<ThreadFeedActivity>;
     };
-
-function compareActivitiesByOrder(
-  left: OrchestrationThreadActivity,
-  right: OrchestrationThreadActivity,
-): number {
-  if (left.sequence !== undefined && right.sequence !== undefined) {
-    if (left.sequence !== right.sequence) {
-      return left.sequence - right.sequence;
-    }
-  } else if (left.sequence !== undefined) {
-    return 1;
-  } else if (right.sequence !== undefined) {
-    return -1;
-  }
-
-  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
-}
 
 function requestKindFromRequestType(requestType: unknown): PendingApproval["requestKind"] | null {
   switch (requestType) {
@@ -230,14 +214,6 @@ function activityStatus(activity: OrchestrationThreadActivity): string | null {
   return null;
 }
 
-function compareFeedEntries(left: RawThreadFeedEntry, right: RawThreadFeedEntry): number {
-  const byCreatedAt = left.createdAt.localeCompare(right.createdAt);
-  if (byCreatedAt !== 0) {
-    return byCreatedAt;
-  }
-  return left.id.localeCompare(right.id);
-}
-
 function isEmptyMessage(entry: RawThreadFeedEntry): boolean {
   if (entry.type !== "message") {
     return false;
@@ -285,7 +261,7 @@ export function derivePendingApprovals(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): PendingApproval[] {
   const openByRequestId = new Map<ApprovalRequestId, PendingApproval>();
-  const ordered = sortCopy(activities, compareActivitiesByOrder);
+  const ordered = Arr.sortWith(activities, (s) => new Date(s.createdAt), Order.Date);
 
   for (const activity of ordered) {
     const payload =
@@ -325,16 +301,14 @@ export function derivePendingApprovals(
     }
   }
 
-  return sortCopy([...openByRequestId.values()], (left, right) =>
-    left.createdAt.localeCompare(right.createdAt),
-  );
+  return Arr.sortWith([...openByRequestId.values()], (s) => new Date(s.createdAt), Order.Date);
 }
 
 export function derivePendingUserInputs(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): PendingUserInput[] {
   const openByRequestId = new Map<ApprovalRequestId, PendingUserInput>();
-  const ordered = sortCopy(activities, compareActivitiesByOrder);
+  const ordered = Arr.sortWith(activities, (s) => new Date(s.createdAt), Order.Date);
 
   for (const activity of ordered) {
     const payload =
@@ -371,9 +345,7 @@ export function derivePendingUserInputs(
     }
   }
 
-  return sortCopy([...openByRequestId.values()], (left, right) =>
-    left.createdAt.localeCompare(right.createdAt),
-  );
+  return Arr.sortWith(openByRequestId.values(), (s) => new Date(s.createdAt), Order.Date);
 }
 
 export function setPendingUserInputCustomAnswer(
@@ -416,7 +388,7 @@ export function buildThreadFeed(
   const loadedMessages = options?.loadedMessages ?? thread.messages;
   const oldestLoadedMessageCreatedAt =
     options?.loadedMessages !== undefined ? (loadedMessages[0]?.createdAt ?? null) : null;
-  const entries = sortCopy(
+  const entries = Arr.sortWith(
     [
       ...loadedMessages.map<RawThreadFeedEntry>((message) => ({
         type: "message",
@@ -457,7 +429,8 @@ export function buildThreadFeed(
           },
         })),
     ],
-    compareFeedEntries,
+    (s) => new Date(s.createdAt),
+    Order.Date,
   );
 
   return groupAdjacentActivities(entries);

@@ -1,3 +1,4 @@
+import * as Order from "effect/Order";
 import type {
   ChatAttachment,
   MessageId,
@@ -7,7 +8,7 @@ import type {
   OrchestrationThread,
   ThreadId,
 } from "@t3tools/contracts";
-import { sortCopy } from "./arrayCompat";
+import * as Arr from "effect/Array";
 
 const MAX_THREAD_PROPOSED_PLANS = 200;
 
@@ -295,15 +296,15 @@ export function applyRealtimeEvent(
         ...nextBase,
         threads: updateThread(nextBase, event.payload.threadId, (thread) => ({
           ...thread,
-          proposedPlans: sortCopy(
+          proposedPlans: Arr.sortWith(
             [
               ...thread.proposedPlans.filter((proposedPlan) => {
                 return proposedPlan.id !== event.payload.proposedPlan.id;
               }),
               event.payload.proposedPlan,
             ],
-            (left, right) =>
-              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+            (s) => new Date(s.createdAt),
+            Order.Date,
           ).slice(-MAX_THREAD_PROPOSED_PLANS),
           updatedAt: event.occurredAt,
         })),
@@ -313,7 +314,7 @@ export function applyRealtimeEvent(
       return {
         ...nextBase,
         threads: updateThread(nextBase, event.payload.threadId, (thread) => {
-          const checkpoints = sortCopy(
+          const checkpoints = Arr.sortWith(
             [
               ...thread.checkpoints.filter(
                 (checkpoint) => checkpoint.turnId !== event.payload.turnId,
@@ -328,7 +329,8 @@ export function applyRealtimeEvent(
                 completedAt: event.payload.completedAt,
               },
             ],
-            (left, right) => left.checkpointTurnCount - right.checkpointTurnCount,
+            (s) => s.checkpointTurnCount,
+            Order.Number,
           );
 
           const latestTurnState =
@@ -365,21 +367,13 @@ export function applyRealtimeEvent(
         ...nextBase,
         threads: updateThread(nextBase, event.payload.threadId, (thread) => ({
           ...thread,
-          activities: sortCopy(
+          activities: Arr.sortWith(
             [
               ...thread.activities.filter((activity) => activity.id !== event.payload.activity.id),
               event.payload.activity,
             ],
-            (left, right) => {
-              const leftSequence = left.sequence ?? Number.MIN_SAFE_INTEGER;
-              const rightSequence = right.sequence ?? Number.MIN_SAFE_INTEGER;
-              if (leftSequence !== rightSequence) {
-                return leftSequence - rightSequence;
-              }
-              return (
-                left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
-              );
-            },
+            (s) => new Date(s.createdAt),
+            Order.Date,
           ),
           updatedAt: event.occurredAt,
         })),

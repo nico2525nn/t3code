@@ -32,11 +32,18 @@ export function ComposerAttachmentStrip(props: ComposerAttachmentStripProps) {
   }
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" style={{ flexGrow: 0 }}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      keyboardShouldPersistTaps="always"
+      style={{ flexGrow: 0 }}
+    >
       <View style={{ flexDirection: "row", gap: 10 }}>
         {props.attachments.map((image) => (
           <View key={image.id} style={{ position: "relative" }}>
-            <Pressable onPress={props.onPressImage ? () => props.onPressImage!(image.previewUri) : undefined}>
+            <Pressable
+              onPress={props.onPressImage ? () => props.onPressImage!(image.previewUri) : undefined}
+            >
               <Image
                 source={{ uri: image.previewUri }}
                 style={{

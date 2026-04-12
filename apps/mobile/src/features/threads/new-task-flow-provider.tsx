@@ -15,7 +15,8 @@ import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
 import type { ScopedMobileProject } from "../../lib/scopedEntities";
 import { scopedProjectKey } from "../../lib/scopedEntities";
-import { useRemoteApp } from "../../state/remote-app-state-provider";
+import { useProjectActions } from "../../state/use-project-actions";
+import { useRemoteCatalog } from "../../state/use-remote-catalog";
 
 export type { ModelOption, ProviderGroup };
 export type WorkspaceMode = "local" | "worktree";
@@ -90,9 +91,10 @@ type NewTaskFlowContextValue = {
   readonly setWorkspaceMode: (mode: WorkspaceMode) => void;
   readonly selectBranch: (branch: GitBranch) => void;
   readonly setPrompt: (value: string) => void;
-  readonly setAttachments: React.Dispatch<
-    React.SetStateAction<ReadonlyArray<DraftComposerImageAttachment>>
-  >;
+  readonly replaceAttachments: (attachments: ReadonlyArray<DraftComposerImageAttachment>) => void;
+  readonly appendAttachments: (attachments: ReadonlyArray<DraftComposerImageAttachment>) => void;
+  readonly removeAttachment: (imageId: string) => void;
+  readonly clearAttachments: () => void;
   readonly setSubmitting: (value: boolean) => void;
   readonly setBranchQuery: (value: string) => void;
   readonly loadBranches: () => Promise<void>;
@@ -107,11 +109,12 @@ type NewTaskFlowContextValue = {
 const NewTaskFlowContext = React.createContext<NewTaskFlowContextValue | null>(null);
 
 export function NewTaskFlowProvider(props: React.PropsWithChildren) {
-  const app = useRemoteApp();
+  const { projects, serverConfigByEnvironmentId, threads } = useRemoteCatalog();
+  const { onListProjectBranches } = useProjectActions();
 
   const repositoryGroups = useMemo(
-    () => groupProjectsByRepository({ projects: app.projects, threads: app.threads }),
-    [app.projects, app.threads],
+    () => groupProjectsByRepository({ projects, threads }),
+    [projects, threads],
   );
   const logicalProjects = useMemo(
     () =>
@@ -128,7 +131,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   );
 
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState(
-    app.projects[0]?.environmentId ?? "",
+    projects[0]?.environmentId ?? "",
   );
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
   const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
@@ -150,19 +153,41 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const [contextWindow, setContextWindow] = useState("1M");
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
 
+  const replaceAttachments = useCallback(
+    (nextAttachments: ReadonlyArray<DraftComposerImageAttachment>) => {
+      setAttachments(nextAttachments);
+    },
+    [],
+  );
+
+  const appendAttachments = useCallback(
+    (nextAttachments: ReadonlyArray<DraftComposerImageAttachment>) => {
+      setAttachments((current) => [...current, ...nextAttachments]);
+    },
+    [],
+  );
+
+  const removeAttachment = useCallback((imageId: string) => {
+    setAttachments((current) => current.filter((candidate) => candidate.id !== imageId));
+  }, []);
+
+  const clearAttachments = useCallback(() => {
+    setAttachments([]);
+  }, []);
+
   const reset = useCallback(() => {
     console.log("[new task flow] reset", {
-      defaultEnvironmentId: app.projects[0]?.environmentId ?? null,
-      projectCount: app.projects.length,
+      defaultEnvironmentId: projects[0]?.environmentId ?? null,
+      projectCount: projects.length,
     });
-    setSelectedEnvironmentId(app.projects[0]?.environmentId ?? "");
+    setSelectedEnvironmentId(projects[0]?.environmentId ?? "");
     setSelectedProjectKey(null);
     setSelectedModelKey(null);
     setWorkspaceMode("local");
     setSelectedBranchName(null);
     setSelectedWorktreePath(null);
     setPrompt("");
-    setAttachments([]);
+    clearAttachments();
     setSubmitting(false);
     setBranchQuery("");
     setBranchesLoading(false);
@@ -173,35 +198,35 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     setFastMode(false);
     setContextWindow("1M");
     setExpandedProvider(null);
-  }, [app.projects]);
+  }, [clearAttachments, projects]);
 
   useEffect(() => {
-    if (selectedEnvironmentId || app.projects.length === 0) {
+    if (selectedEnvironmentId || projects.length === 0) {
       return;
     }
 
     console.log("[new task flow] initializing environment", {
-      environmentId: app.projects[0]!.environmentId,
+      environmentId: projects[0]!.environmentId,
     });
-    setSelectedEnvironmentId(app.projects[0]!.environmentId);
-  }, [app.projects, selectedEnvironmentId]);
+    setSelectedEnvironmentId(projects[0]!.environmentId);
+  }, [projects, selectedEnvironmentId]);
 
   const environments = useMemo(
     () =>
       [
         ...new Map(
-          app.projects.map((project) => [project.environmentId, project.environmentLabel]),
+          projects.map((project) => [project.environmentId, project.environmentLabel]),
         ).entries(),
       ].map(([environmentId, environmentLabel]) => ({
         environmentId,
         environmentLabel,
       })),
-    [app.projects],
+    [projects],
   );
 
   const projectsForEnvironment = useMemo(
-    () => app.projects.filter((project) => project.environmentId === selectedEnvironmentId),
-    [app.projects, selectedEnvironmentId],
+    () => projects.filter((project) => project.environmentId === selectedEnvironmentId),
+    [projects, selectedEnvironmentId],
   );
 
   const selectedProject =
@@ -215,11 +240,11 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     () =>
       buildModelOptions(
         selectedProject
-          ? (app.serverConfigByEnvironmentId[selectedProject.environmentId] ?? null)
+          ? (serverConfigByEnvironmentId[selectedProject.environmentId] ?? null)
           : null,
         selectedProject?.defaultModelSelection ?? null,
       ),
-    [app.serverConfigByEnvironmentId, selectedProject],
+    [selectedProject, serverConfigByEnvironmentId],
   );
 
   const selectedModel =
@@ -276,7 +301,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
 
     setBranchesLoading(true);
     try {
-      const branches = await app.onListProjectBranches(selectedProject);
+      const branches = await onListProjectBranches(selectedProject);
       setAvailableBranches(branches);
 
       if (workspaceMode === "worktree" && !selectedBranchName) {
@@ -291,7 +316,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     } finally {
       setBranchesLoading(false);
     }
-  }, [app, selectedBranchName, selectedProject, workspaceMode]);
+  }, [onListProjectBranches, selectedBranchName, selectedProject, workspaceMode]);
 
   const value = useMemo<NewTaskFlowContextValue>(
     () => ({
@@ -328,7 +353,10 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       setWorkspaceMode,
       selectBranch,
       setPrompt,
-      setAttachments,
+      replaceAttachments,
+      appendAttachments,
+      removeAttachment,
+      clearAttachments,
       setSubmitting,
       setBranchQuery,
       loadBranches,
@@ -356,6 +384,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       modelOptions,
       prompt,
       providerGroups,
+      replaceAttachments,
       reset,
       runtimeMode,
       selectedBranchName,
@@ -371,6 +400,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectEnvironment,
       submitting,
       workspaceMode,
+      appendAttachments,
+      clearAttachments,
+      removeAttachment,
     ],
   );
 

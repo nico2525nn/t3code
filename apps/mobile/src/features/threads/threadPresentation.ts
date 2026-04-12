@@ -1,7 +1,7 @@
 import type { ServerConfig as T3ServerConfig } from "@t3tools/contracts";
-
+import * as Arr from "effect/Array";
 import type { StatusTone } from "../../components/StatusPill";
-import { reverseCopy } from "../../lib/arrayCompat";
+
 import type { ScopedMobileThread } from "../../lib/scopedEntities";
 
 export function threadSortValue(thread: ScopedMobileThread): number {
@@ -56,16 +56,18 @@ export function messageImageUrl(httpBaseUrl: string | null, attachmentId: string
 }
 
 export function lastConversationLine(thread: ScopedMobileThread): string {
-  const candidate = reverseCopy(thread.messages).find(
+  const candidate = Arr.findLast(
+    thread.messages,
     (message) => message.role === "user" || message.role === "assistant",
   );
-  if (!candidate) {
+
+  if (candidate._tag === "None") {
     return "No messages yet.";
   }
 
-  const trimmed = candidate.text.trim();
+  const trimmed = candidate.value.text.trim();
   if (trimmed.length === 0) {
-    return candidate.role === "assistant" ? "(empty assistant response)" : "(empty message)";
+    return candidate.value.role === "assistant" ? "(empty assistant response)" : "(empty message)";
   }
   return trimmed;
 }

@@ -18,7 +18,8 @@ import { ProviderIcon } from "../../components/ProviderIcon";
 import { convertPastedImagesToAttachments, pickComposerImages } from "../../lib/composerImages";
 import { buildThreadRoutePath } from "../../lib/routes";
 import { makeAppPalette } from "../../lib/theme";
-import { useRemoteApp } from "../../state/remote-app-state-provider";
+import { useProjectActions } from "../../state/use-project-actions";
+import { useRemoteCatalog } from "../../state/use-remote-catalog";
 import { useNativePaste } from "../../hooks/useNativePaste";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 
@@ -28,7 +29,8 @@ export function NewTaskDraftScreen(props: {
     readonly projectId?: string;
   };
 }) {
-  const app = useRemoteApp();
+  const { projects } = useRemoteCatalog();
+  const { onCreateThreadWithOptions } = useProjectActions();
   const flow = useNewTaskFlow();
   const router = useRouter();
   const isDarkMode = useColorScheme() === "dark";
@@ -46,7 +48,7 @@ export function NewTaskDraftScreen(props: {
   useEffect(() => {
     if (props.initialProjectRef?.environmentId && props.initialProjectRef?.projectId) {
       const directProject =
-        app.projects.find(
+        projects.find(
           (project) =>
             project.environmentId === props.initialProjectRef?.environmentId &&
             project.id === props.initialProjectRef?.projectId,
@@ -69,8 +71,8 @@ export function NewTaskDraftScreen(props: {
 
     router.replace("/new");
   }, [
-    app.projects,
     logicalProjects,
+    projects,
     props.initialProjectRef?.environmentId,
     props.initialProjectRef?.projectId,
     router,
@@ -308,7 +310,7 @@ export function NewTaskDraftScreen(props: {
   async function handlePickImages(): Promise<void> {
     const result = await pickComposerImages({ existingCount: flow.attachments.length });
     if (result.images.length > 0) {
-      flow.setAttachments((current) => [...current, ...result.images]);
+      flow.appendAttachments(result.images);
     }
   }
 
@@ -320,7 +322,7 @@ export function NewTaskDraftScreen(props: {
           existingCount: flow.attachments.length,
         });
         if (images.length > 0) {
-          flow.setAttachments((current) => [...current, ...images]);
+          flow.appendAttachments(images);
         }
       } catch (error) {
         console.error("[native paste] error converting images", error);
@@ -360,7 +362,7 @@ export function NewTaskDraftScreen(props: {
             ? { ...flow.selectedModel, options: { fastMode: flow.fastMode || undefined } }
             : flow.selectedModel;
 
-      const createdThread = await app.onCreateThreadWithOptions({
+      const createdThread = await onCreateThreadWithOptions({
         project: flow.selectedProject,
         modelSelection: modelWithOptions,
         envMode: flow.workspaceMode,
@@ -466,11 +468,7 @@ export function NewTaskDraftScreen(props: {
           <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
             <ComposerAttachmentStrip
               attachments={flow.attachments}
-              onRemove={(imageId) =>
-                flow.setAttachments((current) =>
-                  current.filter((candidate) => candidate.id !== imageId),
-                )
-              }
+              onRemove={flow.removeAttachment}
               imageSize={88}
               imageBorderRadius={20}
             />

@@ -1,3 +1,7 @@
 export * from "./knownEnvironment";
 export * from "./scoped";
 export * from "./gitActions";
+export * from "./wsRpcProtocol";
+export * from "./wsTransport";
+export * from "./wsRpcClient";
+export * from "./environmentConnection";

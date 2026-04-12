@@ -46,7 +46,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                   <Pressable
                     key={option.label}
                     className={cx(
-                      "rounded-full border px-3 py-2.5",
+                      "rounded-full border px-3 py-2.5 ",
                       selected
                         ? "border-blue-300/50 bg-blue-50 dark:border-blue-400/28 dark:bg-blue-400/14"
                         : "border-neutral-200 bg-white dark:border-white/6 dark:bg-neutral-950/70",

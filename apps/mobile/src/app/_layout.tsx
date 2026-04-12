@@ -15,10 +15,13 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { LoadingScreen } from "../components/LoadingScreen";
 import { makeAppPalette } from "../lib/theme";
-import { RemoteAppStateProvider, useRemoteApp } from "../state/remote-app-state-provider";
+import {
+  useRemoteEnvironmentBootstrap,
+  useRemoteEnvironmentState,
+} from "../state/use-remote-environment-registry";
 
 function AppNavigator() {
-  const app = useRemoteApp();
+  const { isLoadingSavedConnection } = useRemoteEnvironmentState();
   const isDarkMode = useColorScheme() !== "light";
   const palette = makeAppPalette(isDarkMode);
 
@@ -40,12 +43,8 @@ function AppNavigator() {
     sheetGrabberVisible: true,
   };
 
-  if (app.isLoadingSavedConnection) {
+  if (isLoadingSavedConnection) {
     return <LoadingScreen message="Loading remote workspace…" />;
-  }
-
-  if (app.reconnectingScreenVisible) {
-    return <LoadingScreen message="Reconnecting…" />;
   }
 
   return (
@@ -78,19 +77,14 @@ export default function RootLayout() {
     DMSans_500Medium,
     DMSans_700Bold,
   });
+  useRemoteEnvironmentBootstrap();
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardProvider statusBarTranslucent>
         <BottomSheetModalProvider>
           <SafeAreaProvider>
-            <RemoteAppStateProvider>
-              {fontsLoaded ? (
-                <AppNavigator />
-              ) : (
-                <LoadingScreen message="Loading remote workspace…" />
-              )}
-            </RemoteAppStateProvider>
+            {fontsLoaded ? <AppNavigator /> : <LoadingScreen message="Loading remote workspace…" />}
           </SafeAreaProvider>
         </BottomSheetModalProvider>
       </KeyboardProvider>

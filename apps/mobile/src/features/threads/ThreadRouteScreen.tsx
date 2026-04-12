@@ -2,12 +2,22 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { ScrollView, useColorScheme, View } from "react-native";
 
-import { useRemoteApp } from "../../state/remote-app-state-provider";
 import { EmptyState } from "../../components/EmptyState";
 import { LoadingScreen } from "../../components/LoadingScreen";
 import { buildThreadRoutePath, dismissRoute } from "../../lib/routes";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { makeAppPalette } from "../../lib/theme";
+import { connectionTone } from "../connection/connectionTone";
+import { firstNonNull } from "../../state/remote-runtime-types";
+import { useRemoteCatalog } from "../../state/use-remote-catalog";
+import {
+  useRemoteConnectionStatus,
+  useRemoteEnvironmentState,
+} from "../../state/use-remote-environment-registry";
+import { useSelectedThreadCommands } from "../../state/use-selected-thread-commands";
+import { useSelectedThreadGit } from "../../state/use-selected-thread-git";
+import { useThreadComposerState } from "../../state/use-thread-composer-state";
+import { useThreadSelection } from "../../state/use-thread-selection";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
 import { ThreadNavigationDrawer } from "./ThreadNavigationDrawer";
 
@@ -20,7 +30,22 @@ function firstRouteParam(value: string | string[] | undefined): string | null {
 }
 
 export function ThreadRouteScreen() {
-  const app = useRemoteApp();
+  const { isLoadingSavedConnection, environmentStateById } = useRemoteEnvironmentState();
+  const { connectionState, connectionError } = useRemoteConnectionStatus();
+  const { projects, threads } = useRemoteCatalog();
+  const {
+    onSelectThread,
+    selectedThread,
+    selectedEnvironmentConnection,
+    selectedEnvironmentRuntime,
+  } = useThreadSelection();
+  const composer = useThreadComposerState();
+  const git = useSelectedThreadGit();
+  const commands = useSelectedThreadCommands({
+    activePendingUserInput: composer.activePendingUserInput,
+    activePendingUserInputAnswers: composer.activePendingUserInputAnswers,
+    refreshSelectedThreadGitStatus: git.refreshSelectedThreadGitStatus,
+  });
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme !== "light";
@@ -38,14 +63,13 @@ export function ThreadRouteScreen() {
     }
 
     return (
-      app.threads.find(
-        (thread) => thread.environmentId === environmentId && thread.id === threadId,
-      ) ?? null
+      threads.find((thread) => thread.environmentId === environmentId && thread.id === threadId) ??
+      null
     );
-  }, [app.threads, environmentId, threadId]);
+  }, [environmentId, threadId, threads]);
 
   const selectedMatchesRoute =
-    app.selectedThread?.environmentId === environmentId && app.selectedThread?.id === threadId;
+    selectedThread?.environmentId === environmentId && selectedThread?.id === threadId;
 
   useEffect(() => {
     if (!routeThread) {
@@ -56,8 +80,8 @@ export function ThreadRouteScreen() {
       return;
     }
 
-    app.onSelectThread(routeThread);
-  }, [app, routeThread, selectedMatchesRoute]);
+    onSelectThread(routeThread);
+  }, [onSelectThread, routeThread, selectedMatchesRoute]);
 
   if (!environmentId || !threadId) {
     return <LoadingScreen message="Opening thread…" />;
@@ -65,9 +89,9 @@ export function ThreadRouteScreen() {
 
   if (!routeThread) {
     const stillHydrating =
-      app.isLoadingSavedConnection ||
-      app.connectionState === "connecting" ||
-      app.connectionState === "reconnecting";
+      isLoadingSavedConnection ||
+      connectionState === "connecting" ||
+      connectionState === "reconnecting";
 
     if (stillHydrating) {
       return <LoadingScreen message="Opening thread…" />;
@@ -92,74 +116,76 @@ export function ThreadRouteScreen() {
     );
   }
 
-  if (!selectedMatchesRoute || !app.selectedThread) {
+  if (!selectedMatchesRoute || !selectedThread) {
     return <LoadingScreen message="Opening thread…" />;
   }
 
-  const selectedThreadKey = scopedThreadKey(
-    app.selectedThread.environmentId,
-    app.selectedThread.id,
-  );
+  const selectedThreadKey = scopedThreadKey(selectedThread.environmentId, selectedThread.id);
+  const serverConfig =
+    selectedEnvironmentRuntime?.serverConfig ??
+    firstNonNull(Object.values(environmentStateById).map((runtime) => runtime.serverConfig));
 
   return (
     <View style={{ flex: 1 }}>
       <ThreadDetailScreen
-        selectedThread={app.selectedThread}
-        screenTone={app.screenTone}
-        connectionError={app.connectionError}
-        httpBaseUrl={app.selectedEnvironmentBaseUrl}
-        bearerToken={app.selectedEnvironmentBearerToken}
-        selectedThreadFeed={app.selectedThreadFeed}
-        activeWorkDurationLabel={app.activeWorkDurationLabel}
-        activePendingApproval={app.activePendingApproval}
-        respondingApprovalId={app.respondingApprovalId}
-        activePendingUserInput={app.activePendingUserInput}
-        activePendingUserInputDrafts={app.activePendingUserInputDrafts}
-        activePendingUserInputAnswers={app.activePendingUserInputAnswers}
-        respondingUserInputId={app.respondingUserInputId}
-        draftMessage={app.draftMessage}
-        draftAttachments={app.draftAttachments}
-        connectionStateLabel={app.connectionState}
-        activeThreadBusy={app.activeThreadBusy}
-        selectedThreadGitStatus={app.selectedThreadGitStatus}
-        gitOperationLabel={app.gitOperationLabel}
-        selectedThreadQueueCount={app.selectedThreadQueueCount}
+        selectedThread={selectedThread}
+        screenTone={connectionTone(connectionState)}
+        connectionError={connectionError}
+        httpBaseUrl={selectedEnvironmentConnection?.httpBaseUrl ?? null}
+        bearerToken={selectedEnvironmentConnection?.bearerToken ?? null}
+        selectedThreadFeed={composer.selectedThreadFeed}
+        activeWorkDurationLabel={composer.activeWorkDurationLabel}
+        activePendingApproval={composer.activePendingApproval}
+        respondingApprovalId={commands.respondingApprovalId}
+        activePendingUserInput={composer.activePendingUserInput}
+        activePendingUserInputDrafts={composer.activePendingUserInputDrafts}
+        activePendingUserInputAnswers={composer.activePendingUserInputAnswers}
+        respondingUserInputId={commands.respondingUserInputId}
+        draftMessage={composer.draftMessage}
+        draftAttachments={composer.draftAttachments}
+        connectionStateLabel={connectionState}
+        activeThreadBusy={composer.activeThreadBusy}
+        selectedThreadGitStatus={git.selectedThreadGitStatus}
+        gitOperationLabel={git.gitOperationLabel}
+        selectedThreadQueueCount={composer.selectedThreadQueueCount}
         onBack={() => dismissRoute(router)}
         onOpenDrawer={() => setDrawerVisible(true)}
         onOpenConnectionEditor={() => router.push("/connections")}
-        onChangeDraftMessage={app.onChangeDraftMessage}
-        onPickDraftImages={app.onPickDraftImages}
-        onNativePasteImages={app.onNativePasteImages}
-        onRemoveDraftImage={app.onRemoveDraftImage}
-        onRefresh={app.onRefresh}
-        onRefreshSelectedThreadGitStatus={app.onRefreshSelectedThreadGitStatus}
-        onListSelectedThreadBranches={app.onListSelectedThreadBranches}
-        onCheckoutSelectedThreadBranch={app.onCheckoutSelectedThreadBranch}
-        onCreateSelectedThreadBranch={app.onCreateSelectedThreadBranch}
-        onCreateSelectedThreadWorktree={app.onCreateSelectedThreadWorktree}
-        onPullSelectedThreadBranch={app.onPullSelectedThreadBranch}
-        onRunSelectedThreadGitAction={app.onRunSelectedThreadGitAction}
-        serverConfig={app.serverConfig}
-        onRenameThread={app.onRenameThread}
-        onStopThread={app.onStopThread}
-        onSendMessage={app.onSendMessage}
-        onUpdateThreadModelSelection={app.onUpdateThreadModelSelection}
-        onUpdateThreadRuntimeMode={app.onUpdateThreadRuntimeMode}
-        onUpdateThreadInteractionMode={app.onUpdateThreadInteractionMode}
-        onRespondToApproval={app.onRespondToApproval}
-        onSelectUserInputOption={app.onSelectUserInputOption}
-        onChangeUserInputCustomAnswer={app.onChangeUserInputCustomAnswer}
-        onSubmitUserInput={app.onSubmitUserInput}
+        onChangeDraftMessage={composer.onChangeDraftMessage}
+        onPickDraftImages={composer.onPickDraftImages}
+        onNativePasteImages={composer.onNativePasteImages}
+        onRemoveDraftImage={composer.onRemoveDraftImage}
+        onRefresh={commands.onRefresh}
+        onRefreshSelectedThreadGitStatus={async (options) => {
+          await git.refreshSelectedThreadGitStatus(options);
+        }}
+        onListSelectedThreadBranches={git.onListSelectedThreadBranches}
+        onCheckoutSelectedThreadBranch={git.onCheckoutSelectedThreadBranch}
+        onCreateSelectedThreadBranch={git.onCreateSelectedThreadBranch}
+        onCreateSelectedThreadWorktree={git.onCreateSelectedThreadWorktree}
+        onPullSelectedThreadBranch={git.onPullSelectedThreadBranch}
+        onRunSelectedThreadGitAction={git.onRunSelectedThreadGitAction}
+        serverConfig={serverConfig}
+        onRenameThread={commands.onRenameThread}
+        onStopThread={commands.onStopThread}
+        onSendMessage={composer.onSendMessage}
+        onUpdateThreadModelSelection={commands.onUpdateThreadModelSelection}
+        onUpdateThreadRuntimeMode={commands.onUpdateThreadRuntimeMode}
+        onUpdateThreadInteractionMode={commands.onUpdateThreadInteractionMode}
+        onRespondToApproval={commands.onRespondToApproval}
+        onSelectUserInputOption={composer.onSelectUserInputOption}
+        onChangeUserInputCustomAnswer={composer.onChangeUserInputCustomAnswer}
+        onSubmitUserInput={commands.onSubmitUserInput}
       />
 
       <ThreadNavigationDrawer
         visible={drawerVisible}
-        projects={app.projects}
-        threads={app.threads}
+        projects={projects}
+        threads={threads}
         selectedThreadKey={selectedThreadKey}
         onClose={() => setDrawerVisible(false)}
         onSelectThread={(thread) => {
-          app.onSelectThread(thread);
+          onSelectThread(thread);
           router.replace(buildThreadRoutePath(thread));
         }}
         onStartNewTask={() => router.push("/new")}

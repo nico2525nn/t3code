@@ -2,29 +2,31 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback } from "react";
 
 import { buildThreadRoutePath } from "../../lib/routes";
-import { useRemoteApp } from "../../state/remote-app-state-provider";
+import { useRemoteCatalog } from "../../state/use-remote-catalog";
+import { useThreadSelection } from "../../state/use-thread-selection";
 import { HomeScreen } from "./HomeScreen";
 
 export function HomeRouteScreen() {
-  const app = useRemoteApp();
+  const { connectionState, hasRemoteActivity, projects, threads } = useRemoteCatalog();
+  const { onBackFromThread, onSelectThread } = useThreadSelection();
   const router = useRouter();
 
   useFocusEffect(
     useCallback(() => {
-      app.onBackFromThread();
-    }, [app]),
+      onBackFromThread();
+    }, [onBackFromThread]),
   );
 
   return (
     <HomeScreen
-      projects={app.projects}
-      threads={app.threads}
-      connectionState={app.connectionState}
-      connectionPulse={app.hasRemoteActivity}
+      projects={projects}
+      threads={threads}
+      connectionState={connectionState}
+      connectionPulse={hasRemoteActivity}
       onOpenConnectionEditor={() => router.push("/connections")}
       onOpenNewTask={() => router.push("/new")}
       onSelectThread={(thread) => {
-        app.onSelectThread(thread);
+        onSelectThread(thread);
         router.push(buildThreadRoutePath(thread));
       }}
       showFloatingConnectionButton

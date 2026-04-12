@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { ConnectedEnvironmentSummary } from "../../state/use-remote-app-state";
+import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 import {
