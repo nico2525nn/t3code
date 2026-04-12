@@ -30,7 +30,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
-  CommandId.makeUnsafe(`provider:${event.eventId}:${tag}:${crypto.randomUUID()}`);
+  CommandId.make(`provider:${event.eventId}:${tag}:${crypto.randomUUID()}`);
 
 const TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY = 10_000;
 const TURN_MESSAGE_IDS_BY_TURN_TTL = Duration.minutes(120);
@@ -57,11 +57,11 @@ type RuntimeIngestionInput =
     };
 
 function toTurnId(value: TurnId | string | undefined): TurnId | undefined {
-  return value === undefined ? undefined : TurnId.makeUnsafe(String(value));
+  return value === undefined ? undefined : TurnId.make(String(value));
 }
 
 function toApprovalRequestId(value: string | undefined): ApprovalRequestId | undefined {
-  return value === undefined ? undefined : ApprovalRequestId.makeUnsafe(value);
+  return value === undefined ? undefined : ApprovalRequestId.make(value);
 }
 
 function sameId(left: string | null | undefined, right: string | null | undefined): boolean {
@@ -538,7 +538,7 @@ const make = Effect.fn("make")(function* () {
     lookup: () => Effect.succeed({ text: "", createdAt: "" }),
   });
 
-  const isGitRepoForThread = Effect.fnUntraced(function* (threadId: ThreadId) {
+  const isGitRepoForThread = Effect.fn("isGitRepoForThread")(function* (threadId: ThreadId) {
     const readModel = yield* orchestrationEngine.getReadModel();
     const thread = readModel.threads.find((entry) => entry.id === threadId);
     if (!thread) {
@@ -810,9 +810,9 @@ const make = Effect.fn("make")(function* () {
     ).pipe(Effect.asVoid);
   });
 
-  const getSourceProposedPlanReferenceForPendingTurnStart = Effect.fnUntraced(function* (
-    threadId: ThreadId,
-  ) {
+  const getSourceProposedPlanReferenceForPendingTurnStart = Effect.fn(
+    "getSourceProposedPlanReferenceForPendingTurnStart",
+  )(function* (threadId: ThreadId) {
     const pendingTurnStart = yield* projectionTurnRepository.getPendingTurnStartByThreadId({
       threadId,
     });
@@ -832,16 +832,17 @@ const make = Effect.fn("make")(function* () {
     } as const;
   });
 
-  const getExpectedProviderTurnIdForThread = Effect.fnUntraced(function* (threadId: ThreadId) {
-    const sessions = yield* providerService.listSessions();
-    const session = sessions.find((entry) => entry.threadId === threadId);
-    return session?.activeTurnId;
-  });
+  const getExpectedProviderTurnIdForThread = Effect.fn("getExpectedProviderTurnIdForThread")(
+    function* (threadId: ThreadId) {
+      const sessions = yield* providerService.listSessions();
+      const session = sessions.find((entry) => entry.threadId === threadId);
+      return session?.activeTurnId;
+    },
+  );
 
-  const getSourceProposedPlanReferenceForAcceptedTurnStart = Effect.fnUntraced(function* (
-    threadId: ThreadId,
-    eventTurnId: TurnId | undefined,
-  ) {
+  const getSourceProposedPlanReferenceForAcceptedTurnStart = Effect.fn(
+    "getSourceProposedPlanReferenceForAcceptedTurnStart",
+  )(function* (threadId: ThreadId, eventTurnId: TurnId | undefined) {
     if (eventTurnId === undefined) {
       return null;
     }
@@ -854,34 +855,36 @@ const make = Effect.fn("make")(function* () {
     return yield* getSourceProposedPlanReferenceForPendingTurnStart(threadId);
   });
 
-  const markSourceProposedPlanImplemented = Effect.fnUntraced(function* (
-    sourceThreadId: ThreadId,
-    sourcePlanId: OrchestrationProposedPlanId,
-    implementationThreadId: ThreadId,
-    implementedAt: string,
-  ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
-    const sourceThread = readModel.threads.find((entry) => entry.id === sourceThreadId);
-    const sourcePlan = sourceThread?.proposedPlans.find((entry) => entry.id === sourcePlanId);
-    if (!sourceThread || !sourcePlan || sourcePlan.implementedAt !== null) {
-      return;
-    }
+  const markSourceProposedPlanImplemented = Effect.fn("markSourceProposedPlanImplemented")(
+    function* (
+      sourceThreadId: ThreadId,
+      sourcePlanId: OrchestrationProposedPlanId,
+      implementationThreadId: ThreadId,
+      implementedAt: string,
+    ) {
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const sourceThread = readModel.threads.find((entry) => entry.id === sourceThreadId);
+      const sourcePlan = sourceThread?.proposedPlans.find((entry) => entry.id === sourcePlanId);
+      if (!sourceThread || !sourcePlan || sourcePlan.implementedAt !== null) {
+        return;
+      }
 
-    yield* orchestrationEngine.dispatch({
-      type: "thread.proposed-plan.upsert",
-      commandId: CommandId.makeUnsafe(
-        `provider:source-proposed-plan-implemented:${implementationThreadId}:${crypto.randomUUID()}`,
-      ),
-      threadId: sourceThread.id,
-      proposedPlan: {
-        ...sourcePlan,
-        implementedAt,
-        implementationThreadId,
-        updatedAt: implementedAt,
-      },
-      createdAt: implementedAt,
-    });
-  });
+      yield* orchestrationEngine.dispatch({
+        type: "thread.proposed-plan.upsert",
+        commandId: CommandId.make(
+          `provider:source-proposed-plan-implemented:${implementationThreadId}:${crypto.randomUUID()}`,
+        ),
+        threadId: sourceThread.id,
+        proposedPlan: {
+          ...sourcePlan,
+          implementedAt,
+          implementationThreadId,
+          updatedAt: implementedAt,
+        },
+        createdAt: implementedAt,
+      });
+    },
+  );
 
   const processRuntimeEvent = Effect.fn("processRuntimeEvent")(function* (
     event: ProviderRuntimeEvent,
@@ -1014,7 +1017,7 @@ const make = Effect.fn("make")(function* () {
       event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
 
     if (assistantDelta && assistantDelta.length > 0) {
-      const assistantMessageId = MessageId.makeUnsafe(
+      const assistantMessageId = MessageId.make(
         `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
       );
       const turnId = toTurnId(event.turnId);
@@ -1060,9 +1063,7 @@ const make = Effect.fn("make")(function* () {
     const assistantCompletion =
       event.type === "item.completed" && event.payload.itemType === "assistant_message"
         ? {
-            messageId: MessageId.makeUnsafe(
-              `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
-            ),
+            messageId: MessageId.make(`assistant:${event.itemId ?? event.turnId ?? event.eventId}`),
             fallbackText: event.payload.detail,
           }
         : undefined;
@@ -1197,7 +1198,7 @@ const make = Effect.fn("make")(function* () {
         if (thread.checkpoints.some((c) => c.turnId === turnId)) {
           // Already tracked; no-op.
         } else {
-          const assistantMessageId = MessageId.makeUnsafe(
+          const assistantMessageId = MessageId.make(
             `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
           );
           const maxTurnCount = thread.checkpoints.reduce(
@@ -1210,7 +1211,7 @@ const make = Effect.fn("make")(function* () {
             threadId: thread.id,
             turnId,
             completedAt: now,
-            checkpointRef: CheckpointRef.makeUnsafe(`provider-diff:${event.eventId}`),
+            checkpointRef: CheckpointRef.make(`provider-diff:${event.eventId}`),
             status: "missing",
             files: [],
             assistantMessageId,

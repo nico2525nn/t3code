@@ -1,4 +1,4 @@
-import { Option, Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import { TrimmedNonEmptyString } from "./baseSchemas";
 
@@ -14,7 +14,7 @@ export const UserInputQuestion = Schema.Struct({
   question: TrimmedNonEmptyString,
   options: Schema.Array(UserInputQuestionOption),
   multiSelect: Schema.optional(Schema.Boolean).pipe(
-    Schema.withConstructorDefault(() => Option.some(false)),
+    Schema.withConstructorDefault(Effect.succeed(false)),
   ),
 });
 export type UserInputQuestion = typeof UserInputQuestion.Type;

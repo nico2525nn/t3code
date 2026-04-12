@@ -11,8 +11,9 @@ const ASSISTANT_LINE_HEIGHT_PX = 22.75;
 const ASSISTANT_BASE_HEIGHT_PX = 41;
 const USER_BASE_HEIGHT_PX = 96;
 const ATTACHMENTS_PER_ROW = 2;
-// Attachment thumbnails render with `max-h-[220px]` plus ~8px row gap.
-const USER_ATTACHMENT_ROW_HEIGHT_PX = 228;
+// Full-app browser measurements land closer to a ~116px attachment row once
+// the bubble shrinks to content width, so calibrate the estimate to that DOM.
+const USER_ATTACHMENT_ROW_HEIGHT_PX = 116;
 const USER_BUBBLE_WIDTH_RATIO = 0.8;
 const USER_BUBBLE_HORIZONTAL_PADDING_PX = 32;
 const ASSISTANT_MESSAGE_HORIZONTAL_PADDING_PX = 8;
@@ -20,6 +21,9 @@ const USER_MONO_AVG_CHAR_WIDTH_PX = 8.4;
 const ASSISTANT_AVG_CHAR_WIDTH_PX = 7.2;
 const MIN_USER_CHARS_PER_LINE = 4;
 const MIN_ASSISTANT_CHARS_PER_LINE = 20;
+const ASSISTANT_INLINE_CODE_WIDTH_MULTIPLIER = 1.2;
+const ASSISTANT_INLINE_CODE_WRAP_OVERHEAD_CHARS = 2;
+const INLINE_CODE_SPAN_REGEX = /`([^`\n]+)`/g;
 
 interface TimelineMessageHeightInput {
   role: "user" | "assistant" | "system";
@@ -70,13 +74,30 @@ function estimateCharsPerLineForAssistant(timelineWidthPx: number | null): numbe
   );
 }
 
+function expandAssistantInlineCodeForEstimate(text: string) {
+  return text.replace(INLINE_CODE_SPAN_REGEX, (_match, code: string) =>
+    "x".repeat(
+      Math.max(
+        code.length + 2,
+        Math.ceil(
+          code.length * ASSISTANT_INLINE_CODE_WIDTH_MULTIPLIER +
+            ASSISTANT_INLINE_CODE_WRAP_OVERHEAD_CHARS,
+        ),
+      ),
+    ),
+  );
+}
+
 export function estimateTimelineMessageHeight(
   message: TimelineMessageHeightInput,
   layout: TimelineHeightEstimateLayout = { timelineWidthPx: null },
 ): number {
   if (message.role === "assistant") {
     const charsPerLine = estimateCharsPerLineForAssistant(layout.timelineWidthPx);
-    const estimatedLines = estimateWrappedLineCount(message.text, charsPerLine);
+    const estimatedLines = estimateWrappedLineCount(
+      expandAssistantInlineCodeForEstimate(message.text),
+      charsPerLine,
+    );
     return ASSISTANT_BASE_HEIGHT_PX + estimatedLines * ASSISTANT_LINE_HEIGHT_PX;
   }
 
@@ -102,6 +123,9 @@ export function estimateTimelineMessageHeight(
   // `system` messages are not rendered in the chat timeline, but keep a stable
   // explicit branch in case they are present in timeline data.
   const charsPerLine = estimateCharsPerLineForAssistant(layout.timelineWidthPx);
-  const estimatedLines = estimateWrappedLineCount(message.text, charsPerLine);
+  const estimatedLines = estimateWrappedLineCount(
+    expandAssistantInlineCodeForEstimate(message.text),
+    charsPerLine,
+  );
   return ASSISTANT_BASE_HEIGHT_PX + estimatedLines * ASSISTANT_LINE_HEIGHT_PX;
 }

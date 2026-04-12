@@ -39,6 +39,7 @@ export interface WorkLogEntry {
   label: string;
   detail?: string;
   command?: string;
+  rawCommand?: string;
   changedFiles?: ReadonlyArray<string>;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
@@ -129,30 +130,15 @@ export function formatElapsed(startIso: string, endIso: string | undefined): str
 type LatestTurnTiming = Pick<OrchestrationLatestTurn, "turnId" | "startedAt" | "completedAt">;
 type SessionActivityState = Pick<ThreadSession, "orchestrationStatus" | "activeTurnId">;
 
-export function isSessionActivelyRunningTurn(
-  latestTurn: LatestTurnTiming | null,
-  session: SessionActivityState | null,
-): boolean {
-  if (!session || session.orchestrationStatus !== "running") return false;
-  if (!latestTurn) return true;
-
-  const activeTurnId = session.activeTurnId;
-  if (activeTurnId === undefined) {
-    return latestTurn.completedAt === null;
-  }
-  if (latestTurn.turnId !== activeTurnId) {
-    return true;
-  }
-  return latestTurn.completedAt === null;
-}
-
 export function isLatestTurnSettled(
   latestTurn: LatestTurnTiming | null,
   session: SessionActivityState | null,
 ): boolean {
   if (!latestTurn?.startedAt) return false;
   if (!latestTurn.completedAt) return false;
-  return !isSessionActivelyRunningTurn(latestTurn, session);
+  if (!session) return true;
+  if (session.orchestrationStatus === "running") return false;
+  return true;
 }
 
 export function deriveActiveWorkStartedAt(
@@ -208,7 +194,7 @@ export function derivePendingApprovals(
         : null;
     const requestId =
       payload && typeof payload.requestId === "string"
-        ? ApprovalRequestId.makeUnsafe(payload.requestId)
+        ? ApprovalRequestId.make(payload.requestId)
         : null;
     const requestKind =
       payload &&
@@ -294,6 +280,7 @@ function parseUserInputQuestions(
         header: question.header,
         question: question.question,
         options,
+        multiSelect: question.multiSelect === true,
       };
     })
     .filter((question): question is UserInputQuestion => question !== null);
@@ -313,7 +300,7 @@ export function derivePendingUserInputs(
         : null;
     const requestId =
       payload && typeof payload.requestId === "string"
-        ? ApprovalRequestId.makeUnsafe(payload.requestId)
+        ? ApprovalRequestId.make(payload.requestId)
         : null;
     const detail = payload && typeof payload.detail === "string" ? payload.detail : undefined;
 
@@ -509,7 +496,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       ? activity.payload.detail
       : undefined;
   const toolData = toolPayload && "data" in toolPayload ? toolPayload.data : undefined;
-  const command = extractToolCommand(toolData);
+  const commandPreview = extractToolCommand(toolData, detail);
   const changedFiles = extractChangedFiles(toolData);
   const title =
     "title" in activity.payload && typeof activity.payload.title === "string"
@@ -523,8 +510,11 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       entry.detail = normalizedDetail;
     }
   }
-  if (command) {
-    entry.command = command;
+  if (commandPreview.command) {
+    entry.command = commandPreview.command;
+  }
+  if (commandPreview.rawCommand) {
+    entry.rawCommand = commandPreview.rawCommand;
   }
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
@@ -543,6 +533,24 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     entry.collapseKey = collapseKey;
   }
   return entry;
+}
+
+function toolLifecyclePayloadFromActivity(
+  activity: OrchestrationThreadActivity,
+):
+  | Extract<
+      OrchestrationThreadActivity,
+      { kind: "tool.started" | "tool.updated" | "tool.completed" }
+    >["payload"]
+  | null {
+  switch (activity.kind) {
+    case "tool.started":
+    case "tool.updated":
+    case "tool.completed":
+      return activity.payload;
+    default:
+      return null;
+  }
 }
 
 function collapseDerivedWorkLogEntries(
@@ -583,6 +591,7 @@ function mergeDerivedWorkLogEntries(
   const changedFiles = mergeChangedFiles(previous.changedFiles, next.changedFiles);
   const detail = next.detail ?? previous.detail;
   const command = next.command ?? previous.command;
+  const rawCommand = next.rawCommand ?? previous.rawCommand;
   const toolTitle = next.toolTitle ?? previous.toolTitle;
   const itemType = next.itemType ?? previous.itemType;
   const requestKind = next.requestKind ?? previous.requestKind;
@@ -592,6 +601,7 @@ function mergeDerivedWorkLogEntries(
     ...next,
     ...(detail ? { detail } : {}),
     ...(command ? { command } : {}),
+    ...(rawCommand ? { rawCommand } : {}),
     ...(changedFiles.length > 0 ? { changedFiles } : {}),
     ...(toolTitle ? { toolTitle } : {}),
     ...(itemType ? { itemType } : {}),
@@ -648,7 +658,121 @@ function asTrimmedString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function normalizeCommandValue(value: unknown): string | null {
+function trimMatchingOuterQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  ) {
+    const unquoted = trimmed.slice(1, -1).trim();
+    return unquoted.length > 0 ? unquoted : trimmed;
+  }
+  return trimmed;
+}
+
+function executableBasename(value: string): string | null {
+  const trimmed = trimMatchingOuterQuotes(value);
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const normalized = trimmed.replace(/\\/g, "/");
+  const segments = normalized.split("/");
+  const last = segments.at(-1)?.trim() ?? "";
+  return last.length > 0 ? last.toLowerCase() : null;
+}
+
+function splitExecutableAndRest(value: string): { executable: string; rest: string } | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  if (trimmed.startsWith('"') || trimmed.startsWith("'")) {
+    const quote = trimmed.charAt(0);
+    const closeIndex = trimmed.indexOf(quote, 1);
+    if (closeIndex <= 0) {
+      return null;
+    }
+    return {
+      executable: trimmed.slice(0, closeIndex + 1),
+      rest: trimmed.slice(closeIndex + 1).trim(),
+    };
+  }
+
+  const firstWhitespace = trimmed.search(/\s/);
+  if (firstWhitespace < 0) {
+    return {
+      executable: trimmed,
+      rest: "",
+    };
+  }
+
+  return {
+    executable: trimmed.slice(0, firstWhitespace),
+    rest: trimmed.slice(firstWhitespace).trim(),
+  };
+}
+
+const SHELL_WRAPPER_SPECS = [
+  {
+    executables: ["pwsh", "pwsh.exe", "powershell", "powershell.exe"],
+    wrapperFlagPattern: /(?:^|\s)-command\s+/i,
+  },
+  {
+    executables: ["cmd", "cmd.exe"],
+    wrapperFlagPattern: /(?:^|\s)\/c\s+/i,
+  },
+  {
+    executables: ["bash", "sh", "zsh"],
+    wrapperFlagPattern: /(?:^|\s)-(?:l)?c\s+/i,
+  },
+] as const;
+
+function findShellWrapperSpec(shell: string) {
+  return SHELL_WRAPPER_SPECS.find((spec) =>
+    (spec.executables as ReadonlyArray<string>).includes(shell),
+  );
+}
+
+function unwrapCommandRemainder(value: string, wrapperFlagPattern: RegExp): string | null {
+  const match = wrapperFlagPattern.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const command = value.slice(match.index + match[0].length).trim();
+  if (command.length === 0) {
+    return null;
+  }
+
+  const unwrapped = trimMatchingOuterQuotes(command);
+  return unwrapped.length > 0 ? unwrapped : null;
+}
+
+function unwrapKnownShellCommandWrapper(value: string): string {
+  const split = splitExecutableAndRest(value);
+  if (!split || split.rest.length === 0) {
+    return value;
+  }
+
+  const shell = executableBasename(split.executable);
+  if (!shell) {
+    return value;
+  }
+
+  const spec = findShellWrapperSpec(shell);
+  if (!spec) {
+    return value;
+  }
+
+  return unwrapCommandRemainder(split.rest, spec.wrapperFlagPattern) ?? value;
+}
+
+function formatCommandArrayPart(value: string): string {
+  return /[\s"'`]/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value;
+}
+
+function formatCommandValue(value: unknown): string | null {
   const direct = asTrimmedString(value);
   if (direct) {
     return direct;
@@ -659,36 +783,53 @@ function normalizeCommandValue(value: unknown): string | null {
   const parts = value
     .map((entry) => asTrimmedString(entry))
     .filter((entry): entry is string => entry !== null);
-  return parts.length > 0 ? parts.join(" ") : null;
-}
-
-function toolLifecyclePayloadFromActivity(
-  activity: OrchestrationThreadActivity,
-):
-  | Extract<
-      OrchestrationThreadActivity,
-      { kind: "tool.started" | "tool.updated" | "tool.completed" }
-    >["payload"]
-  | null {
-  switch (activity.kind) {
-    case "tool.started":
-    case "tool.updated":
-    case "tool.completed":
-      return activity.payload;
-    default:
-      return null;
-  }
-}
-
-function extractToolCommand(data: CanonicalToolLifecycleData | undefined): string | null {
-  if (data?.kind !== "command_execution") {
+  if (parts.length === 0) {
     return null;
   }
-  const candidates = [
-    normalizeCommandValue(data.command),
-    normalizeCommandValue(data.input?.command),
+  return parts.map((part) => formatCommandArrayPart(part)).join(" ");
+}
+
+function normalizeCommandValue(value: unknown): string | null {
+  const formatted = formatCommandValue(value);
+  return formatted ? unwrapKnownShellCommandWrapper(formatted) : null;
+}
+
+function toRawToolCommand(value: unknown, normalizedCommand: string | null): string | null {
+  const formatted = formatCommandValue(value);
+  if (!formatted || normalizedCommand === null) {
+    return null;
+  }
+  return formatted === normalizedCommand ? null : formatted;
+}
+
+function extractToolCommand(
+  data: CanonicalToolLifecycleData | undefined,
+  detail: string | undefined,
+): {
+  command: string | null;
+  rawCommand: string | null;
+} {
+  const candidates: unknown[] = [
+    data?.kind === "command_execution" ? data.command : null,
+    data?.input?.command,
+    data?.kind === "command_execution" && detail ? stripTrailingExitCode(detail).output : null,
   ];
-  return candidates.find((candidate) => candidate !== null) ?? null;
+
+  for (const candidate of candidates) {
+    const command = normalizeCommandValue(candidate);
+    if (!command) {
+      continue;
+    }
+    return {
+      command,
+      rawCommand: toRawToolCommand(candidate, command),
+    };
+  }
+
+  return {
+    command: null,
+    rawCommand: null,
+  };
 }
 
 function extractToolTitle(value: string | undefined): string | null {

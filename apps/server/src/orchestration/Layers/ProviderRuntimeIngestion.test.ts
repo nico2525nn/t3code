@@ -30,6 +30,7 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
+import { RepositoryIdentityResolverLive } from "../../project/Layers/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -47,12 +48,12 @@ function makeTestServerSettingsLayer(overrides: Partial<ServerSettings> = {}) {
   return ServerSettingsService.layerTest(overrides);
 }
 
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
-const asItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(value);
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
-const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
+const asProjectId = (value: string): ProjectId => ProjectId.make(value);
+const asItemId = (value: string): ProviderItemId => ProviderItemId.make(value);
+const asEventId = (value: string): EventId => EventId.make(value);
+const asMessageId = (value: string): MessageId => MessageId.make(value);
+const asThreadId = (value: string): ThreadId => ThreadId.make(value);
+const asTurnId = (value: string): TurnId => TurnId.make(value);
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
@@ -99,7 +100,9 @@ function createProviderServiceHarness() {
     listSessions: () => Effect.succeed([...runtimeSessions]),
     getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
     rollbackConversation: () => unsupported(),
-    streamEvents: Stream.fromPubSub(runtimeEventPubSub),
+    get streamEvents() {
+      return Stream.fromPubSub(runtimeEventPubSub);
+    },
   };
 
   const setSession = (session: ProviderSession): void => {
@@ -203,6 +206,7 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provide(OrchestrationProjectionPipelineLive),
       Layer.provide(OrchestrationEventStoreLive),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
+      Layer.provide(RepositoryIdentityResolverLive),
       Layer.provide(SqlitePersistenceMemory),
     );
     const layer = ProviderRuntimeIngestionLive.pipe(
@@ -225,7 +229,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       engine.dispatch({
         type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-provider-project-create"),
+        commandId: CommandId.make("cmd-provider-project-create"),
         projectId: asProjectId("project-1"),
         title: "Provider Project",
         workspaceRoot,
@@ -239,8 +243,8 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       engine.dispatch({
         type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        commandId: CommandId.make("cmd-thread-create"),
+        threadId: ThreadId.make("thread-1"),
         projectId: asProjectId("project-1"),
         title: "Thread",
         modelSelection: {
@@ -257,10 +261,10 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       engine.dispatch({
         type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-seed"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        commandId: CommandId.make("cmd-session-seed"),
+        threadId: ThreadId.make("thread-1"),
         session: {
-          threadId: ThreadId.makeUnsafe("thread-1"),
+          threadId: ThreadId.make("thread-1"),
           status: "ready",
           providerName: "codex",
           runtimeMode: "approval-required",
@@ -275,7 +279,7 @@ describe("ProviderRuntimeIngestion", () => {
       provider: "codex",
       status: "ready",
       runtimeMode: "approval-required",
-      threadId: ThreadId.makeUnsafe("thread-1"),
+      threadId: ThreadId.make("thread-1"),
       createdAt,
       updatedAt: createdAt,
     });
@@ -455,9 +459,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     await harness.drain();
     const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
-    const midThread = midReadModel.threads.find(
-      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
-    );
+    const midThread = midReadModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(midThread?.session?.status).toBe("running");
     expect(midThread?.session?.activeTurnId).toBe("turn-midturn-lifecycle");
 
@@ -484,10 +486,10 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-seed-claude-placeholder"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        commandId: CommandId.make("cmd-session-seed-claude-placeholder"),
+        threadId: ThreadId.make("thread-1"),
         session: {
-          threadId: ThreadId.makeUnsafe("thread-1"),
+          threadId: ThreadId.make("thread-1"),
           status: "ready",
           providerName: "claudeAgent",
           runtimeMode: "approval-required",
@@ -562,9 +564,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     await harness.drain();
     const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
-    const midThread = midReadModel.threads.find(
-      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
-    );
+    const midThread = midReadModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(midThread?.session?.status).toBe("running");
     expect(midThread?.session?.activeTurnId).toBe("turn-primary");
 
@@ -616,9 +616,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     await harness.drain();
     const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
-    const midThread = midReadModel.threads.find(
-      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
-    );
+    const midThread = midReadModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(midThread?.session?.status).toBe("running");
     expect(midThread?.session?.activeTurnId).toBe("turn-guarded-main");
 
@@ -768,7 +766,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create-plan-source"),
+        commandId: CommandId.make("cmd-thread-create-plan-source"),
         threadId: sourceThreadId,
         projectId: asProjectId("project-1"),
         title: "Plan Source",
@@ -786,7 +784,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-set-plan-source"),
+        commandId: CommandId.make("cmd-session-set-plan-source"),
         threadId: sourceThreadId,
         session: {
           threadId: sourceThreadId,
@@ -803,7 +801,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create-plan-target"),
+        commandId: CommandId.make("cmd-thread-create-plan-target"),
         threadId: targetThreadId,
         projectId: asProjectId("project-1"),
         title: "Plan Target",
@@ -821,7 +819,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-set-plan-target"),
+        commandId: CommandId.make("cmd-session-set-plan-target"),
         threadId: targetThreadId,
         session: {
           threadId: targetThreadId,
@@ -880,7 +878,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe("cmd-turn-start-plan-target"),
+        commandId: CommandId.make("cmd-turn-start-plan-target"),
         threadId: targetThreadId,
         message: {
           messageId: asMessageId("msg-plan-target"),
@@ -955,7 +953,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create-plan-source-guarded"),
+        commandId: CommandId.make("cmd-thread-create-plan-source-guarded"),
         threadId: sourceThreadId,
         projectId: asProjectId("project-1"),
         title: "Plan Source",
@@ -973,7 +971,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-set-plan-source-guarded"),
+        commandId: CommandId.make("cmd-session-set-plan-source-guarded"),
         threadId: sourceThreadId,
         session: {
           threadId: sourceThreadId,
@@ -1049,7 +1047,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe("cmd-turn-start-plan-target-guarded"),
+        commandId: CommandId.make("cmd-turn-start-plan-target-guarded"),
         threadId: targetThreadId,
         message: {
           messageId: asMessageId("msg-plan-target-guarded"),
@@ -1108,7 +1106,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create-plan-source-unrelated"),
+        commandId: CommandId.make("cmd-thread-create-plan-source-unrelated"),
         threadId: sourceThreadId,
         projectId: asProjectId("project-1"),
         title: "Plan Source",
@@ -1126,7 +1124,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-set-plan-source-unrelated"),
+        commandId: CommandId.make("cmd-session-set-plan-source-unrelated"),
         threadId: sourceThreadId,
         session: {
           threadId: sourceThreadId,
@@ -1143,7 +1141,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create-plan-target-unrelated"),
+        commandId: CommandId.make("cmd-thread-create-plan-target-unrelated"),
         threadId: targetThreadId,
         projectId: asProjectId("project-1"),
         title: "Plan Target",
@@ -1161,7 +1159,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-set-plan-target-unrelated"),
+        commandId: CommandId.make("cmd-session-set-plan-target-unrelated"),
         threadId: targetThreadId,
         session: {
           threadId: targetThreadId,
@@ -1211,7 +1209,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe("cmd-turn-start-plan-target-unrelated"),
+        commandId: CommandId.make("cmd-turn-start-plan-target-unrelated"),
         threadId: targetThreadId,
         message: {
           messageId: asMessageId("msg-plan-target-unrelated"),
@@ -1362,9 +1360,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     await harness.drain();
     const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
-    const midThread = midReadModel.threads.find(
-      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
-    );
+    const midThread = midReadModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(
       midThread?.messages.some(
         (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-buffered",
@@ -1405,8 +1401,8 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe("cmd-turn-start-streaming-mode"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        commandId: CommandId.make("cmd-turn-start-streaming-mode"),
+        threadId: ThreadId.make("thread-1"),
         message: {
           messageId: asMessageId("message-streaming-mode"),
           role: "user",
@@ -1647,7 +1643,7 @@ describe("ProviderRuntimeIngestion", () => {
       provider: "codex",
       createdAt: now,
       threadId: asThreadId("thread-1"),
-      requestId: ApprovalRequestId.makeUnsafe("req-open"),
+      requestId: ApprovalRequestId.make("req-open"),
       payload: {
         requestType: "command_execution_approval",
         detail: "pwd",
@@ -1660,7 +1656,7 @@ describe("ProviderRuntimeIngestion", () => {
       provider: "codex",
       createdAt: now,
       threadId: asThreadId("thread-1"),
-      requestId: ApprovalRequestId.makeUnsafe("req-open"),
+      requestId: ApprovalRequestId.make("req-open"),
       payload: {
         requestType: "command_execution_approval",
         decision: "accept",
@@ -1679,7 +1675,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
 
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
-    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(thread).toBeDefined();
 
     const requested = thread?.activities.find(
@@ -2286,7 +2282,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-user-input"),
-      requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+      requestId: ApprovalRequestId.make("req-user-input-1"),
       payload: {
         questions: [
           {
@@ -2311,7 +2307,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: new Date().toISOString(),
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-user-input"),
-      requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+      requestId: ApprovalRequestId.make("req-user-input-1"),
       payload: {
         answers: {
           sandbox_mode: "workspace-write",
