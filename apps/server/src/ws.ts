@@ -161,33 +161,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               readonly tone: "error";
             }
         ),
-      ) =>
-        orchestrationEngine.dispatch({
+      ) => {
+        const { threadId, ...rest } = input;
+        return orchestrationEngine.dispatch({
           type: "thread.activity.append",
           commandId: serverCommandId("setup-script-activity"),
-          threadId: input.threadId,
-          activity:
-            input.kind === "setup-script.failed"
-              ? {
-                  id: EventId.make(crypto.randomUUID()),
-                  tone: input.tone,
-                  kind: input.kind,
-                  summary: input.summary,
-                  payload: input.payload,
-                  turnId: null,
-                  createdAt: input.createdAt,
-                }
-              : {
-                  id: EventId.make(crypto.randomUUID()),
-                  tone: input.tone,
-                  kind: input.kind,
-                  summary: input.summary,
-                  payload: input.payload,
-                  turnId: null,
-                  createdAt: input.createdAt,
-                },
+          threadId,
+          activity: {
+            id: EventId.make(crypto.randomUUID()),
+            ...rest,
+            turnId: null,
+          },
           createdAt: input.createdAt,
         });
+      };
 
       const toDispatchCommandError = (cause: unknown, fallbackMessage: string) =>
         Schema.is(OrchestrationDispatchCommandError)(cause)
