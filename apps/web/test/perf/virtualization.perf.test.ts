@@ -163,19 +163,7 @@ test("virtualization stays bounded and heavy thread switches remain snappy", asy
     finished = true;
   } finally {
     if (harness && !finished) {
-      await harness.finishRun({
-        suite: "virtualization",
-        scenarioId: "large_threads",
-        thresholds,
-        metadata: {
-          heavyThreadMessageCount: harness.seededState.threadSummaries.find(
-            (thread) => thread.id === PERF_CATALOG_IDS.largeThreads.heavyAThreadId,
-          )?.messageCount,
-        },
-        actionSummary: {
-          threadSwitchActionPrefix: "thread-switch",
-        },
-      });
+      await harness.dispose();
     }
   }
 });

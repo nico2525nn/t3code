@@ -117,24 +117,7 @@ test("high-frequency websocket events stay responsive under real built-app flow"
     finished = true;
   } finally {
     if (harness && !finished) {
-      await harness.finishRun({
-        suite: "websocket-application",
-        scenarioId: "dense_assistant_stream",
-        thresholds,
-        metadata: {
-          burstSeedThreadId: PERF_CATALOG_IDS.burstBase.burstThreadId,
-          navigationThreadId: PERF_CATALOG_IDS.burstBase.navigationThreadId,
-          fillerThreadId: PERF_CATALOG_IDS.burstBase.fillerThreadId,
-          navigationLiveAssistantMessageId:
-            PERF_CATALOG_IDS.provider.navigationLiveAssistantMessageId,
-          burstLiveAssistantMessageId: PERF_CATALOG_IDS.provider.burstLiveAssistantMessageId,
-          sentinelText: PERF_PROVIDER_SCENARIOS.dense_assistant_stream.sentinelText,
-        },
-        actionSummary: {
-          threadSwitchActionPrefix: "thread-switch",
-          burstActionName: "burst-completion",
-        },
-      });
+      await harness.dispose();
     }
   }
 });

@@ -102,6 +102,7 @@ export interface PerfAppHarness {
     readonly browserMetrics: BrowserPerfMetrics;
     readonly serverMetrics: ReadonlyArray<PerfServerMetricSample> | null;
   }>;
+  readonly dispose: () => Promise<void>;
 }
 
 async function pickFreePort(): Promise<number> {
@@ -466,6 +467,10 @@ export async function startPerfAppHarness(
         })();
 
         return await finishPromise;
+      },
+      dispose: async () => {
+        await sampler.stop().catch(() => undefined);
+        await teardown();
       },
     };
   } catch (error) {
