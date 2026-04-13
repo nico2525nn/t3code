@@ -2,18 +2,18 @@ import { useCallback, useEffect, useMemo } from "react";
 import { Alert } from "react-native";
 
 import {
+  applyShellStreamEvent,
   createEnvironmentConnection,
   createKnownEnvironment,
   createWsRpcClient,
   WsTransport,
 } from "@t3tools/client-runtime";
-import { EnvironmentId, type OrchestrationReadModel } from "@t3tools/contracts";
+import { EnvironmentId } from "@t3tools/contracts";
 import { resolveRemoteWebSocketConnectionUrl } from "@t3tools/shared/remote";
 import { useShallow } from "zustand/react/shallow";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { type SavedRemoteConnection, bootstrapRemoteConnection } from "../lib/connection";
-import { applyRealtimeEvent, requiresSnapshotRefresh } from "../lib/orchestration";
 import { clearSavedConnection, loadSavedConnections, saveConnection } from "../lib/storage";
 import {
   firstNonNull,
@@ -141,36 +141,22 @@ export async function connectSavedEnvironment(
           wsBaseUrl: connection.wsBaseUrl,
         },
       }),
-      environmentId: EnvironmentId.makeUnsafe(connection.environmentId),
+      environmentId: EnvironmentId.make(connection.environmentId),
     },
     client,
-    applyEventBatch: (events, environmentId) => {
-      remoteEnvironmentStore.getState().patchEnvironmentRuntimeState(environmentId, (runtime) => ({
-        ...runtime,
-        snapshot: runtime.snapshot
-          ? events.reduce(
-              (snapshot, event) => applyRealtimeEvent(snapshot, event),
-              runtime.snapshot,
-            )
-          : runtime.snapshot,
-      }));
+    applyShellEvent: (event, environmentId) => {
+      remoteEnvironmentStore.getState().patchEnvironmentRuntimeState(environmentId, (runtime) => {
+        if (!runtime.snapshot) {
+          return runtime;
+        }
 
-      if (events.some((event) => requiresSnapshotRefresh(event))) {
-        void environmentSessions
-          .get(environmentId)
-          ?.client.orchestration.getSnapshot()
-          .then((snapshot: OrchestrationReadModel) => {
-            remoteEnvironmentStore
-              .getState()
-              .patchEnvironmentRuntimeState(environmentId, (runtime) => ({
-                ...runtime,
-                snapshot,
-              }));
-          })
-          .catch(() => undefined);
-      }
+        return {
+          ...runtime,
+          snapshot: applyShellStreamEvent(runtime.snapshot, event),
+        };
+      });
     },
-    syncSnapshot: (snapshot, environmentId) => {
+    syncShellSnapshot: (snapshot, environmentId) => {
       remoteEnvironmentStore.getState().patchEnvironmentRuntimeState(environmentId, (runtime) => ({
         ...runtime,
         snapshot,
@@ -241,7 +227,7 @@ export function useRemoteEnvironmentBootstrap() {
     let cancelled = false;
 
     void loadSavedConnections()
-      .then(async (connections) => {
+      .then((connections) => {
         if (cancelled) {
           return;
         }
@@ -252,7 +238,9 @@ export function useRemoteEnvironmentBootstrap() {
           ),
         );
 
-        await Promise.all(
+        setIsLoadingSavedConnection(false);
+
+        void Promise.all(
           connections.map((connection) =>
             connectSavedEnvironment(connection, {
               persist: false,
@@ -260,7 +248,7 @@ export function useRemoteEnvironmentBootstrap() {
           ),
         );
       })
-      .finally(() => {
+      .catch(() => {
         if (!cancelled) {
           setIsLoadingSavedConnection(false);
         }
@@ -388,6 +376,14 @@ export function useRemoteConnections() {
     [],
   );
 
+  const onReconnectEnvironment = useCallback((environmentId: string) => {
+    const connection = remoteEnvironmentStore.getState().savedConnectionsById[environmentId];
+    if (!connection) {
+      return;
+    }
+    void connectSavedEnvironment(connection, { persist: false });
+  }, []);
+
   const onRemoveEnvironmentPress = useCallback((environmentId: string) => {
     const connection = remoteEnvironmentStore.getState().savedConnectionsById[environmentId];
     if (!connection) {
@@ -418,6 +414,7 @@ export function useRemoteConnections() {
     connectedEnvironmentCount: connectedEnvironments.length,
     onChangeConnectionPairingUrl: setConnectionPairingUrl,
     onConnectPress,
+    onReconnectEnvironment,
     onUpdateEnvironment,
     onRemoveEnvironmentPress,
   };

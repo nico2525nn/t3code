@@ -34,14 +34,13 @@ export function useRemoteCatalog() {
     () =>
       Arr.sort(
         Object.values(savedConnectionsById).flatMap((connection) =>
-          (environmentStateById[connection.environmentId]?.snapshot?.projects ?? [])
-            .filter((project) => project.deletedAt === null)
-            .map((project) =>
+          (environmentStateById[connection.environmentId]?.snapshot?.projects ?? []).map(
+            (project) =>
               Object.assign({}, project, {
                 environmentId: connection.environmentId,
                 environmentLabel: connection.environmentLabel,
               }),
-            ),
+          ),
         ),
         projectsSortOrder,
       ),
@@ -52,14 +51,17 @@ export function useRemoteCatalog() {
     () =>
       Arr.sort(
         Object.values(savedConnectionsById).flatMap((connection) =>
-          (environmentStateById[connection.environmentId]?.snapshot?.threads ?? [])
-            .filter((thread) => thread.deletedAt === null)
-            .map((thread) =>
-              Object.assign({}, thread, {
-                environmentId: connection.environmentId,
-                environmentLabel: connection.environmentLabel,
-              }),
-            ),
+          (environmentStateById[connection.environmentId]?.snapshot?.threads ?? []).map((thread) =>
+            Object.assign({}, thread, {
+              environmentId: connection.environmentId,
+              environmentLabel: connection.environmentLabel,
+              deletedAt: null,
+              messages: [],
+              proposedPlans: [],
+              activities: [],
+              checkpoints: [],
+            }),
+          ),
         ),
         threadsSortOrder,
       ),

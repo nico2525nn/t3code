@@ -209,20 +209,18 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
         {/* Feed area — KAV shrinks this when keyboard opens */}
         <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
           {showContent ? (
-            <View style={{ flex: 1, minHeight: 0 }}>
-              <ThreadFeed
-                threadId={props.selectedThread.id}
-                feed={props.selectedThreadFeed}
-                httpBaseUrl={props.httpBaseUrl}
-                bearerToken={props.bearerToken}
-                agentLabel={agentLabel}
-                contentBottomInset={composerOverlapHeight + 8}
-                layoutVariant={layoutVariant}
-                composerExpanded={composerExpanded}
-                refreshing={refreshing}
-                onRefresh={() => void handleRefresh()}
-              />
-            </View>
+            <ThreadFeed
+              threadId={props.selectedThread.id}
+              feed={props.selectedThreadFeed}
+              httpBaseUrl={props.httpBaseUrl}
+              bearerToken={props.bearerToken}
+              agentLabel={agentLabel}
+              contentBottomInset={composerOverlapHeight + 8}
+              layoutVariant={layoutVariant}
+              composerExpanded={composerExpanded}
+              refreshing={refreshing}
+              onRefresh={() => void handleRefresh()}
+            />
           ) : (
             <View style={{ flex: 1 }} />
           )}

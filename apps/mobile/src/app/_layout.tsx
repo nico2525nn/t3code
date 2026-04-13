@@ -95,11 +95,7 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <KeyboardProvider statusBarTranslucent>
           <SafeAreaProvider>
-            {fontsLoaded ? (
-              <AppNavigator />
-            ) : (
-              <LoadingScreen message="Loading remote workspace…" />
-            )}
+            {fontsLoaded ? <AppNavigator /> : <LoadingScreen message="Loading remote workspace…" />}
           </SafeAreaProvider>
         </KeyboardProvider>
       </GestureHandlerRootView>

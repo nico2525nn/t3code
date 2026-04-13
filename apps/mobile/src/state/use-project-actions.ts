@@ -42,14 +42,10 @@ function useRefreshRemoteData() {
           }
 
           try {
-            const [serverConfig, snapshot] = await Promise.all([
-              client.server.getConfig(),
-              client.orchestration.getSnapshot(),
-            ]);
+            const serverConfig = await client.server.getConfig();
             patchEnvironmentRuntimeState(environmentId, (current) => ({
               ...current,
               serverConfig,
-              snapshot,
               connectionError: null,
             }));
           } catch (error) {
@@ -91,7 +87,7 @@ export function useProjectActions() {
         return null;
       }
 
-      const threadId = ThreadId.makeUnsafe(uuidv4());
+      const threadId = ThreadId.make(uuidv4());
       const createdAt = new Date().toISOString();
       const initialMessageText = input.initialMessageText.trim();
       const nextTitle = deriveThreadTitleFromPrompt(input.initialMessageText);
@@ -103,10 +99,10 @@ export function useProjectActions() {
 
         await client.orchestration.dispatchCommand({
           type: "thread.turn.start",
-          commandId: CommandId.makeUnsafe(uuidv4()),
+          commandId: CommandId.make(uuidv4()),
           threadId,
           message: {
-            messageId: MessageId.makeUnsafe(uuidv4()),
+            messageId: MessageId.make(uuidv4()),
             role: "user",
             text: initialMessageText,
             attachments: input.initialAttachments,
@@ -138,7 +134,7 @@ export function useProjectActions() {
       } else {
         await client.orchestration.dispatchCommand({
           type: "thread.create",
-          commandId: CommandId.makeUnsafe(uuidv4()),
+          commandId: CommandId.make(uuidv4()),
           threadId,
           projectId: input.project.id,
           title: nextTitle,
@@ -153,10 +149,10 @@ export function useProjectActions() {
         if (initialMessageText.length > 0 || input.initialAttachments.length > 0) {
           await client.orchestration.dispatchCommand({
             type: "thread.turn.start",
-            commandId: CommandId.makeUnsafe(uuidv4()),
+            commandId: CommandId.make(uuidv4()),
             threadId,
             message: {
-              messageId: MessageId.makeUnsafe(uuidv4()),
+              messageId: MessageId.make(uuidv4()),
               role: "user",
               text: initialMessageText,
               attachments: input.initialAttachments,

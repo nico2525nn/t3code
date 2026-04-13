@@ -7,6 +7,7 @@ import Markdown from "react-native-markdown-display";
 import { Image, Pressable, ScrollView, View } from "react-native";
 import { TouchableOpacity } from "react-native-gesture-handler";
 import ImageViewing from "react-native-image-viewing";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../lib/useThemeColor";
 
 import { AppText as Text } from "../../components/AppText";
@@ -440,6 +441,8 @@ function renderFeedEntry(
   );
 }
 
+const IOS_NAV_BAR_HEIGHT = 44;
+
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const listRef = useRef<LegendListRef>(null);
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -450,6 +453,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     headers?: Record<string, string>;
   } | null>(null);
   const horizontalPadding = props.layoutVariant === "split" ? 20 : 16;
+  const insets = useSafeAreaInsets();
+  const topContentInset = insets.top + IOS_NAV_BAR_HEIGHT;
 
   const iconSubtleColor = useThemeColor("--color-icon-subtle");
   const markdownStyles = useMarkdownStyles();
@@ -533,7 +538,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     return (
       <ScrollView
         style={{ flex: 1 }}
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
+        contentInset={{ top: topContentInset }}
+        contentOffset={{ x: 0, y: -topContentInset }}
+        scrollIndicatorInsets={{ top: topContentInset }}
         contentContainerStyle={{
           flexGrow: 1,
           paddingHorizontal: horizontalPadding,
@@ -549,12 +557,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   }
 
   return (
-    <View className="flex-1" style={{ minHeight: 0 }}>
+    <>
       <LegendList
         ref={listRef}
         key={props.threadId}
         style={{ flex: 1 }}
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
+        contentInset={{ top: topContentInset }}
+        scrollIndicatorInsets={{ top: topContentInset }}
         data={props.feed as ThreadFeedEntry[]}
         renderItem={renderItem}
         keyExtractor={(entry) => `${entry.type}:${entry.id}`}
@@ -567,8 +577,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         refreshing={props.refreshing ?? false}
         onRefresh={props.onRefresh}
         contentContainerStyle={{
+          paddingTop: 12,
           paddingHorizontal: horizontalPadding,
-          paddingTop: 8,
           paddingBottom: props.contentBottomInset ?? 18,
         }}
       />
@@ -590,6 +600,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         swipeToCloseEnabled
         doubleTapToZoomEnabled
       />
-    </View>
+    </>
   );
 });

@@ -64,142 +64,140 @@ export function GitBranchesSheet() {
         gap: 16,
       }}
     >
-        <View className="gap-2 rounded-[18px] border border-border bg-card px-4 py-4">
-          <Text
-            className="text-foreground-secondary text-[11px] font-t3-bold uppercase"
-            style={{ letterSpacing: 1 }}
-          >
-            New branch
-          </Text>
-          <TextInput
-            value={newBranchName}
-            onChangeText={setNewBranchName}
-            placeholder="feature/mobile-polish"
-            className="rounded-[18px] px-3.5 py-3 font-sans text-[15px]"
-            style={{
-              borderWidth: 1,
-              borderColor: inputBorderColor,
-              backgroundColor: inputBg,
-              color: foregroundColor,
-            }}
-          />
-          <SheetActionButton
-            icon="plus"
-            label="Create & checkout"
-            tone="primary"
-            disabled={busy || newBranchName.trim().length === 0}
-            onPress={() => {
-              const branch = sanitizeFeatureBranchName(newBranchName.trim());
-              if (branch.length === 0) return;
-              void gitActions.onCreateSelectedThreadBranch(branch).then(() => {
-                setNewBranchName("");
-                router.dismiss();
-              });
-            }}
-          />
-        </View>
+      <View className="gap-2 rounded-[18px] border border-border bg-card px-4 py-4">
+        <Text
+          className="text-foreground-secondary text-[11px] font-t3-bold uppercase"
+          style={{ letterSpacing: 1 }}
+        >
+          New branch
+        </Text>
+        <TextInput
+          value={newBranchName}
+          onChangeText={setNewBranchName}
+          placeholder="feature/mobile-polish"
+          className="rounded-[18px] px-3.5 py-3 font-sans text-[15px]"
+          style={{
+            borderWidth: 1,
+            borderColor: inputBorderColor,
+            backgroundColor: inputBg,
+            color: foregroundColor,
+          }}
+        />
+        <SheetActionButton
+          icon="plus"
+          label="Create & checkout"
+          tone="primary"
+          disabled={busy || newBranchName.trim().length === 0}
+          onPress={() => {
+            const branch = sanitizeFeatureBranchName(newBranchName.trim());
+            if (branch.length === 0) return;
+            void gitActions.onCreateSelectedThreadBranch(branch).then(() => {
+              setNewBranchName("");
+              router.dismiss();
+            });
+          }}
+        />
+      </View>
 
-        <View className="gap-2 rounded-[18px] border border-border bg-card px-4 py-4">
-          <Text
-            className="text-foreground-secondary text-[11px] font-t3-bold uppercase"
-            style={{ letterSpacing: 1 }}
-          >
-            New worktree
+      <View className="gap-2 rounded-[18px] border border-border bg-card px-4 py-4">
+        <Text
+          className="text-foreground-secondary text-[11px] font-t3-bold uppercase"
+          style={{ letterSpacing: 1 }}
+        >
+          New worktree
+        </Text>
+        <TextInput
+          value={worktreeBaseBranch}
+          onChangeText={setWorktreeBaseBranch}
+          placeholder="main"
+          className="rounded-[18px] px-3.5 py-3 font-sans text-[15px]"
+          style={{
+            borderWidth: 1,
+            borderColor: inputBorderColor,
+            backgroundColor: inputBg,
+            color: foregroundColor,
+          }}
+        />
+        <TextInput
+          value={worktreeBranchName}
+          onChangeText={setWorktreeBranchName}
+          placeholder="feature/mobile-thread"
+          className="rounded-[18px] px-3.5 py-3 font-sans text-[15px]"
+          style={{
+            borderWidth: 1,
+            borderColor: inputBorderColor,
+            backgroundColor: inputBg,
+            color: foregroundColor,
+          }}
+        />
+        <SheetActionButton
+          icon="square.split.2x1"
+          label="Create worktree"
+          tone="primary"
+          disabled={
+            busy || worktreeBaseBranch.trim().length === 0 || worktreeBranchName.trim().length === 0
+          }
+          onPress={() => {
+            const baseBranch = worktreeBaseBranch.trim();
+            const newBranch = worktreeBranchName.trim();
+            if (baseBranch.length === 0 || newBranch.length === 0) return;
+            void gitActions.onCreateSelectedThreadWorktree({ baseBranch, newBranch }).then(() => {
+              setWorktreeBranchName("");
+              router.dismiss();
+            });
+          }}
+        />
+      </View>
+
+      <View className="gap-2">
+        <Text
+          className="text-foreground-secondary text-[11px] font-t3-bold uppercase"
+          style={{ letterSpacing: 1 }}
+        >
+          Existing branches
+        </Text>
+        {branchesLoading ? (
+          <Text className="text-foreground-secondary text-[13px] font-medium">
+            Loading branches...
           </Text>
-          <TextInput
-            value={worktreeBaseBranch}
-            onChangeText={setWorktreeBaseBranch}
-            placeholder="main"
-            className="rounded-[18px] px-3.5 py-3 font-sans text-[15px]"
-            style={{
-              borderWidth: 1,
-              borderColor: inputBorderColor,
-              backgroundColor: inputBg,
-              color: foregroundColor,
-            }}
-          />
-          <TextInput
-            value={worktreeBranchName}
-            onChangeText={setWorktreeBranchName}
-            placeholder="feature/mobile-thread"
-            className="rounded-[18px] px-3.5 py-3 font-sans text-[15px]"
-            style={{
-              borderWidth: 1,
-              borderColor: inputBorderColor,
-              backgroundColor: inputBg,
-              color: foregroundColor,
-            }}
-          />
-          <SheetActionButton
-            icon="square.split.2x1"
-            label="Create worktree"
-            tone="primary"
-            disabled={
-              busy || worktreeBaseBranch.trim().length === 0 || worktreeBranchName.trim().length === 0
-            }
-            onPress={() => {
-              const baseBranch = worktreeBaseBranch.trim();
-              const newBranch = worktreeBranchName.trim();
-              if (baseBranch.length === 0 || newBranch.length === 0) return;
-              void gitActions
-                .onCreateSelectedThreadWorktree({ baseBranch, newBranch })
-                .then(() => {
-                  setWorktreeBranchName("");
+        ) : null}
+        {!branchesLoading && availableBranches.length === 0 ? (
+          <Text className="text-foreground-secondary text-[13px] font-medium">
+            No local branches found.
+          </Text>
+        ) : null}
+        {availableBranches.map((branch) => {
+          const disabled = disabledExistingBranches.has(branch.name);
+          const subtitle = branch.worktreePath
+            ? branch.worktreePath === currentWorktreePath
+              ? "Checked out in this thread"
+              : "Checked out in another worktree"
+            : branch.isDefault
+              ? "Default branch"
+              : "Local branch";
+
+          return (
+            <Pressable
+              key={branch.name}
+              className="gap-1 rounded-[18px] border px-4 py-3"
+              disabled={busy || disabled}
+              style={{
+                borderColor: branch.current ? subtleStrongColor : borderColor,
+                opacity: busy || disabled ? 0.45 : 1,
+              }}
+              onPress={() => {
+                void gitActions.onCheckoutSelectedThreadBranch(branch.name).then(() => {
                   router.dismiss();
                 });
-            }}
-          />
-        </View>
-
-        <View className="gap-2">
-          <Text
-            className="text-foreground-secondary text-[11px] font-t3-bold uppercase"
-            style={{ letterSpacing: 1 }}
-          >
-            Existing branches
-          </Text>
-          {branchesLoading ? (
-            <Text className="text-foreground-secondary text-[13px] font-medium">
-              Loading branches...
-            </Text>
-          ) : null}
-          {!branchesLoading && availableBranches.length === 0 ? (
-            <Text className="text-foreground-secondary text-[13px] font-medium">
-              No local branches found.
-            </Text>
-          ) : null}
-          {availableBranches.map((branch) => {
-            const disabled = disabledExistingBranches.has(branch.name);
-            const subtitle = branch.worktreePath
-              ? branch.worktreePath === currentWorktreePath
-                ? "Checked out in this thread"
-                : "Checked out in another worktree"
-              : branch.isDefault
-                ? "Default branch"
-                : "Local branch";
-
-            return (
-              <Pressable
-                key={branch.name}
-                className="gap-1 rounded-[18px] border px-4 py-3"
-                disabled={busy || disabled}
-                style={{
-                  borderColor: branch.current ? subtleStrongColor : borderColor,
-                  opacity: busy || disabled ? 0.45 : 1,
-                }}
-                onPress={() => {
-                  void gitActions.onCheckoutSelectedThreadBranch(branch.name).then(() => {
-                    router.dismiss();
-                  });
-                }}
-              >
-                <View className="absolute inset-0 rounded-[18px] bg-card" />
-                <Text className="text-foreground text-[15px] font-t3-bold">{branch.name}</Text>
-                <Text className="text-foreground-secondary text-[12px] font-medium">{subtitle}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+              }}
+            >
+              <View className="absolute inset-0 rounded-[18px] bg-card" />
+              <Text className="text-foreground text-[15px] font-t3-bold">{branch.name}</Text>
+              <Text className="text-foreground-secondary text-[12px] font-medium">{subtitle}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </ScrollView>
   );
 }

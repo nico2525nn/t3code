@@ -1,6 +1,7 @@
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 
+import type { OrchestrationThread } from "@t3tools/contracts";
 import type { SavedRemoteConnection } from "../lib/connection";
 import {
   defaultEnvironmentRuntimeState,
@@ -13,6 +14,8 @@ export interface RemoteEnvironmentStoreState {
   readonly pendingConnectionError: string | null;
   readonly savedConnectionsById: Record<string, SavedRemoteConnection>;
   readonly environmentStateById: Record<string, EnvironmentRuntimeState>;
+  /** Full thread detail keyed by `${environmentId}:${threadId}`. */
+  readonly threadDetailByKey: Record<string, OrchestrationThread>;
 
   readonly setIsLoadingSavedConnection: (value: boolean) => void;
   readonly setConnectionPairingUrl: (pairingUrl: string) => void;
@@ -27,6 +30,8 @@ export interface RemoteEnvironmentStoreState {
     updater: (current: EnvironmentRuntimeState) => EnvironmentRuntimeState,
   ) => void;
   readonly removeEnvironmentRuntimeState: (environmentId: string) => void;
+  readonly setThreadDetail: (key: string, thread: OrchestrationThread) => void;
+  readonly removeThreadDetail: (key: string) => void;
 }
 
 export const remoteEnvironmentStore = createStore<RemoteEnvironmentStoreState>()((set) => ({
@@ -35,6 +40,7 @@ export const remoteEnvironmentStore = createStore<RemoteEnvironmentStoreState>()
   pendingConnectionError: null,
   savedConnectionsById: {},
   environmentStateById: {},
+  threadDetailByKey: {},
 
   setIsLoadingSavedConnection: (value) => set({ isLoadingSavedConnection: value }),
   setConnectionPairingUrl: (pairingUrl) => set({ connectionPairingUrl: pairingUrl }),
@@ -69,6 +75,16 @@ export const remoteEnvironmentStore = createStore<RemoteEnvironmentStoreState>()
       const next = { ...state.environmentStateById };
       delete next[environmentId];
       return { environmentStateById: next };
+    }),
+  setThreadDetail: (key, thread) =>
+    set((state) => ({
+      threadDetailByKey: { ...state.threadDetailByKey, [key]: thread },
+    })),
+  removeThreadDetail: (key) =>
+    set((state) => {
+      const next = { ...state.threadDetailByKey };
+      delete next[key];
+      return { threadDetailByKey: next };
     }),
 }));
 

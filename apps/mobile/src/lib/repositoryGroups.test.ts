@@ -16,7 +16,6 @@ function makeProject(
     scripts: [],
     createdAt: "2026-04-01T00:00:00.000Z",
     updatedAt: "2026-04-01T00:00:00.000Z",
-    deletedAt: null,
     ...input,
   };
 }
@@ -43,6 +42,10 @@ function makeThread(
     activities: [],
     checkpoints: [],
     session: null,
+    latestUserMessageAt: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    hasActionableProposedPlan: false,
     ...input,
   };
 }
@@ -66,14 +69,14 @@ describe("groupProjectsByRepository", () => {
       makeProject({
         environmentId: "env-local",
         environmentLabel: "Local",
-        id: ProjectId.makeUnsafe("project-local"),
+        id: ProjectId.make("project-local"),
         title: "T3 Code",
         repositoryIdentity: repoIdentity,
       }),
       makeProject({
         environmentId: "env-staging",
         environmentLabel: "Staging",
-        id: ProjectId.makeUnsafe("project-staging"),
+        id: ProjectId.make("project-staging"),
         title: "T3 Code",
         repositoryIdentity: repoIdentity,
       }),
@@ -83,8 +86,8 @@ describe("groupProjectsByRepository", () => {
       makeThread({
         environmentId: "env-staging",
         environmentLabel: "Staging",
-        id: ThreadId.makeUnsafe("thread-2"),
-        projectId: ProjectId.makeUnsafe("project-staging"),
+        id: ThreadId.make("thread-2"),
+        projectId: ProjectId.make("project-staging"),
         title: "Fix reconnect flow",
         modelSelection: { provider: "codex", model: "gpt-5.4" },
         updatedAt: "2026-04-02T12:00:00.000Z",
@@ -92,8 +95,8 @@ describe("groupProjectsByRepository", () => {
       makeThread({
         environmentId: "env-local",
         environmentLabel: "Local",
-        id: ThreadId.makeUnsafe("thread-1"),
-        projectId: ProjectId.makeUnsafe("project-local"),
+        id: ThreadId.make("thread-1"),
+        projectId: ProjectId.make("project-local"),
         title: "Polish mobile shell",
         modelSelection: { provider: "codex", model: "gpt-5.4" },
         updatedAt: "2026-04-03T12:00:00.000Z",
@@ -121,7 +124,7 @@ describe("groupProjectsByRepository", () => {
       makeProject({
         environmentId: "env-local",
         environmentLabel: "Local",
-        id: ProjectId.makeUnsafe("project-local"),
+        id: ProjectId.make("project-local"),
         title: "Scratchpad",
       }),
     ];

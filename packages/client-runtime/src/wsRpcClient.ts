@@ -1,7 +1,5 @@
 import {
   type GitActionProgressEvent,
-  type GitStatusLocalResult,
-  type GitStatusRemoteResult,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
   type GitStatusResult,
@@ -11,75 +9,11 @@ import {
   type ServerSettingsPatch,
   WS_METHODS,
 } from "@t3tools/contracts";
+import { applyGitStatusStreamEvent } from "@t3tools/shared/git";
 import { Effect, Stream } from "effect";
 
 import { type WsRpcProtocolClient } from "./wsRpcProtocol";
 import { WsTransport } from "./wsTransport";
-
-const EMPTY_GIT_STATUS_REMOTE: GitStatusRemoteResult = {
-  hasUpstream: false,
-  aheadCount: 0,
-  behindCount: 0,
-  pr: null,
-};
-
-function mergeGitStatusParts(
-  local: GitStatusLocalResult,
-  remote: GitStatusRemoteResult | null,
-): GitStatusResult {
-  return {
-    ...local,
-    ...(remote ?? EMPTY_GIT_STATUS_REMOTE),
-  };
-}
-
-function toRemoteStatusPart(status: GitStatusResult): GitStatusRemoteResult {
-  return {
-    hasUpstream: status.hasUpstream,
-    aheadCount: status.aheadCount,
-    behindCount: status.behindCount,
-    pr: status.pr,
-  };
-}
-
-function toLocalStatusPart(status: GitStatusResult): GitStatusLocalResult {
-  return {
-    isRepo: status.isRepo,
-    ...(status.hostingProvider ? { hostingProvider: status.hostingProvider } : {}),
-    hasOriginRemote: status.hasOriginRemote,
-    isDefaultBranch: status.isDefaultBranch,
-    branch: status.branch,
-    hasWorkingTreeChanges: status.hasWorkingTreeChanges,
-    workingTree: status.workingTree,
-  };
-}
-
-function applyGitStatusStreamEvent(
-  current: GitStatusResult | null,
-  event: GitStatusStreamEvent,
-): GitStatusResult {
-  switch (event._tag) {
-    case "snapshot":
-      return mergeGitStatusParts(event.local, event.remote);
-    case "localUpdated":
-      return mergeGitStatusParts(event.local, current ? toRemoteStatusPart(current) : null);
-    case "remoteUpdated":
-      if (current === null) {
-        return mergeGitStatusParts(
-          {
-            isRepo: true,
-            hasOriginRemote: false,
-            isDefaultBranch: false,
-            branch: null,
-            hasWorkingTreeChanges: false,
-            workingTree: { files: [], insertions: 0, deletions: 0 },
-          },
-          event.remote,
-        );
-      }
-      return mergeGitStatusParts(toLocalStatusPart(current), event.remote);
-  }
-}
 
 type RpcTag = keyof WsRpcProtocolClient & string;
 type RpcMethod<TTag extends RpcTag> = WsRpcProtocolClient[TTag];
@@ -102,6 +36,15 @@ type RpcUnaryNoArgMethod<TTag extends RpcTag> =
 type RpcStreamMethod<TTag extends RpcTag> =
   RpcMethod<TTag> extends (input: any, options?: any) => Stream.Stream<infer TEvent, any, any>
     ? (listener: (event: TEvent) => void, options?: StreamSubscriptionOptions) => () => void
+    : never;
+
+type RpcInputStreamMethod<TTag extends RpcTag> =
+  RpcMethod<TTag> extends (input: any, options?: any) => Stream.Stream<infer TEvent, any, any>
+    ? (
+        input: RpcInput<TTag>,
+        listener: (event: TEvent) => void,
+        options?: StreamSubscriptionOptions,
+      ) => () => void
     : never;
 
 interface GitRunStackedActionOptions {
@@ -166,12 +109,11 @@ export interface WsRpcClient {
     readonly subscribeAuthAccess: RpcStreamMethod<typeof WS_METHODS.subscribeAuthAccess>;
   };
   readonly orchestration: {
-    readonly getSnapshot: RpcUnaryNoArgMethod<typeof ORCHESTRATION_WS_METHODS.getSnapshot>;
     readonly dispatchCommand: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.dispatchCommand>;
     readonly getTurnDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getTurnDiff>;
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
-    readonly replayEvents: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.replayEvents>;
-    readonly onDomainEvent: RpcStreamMethod<typeof WS_METHODS.subscribeOrchestrationDomainEvents>;
+    readonly subscribeShell: RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeShell>;
+    readonly subscribeThread: RpcInputStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeThread>;
   };
 }
 
@@ -281,21 +223,21 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         ),
     },
     orchestration: {
-      getSnapshot: () =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.getSnapshot]({})),
       dispatchCommand: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.dispatchCommand](input)),
       getTurnDiff: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getTurnDiff](input)),
       getFullThreadDiff: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getFullThreadDiff](input)),
-      replayEvents: (input) =>
-        transport
-          .request((client) => client[ORCHESTRATION_WS_METHODS.replayEvents](input))
-          .then((events) => [...events]),
-      onDomainEvent: (listener, options) =>
+      subscribeShell: (listener, options) =>
         transport.subscribe(
-          (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),
+          (client) => client[ORCHESTRATION_WS_METHODS.subscribeShell]({}),
+          listener,
+          options,
+        ),
+      subscribeThread: (input, listener, options) =>
+        transport.subscribe(
+          (client) => client[ORCHESTRATION_WS_METHODS.subscribeThread](input),
           listener,
           options,
         ),

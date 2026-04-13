@@ -1,4 +1,7 @@
-import type { OrchestrationReadModel, ServerConfig as T3ServerConfig } from "@t3tools/contracts";
+import type {
+  OrchestrationShellSnapshot,
+  ServerConfig as T3ServerConfig,
+} from "@t3tools/contracts";
 import type { EnvironmentConnection, WsRpcClient } from "@t3tools/client-runtime";
 
 export type RemoteClientConnectionState =
@@ -24,7 +27,7 @@ export interface SelectedThreadRef {
 export interface EnvironmentRuntimeState {
   readonly connectionState: RemoteClientConnectionState;
   readonly connectionError: string | null;
-  readonly snapshot: OrchestrationReadModel | null;
+  readonly snapshot: OrchestrationShellSnapshot | null;
   readonly serverConfig: T3ServerConfig | null;
 }
 

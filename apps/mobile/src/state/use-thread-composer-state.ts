@@ -8,7 +8,6 @@ import {
   pasteComposerClipboard,
   pickComposerImages,
 } from "../lib/composerImages";
-import { applyOptimisticUserMessage } from "../lib/orchestration";
 import type { ScopedMobileThread } from "../lib/scopedEntities";
 import { scopedRequestKey, scopedThreadKey } from "../lib/scopedEntities";
 import {
@@ -106,9 +105,7 @@ export function useThreadComposerState() {
   const { connectedEnvironments } = useRemoteConnectionStatus();
   const { threads } = useRemoteCatalog();
   const { selectedThread } = useThreadSelection();
-  const patchEnvironmentRuntimeState = useRemoteEnvironmentStore(
-    (state) => state.patchEnvironmentRuntimeState,
-  );
+
   const setPendingConnectionError = useRemoteEnvironmentStore(
     (state) => state.setPendingConnectionError,
   );
@@ -242,10 +239,10 @@ export function useThreadComposerState() {
       try {
         await client.orchestration.dispatchCommand({
           type: "thread.turn.start",
-          commandId: CommandId.makeUnsafe(queuedMessage.commandId),
-          threadId: ThreadId.makeUnsafe(queuedMessage.threadId),
+          commandId: CommandId.make(queuedMessage.commandId),
+          threadId: ThreadId.make(queuedMessage.threadId),
           message: {
-            messageId: MessageId.makeUnsafe(queuedMessage.messageId),
+            messageId: MessageId.make(queuedMessage.messageId),
             role: "user",
             text: queuedMessage.text,
             attachments: queuedMessage.attachments,
@@ -260,18 +257,6 @@ export function useThreadComposerState() {
           queuedMessage.threadId,
           queuedMessage.messageId,
         );
-        patchEnvironmentRuntimeState(queuedMessage.environmentId, (runtime) => ({
-          ...runtime,
-          snapshot: runtime.snapshot
-            ? applyOptimisticUserMessage(runtime.snapshot, {
-                threadId: ThreadId.makeUnsafe(queuedMessage.threadId),
-                messageId: MessageId.makeUnsafe(queuedMessage.messageId),
-                text: queuedMessage.text,
-                attachments: queuedMessage.attachments,
-                createdAt: queuedMessage.createdAt,
-              })
-            : runtime.snapshot,
-        }));
       } catch (error) {
         removeQueuedMessage(
           queuedMessage.environmentId,
@@ -288,7 +273,6 @@ export function useThreadComposerState() {
     [
       beginDispatchingQueuedMessage,
       finishDispatchingQueuedMessage,
-      patchEnvironmentRuntimeState,
       removeQueuedMessage,
       setPendingConnectionError,
       threads,
@@ -319,8 +303,8 @@ export function useThreadComposerState() {
     enqueueQueuedMessage({
       environmentId: selectedThread.environmentId,
       threadId: selectedThread.id,
-      messageId: MessageId.makeUnsafe(uuidv4()),
-      commandId: CommandId.makeUnsafe(uuidv4()),
+      messageId: MessageId.make(uuidv4()),
+      commandId: CommandId.make(uuidv4()),
       text,
       attachments,
       createdAt,

@@ -122,7 +122,16 @@ export function menuItemIconName(
   return "arrow.up.right.circle";
 }
 
-export function statusSummary(gitStatus: { readonly isRepo?: boolean; readonly hasWorkingTreeChanges?: boolean; readonly workingTree?: { readonly files: readonly { readonly path: string }[] }; readonly aheadCount?: number; readonly behindCount?: number; readonly pr?: { readonly state?: string; readonly number?: number } | null } | null): string {
+export function statusSummary(
+  gitStatus: {
+    readonly isRepo?: boolean;
+    readonly hasWorkingTreeChanges?: boolean;
+    readonly workingTree?: { readonly files: readonly { readonly path: string }[] };
+    readonly aheadCount?: number;
+    readonly behindCount?: number;
+    readonly pr?: { readonly state?: string; readonly number?: number } | null;
+  } | null,
+): string {
   if (!gitStatus) {
     return "Loading branch status\u2026";
   }

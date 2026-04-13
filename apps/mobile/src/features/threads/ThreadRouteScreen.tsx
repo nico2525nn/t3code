@@ -19,6 +19,7 @@ import { useSelectedThreadGitActions } from "../../state/use-selected-thread-git
 import { useSelectedThreadGitState } from "../../state/use-selected-thread-git-state";
 import { useSelectedThreadCommands } from "../../state/use-selected-thread-commands";
 import { useThreadComposerState } from "../../state/use-thread-composer-state";
+import { useThreadDetailSubscription } from "../../state/use-thread-detail-subscription";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
 import { ThreadGitControls } from "./ThreadGitControls";
@@ -60,6 +61,8 @@ export function ThreadRouteScreen() {
   const [drawerVisible, setDrawerVisible] = useState(false);
   const environmentId = firstRouteParam(params.environmentId);
   const threadId = firstRouteParam(params.threadId);
+
+  useThreadDetailSubscription(environmentId, threadId);
 
   /* ─── Native header theming ──────────────────────────────────────── */
   const isDark = useColorScheme() === "dark";

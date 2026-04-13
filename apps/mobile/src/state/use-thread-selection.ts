@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo } from "react";
 
 import type { SavedRemoteConnection } from "../lib/connection";
 import type { ScopedMobileProject, ScopedMobileThread } from "../lib/scopedEntities";
+import { scopedThreadKey } from "../lib/scopedEntities";
 import { useRemoteCatalog } from "./use-remote-catalog";
 import { type EnvironmentRuntimeState } from "./remote-runtime-types";
+import { useRemoteEnvironmentStore } from "./remote-environment-store";
 import { useRemoteEnvironmentState } from "./use-remote-environment-registry";
 import { useThreadSelectionStore } from "./thread-selection-store";
 
@@ -48,10 +50,31 @@ export function useThreadSelection() {
   const selectThreadRef = useThreadSelectionStore((state) => state.selectThreadRef);
   const clearSelectedThreadRef = useThreadSelectionStore((state) => state.clearSelectedThreadRef);
 
-  const selectedThread = useMemo(
-    () => deriveSelectedThread(selectedThreadRef, threads),
-    [selectedThreadRef, threads],
-  );
+  const threadDetailByKey = useRemoteEnvironmentStore((state) => state.threadDetailByKey);
+
+  const selectedThread = useMemo(() => {
+    const shell = deriveSelectedThread(selectedThreadRef, threads);
+    if (!shell) {
+      return null;
+    }
+
+    const key = scopedThreadKey(shell.environmentId, shell.id);
+    const detail = threadDetailByKey[key];
+    if (!detail) {
+      return shell;
+    }
+
+    return {
+      ...shell,
+      messages: detail.messages,
+      proposedPlans: detail.proposedPlans,
+      activities: detail.activities,
+      checkpoints: detail.checkpoints,
+      latestTurn: detail.latestTurn,
+      session: detail.session,
+      deletedAt: detail.deletedAt,
+    };
+  }, [selectedThreadRef, threadDetailByKey, threads]);
 
   useEffect(() => {
     if (!selectedThreadRef || selectedThread) {

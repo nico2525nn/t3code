@@ -8,7 +8,9 @@ export const unstable_settings = {
 
 export default function GitSheetLayout() {
   const sheetStyle = StyleSheet.flatten(useResolveClassNames("bg-sheet"));
-  const headerBg = { backgroundColor: (sheetStyle as { backgroundColor?: string })?.backgroundColor };
+  const headerBg = {
+    backgroundColor: (sheetStyle as { backgroundColor?: string })?.backgroundColor,
+  };
 
   return (
     <Stack

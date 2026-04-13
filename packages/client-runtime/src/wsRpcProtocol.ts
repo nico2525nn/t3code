@@ -3,6 +3,12 @@ import { Duration, Effect, Layer, Schedule } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
 
+import {
+  DEFAULT_RECONNECT_BACKOFF,
+  getReconnectDelayMs,
+  type ReconnectBackoffConfig,
+} from "./reconnectBackoff";
+
 export interface WsProtocolLifecycleHandlers {
   readonly onAttempt?: (socketUrl: string) => void;
   readonly onOpen?: () => void;
@@ -10,13 +16,16 @@ export interface WsProtocolLifecycleHandlers {
   readonly onClose?: (details: { readonly code: number; readonly reason: string }) => void;
 }
 
+export interface WsRpcProtocolOptions {
+  /** Backoff configuration for reconnect retries. */
+  readonly backoff?: ReconnectBackoffConfig;
+}
+
 export const makeWsRpcProtocolClient = RpcClient.make(WsRpcGroup);
 type RpcClientFactory = typeof makeWsRpcProtocolClient;
 export type WsRpcProtocolClient =
   RpcClientFactory extends Effect.Effect<infer Client, any, any> ? Client : never;
 export type WsRpcProtocolSocketUrlProvider = string | (() => Promise<string>);
-
-const WS_RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 4_000] as const;
 
 function formatSocketErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -36,10 +45,6 @@ function resolveWsRpcSocketUrl(rawUrl: string): string {
   return resolved.toString();
 }
 
-function getWsReconnectDelayMsForRetry(retryCount: number): number | null {
-  return WS_RECONNECT_DELAYS_MS[retryCount] ?? null;
-}
-
 function defaultLifecycleHandlers(): Required<WsProtocolLifecycleHandlers> {
   return {
     onAttempt: () => undefined,
@@ -52,11 +57,14 @@ function defaultLifecycleHandlers(): Required<WsProtocolLifecycleHandlers> {
 export function createWsRpcProtocolLayer(
   url: WsRpcProtocolSocketUrlProvider,
   handlers?: WsProtocolLifecycleHandlers,
+  options?: WsRpcProtocolOptions,
 ) {
   const lifecycle = {
     ...defaultLifecycleHandlers(),
     ...handlers,
   };
+  const backoff = options?.backoff ?? DEFAULT_RECONNECT_BACKOFF;
+
   const resolvedUrl =
     typeof url === "function"
       ? Effect.promise(() => url()).pipe(
@@ -107,8 +115,11 @@ export function createWsRpcProtocolLayer(
   const socketLayer = Socket.layerWebSocket(resolvedUrl).pipe(
     Layer.provide(trackingWebSocketConstructorLayer),
   );
-  const retryPolicy = Schedule.addDelay(Schedule.forever, (retryCount) =>
-    Effect.succeed(Duration.millis(getWsReconnectDelayMsForRetry(retryCount) ?? 0)),
+
+  const baseSchedule =
+    backoff.maxRetries === null ? Schedule.forever : Schedule.recurs(backoff.maxRetries);
+  const retryPolicy = Schedule.addDelay(baseSchedule, (retryCount) =>
+    Effect.succeed(Duration.millis(getReconnectDelayMs(retryCount, backoff) ?? 0)),
   );
   const protocolLayer = Layer.effect(
     RpcClient.Protocol,

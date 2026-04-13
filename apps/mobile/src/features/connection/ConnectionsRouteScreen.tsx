@@ -16,6 +16,7 @@ function EnvironmentRow(props: {
   readonly environment: ConnectedEnvironmentSummary;
   readonly expanded: boolean;
   readonly onToggle: () => void;
+  readonly onReconnect: (environmentId: string) => void;
   readonly onRemove: (environmentId: string) => void;
   readonly onUpdate: (
     environmentId: string,
@@ -40,7 +41,10 @@ function EnvironmentRow(props: {
 
   return (
     <Animated.View layout={LinearTransition.duration(250)} className="bg-card">
-      <Pressable className="flex-row items-center gap-3 px-4 py-3.5" onPress={props.onToggle}>
+      <Pressable
+        className="flex-row items-center gap-3 px-4 py-3.5 active:opacity-70"
+        onPress={props.onToggle}
+      >
         <ConnectionStatusDot state={props.environment.connectionState} pulse={false} size={8} />
 
         <View className="flex-1 gap-0.5">
@@ -53,6 +57,14 @@ function EnvironmentRow(props: {
           <Text className="text-[12px] leading-[16px] text-foreground-muted" numberOfLines={1}>
             {props.environment.displayUrl}
           </Text>
+          {props.environment.connectionError ? (
+            <Text
+              className="text-[12px] leading-[16px] text-rose-500 dark:text-rose-400"
+              numberOfLines={2}
+            >
+              {props.environment.connectionError}
+            </Text>
+          ) : null}
         </View>
 
         <SymbolView
@@ -111,7 +123,7 @@ function EnvironmentRow(props: {
 
           <View className="flex-row gap-2">
             <Pressable
-              className="min-h-[42px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[14px] bg-primary px-3.5 py-2.5"
+              className="min-h-[42px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[14px] bg-primary px-3.5 py-2.5 active:opacity-70"
               onPress={handleSave}
             >
               <SymbolView name="checkmark" size={13} tintColor={primaryFg} type="monochrome" />
@@ -124,7 +136,19 @@ function EnvironmentRow(props: {
             </Pressable>
 
             <Pressable
-              className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-danger-border bg-danger"
+              className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-input-border bg-input active:opacity-70"
+              onPress={() => props.onReconnect(props.environment.environmentId)}
+            >
+              <SymbolView
+                name="arrow.clockwise"
+                size={14}
+                tintColor={mutedColor}
+                type="monochrome"
+              />
+            </Pressable>
+
+            <Pressable
+              className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-danger-border bg-danger active:opacity-70"
               onPress={() => props.onRemove(props.environment.environmentId)}
             >
               <SymbolView name="trash" size={14} tintColor={dangerFg} type="monochrome" />
@@ -137,8 +161,12 @@ function EnvironmentRow(props: {
 }
 
 export function ConnectionsRouteScreen() {
-  const { connectedEnvironments, onRemoveEnvironmentPress, onUpdateEnvironment } =
-    useRemoteConnections();
+  const {
+    connectedEnvironments,
+    onReconnectEnvironment,
+    onRemoveEnvironmentPress,
+    onUpdateEnvironment,
+  } = useRemoteConnections();
   const insets = useSafeAreaInsets();
   const hasEnvironments = connectedEnvironments.length > 0;
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -158,7 +186,7 @@ export function ConnectionsRouteScreen() {
           title: "Backends",
           headerRight: () => (
             <Link href="/connections/new" asChild>
-              <Pressable className="h-10 w-10 items-center justify-center rounded-full bg-primary">
+              <Pressable className="h-10 w-10 items-center justify-center rounded-full bg-primary active:opacity-70">
                 <SymbolView
                   name="plus"
                   size={18}
@@ -196,6 +224,7 @@ export function ConnectionsRouteScreen() {
                   environment={environment}
                   expanded={expandedId === environment.environmentId}
                   onToggle={() => handleToggle(environment.environmentId)}
+                  onReconnect={onReconnectEnvironment}
                   onRemove={onRemoveEnvironmentPress}
                   onUpdate={onUpdateEnvironment}
                 />

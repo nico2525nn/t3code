@@ -44,8 +44,8 @@ export function useSelectedThreadGitActions() {
 
       await client.orchestration.dispatchCommand({
         type: "thread.meta.update",
-        commandId: CommandId.makeUnsafe(uuidv4()),
-        threadId: ThreadId.makeUnsafe(thread.id),
+        commandId: CommandId.make(uuidv4()),
+        threadId: ThreadId.make(thread.id),
         ...(nextState.branch !== undefined ? { branch: nextState.branch } : {}),
         ...(nextState.worktreePath !== undefined ? { worktreePath: nextState.worktreePath } : {}),
       });

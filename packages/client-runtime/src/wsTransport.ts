@@ -1,6 +1,7 @@
 import { Cause, Duration, Effect, Exit, ManagedRuntime, Scope, Stream } from "effect";
 import { RpcClient } from "effect/unstable/rpc";
 
+import { isTransportConnectionErrorMessage } from "./transportError";
 import {
   createWsRpcProtocolLayer,
   makeWsRpcProtocolClient,
@@ -31,22 +32,11 @@ function formatErrorMessage(error: unknown): string {
   return String(error);
 }
 
-function isTransportConnectionError(error: unknown): boolean {
-  const message = formatErrorMessage(error).toLowerCase();
-  return (
-    message.includes("connect") ||
-    message.includes("socket") ||
-    message.includes("websocket") ||
-    message.includes("closed") ||
-    message.includes("econn") ||
-    message.includes("network")
-  );
-}
-
 export class WsTransport {
   private readonly url: WsRpcProtocolSocketUrlProvider;
   private readonly lifecycleHandlers: WsProtocolLifecycleHandlers | undefined;
   private disposed = false;
+  private hasReportedTransportDisconnect = false;
   private reconnectChain: Promise<void> = Promise.resolve();
   private session: TransportSession;
 
@@ -116,6 +106,7 @@ export class WsTransport {
           return;
         }
 
+        const session = this.session;
         try {
           if (hasReceivedValue) {
             try {
@@ -125,13 +116,13 @@ export class WsTransport {
             }
           }
 
-          const session = this.session;
           const runningStream = this.runStreamOnSession(
             session,
             connect,
             listener,
             () => active,
             () => {
+              this.hasReportedTransportDisconnect = false;
               hasReceivedValue = true;
             },
           );
@@ -144,13 +135,25 @@ export class WsTransport {
             return;
           }
 
-          if (!isTransportConnectionError(error)) {
+          // Skip retry if the session has already been replaced by a reconnect.
+          if (session !== this.session) {
+            continue;
+          }
+
+          const formattedError = formatErrorMessage(error);
+          if (!isTransportConnectionErrorMessage(formattedError)) {
             console.warn("WebSocket RPC subscription failed", {
-              error: formatErrorMessage(error),
+              error: formattedError,
             });
             return;
           }
 
+          if (!this.hasReportedTransportDisconnect) {
+            console.warn("WebSocket RPC subscription disconnected", {
+              error: formattedError,
+            });
+          }
+          this.hasReportedTransportDisconnect = true;
           await sleep(retryDelayMs);
         }
       }

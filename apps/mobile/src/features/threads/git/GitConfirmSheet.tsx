@@ -81,10 +81,7 @@ export function GitConfirmSheet() {
   }, [confirmAction, gitActions, gitState.selectedThreadBranches, includesCommit, params, router]);
 
   return (
-    <View
-      collapsable={false}
-      className="flex-1 bg-sheet"
-    >
+    <View collapsable={false} className="flex-1 bg-sheet">
       <View style={{ minHeight: 16, paddingTop: 8 }} />
 
       <View className="items-center gap-1 px-5 pb-3 pt-4">

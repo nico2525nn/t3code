@@ -48,7 +48,7 @@
         "@effect/atom-react": "catalog:",
         "@expo-google-fonts/dm-sans": "^0.4.2",
         "@gorhom/bottom-sheet": "^5",
-        "@legendapp/list": "^3.0.0-beta.44",
+        "@legendapp/list": "3.0.0-beta.44",
         "@react-native-menu/menu": "^2.0.0",
         "@sethwebster/react-ethereal-input": "^0.4.0",
         "@shopify/flash-list": "2.0.2",
@@ -186,6 +186,7 @@
       "version": "0.0.0-alpha.1",
       "dependencies": {
         "@t3tools/contracts": "workspace:*",
+        "@t3tools/shared": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
