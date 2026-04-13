@@ -12,5 +12,4 @@ export {
   resolveQuickAction,
   resolveThreadBranchUpdate,
 } from "@t3tools/client-runtime";
-
 export { resolveAutoFeatureBranchName } from "@t3tools/shared/git";

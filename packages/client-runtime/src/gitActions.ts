@@ -4,6 +4,7 @@ import type {
   GitStackedAction,
   GitStatusResult,
 } from "@t3tools/contracts";
+import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 
 export type GitActionIconName = "commit" | "push" | "pr";
 
@@ -421,6 +422,15 @@ export function resolveLiveThreadBranchUpdate(input: {
   }
 
   if (input.threadBranch === input.gitStatus.branch) {
+    return null;
+  }
+
+  if (
+    input.threadBranch !== null &&
+    input.gitStatus.branch !== null &&
+    !isTemporaryWorktreeBranch(input.threadBranch) &&
+    isTemporaryWorktreeBranch(input.gitStatus.branch)
+  ) {
     return null;
   }
 
