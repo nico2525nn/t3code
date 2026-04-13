@@ -4,15 +4,15 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { SymbolView } from "expo-symbols";
 import { memo, useCallback, useEffect, useState, useRef } from "react";
 import Markdown from "react-native-markdown-display";
-import { Image, Pressable, ScrollView, useColorScheme, View } from "react-native";
+import { Image, Pressable, ScrollView, View } from "react-native";
 import { TouchableOpacity } from "react-native-gesture-handler";
 import ImageViewing from "react-native-image-viewing";
+import { useThemeColor } from "../../lib/useThemeColor";
 
 import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
-import { cx } from "../../lib/classNames";
+import { cn } from "../../lib/cn";
 import type { MobileLayoutVariant } from "../../lib/mobileLayout";
-import { makeAppPalette } from "../../lib/theme";
 import type { ThreadFeedEntry } from "../../lib/threadActivity";
 import { relativeTime } from "../../lib/time";
 import { messageImageUrl } from "./threadPresentation";
@@ -23,7 +23,6 @@ export interface ThreadFeedProps {
   readonly httpBaseUrl: string | null;
   readonly bearerToken: string | null;
   readonly agentLabel: string;
-  readonly contentTopInset?: number;
   readonly contentBottomInset?: number;
   readonly refreshing?: boolean;
   readonly onRefresh?: () => void;
@@ -99,18 +98,26 @@ function buildActivityRows(
 
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
-function makeMarkdownStyles(isDarkMode: boolean) {
-  const bodyColor = isDarkMode ? "#e5e5e5" : "#262626";
-  const strongColor = isDarkMode ? "#f5f5f5" : "#171717";
-  const linkColor = isDarkMode ? "#60a5fa" : "#2563eb";
-  const blockquoteBg = isDarkMode ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)";
-  const blockquoteBorder = isDarkMode ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const codeBg = isDarkMode ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
-  const codeText = isDarkMode ? "#e5e5e5" : "#262626";
-  const hrColor = isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
-  const userCodeBg = isDarkMode ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.05)";
-  const userCodeText = isDarkMode ? "#e5e5e5" : "#1e3a5f";
-  const userFenceBg = isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)";
+interface MarkdownStyleSets {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly user: Record<string, any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly assistant: Record<string, any>;
+}
+
+function useMarkdownStyles(): MarkdownStyleSets {
+  const bodyColor = useThemeColor("--color-md-body");
+  const strongColor = useThemeColor("--color-md-strong");
+  const linkColor = useThemeColor("--color-md-link");
+  const blockquoteBg = useThemeColor("--color-md-blockquote-bg");
+  const blockquoteBorder = useThemeColor("--color-md-blockquote-border");
+  const codeBg = useThemeColor("--color-md-code-bg");
+  const codeText = useThemeColor("--color-md-code-text");
+  const hrColor = useThemeColor("--color-md-hr");
+  const userCodeBg = useThemeColor("--color-md-user-code-bg");
+  const userCodeText = useThemeColor("--color-md-user-code-text");
+  const userFenceBg = useThemeColor("--color-md-user-fence-bg");
+  const userFenceText = useThemeColor("--color-md-user-fence-text");
 
   const base = {
     body: {
@@ -193,7 +200,7 @@ function makeMarkdownStyles(isDarkMode: boolean) {
     },
     code_block: {
       backgroundColor: userFenceBg,
-      color: userCodeText,
+      color: userFenceText,
       borderRadius: 12,
       padding: 12,
       fontFamily: "ui-monospace",
@@ -202,7 +209,7 @@ function makeMarkdownStyles(isDarkMode: boolean) {
     },
     fence: {
       backgroundColor: userFenceBg,
-      color: userCodeText,
+      color: userFenceText,
       borderRadius: 12,
       padding: 12,
       fontFamily: "ui-monospace",
@@ -253,12 +260,12 @@ function renderFeedEntry(
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string) => void;
     readonly onPressImage: (uri: string, headers?: Record<string, string>) => void;
-    readonly isDarkMode: boolean;
+    readonly iconSubtleColor: string | import("react-native").ColorValue;
+    readonly markdownStyles: MarkdownStyleSets;
   },
 ) {
   const entry = info.item;
-  const markdownStyles = makeMarkdownStyles(props.isDarkMode);
-  const palette = makeAppPalette(props.isDarkMode);
+  const { markdownStyles, iconSubtleColor } = props;
 
   if (entry.type === "message") {
     const { message } = entry;
@@ -389,18 +396,13 @@ function renderFeedEntry(
       {visibleRows.map((row, index) => (
         <View
           key={row.id}
-          className={cx(
+          className={cn(
             "flex-row items-center gap-2 rounded-lg px-1 py-1",
             index > 0 && "border-t border-neutral-200/80 dark:border-white/[0.06]",
           )}
         >
           <View className="items-center justify-center pt-0.5">
-            <SymbolView
-              name="terminal"
-              size={13}
-              tintColor={palette.iconSubtle}
-              type="monochrome"
-            />
+            <SymbolView name="terminal" size={13} tintColor={iconSubtleColor} type="monochrome" />
           </View>
           <ScrollView
             horizontal
@@ -439,7 +441,6 @@ function renderFeedEntry(
 }
 
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
-  const isDarkMode = useColorScheme() === "dark";
   const listRef = useRef<LegendListRef>(null);
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
@@ -449,6 +450,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     headers?: Record<string, string>;
   } | null>(null);
   const horizontalPadding = props.layoutVariant === "split" ? 20 : 16;
+
+  const iconSubtleColor = useThemeColor("--color-icon-subtle");
+  const markdownStyles = useMarkdownStyles();
 
   useEffect(() => {
     setCopiedRowId(null);
@@ -509,12 +513,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         onCopyWorkRow,
         onToggleWorkGroup,
         onPressImage,
-        isDarkMode,
+        iconSubtleColor,
+        markdownStyles,
       }),
     [
       copiedRowId,
       expandedWorkGroups,
-      isDarkMode,
+      iconSubtleColor,
+      markdownStyles,
       onCopyWorkRow,
       onPressImage,
       onToggleWorkGroup,
@@ -525,12 +531,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
 
   if (props.feed.length === 0) {
     return (
-      <View
-        className="flex-1"
-        style={{
-          minHeight: 0,
+      <ScrollView
+        style={{ flex: 1 }}
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={{
+          flexGrow: 1,
           paddingHorizontal: horizontalPadding,
-          paddingTop: props.contentTopInset ?? 18,
           paddingBottom: props.contentBottomInset ?? 18,
         }}
       >
@@ -538,7 +544,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           title="No conversation yet"
           detail="Ask the agent to inspect the repo, run a command, or continue the active thread."
         />
-      </View>
+      </ScrollView>
     );
   }
 
@@ -548,6 +554,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         ref={listRef}
         key={props.threadId}
         style={{ flex: 1 }}
+        contentInsetAdjustmentBehavior="automatic"
         data={props.feed as ThreadFeedEntry[]}
         renderItem={renderItem}
         keyExtractor={(entry) => `${entry.type}:${entry.id}`}
@@ -561,7 +568,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         onRefresh={props.onRefresh}
         contentContainerStyle={{
           paddingHorizontal: horizontalPadding,
-          paddingTop: props.contentTopInset ?? 18,
+          paddingTop: 8,
           paddingBottom: props.contentBottomInset ?? 18,
         }}
       />

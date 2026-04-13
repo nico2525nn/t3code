@@ -1,8 +1,8 @@
 import { SymbolView } from "expo-symbols";
-import { Image, Pressable, ScrollView, useColorScheme, View } from "react-native";
+import { Image, Pressable, ScrollView, View } from "react-native";
+import { useThemeColor } from "../lib/useThemeColor";
 
 import type { DraftComposerImageAttachment } from "../lib/composerImages";
-import { makeAppPalette } from "../lib/theme";
 
 export interface ComposerAttachmentStripProps {
   /** Attachment images to display. */
@@ -22,8 +22,7 @@ export interface ComposerAttachmentStripProps {
  * buttons.  Used by both the thread composer and the new-task draft screen.
  */
 export function ComposerAttachmentStrip(props: ComposerAttachmentStripProps) {
-  const isDarkMode = useColorScheme() === "dark";
-  const palette = makeAppPalette(isDarkMode);
+  const subtleBg = useThemeColor("--color-subtle");
   const size = props.imageSize ?? 72;
   const radius = props.imageBorderRadius ?? 16;
 
@@ -50,7 +49,7 @@ export function ComposerAttachmentStrip(props: ComposerAttachmentStripProps) {
                   width: size,
                   height: size,
                   borderRadius: radius,
-                  backgroundColor: palette.subtleBg,
+                  backgroundColor: subtleBg,
                 }}
                 resizeMode="cover"
               />

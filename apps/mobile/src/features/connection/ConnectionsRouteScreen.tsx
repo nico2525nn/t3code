@@ -1,15 +1,16 @@
 import { Link, Stack } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, View, useColorScheme } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useThemeColor } from "../../lib/useThemeColor";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { cn } from "../../lib/cn";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
-import { makeConnectionSheetPalette as makePalette } from "./connection-sheet-shared";
 
 function EnvironmentRow(props: {
   readonly environment: ConnectedEnvironmentSummary;
@@ -20,10 +21,14 @@ function EnvironmentRow(props: {
     environmentId: string,
     updates: { readonly label: string; readonly displayUrl: string },
   ) => void;
-  readonly palette: ReturnType<typeof makePalette>;
 }) {
   const [label, setLabel] = useState(props.environment.environmentLabel);
   const [url, setUrl] = useState(props.environment.displayUrl);
+
+  const mutedColor = useThemeColor("--color-icon-subtle");
+  const placeholderColor = useThemeColor("--color-placeholder");
+  const primaryFg = useThemeColor("--color-primary-foreground");
+  const dangerFg = useThemeColor("--color-danger-foreground");
 
   const handleSave = useCallback(() => {
     props.onUpdate(props.environment.environmentId, {
@@ -34,26 +39,18 @@ function EnvironmentRow(props: {
   }, [label, url, props]);
 
   return (
-    <Animated.View
-      layout={LinearTransition.duration(250)}
-      style={{ backgroundColor: props.palette.card }}
-    >
+    <Animated.View layout={LinearTransition.duration(250)} className="bg-card">
       <Pressable className="flex-row items-center gap-3 px-4 py-3.5" onPress={props.onToggle}>
         <ConnectionStatusDot state={props.environment.connectionState} pulse={false} size={8} />
 
         <View className="flex-1 gap-0.5">
           <Text
-            className="text-[16px] font-t3-bold leading-[21px]"
-            style={{ color: props.palette.text }}
+            className="text-[16px] font-t3-bold leading-[21px] text-foreground"
             numberOfLines={1}
           >
             {props.environment.environmentLabel}
           </Text>
-          <Text
-            className="text-[12px] leading-[16px]"
-            style={{ color: props.palette.muted }}
-            numberOfLines={1}
-          >
+          <Text className="text-[12px] leading-[16px] text-foreground-muted" numberOfLines={1}>
             {props.environment.displayUrl}
           </Text>
         </View>
@@ -61,7 +58,7 @@ function EnvironmentRow(props: {
         <SymbolView
           name="chevron.down"
           size={12}
-          tintColor={props.palette.muted}
+          tintColor={mutedColor}
           type="monochrome"
           style={{
             transform: [{ rotate: props.expanded ? "180deg" : "0deg" }],
@@ -77,8 +74,8 @@ function EnvironmentRow(props: {
         >
           <View className="gap-1.5">
             <Text
-              className="text-[11px] font-t3-bold uppercase"
-              style={{ color: props.palette.muted, letterSpacing: 0.8 }}
+              className="text-[11px] font-t3-bold uppercase text-foreground-muted"
+              style={{ letterSpacing: 0.8 }}
             >
               Label
             </Text>
@@ -86,23 +83,17 @@ function EnvironmentRow(props: {
               autoCapitalize="words"
               autoCorrect={false}
               placeholder="My MacBook"
-              placeholderTextColor={props.palette.placeholder}
+              placeholderTextColor={placeholderColor}
               value={label}
               onChangeText={setLabel}
-              className="rounded-[14px] px-4 py-3 text-[15px]"
-              style={{
-                backgroundColor: props.palette.inputBackground,
-                borderWidth: 1,
-                borderColor: props.palette.inputBorder,
-                color: props.palette.text,
-              }}
+              className="rounded-[14px] border border-input-border bg-input px-4 py-3 text-[15px] text-foreground"
             />
           </View>
 
           <View className="gap-1.5">
             <Text
-              className="text-[11px] font-t3-bold uppercase"
-              style={{ color: props.palette.muted, letterSpacing: 0.8 }}
+              className="text-[11px] font-t3-bold uppercase text-foreground-muted"
+              style={{ letterSpacing: 0.8 }}
             >
               URL
             </Text>
@@ -111,59 +102,32 @@ function EnvironmentRow(props: {
               autoCorrect={false}
               keyboardType="url"
               placeholder="192.168.1.100:8080"
-              placeholderTextColor={props.palette.placeholder}
+              placeholderTextColor={placeholderColor}
               value={url}
               onChangeText={setUrl}
-              className="rounded-[14px] px-4 py-3 text-[15px]"
-              style={{
-                backgroundColor: props.palette.inputBackground,
-                borderWidth: 1,
-                borderColor: props.palette.inputBorder,
-                color: props.palette.text,
-              }}
+              className="rounded-[14px] border border-input-border bg-input px-4 py-3 text-[15px] text-foreground"
             />
           </View>
 
           <View className="flex-row gap-2">
             <Pressable
-              className="min-h-[42px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[14px] px-3.5 py-2.5"
+              className="min-h-[42px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[14px] bg-primary px-3.5 py-2.5"
               onPress={handleSave}
-              style={{
-                backgroundColor: props.palette.primaryButton,
-              }}
             >
-              <SymbolView
-                name="checkmark"
-                size={13}
-                tintColor={props.palette.primaryButtonText}
-                type="monochrome"
-              />
+              <SymbolView name="checkmark" size={13} tintColor={primaryFg} type="monochrome" />
               <Text
-                className="text-[12px] font-t3-bold uppercase"
-                style={{
-                  color: props.palette.primaryButtonText,
-                  letterSpacing: 0.8,
-                }}
+                className="text-[12px] font-t3-bold uppercase text-primary-foreground"
+                style={{ letterSpacing: 0.8 }}
               >
                 Save
               </Text>
             </Pressable>
 
             <Pressable
-              className="h-[42px] w-[42px] items-center justify-center rounded-[14px]"
+              className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-danger-border bg-danger"
               onPress={() => props.onRemove(props.environment.environmentId)}
-              style={{
-                backgroundColor: props.palette.dangerButton,
-                borderWidth: 1,
-                borderColor: props.palette.dangerBorder,
-              }}
             >
-              <SymbolView
-                name="trash"
-                size={14}
-                tintColor={props.palette.dangerText}
-                type="monochrome"
-              />
+              <SymbolView name="trash" size={14} tintColor={dangerFg} type="monochrome" />
             </Pressable>
           </View>
         </Animated.View>
@@ -176,30 +140,29 @@ export function ConnectionsRouteScreen() {
   const { connectedEnvironments, onRemoveEnvironmentPress, onUpdateEnvironment } =
     useRemoteConnections();
   const insets = useSafeAreaInsets();
-  const isDarkMode = useColorScheme() === "dark";
-  const palette = makePalette(isDarkMode);
   const hasEnvironments = connectedEnvironments.length > 0;
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const primaryFg = useThemeColor("--color-primary-foreground");
+  const accentColor = useThemeColor("--color-icon-muted");
+  const mutedColor = useThemeColor("--color-icon-subtle");
 
   const handleToggle = useCallback((environmentId: string) => {
     setExpandedId((prev) => (prev === environmentId ? null : environmentId));
   }, []);
 
   return (
-    <View collapsable={false} style={{ flex: 1, backgroundColor: palette.sheet }}>
+    <View collapsable={false} className="flex-1 bg-sheet">
       <Stack.Screen
         options={{
           title: "Backends",
           headerRight: () => (
             <Link href="/connections/new" asChild>
-              <Pressable
-                className="h-10 w-10 items-center justify-center rounded-full"
-                style={{ backgroundColor: palette.primaryButton }}
-              >
+              <Pressable className="h-10 w-10 items-center justify-center rounded-full bg-primary">
                 <SymbolView
                   name="plus"
                   size={18}
-                  tintColor={palette.primaryButtonText}
+                  tintColor={primaryFg}
                   type="monochrome"
                   weight="semibold"
                 />
@@ -219,19 +182,15 @@ export function ConnectionsRouteScreen() {
         }}
       >
         {hasEnvironments ? (
-          <View
-            collapsable={false}
-            className="overflow-hidden rounded-[24px]"
-            style={{ backgroundColor: palette.card }}
-          >
+          <View collapsable={false} className="overflow-hidden rounded-[24px] bg-card">
             {connectedEnvironments.map((environment, index) => (
               <View
                 key={environment.environmentId}
                 collapsable={false}
                 style={{
                   borderTopWidth: index === 0 ? 0 : 1,
-                  borderTopColor: palette.border,
                 }}
+                className={cn(index !== 0 && "border-border")}
               >
                 <EnvironmentRow
                   environment={environment}
@@ -239,37 +198,23 @@ export function ConnectionsRouteScreen() {
                   onToggle={() => handleToggle(environment.environmentId)}
                   onRemove={onRemoveEnvironmentPress}
                   onUpdate={onUpdateEnvironment}
-                  palette={palette}
                 />
               </View>
             ))}
           </View>
         ) : (
-          <View
-            collapsable={false}
-            className="items-center gap-3 rounded-[24px] px-6 py-8"
-            style={{ backgroundColor: palette.card }}
-          >
-            <View
-              className="h-12 w-12 items-center justify-center rounded-[16px]"
-              style={{ backgroundColor: palette.iconBg }}
-            >
+          <View collapsable={false} className="items-center gap-3 rounded-[24px] bg-card px-6 py-8">
+            <View className="h-12 w-12 items-center justify-center rounded-[16px] bg-subtle">
               <SymbolView
                 name="point.3.connected.trianglepath.dotted"
                 size={20}
-                tintColor={palette.accent}
+                tintColor={accentColor}
                 type="monochrome"
               />
             </View>
-            <Text
-              className="text-center text-[14px] leading-[20px]"
-              style={{ color: palette.muted }}
-            >
+            <Text className="text-center text-[14px] leading-[20px] text-foreground-muted">
               No backends connected yet.{"\n"}Tap{" "}
-              <Text className="font-t3-bold" style={{ color: palette.text }}>
-                +
-              </Text>{" "}
-              to add one.
+              <Text className="font-t3-bold text-foreground">+</Text> to add one.
             </Text>
           </View>
         )}

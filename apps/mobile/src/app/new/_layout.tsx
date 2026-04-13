@@ -1,7 +1,6 @@
 import Stack from "expo-router/stack";
-import { useColorScheme } from "react-native";
+import { useResolveClassNames } from "uniwind";
 
-import { makeAppPalette } from "../../lib/theme";
 import { NewTaskFlowProvider } from "../../features/threads/new-task-flow-provider";
 
 export const unstable_settings = {
@@ -9,14 +8,13 @@ export const unstable_settings = {
 };
 
 export default function NewTaskLayout() {
-  const isDarkMode = useColorScheme() === "dark";
-  const palette = makeAppPalette(isDarkMode);
+  const sheetStyle = useResolveClassNames("bg-sheet");
 
   return (
     <NewTaskFlowProvider>
       <Stack
         screenOptions={{
-          contentStyle: { backgroundColor: palette.sheetBackground },
+          contentStyle: sheetStyle,
         }}
       >
         <Stack.Screen name="index" options={{ animation: "none" }} />

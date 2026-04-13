@@ -6,15 +6,15 @@ import {
   DMSans_700Bold,
   useFonts,
 } from "@expo-google-fonts/dm-sans";
-import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import Stack from "expo-router/stack";
 import { StatusBar, useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useCSSVariable, useResolveClassNames } from "uniwind";
 
 import { LoadingScreen } from "../components/LoadingScreen";
-import { makeAppPalette } from "../lib/theme";
+import { AppAtomRegistryProvider } from "../state/atomRegistry";
 import {
   useRemoteEnvironmentBootstrap,
   useRemoteEnvironmentState,
@@ -22,11 +22,13 @@ import {
 
 function AppNavigator() {
   const { isLoadingSavedConnection } = useRemoteEnvironmentState();
-  const isDarkMode = useColorScheme() !== "light";
-  const palette = makeAppPalette(isDarkMode);
+  const colorScheme = useColorScheme();
+  const statusBarBg = useCSSVariable("--color-status-bar");
+  const sheetStyle = useResolveClassNames("bg-sheet");
+  const screenStyle = useResolveClassNames("bg-screen");
 
   const newTaskScreenOptions = {
-    contentStyle: { backgroundColor: palette.sheetBackground },
+    contentStyle: sheetStyle,
     gestureEnabled: true,
     headerShown: false,
     presentation: "formSheet" as const,
@@ -35,7 +37,7 @@ function AppNavigator() {
   };
 
   const connectionSheetScreenOptions = {
-    contentStyle: { backgroundColor: palette.sheetBackground },
+    contentStyle: sheetStyle,
     gestureEnabled: true,
     headerShown: false,
     presentation: "formSheet" as const,
@@ -50,18 +52,27 @@ function AppNavigator() {
   return (
     <>
       <StatusBar
-        barStyle={palette.statusBarStyle}
-        backgroundColor={palette.statusBarBackground}
+        barStyle={colorScheme === "dark" ? "light-content" : "dark-content"}
+        backgroundColor={statusBarBg as string}
         translucent
       />
       <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen
+          name="index"
+          options={{
+            contentStyle: { backgroundColor: "transparent" },
+            headerShown: true,
+            headerTransparent: true,
+            headerShadowVisible: false,
+          }}
+        />
         <Stack.Screen name="connections" options={connectionSheetScreenOptions} />
         <Stack.Screen name="new" options={newTaskScreenOptions} />
         <Stack.Screen
           name="threads/[environmentId]/[threadId]"
           options={{
             animation: "slide_from_right",
-            contentStyle: { backgroundColor: palette.screenBackground },
+            contentStyle: { backgroundColor: "transparent" },
             gestureEnabled: true,
             headerShown: false,
           }}
@@ -80,14 +91,18 @@ export default function RootLayout() {
   useRemoteEnvironmentBootstrap();
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <KeyboardProvider statusBarTranslucent>
-        <BottomSheetModalProvider>
+    <AppAtomRegistryProvider>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <KeyboardProvider statusBarTranslucent>
           <SafeAreaProvider>
-            {fontsLoaded ? <AppNavigator /> : <LoadingScreen message="Loading remote workspace…" />}
+            {fontsLoaded ? (
+              <AppNavigator />
+            ) : (
+              <LoadingScreen message="Loading remote workspace…" />
+            )}
           </SafeAreaProvider>
-        </BottomSheetModalProvider>
-      </KeyboardProvider>
-    </GestureHandlerRootView>
+        </KeyboardProvider>
+      </GestureHandlerRootView>
+    </AppAtomRegistryProvider>
   );
 }

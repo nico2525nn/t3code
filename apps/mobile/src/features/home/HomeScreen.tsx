@@ -1,215 +1,349 @@
-import * as Haptics from "expo-haptics";
+import type { GitStatusState } from "@t3tools/client-runtime";
 import { SymbolView } from "expo-symbols";
-import { useMemo, useState } from "react";
-import { Pressable, ScrollView, useColorScheme, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useCallback, useMemo, useState } from "react";
+import { Pressable, ScrollView, View } from "react-native";
+import { useThemeColor } from "../../lib/useThemeColor";
 
 import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
-import { StatusPill } from "../../components/StatusPill";
-import { groupProjectsByRepository } from "../../lib/repositoryGroups";
+import { ProjectFavicon } from "../../components/ProjectFavicon";
+import type { SavedRemoteConnection } from "../../lib/connection";
 import type { ScopedMobileProject, ScopedMobileThread } from "../../lib/scopedEntities";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { relativeTime } from "../../lib/time";
-import { makeAppPalette } from "../../lib/theme";
-import { ConnectionStatusDot } from "../connection/ConnectionStatusDot";
-import { threadStatusTone } from "../threads/threadPresentation";
+import { useGitStatus } from "../../state/use-git-status";
+import { lastConversationLine, threadStatusTone } from "../threads/threadPresentation";
 
-export function HomeScreen(props: {
+/* ─── Types ──────────────────────────────────────────────────────────── */
+
+interface HomeScreenProps {
   readonly projects: ReadonlyArray<ScopedMobileProject>;
   readonly threads: ReadonlyArray<ScopedMobileThread>;
-  readonly connectionState: "ready" | "connecting" | "reconnecting" | "disconnected" | "idle";
-  readonly connectionPulse: boolean;
-  readonly onOpenConnectionEditor: () => void;
-  readonly onOpenNewTask: () => void;
+  readonly savedConnectionsById: Readonly<Record<string, SavedRemoteConnection>>;
+  readonly searchQuery: string;
   readonly onSelectThread: (thread: ScopedMobileThread) => void;
-  readonly showFloatingConnectionButton: boolean;
-  readonly showFloatingNewTaskButton: boolean;
+}
+
+interface ProjectGroup {
+  readonly key: string;
+  readonly project: ScopedMobileProject;
+  readonly threads: ReadonlyArray<ScopedMobileThread>;
+}
+
+/* ─── Status indicator colors ────────────────────────────────────────── */
+
+function statusColors(thread: ScopedMobileThread): { bg: string; fg: string } {
+  switch (thread.session?.status) {
+    case "running":
+      return { bg: "rgba(249,115,22,0.14)", fg: "#f97316" };
+    case "ready":
+      return { bg: "rgba(34,197,94,0.14)", fg: "#22c55e" };
+    case "starting":
+      return { bg: "rgba(59,130,246,0.14)", fg: "#3b82f6" };
+    case "error":
+      return { bg: "rgba(239,68,68,0.14)", fg: "#ef4444" };
+    default:
+      return { bg: "rgba(163,163,163,0.10)", fg: "#a3a3a3" };
+  }
+}
+
+const COLLAPSED_THREAD_LIMIT = 6;
+
+/* ─── Project group header ───────────────────────────────────────────── */
+
+function ProjectGroupLabel(props: {
+  readonly project: ScopedMobileProject;
+  readonly totalThreadCount: number;
+  readonly httpBaseUrl: string | null;
+  readonly bearerToken: string | null;
+  readonly isExpanded: boolean;
+  readonly onToggleExpand: () => void;
 }) {
-  const isDarkMode = useColorScheme() === "dark";
-  const palette = makeAppPalette(isDarkMode);
-  const insets = useSafeAreaInsets();
-  const [newTaskPressed, setNewTaskPressed] = useState(false);
-  const repositoryGroups = useMemo(
-    () => groupProjectsByRepository({ projects: props.projects, threads: props.threads }),
-    [props.projects, props.threads],
-  );
-  const projectLabelsByKey = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        readonly projectTitle: string;
-        readonly environmentLabel: string;
-      }
-    >();
-
-    for (const group of repositoryGroups) {
-      const primaryProjectTitle = group.projects[0]?.project.title ?? group.title;
-      for (const projectGroup of group.projects) {
-        map.set(scopedProjectKey(projectGroup.project.environmentId, projectGroup.project.id), {
-          projectTitle: primaryProjectTitle,
-          environmentLabel: projectGroup.project.environmentLabel,
-        });
-      }
-    }
-
-    return map;
-  }, [repositoryGroups]);
+  const hiddenCount = props.totalThreadCount - COLLAPSED_THREAD_LIMIT;
 
   return (
-    <View style={{ flex: 1, backgroundColor: palette.screenBackground }}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingBottom: Math.max(insets.bottom, 24) + (props.showFloatingNewTaskButton ? 92 : 24),
-          paddingHorizontal: 20,
-          paddingTop: insets.top + 6,
-          gap: 16,
+    <View className="flex-row items-center gap-2.5 px-1 pb-2">
+      <ProjectFavicon
+        size={18}
+        projectTitle={props.project.title}
+        httpBaseUrl={props.httpBaseUrl}
+        workspaceRoot={props.project.workspaceRoot}
+        bearerToken={props.bearerToken}
+      />
+      <Text
+        className="flex-1 text-[13px] font-t3-bold uppercase text-foreground-muted"
+        style={{ letterSpacing: 0.6 }}
+        numberOfLines={1}
+      >
+        {props.project.title}
+      </Text>
+
+      {hiddenCount > 0 ? (
+        <Pressable onPress={props.onToggleExpand} hitSlop={8}>
+          <Text
+            className="text-[13px] font-t3-bold text-foreground-muted"
+            style={{ letterSpacing: 0.6 }}
+          >
+            {props.isExpanded ? "Show less" : `${hiddenCount} more`}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/* ─── Git summary line ──────────────────────────────────────────────── */
+
+function gitSummaryParts(gitStatus: GitStatusState): ReadonlyArray<string> {
+  if (!gitStatus.data) return [];
+  const { data } = gitStatus;
+  const parts: string[] = [];
+  if (data.hasWorkingTreeChanges) {
+    parts.push(`${data.workingTree.files.length} changed`);
+  }
+  if (data.aheadCount > 0) parts.push(`${data.aheadCount} ahead`);
+  if (data.behindCount > 0) parts.push(`${data.behindCount} behind`);
+  if (data.pr?.state === "open") parts.push(`PR #${data.pr.number}`);
+  return parts;
+}
+
+/* ─── Thread row ─────────────────────────────────────────────────────── */
+
+function ThreadRow(props: {
+  readonly thread: ScopedMobileThread;
+  readonly projectCwd: string | null;
+  readonly onPress: () => void;
+  readonly isLast: boolean;
+}) {
+  const separatorColor = useThemeColor("--color-separator");
+  const { bg, fg } = statusColors(props.thread);
+  const tone = threadStatusTone(props.thread);
+  const preview = lastConversationLine(props.thread);
+  const timestamp = relativeTime(props.thread.updatedAt ?? props.thread.createdAt);
+  const branch = props.thread.branch;
+
+  // Subscribe to live git status — only when thread has a branch set.
+  // Threads sharing the same cwd share one WS subscription via ref-counting.
+  const cwd = branch ? (props.thread.worktreePath ?? props.projectCwd) : null;
+  const gitStatus = useGitStatus({
+    environmentId: cwd ? props.thread.environmentId : null,
+    cwd,
+  });
+  const gitParts = gitSummaryParts(gitStatus);
+
+  return (
+    <Pressable onPress={props.onPress} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+      <View
+        style={{
+          flexDirection: "row",
+          paddingLeft: 16,
+          paddingRight: 16,
+          paddingVertical: 10,
+          gap: 12,
+          borderBottomWidth: props.isLast ? 0 : 1,
+          borderBottomColor: separatorColor,
         }}
       >
-        <View className="flex-row items-center justify-between">
-          <Text className="text-[34px] font-t3-bold" style={{ color: palette.text }}>
-            Recents
-          </Text>
-
-          {props.showFloatingConnectionButton ? (
-            <Pressable
-              onPress={props.onOpenConnectionEditor}
-              className="h-14 min-w-[56px] items-center justify-center rounded-full px-4"
-              style={{
-                backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.9)",
-                borderWidth: isDarkMode ? 1 : 0,
-                borderColor: isDarkMode ? palette.border : "transparent",
-              }}
-            >
-              <ConnectionStatusDot state={props.connectionState} pulse={props.connectionPulse} />
-            </Pressable>
-          ) : null}
-        </View>
-
-        {props.threads.length === 0 ? (
-          <EmptyState
-            title="No threads yet"
-            detail="Create a task to start a new coding session in one of your connected projects."
-          />
-        ) : (
-          <View
-            className="overflow-hidden rounded-[24px]"
-            style={{ backgroundColor: palette.card }}
-          >
-            {props.threads.map((thread, index) => {
-              const projectKey = scopedProjectKey(thread.environmentId, thread.projectId);
-              const projectLabel = projectLabelsByKey.get(projectKey);
-
-              return (
-                <Pressable
-                  key={`${thread.environmentId}:${thread.id}`}
-                  onPress={() => props.onSelectThread(thread)}
-                  style={{
-                    paddingHorizontal: 16,
-                    paddingVertical: 13,
-                    borderTopWidth: index === 0 ? 0 : 1,
-                    borderTopColor: palette.borderSubtle,
-                  }}
-                >
-                  <View className="flex-row items-start justify-between gap-3">
-                    <View className="flex-1 gap-1.5">
-                      <Text
-                        className="text-[17px] font-t3-bold leading-[24px]"
-                        numberOfLines={2}
-                        style={{ color: palette.text }}
-                      >
-                        {thread.title}
-                      </Text>
-                    </View>
-                    <StatusPill {...threadStatusTone(thread)} size="compact" />
-                  </View>
-
-                  <View className="mt-2 flex-row items-center justify-between gap-3">
-                    <View className="flex-1 flex-row items-center gap-2">
-                      <Text
-                        className="text-[13px] font-medium leading-[18px]"
-                        numberOfLines={1}
-                        style={{ color: palette.textSecondary, flexShrink: 1 }}
-                      >
-                        {projectLabel?.projectTitle ?? thread.title}
-                      </Text>
-                      <View
-                        className="h-1 w-1 rounded-full"
-                        style={{ backgroundColor: palette.dotSeparator }}
-                      />
-                      <Text
-                        className="text-[12px] font-t3-bold uppercase tracking-[0.4px]"
-                        numberOfLines={1}
-                        style={{ color: palette.textMuted, flexShrink: 1 }}
-                      >
-                        {projectLabel?.environmentLabel ?? "Local"}
-                      </Text>
-                    </View>
-                    <Text
-                      className="text-[12px] font-t3-bold"
-                      style={{ color: palette.textMuted, fontVariant: ["tabular-nums"] }}
-                    >
-                      {relativeTime(thread.updatedAt ?? thread.createdAt)}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
-      </ScrollView>
-
-      {props.showFloatingNewTaskButton ? (
+        {/* Git status indicator */}
         <View
-          pointerEvents="box-none"
           style={{
-            position: "absolute",
-            right: 20,
-            bottom: Math.max(insets.bottom, 18),
+            width: 30,
+            height: 30,
+            borderRadius: 9,
+            backgroundColor: bg,
+            alignItems: "center",
+            justifyContent: "center",
+            marginTop: 2,
           }}
         >
-          <Pressable
-            accessibilityRole="button"
-            hitSlop={6}
-            onPressIn={() => {
-              setNewTaskPressed(true);
-              void Haptics.selectionAsync();
-            }}
-            onPressOut={() => {
-              setNewTaskPressed(false);
-            }}
-            onPress={props.onOpenNewTask}
-          >
-            <View
-              className="flex-row items-center gap-3 rounded-full px-6 py-4"
-              style={{
-                backgroundColor: palette.primaryButton,
-                borderWidth: isDarkMode ? 1 : 0,
-                borderColor: isDarkMode ? "rgba(255,255,255,0.08)" : "transparent",
-                boxShadow: newTaskPressed
-                  ? `0 12px 24px ${palette.primaryButtonShadow}`
-                  : `0 20px 36px ${palette.primaryButtonShadow}`,
-                opacity: newTaskPressed ? 0.96 : 1,
-                transform: [{ scale: newTaskPressed ? 0.985 : 1 }],
-              }}
+          <SymbolView name="arrow.triangle.branch" size={13} tintColor={fg} type="monochrome" />
+        </View>
+
+        {/* Content */}
+        <View style={{ flex: 1, gap: 3 }}>
+          {/* Title + Status + Timestamp */}
+          <View className="flex-row items-center justify-between gap-2">
+            <Text
+              className="flex-1 text-[15px] font-t3-bold leading-[20px] text-foreground"
+              numberOfLines={1}
             >
+              {props.thread.title}
+            </Text>
+            <View className="flex-row items-center gap-2">
+              <View
+                className={tone.pillClassName}
+                style={{ borderRadius: 99, paddingHorizontal: 6, paddingVertical: 2 }}
+              >
+                <Text className={`text-[10px] font-t3-bold ${tone.textClassName}`}>
+                  {tone.label}
+                </Text>
+              </View>
+              <Text
+                className="text-[12px] text-foreground-tertiary"
+                style={{ fontVariant: ["tabular-nums"] }}
+              >
+                {timestamp}
+              </Text>
+            </View>
+          </View>
+
+          {/* Message preview */}
+          <Text className="text-[13px] leading-[18px] text-foreground-muted" numberOfLines={2}>
+            {preview}
+          </Text>
+
+          {/* Branch + git info */}
+          {branch ? (
+            <View className="flex-row items-center gap-1.5" style={{ marginTop: 1 }}>
               <SymbolView
-                name="square.and.pencil"
-                size={20}
-                tintColor={palette.primaryButtonText}
+                name="arrow.triangle.branch"
+                size={10}
+                tintColor="#737373"
                 type="monochrome"
               />
               <Text
-                className="text-[18px] font-t3-bold"
-                style={{ color: palette.primaryButtonText }}
+                className="text-[11px] text-foreground-tertiary"
+                numberOfLines={1}
+                style={{ fontFamily: "monospace" }}
               >
-                New task
+                {branch}
               </Text>
+              {gitParts.length > 0 ? (
+                <Text className="text-[11px] text-foreground-tertiary">
+                  {" · " + gitParts.join(" · ")}
+                </Text>
+              ) : null}
             </View>
-          </Pressable>
+          ) : null}
         </View>
-      ) : null}
-    </View>
+      </View>
+    </Pressable>
+  );
+}
+
+/* ─── Main screen ────────────────────────────────────────────────────── */
+
+export function HomeScreen(props: HomeScreenProps) {
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set());
+
+  const toggleExpanded = useCallback((key: string) => {
+    setExpandedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  /* Build project title lookup for search */
+  const projectTitleByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of props.projects) {
+      map.set(scopedProjectKey(p.environmentId, p.id), p.title);
+    }
+    return map;
+  }, [props.projects]);
+
+  /* Filter threads by search query */
+  const filteredThreads = useMemo(() => {
+    const q = props.searchQuery.trim().toLowerCase();
+    if (!q) return props.threads;
+    return props.threads.filter((t) => {
+      if (t.title.toLowerCase().includes(q)) return true;
+      const key = scopedProjectKey(t.environmentId, t.projectId);
+      return projectTitleByKey.get(key)?.toLowerCase().includes(q) ?? false;
+    });
+  }, [props.threads, props.searchQuery, projectTitleByKey]);
+
+  /* Group filtered threads by project */
+  const projectGroups = useMemo<ReadonlyArray<ProjectGroup>>(() => {
+    const byProject = new Map<string, ScopedMobileThread[]>();
+    for (const thread of filteredThreads) {
+      const key = scopedProjectKey(thread.environmentId, thread.projectId);
+      const existing = byProject.get(key);
+      if (existing) existing.push(thread);
+      else byProject.set(key, [thread]);
+    }
+
+    const groups: ProjectGroup[] = [];
+    for (const project of props.projects) {
+      const key = scopedProjectKey(project.environmentId, project.id);
+      const threads = byProject.get(key);
+      if (threads && threads.length > 0) {
+        groups.push({ key, project, threads });
+      }
+    }
+
+    groups.sort((a, b) => {
+      const aTime = new Date(a.threads[0]!.updatedAt ?? a.threads[0]!.createdAt).getTime();
+      const bTime = new Date(b.threads[0]!.updatedAt ?? b.threads[0]!.createdAt).getTime();
+      return bTime - aTime;
+    });
+
+    return groups;
+  }, [props.projects, filteredThreads]);
+
+  /* Empty states */
+  const hasAnyThreads = props.threads.length > 0;
+  const hasResults = filteredThreads.length > 0;
+
+  return (
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      showsVerticalScrollIndicator={false}
+      keyboardDismissMode="on-drag"
+      keyboardShouldPersistTaps="handled"
+      className="flex-1 bg-screen"
+      contentContainerStyle={{
+        paddingHorizontal: 16,
+        paddingTop: 8,
+        paddingBottom: 24,
+        gap: 20,
+      }}
+    >
+      {!hasAnyThreads ? (
+        <EmptyState
+          title="No threads yet"
+          detail="Create a task to start a new coding session in one of your connected projects."
+        />
+      ) : !hasResults ? (
+        <EmptyState title="No results" detail={`No threads matching "${props.searchQuery}".`} />
+      ) : (
+        projectGroups.map((group) => {
+          const connection = props.savedConnectionsById[group.project.environmentId];
+          const isExpanded = expandedProjects.has(group.key);
+          const visibleThreads = isExpanded
+            ? group.threads
+            : group.threads.slice(0, COLLAPSED_THREAD_LIMIT);
+
+          return (
+            <View key={group.key}>
+              <ProjectGroupLabel
+                project={group.project}
+                totalThreadCount={group.threads.length}
+                httpBaseUrl={connection?.httpBaseUrl ?? null}
+                bearerToken={connection?.bearerToken ?? null}
+                isExpanded={isExpanded}
+                onToggleExpand={() => toggleExpanded(group.key)}
+              />
+              <View
+                className="overflow-hidden rounded-[20px] bg-card"
+                style={{ borderCurve: "continuous" }}
+              >
+                {visibleThreads.map((thread, i) => (
+                  <ThreadRow
+                    key={`${thread.environmentId}:${thread.id}`}
+                    thread={thread}
+                    projectCwd={group.project.workspaceRoot}
+                    onPress={() => props.onSelectThread(thread)}
+                    isLast={i === visibleThreads.length - 1}
+                  />
+                ))}
+              </View>
+            </View>
+          );
+        })
+      )}
+    </ScrollView>
   );
 }

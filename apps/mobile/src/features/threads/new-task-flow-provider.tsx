@@ -15,7 +15,8 @@ import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
 import type { ScopedMobileProject } from "../../lib/scopedEntities";
 import { scopedProjectKey } from "../../lib/scopedEntities";
-import { useProjectActions } from "../../state/use-project-actions";
+import { useRemoteEnvironmentStore } from "../../state/remote-environment-store";
+import { gitBranchManager, useGitBranches } from "../../state/use-git-branches";
 import { useRemoteCatalog } from "../../state/use-remote-catalog";
 
 export type { ModelOption, ProviderGroup };
@@ -110,7 +111,9 @@ const NewTaskFlowContext = React.createContext<NewTaskFlowContextValue | null>(n
 
 export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const { projects, serverConfigByEnvironmentId, threads } = useRemoteCatalog();
-  const { onListProjectBranches } = useProjectActions();
+  const setPendingConnectionError = useRemoteEnvironmentStore(
+    (state) => state.setPendingConnectionError,
+  );
 
   const repositoryGroups = useMemo(
     () => groupProjectsByRepository({ projects, threads }),
@@ -142,8 +145,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const [attachments, setAttachments] = useState<ReadonlyArray<DraftComposerImageAttachment>>([]);
   const [submitting, setSubmitting] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
-  const [branchesLoading, setBranchesLoading] = useState(false);
-  const [availableBranches, setAvailableBranches] = useState<ReadonlyArray<GitBranch>>([]);
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(DEFAULT_RUNTIME_MODE);
   const [interactionMode, setInteractionMode] = useState<ProviderInteractionMode>(
     DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -190,8 +191,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     clearAttachments();
     setSubmitting(false);
     setBranchQuery("");
-    setBranchesLoading(false);
-    setAvailableBranches([]);
     setRuntimeMode(DEFAULT_RUNTIME_MODE);
     setInteractionMode(DEFAULT_PROVIDER_INTERACTION_MODE);
     setEffort("high");
@@ -262,6 +261,20 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     ) ?? null;
 
   const providerGroups = useMemo(() => groupByProvider(modelOptions), [modelOptions]);
+  const branchTarget = useMemo(
+    () => ({
+      environmentId: selectedProject?.environmentId ?? null,
+      cwd: selectedProject?.workspaceRoot ?? null,
+      query: null,
+    }),
+    [selectedProject?.environmentId, selectedProject?.workspaceRoot],
+  );
+  const branchState = useGitBranches(branchTarget);
+  const branchesLoading = branchState.isPending;
+  const availableBranches = useMemo(
+    () => (branchState.data?.branches ?? []).filter((branch) => !branch.isRemote),
+    [branchState.data?.branches],
+  );
 
   const filteredBranches = useMemo(() => {
     const query = branchQuery.trim().toLowerCase();
@@ -299,10 +312,14 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       return;
     }
 
-    setBranchesLoading(true);
     try {
-      const branches = await onListProjectBranches(selectedProject);
-      setAvailableBranches(branches);
+      const result = await gitBranchManager.load({
+        environmentId: selectedProject.environmentId,
+        cwd: selectedProject.workspaceRoot,
+        query: null,
+      });
+      setPendingConnectionError(null);
+      const branches = (result?.branches ?? []).filter((branch) => !branch.isRemote);
 
       if (workspaceMode === "worktree" && !selectedBranchName) {
         const preferredBranch =
@@ -313,10 +330,10 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           setSelectedBranchName(preferredBranch);
         }
       }
-    } finally {
-      setBranchesLoading(false);
+    } catch {
+      setPendingConnectionError("Failed to load branches.");
     }
-  }, [onListProjectBranches, selectedBranchName, selectedProject, workspaceMode]);
+  }, [selectedBranchName, selectedProject, setPendingConnectionError, workspaceMode]);
 
   const value = useMemo<NewTaskFlowContextValue>(
     () => ({

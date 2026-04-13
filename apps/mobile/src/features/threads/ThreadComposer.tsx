@@ -20,6 +20,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import ImageViewing from "react-native-image-viewing";
+import { useThemeColor } from "../../lib/useThemeColor";
 
 import { AppText as Text } from "../../components/AppText";
 import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
@@ -29,7 +30,6 @@ import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import type { MobileLayoutVariant } from "../../lib/mobileLayout";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import type { RemoteClientConnectionState } from "../../lib/remoteClient";
-import { makeAppPalette } from "../../lib/theme";
 import { useNativePaste } from "../../hooks/useNativePaste";
 
 /**
@@ -109,7 +109,8 @@ function ComposerSurface(props: {
 
 export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposerProps) {
   const isDarkMode = useColorScheme() === "dark";
-  const palette = makeAppPalette(isDarkMode);
+  const placeholderColor = useThemeColor("--color-placeholder");
+  const foregroundColor = useThemeColor("--color-foreground");
   const inputRef = useRef<RNTextInput>(null);
   const [isFocused, setIsFocused] = useState(false);
   const wasExpandedBeforePreviewRef = useRef(false);
@@ -337,14 +338,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   return (
     <View
+      className="bg-screen"
       style={{
         paddingHorizontal: 16,
         paddingTop: isExpanded ? 12 : 10,
         paddingBottom: (props.bottomInset ?? 0) + (isExpanded ? 4 : 10),
-        // Always opaque — the glass effect lives on the ComposerSurface (pill/card),
-        // not the container.  This prevents chat feed text from bleeding through
-        // the padding areas around and below the pill.
-        backgroundColor: palette.screenBackground,
       }}
     >
       <View
@@ -395,7 +393,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 value={props.draftMessage}
                 onChangeText={props.onChangeDraftMessage}
                 placeholder={props.placeholder}
-                placeholderTextColor={palette.placeholder}
+                placeholderTextColor={placeholderColor}
                 editable={props.connectionState === "ready"}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
@@ -409,7 +407,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         paddingVertical: 4,
                         fontSize: 15,
                         lineHeight: 22,
-                        color: palette.text,
+                        color: foregroundColor,
                         fontFamily: "DMSans_400Regular",
                       }
                     : {
@@ -417,7 +415,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         paddingVertical: 6,
                         fontSize: 15,
                         lineHeight: 20,
-                        color: palette.text,
+                        color: foregroundColor,
                         fontFamily: "DMSans_400Regular",
                       }
                 }
@@ -430,11 +428,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 <Pressable key={image.id} onPress={() => onPressImage(image.previewUri)}>
                   <Image
                     source={{ uri: image.previewUri }}
+                    className="bg-subtle"
                     style={{
                       width: 30,
                       height: 30,
                       borderRadius: 8,
-                      backgroundColor: palette.subtleBg,
                     }}
                     resizeMode="cover"
                   />
@@ -442,22 +440,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               ))}
               {props.draftAttachments.length > 3 ? (
                 <View
+                  className="bg-subtle-strong"
                   style={{
                     width: 30,
                     height: 30,
                     borderRadius: 8,
-                    backgroundColor: palette.subtleBgStrong,
                     alignItems: "center",
                     justifyContent: "center",
                   }}
                 >
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      fontFamily: "DMSans_700Bold",
-                      color: palette.textMuted,
-                    }}
-                  >
+                  <Text className="text-foreground-muted text-[11px] font-t3-bold">
                     +{props.draftAttachments.length - 3}
                   </Text>
                 </View>
@@ -497,12 +489,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             <MenuView
               actions={modelMenuActions}
               onPressAction={({ nativeEvent }) => handleModelMenuAction(nativeEvent.event)}
+              themeVariant={isDarkMode ? "dark" : "light"}
             >
               <ControlPill iconNode={<ProviderIcon provider={modelProvider} size={16} />} />
             </MenuView>
             <MenuView
               actions={optionsMenuActions}
               onPressAction={({ nativeEvent }) => handleOptionsMenuAction(nativeEvent.event)}
+              themeVariant={isDarkMode ? "dark" : "light"}
             >
               <ControlPill icon="slider.horizontal.3" />
             </MenuView>
@@ -527,8 +521,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         {/* Queue count */}
         {props.queueCount > 0 ? (
           <Text
+            className="text-foreground-muted"
             style={{
-              color: palette.textMuted,
               fontSize: 12,
               lineHeight: 18,
               paddingTop: 8,

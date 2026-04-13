@@ -1,13 +1,6 @@
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  useColorScheme,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { Modal, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
@@ -16,6 +9,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import { useThemeColor } from "../../lib/useThemeColor";
 
 import { AppText as Text } from "../../components/AppText";
 import { StatusPill } from "../../components/StatusPill";
@@ -23,7 +17,6 @@ import { groupProjectsByRepository } from "../../lib/repositoryGroups";
 import type { ScopedMobileProject, ScopedMobileThread } from "../../lib/scopedEntities";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { relativeTime } from "../../lib/time";
-import { makeAppPalette } from "../../lib/theme";
 import { threadStatusTone } from "./threadPresentation";
 
 function compareThreadActivity(left: ScopedMobileThread, right: ScopedMobileThread): number {
@@ -42,14 +35,19 @@ export function ThreadNavigationDrawer(props: {
   readonly onSelectThread: (thread: ScopedMobileThread) => void;
   readonly onStartNewTask: () => void;
 }) {
-  const isDarkMode = useColorScheme() === "dark";
-  const palette = makeAppPalette(isDarkMode);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const drawerWidth = Math.min(width * 0.84, 360);
   const [mounted, setMounted] = useState(props.visible);
   const translateX = useSharedValue(-drawerWidth);
   const overlayOpacity = useSharedValue(0);
+
+  const backdropColor = useThemeColor("--color-backdrop");
+  const drawerBg = useThemeColor("--color-drawer");
+  const drawerShadow = useThemeColor("--color-drawer-shadow");
+  const primaryForeground = useThemeColor("--color-primary-foreground");
+  const borderSubtleColor = useThemeColor("--color-border-subtle");
+
   const repositoryGroups = useMemo(
     () => groupProjectsByRepository({ projects: props.projects, threads: props.threads }),
     [props.projects, props.threads],
@@ -130,7 +128,7 @@ export function ThreadNavigationDrawer(props: {
               right: 0,
               top: 0,
               bottom: 0,
-              backgroundColor: palette.backdrop,
+              backgroundColor: backdropColor,
             },
             backdropStyle,
           ]}
@@ -149,30 +147,27 @@ export function ThreadNavigationDrawer(props: {
                 top: 0,
                 bottom: 0,
                 width: drawerWidth,
-                backgroundColor: palette.drawerBackground,
+                backgroundColor: drawerBg,
                 paddingTop: insets.top + 10,
                 paddingBottom: Math.max(insets.bottom, 18),
-                boxShadow: `20px 0 36px ${palette.drawerShadow}`,
+                boxShadow: `20px 0 36px ${String(drawerShadow)}`,
               },
               drawerStyle,
             ]}
           >
             <View className="flex-row items-center justify-between px-4 pb-5">
-              <Text className="text-[26px] font-t3-bold" style={{ color: palette.text }}>
-                Threads
-              </Text>
+              <Text className="text-[26px] font-t3-bold">Threads</Text>
               <Pressable
                 onPress={() => {
                   props.onClose();
                   props.onStartNewTask();
                 }}
-                className="h-11 w-11 items-center justify-center rounded-full"
-                style={{ backgroundColor: palette.primaryButton }}
+                className="h-11 w-11 items-center justify-center rounded-full bg-primary"
               >
                 <SymbolView
                   name="square.and.pencil"
                   size={17}
-                  tintColor={palette.primaryButtonText}
+                  tintColor={primaryForeground}
                   type="monochrome"
                 />
               </Pressable>
@@ -189,22 +184,16 @@ export function ThreadNavigationDrawer(props: {
               {groupedThreads.map((group) => (
                 <View key={group.key} className="gap-3">
                   <Text
-                    className="px-1 text-[15px] font-t3-bold"
-                    style={{ color: palette.textMuted, letterSpacing: -0.2 }}
+                    className="px-1 text-[15px] font-t3-bold text-foreground-muted"
+                    style={{ letterSpacing: -0.2 }}
                   >
                     {group.title}
                   </Text>
 
-                  <View
-                    className="overflow-hidden rounded-[22px]"
-                    style={{ backgroundColor: palette.card }}
-                  >
+                  <View className="overflow-hidden rounded-[22px] bg-card">
                     {group.threads.length === 0 ? (
                       <View className="px-4 py-4">
-                        <Text
-                          className="text-[14px] font-medium"
-                          style={{ color: palette.textTertiary }}
-                        >
+                        <Text className="text-[14px] font-medium text-foreground-tertiary">
                           No threads yet
                         </Text>
                       </View>
@@ -224,23 +213,19 @@ export function ThreadNavigationDrawer(props: {
                               paddingHorizontal: 16,
                               paddingVertical: 15,
                               borderTopWidth: index === 0 ? 0 : 1,
-                              borderTopColor: palette.borderSubtle,
-                              backgroundColor: selected ? palette.subtleBg : "transparent",
+                              borderTopColor: borderSubtleColor,
+                              backgroundColor: selected ? undefined : "transparent",
                             }}
+                            className={selected ? "bg-subtle" : undefined}
                           >
                             <View className="flex-row items-start justify-between gap-3">
                               <View className="flex-1 gap-1">
-                                <Text
-                                  className="text-[16px] font-t3-bold"
-                                  numberOfLines={1}
-                                  style={{ color: palette.text }}
-                                >
+                                <Text className="text-[16px] font-t3-bold" numberOfLines={1}>
                                   {thread.title}
                                 </Text>
                                 <Text
-                                  className="text-[13px] font-medium"
+                                  className="text-[13px] font-medium text-foreground-muted"
                                   numberOfLines={1}
-                                  style={{ color: palette.textMuted }}
                                 >
                                   {relativeTime(thread.updatedAt ?? thread.createdAt)}
                                 </Text>

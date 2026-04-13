@@ -2,7 +2,7 @@ import type { ApprovalRequestId } from "@t3tools/contracts";
 import { Pressable, View } from "react-native";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
-import { cx } from "../../lib/classNames";
+import { cn } from "../../lib/cn";
 import type { PendingUserInput, PendingUserInputDraftAnswer } from "../../lib/threadActivity";
 
 export interface PendingUserInputCardProps {
@@ -45,7 +45,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                 return (
                   <Pressable
                     key={option.label}
-                    className={cx(
+                    className={cn(
                       "rounded-full border px-3 py-2.5 ",
                       selected
                         ? "border-blue-300/50 bg-blue-50 dark:border-blue-400/28 dark:bg-blue-400/14"
@@ -60,7 +60,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                     }
                   >
                     <Text
-                      className={cx(
+                      className={cn(
                         "font-t3-bold text-[13px]",
                         selected
                           ? "text-sky-700 dark:text-sky-300"
@@ -85,7 +85,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         );
       })}
       <Pressable
-        className={cx(
+        className={cn(
           "items-center justify-center rounded-2xl px-4 py-3.5",
           props.answers ? "bg-blue-500" : "bg-neutral-200 dark:bg-neutral-700/60",
         )}

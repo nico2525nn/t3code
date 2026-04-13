@@ -2,18 +2,18 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, View, useColorScheme } from "react-native";
+import { Alert, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useThemeColor } from "../../lib/useThemeColor";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { dismissRoute } from "../../lib/routes";
-import { extractPairingUrlFromQrPayload } from "../../lib/pairingQr";
+import { extractPairingUrlFromQrPayload } from "./pairingQr";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import {
   buildPairingUrl,
   ConnectionSheetButton as SheetButton,
-  makeConnectionSheetPalette as makePalette,
   parsePairingUrl,
 } from "./connection-sheet-shared";
 
@@ -28,14 +28,15 @@ export function NewConnectionRouteScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string }>();
   const insets = useSafeAreaInsets();
-  const isDarkMode = useColorScheme() === "dark";
-  const palette = makePalette(isDarkMode);
   const [hostInput, setHostInput] = useState("");
   const [codeInput, setCodeInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showScanner, setShowScanner] = useState(params.mode === "scan_qr");
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [scannerLocked, setScannerLocked] = useState(false);
+
+  const textColor = useThemeColor("--color-icon");
+  const placeholderColor = useThemeColor("--color-placeholder");
 
   const connectDisabled =
     isSubmitting || connectionState === "connecting" || hostInput.trim().length === 0;
@@ -125,13 +126,13 @@ export function NewConnectionRouteScreen() {
   }, [codeInput, hostInput, onChangeConnectionPairingUrl, onConnectPress, router]);
 
   return (
-    <View collapsable={false} style={{ flex: 1, backgroundColor: palette.sheet }}>
+    <View collapsable={false} className="flex-1 bg-sheet">
       <Stack.Screen
         options={{
           title: showScanner ? "Scan QR Code" : "Add Backend",
           headerRight: () => (
             <Pressable
-              className="h-10 w-10 items-center justify-center rounded-full"
+              className="h-10 w-10 items-center justify-center rounded-full border border-border bg-secondary"
               onPress={() => {
                 if (showScanner) {
                   closeScanner();
@@ -139,16 +140,11 @@ export function NewConnectionRouteScreen() {
                   void openScanner();
                 }
               }}
-              style={{
-                backgroundColor: palette.secondaryButton,
-                borderWidth: 1,
-                borderColor: palette.border,
-              }}
             >
               <SymbolView
                 name={showScanner ? "xmark" : "qrcode.viewfinder"}
                 size={showScanner ? 14 : 18}
-                tintColor={palette.text}
+                tintColor={textColor}
                 type="monochrome"
                 weight="semibold"
               />
@@ -182,20 +178,16 @@ export function NewConnectionRouteScreen() {
               </View>
             ) : (
               <View
-                className="items-center gap-3 rounded-[24px] px-5 py-8"
-                style={{ backgroundColor: palette.card, borderCurve: "continuous" }}
+                className="items-center gap-3 rounded-[24px] bg-card px-5 py-8"
+                style={{ borderCurve: "continuous" }}
               >
-                <Text
-                  className="text-center text-[14px] leading-[20px]"
-                  style={{ color: palette.muted }}
-                >
+                <Text className="text-center text-[14px] leading-[20px] text-foreground-muted">
                   Camera permission is required to scan a QR code.
                 </Text>
                 <SheetButton
                   compact
                   icon="camera"
                   label="Allow camera"
-                  palette={palette}
                   tone="secondary"
                   onPress={() => {
                     void openScanner();
@@ -204,15 +196,11 @@ export function NewConnectionRouteScreen() {
               </View>
             )
           ) : (
-            <View
-              collapsable={false}
-              className="gap-4 rounded-[24px] p-4"
-              style={{ backgroundColor: palette.card }}
-            >
+            <View collapsable={false} className="gap-4 rounded-[24px] bg-card p-4">
               <View collapsable={false} className="gap-1.5">
                 <Text
-                  className="text-[11px] font-t3-bold uppercase"
-                  style={{ color: palette.muted, letterSpacing: 0.8 }}
+                  className="text-[11px] font-t3-bold uppercase text-foreground-muted"
+                  style={{ letterSpacing: 0.8 }}
                 >
                   Host
                 </Text>
@@ -221,23 +209,17 @@ export function NewConnectionRouteScreen() {
                   autoCorrect={false}
                   keyboardType="url"
                   placeholder="192.168.1.100:8080"
-                  placeholderTextColor={palette.placeholder}
+                  placeholderTextColor={placeholderColor}
                   value={hostInput}
                   onChangeText={handleHostChange}
-                  className="rounded-[14px] px-4 py-3.5 text-[15px]"
-                  style={{
-                    backgroundColor: palette.inputBackground,
-                    borderWidth: 1,
-                    borderColor: palette.inputBorder,
-                    color: palette.text,
-                  }}
+                  className="rounded-[14px] border border-input-border bg-input px-4 py-3.5 text-[15px] text-foreground"
                 />
               </View>
 
               <View collapsable={false} className="gap-1.5">
                 <Text
-                  className="text-[11px] font-t3-bold uppercase"
-                  style={{ color: palette.muted, letterSpacing: 0.8 }}
+                  className="text-[11px] font-t3-bold uppercase text-foreground-muted"
+                  style={{ letterSpacing: 0.8 }}
                 >
                   Pairing code
                 </Text>
@@ -245,16 +227,10 @@ export function NewConnectionRouteScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   placeholder="abc-123-xyz"
-                  placeholderTextColor={palette.placeholder}
+                  placeholderTextColor={placeholderColor}
                   value={codeInput}
                   onChangeText={handleCodeChange}
-                  className="rounded-[14px] px-4 py-3.5 text-[15px]"
-                  style={{
-                    backgroundColor: palette.inputBackground,
-                    borderWidth: 1,
-                    borderColor: palette.inputBorder,
-                    color: palette.text,
-                  }}
+                  className="rounded-[14px] border border-input-border bg-input px-4 py-3.5 text-[15px] text-foreground"
                 />
               </View>
 
@@ -263,10 +239,9 @@ export function NewConnectionRouteScreen() {
               <SheetButton
                 icon="plus"
                 label={
-                  isSubmitting || connectionState === "connecting" ? "Pairing…" : "Add backend"
+                  isSubmitting || connectionState === "connecting" ? "Pairing..." : "Add backend"
                 }
                 disabled={connectDisabled}
-                palette={palette}
                 tone="primary"
                 onPress={() => {
                   void handleSubmit();

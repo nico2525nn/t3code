@@ -3,9 +3,10 @@ import { useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { TextInputWrapper } from "expo-paste-input";
 import { useCallback, useEffect, useMemo } from "react";
-import { Pressable, useColorScheme, View } from "react-native";
+import { Pressable, View, useColorScheme } from "react-native";
 import Animated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useThemeColor } from "../../lib/useThemeColor";
 
 import type { ModelSelection } from "@t3tools/contracts";
 import { CLAUDE_CODE_EFFORT_OPTIONS } from "@t3tools/contracts";
@@ -17,7 +18,6 @@ import { ProviderIcon } from "../../components/ProviderIcon";
 
 import { convertPastedImagesToAttachments, pickComposerImages } from "../../lib/composerImages";
 import { buildThreadRoutePath } from "../../lib/routes";
-import { makeAppPalette } from "../../lib/theme";
 import { useProjectActions } from "../../state/use-project-actions";
 import { useRemoteCatalog } from "../../state/use-remote-catalog";
 import { useNativePaste } from "../../hooks/useNativePaste";
@@ -33,9 +33,8 @@ export function NewTaskDraftScreen(props: {
   const { onCreateThreadWithOptions } = useProjectActions();
   const flow = useNewTaskFlow();
   const router = useRouter();
-  const isDarkMode = useColorScheme() === "dark";
-  const palette = makeAppPalette(isDarkMode);
   const insets = useSafeAreaInsets();
+  const isDarkMode = useColorScheme() === "dark";
   const keyboard = useAnimatedKeyboard();
   const containerAnimatedStyle = useAnimatedStyle(() => ({
     paddingBottom: keyboard.height.value,
@@ -44,6 +43,9 @@ export function NewTaskDraftScreen(props: {
     paddingBottom: keyboard.height.value > 0 ? 4 : Math.max(insets.bottom, 10),
   }));
   const { logicalProjects, selectedProject, setProject } = flow;
+
+  const iconColor = useThemeColor("--color-icon");
+  const borderColor = useThemeColor("--color-border");
 
   useEffect(() => {
     if (props.initialProjectRef?.environmentId && props.initialProjectRef?.projectId) {
@@ -384,54 +386,48 @@ export function NewTaskDraftScreen(props: {
 
   if (!selectedProject) {
     return (
-      <View style={{ flex: 1, backgroundColor: palette.sheetBackground }}>
+      <View className="flex-1 bg-sheet">
         <View style={{ minHeight: 16, paddingTop: 8 }} />
         <View className="items-center gap-1 px-5 pb-3 pt-4">
           <Text
-            className="text-[12px] font-t3-bold uppercase"
-            style={{ color: palette.textMuted, letterSpacing: 1 }}
+            className="text-[12px] font-t3-bold uppercase text-foreground-muted"
+            style={{ letterSpacing: 1 }}
           >
             New task
           </Text>
-          <Text className="text-[28px] font-t3-bold" style={{ color: palette.text }}>
-            Loading task
-          </Text>
+          <Text className="text-[28px] font-t3-bold">Loading task</Text>
         </View>
       </View>
     );
   }
 
   return (
-    <Animated.View
-      style={[{ flex: 1, backgroundColor: palette.sheetBackground }, containerAnimatedStyle]}
-    >
+    <Animated.View className="flex-1 bg-sheet" style={containerAnimatedStyle}>
       <View style={{ minHeight: 16, paddingTop: 8 }} />
 
       <View className="items-center gap-1 px-5 pb-3 pt-4">
         {flow.logicalProjects.length > 1 ? (
           <Pressable
-            className="absolute left-3 top-4 h-9 w-9 items-center justify-center rounded-full"
-            style={{ backgroundColor: palette.subtleBg, zIndex: 1 }}
+            className="absolute left-3 top-4 h-9 w-9 items-center justify-center rounded-full bg-subtle"
+            style={{ zIndex: 1 }}
             onPress={() => router.back()}
           >
             <SymbolView
               name="chevron.left"
               size={16}
-              tintColor={palette.icon}
+              tintColor={iconColor}
               type="monochrome"
               weight="medium"
             />
           </Pressable>
         ) : null}
         <Text
-          className="text-[12px] font-t3-bold uppercase"
-          style={{ color: palette.textMuted, letterSpacing: 1 }}
+          className="text-[12px] font-t3-bold uppercase text-foreground-muted"
+          style={{ letterSpacing: 1 }}
         >
           New task
         </Text>
-        <Text className="text-[28px] font-t3-bold" style={{ color: palette.text }}>
-          {selectedProject.title}
-        </Text>
+        <Text className="text-[28px] font-t3-bold">{selectedProject.title}</Text>
       </View>
 
       <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 8 }}>
@@ -440,17 +436,9 @@ export function NewTaskDraftScreen(props: {
             multiline
             value={flow.prompt}
             onChangeText={flow.setPrompt}
-            placeholderTextColor={palette.placeholder}
             placeholder={`Describe a coding task in ${selectedProject.title}`}
             textAlignVertical="top"
-            style={{
-              flex: 1,
-              borderWidth: 0,
-              backgroundColor: "transparent",
-              color: palette.text,
-              fontSize: 18,
-              lineHeight: 28,
-            }}
+            className="flex-1 border-0 bg-transparent text-[18px] leading-[28px]"
           />
         </TextInputWrapper>
       </View>
@@ -459,7 +447,7 @@ export function NewTaskDraftScreen(props: {
         style={[
           {
             borderTopWidth: 1,
-            borderTopColor: palette.border,
+            borderTopColor: borderColor,
           },
           controlsBottomPadding,
         ]}
@@ -479,6 +467,7 @@ export function NewTaskDraftScreen(props: {
           <MenuView
             actions={modelMenuActions}
             onPressAction={({ nativeEvent }) => handleModelMenuAction(nativeEvent.event)}
+            themeVariant={isDarkMode ? "dark" : "light"}
           >
             <ControlPill
               iconNode={<ProviderIcon provider={flow.selectedModel?.provider} size={16} />}
@@ -487,18 +476,21 @@ export function NewTaskDraftScreen(props: {
           <MenuView
             actions={optionsMenuActions}
             onPressAction={({ nativeEvent }) => handleOptionsMenuAction(nativeEvent.event)}
+            themeVariant={isDarkMode ? "dark" : "light"}
           >
             <ControlPill icon="slider.horizontal.3" />
           </MenuView>
           <MenuView
             actions={environmentMenuActions}
             onPressAction={({ nativeEvent }) => handleEnvironmentMenuAction(nativeEvent.event)}
+            themeVariant={isDarkMode ? "dark" : "light"}
           >
             <ControlPill icon="desktopcomputer" />
           </MenuView>
           <MenuView
             actions={workspaceMenuActions}
             onPressAction={({ nativeEvent }) => handleWorkspaceMenuAction(nativeEvent.event)}
+            themeVariant={isDarkMode ? "dark" : "light"}
           >
             <ControlPill icon="point.topleft.down.curvedto.point.bottomright.up" />
           </MenuView>

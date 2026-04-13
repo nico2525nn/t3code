@@ -9,7 +9,7 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 
-import { newClientId } from "../lib/clientId";
+import { uuidv4 } from "../lib/uuid";
 import { useThreadSelection } from "./use-thread-selection";
 import { useRemoteEnvironmentStore } from "./remote-environment-store";
 import { getEnvironmentClient, useRemoteEnvironmentState } from "./use-remote-environment-registry";
@@ -102,7 +102,7 @@ export function useSelectedThreadCommands(input: {
 
       await client.orchestration.dispatchCommand({
         type: "thread.meta.update",
-        commandId: CommandId.makeUnsafe(newClientId("command")),
+        commandId: CommandId.makeUnsafe(uuidv4()),
         threadId: selectedThread.id,
         modelSelection,
       });
@@ -123,7 +123,7 @@ export function useSelectedThreadCommands(input: {
 
       await client.orchestration.dispatchCommand({
         type: "thread.runtime-mode.set",
-        commandId: CommandId.makeUnsafe(newClientId("command")),
+        commandId: CommandId.makeUnsafe(uuidv4()),
         threadId: selectedThread.id,
         runtimeMode,
         createdAt: new Date().toISOString(),
@@ -145,7 +145,7 @@ export function useSelectedThreadCommands(input: {
 
       await client.orchestration.dispatchCommand({
         type: "thread.interaction-mode.set",
-        commandId: CommandId.makeUnsafe(newClientId("command")),
+        commandId: CommandId.makeUnsafe(uuidv4()),
         threadId: selectedThread.id,
         interactionMode,
         createdAt: new Date().toISOString(),
@@ -173,7 +173,7 @@ export function useSelectedThreadCommands(input: {
 
     await client.orchestration.dispatchCommand({
       type: "thread.turn.interrupt",
-      commandId: CommandId.makeUnsafe(newClientId("command")),
+      commandId: CommandId.makeUnsafe(uuidv4()),
       threadId: selectedThread.id,
       ...(selectedThread.session?.activeTurnId
         ? { turnId: selectedThread.session.activeTurnId }
@@ -200,7 +200,7 @@ export function useSelectedThreadCommands(input: {
 
       await client.orchestration.dispatchCommand({
         type: "thread.meta.update",
-        commandId: CommandId.makeUnsafe(newClientId("command")),
+        commandId: CommandId.makeUnsafe(uuidv4()),
         threadId: selectedThread.id,
         title: trimmed,
       });
@@ -223,7 +223,7 @@ export function useSelectedThreadCommands(input: {
       try {
         await client.orchestration.dispatchCommand({
           type: "thread.approval.respond",
-          commandId: CommandId.makeUnsafe(newClientId("command")),
+          commandId: CommandId.makeUnsafe(uuidv4()),
           threadId: selectedThread.id,
           requestId,
           decision,
@@ -250,7 +250,7 @@ export function useSelectedThreadCommands(input: {
     try {
       await client.orchestration.dispatchCommand({
         type: "thread.user-input.respond",
-        commandId: CommandId.makeUnsafe(newClientId("command")),
+        commandId: CommandId.makeUnsafe(uuidv4()),
         threadId: selectedThread.id,
         requestId: activePendingUserInput.requestId,
         answers: activePendingUserInputAnswers,

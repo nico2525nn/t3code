@@ -6,6 +6,10 @@ import type {
   ServerLifecycleWelcomePayload,
   TerminalEvent,
 } from "@t3tools/contracts";
+import * as Arr from "effect/Array";
+import * as Order from "effect/Order";
+import * as Option from "effect/Option";
+import { pipe } from "effect/Function";
 
 import type { KnownEnvironment } from "./knownEnvironment";
 import type { WsRpcClient } from "./wsRpcClient";
@@ -137,14 +141,20 @@ function createOrchestrationRecoveryCoordinator() {
     markEventBatchApplied<T extends Readonly<{ sequence: number }>>(
       events: ReadonlyArray<T>,
     ): ReadonlyArray<T> {
-      const nextEvents = events
-        .filter((event) => event.sequence > state.latestSequence)
-        .toSorted((left, right) => left.sequence - right.sequence);
+      const nextEvents = pipe(
+        events,
+        Arr.filter((event) => event.sequence > state.latestSequence),
+        Arr.sortWith((event) => event.sequence, Order.Number),
+      );
       if (nextEvents.length === 0) {
         return [];
       }
 
-      const latestSequence = nextEvents.at(-1)?.sequence ?? state.latestSequence;
+      const latestSequence = Arr.last(nextEvents).pipe(
+        Option.map((event) => event.sequence),
+        Option.getOrElse(() => state.latestSequence),
+      );
+
       state = {
         ...state,
         latestSequence,

@@ -3,8 +3,7 @@ import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   type UploadChatImageAttachment,
 } from "@t3tools/contracts";
-
-import { newClientId } from "./clientId";
+import { uuidv4 } from "./uuid";
 
 export interface DraftComposerImageAttachment extends UploadChatImageAttachment {
   readonly id: string;
@@ -101,7 +100,7 @@ export async function pickComposerImages(input: { readonly existingCount: number
     }
 
     nextImages.push({
-      id: newClientId("attachment"),
+      id: uuidv4(),
       type: "image",
       name: asset.fileName ?? "image",
       mimeType,
@@ -165,7 +164,7 @@ export async function pasteComposerClipboard(input: { readonly existingCount: nu
     return {
       images: [
         {
-          id: newClientId("attachment"),
+          id: uuidv4(),
           type: "image",
           name: "pasted-image.png",
           mimeType: "image/png",
@@ -233,7 +232,7 @@ export async function convertPastedImagesToAttachments(input: {
       }
       const mimeType = mimeTypeFromUri(uri);
       results.push({
-        id: newClientId("attachment"),
+        id: uuidv4(),
         type: "image",
         name: `pasted-image.${mimeType.split("/")[1] ?? "png"}`,
         mimeType,

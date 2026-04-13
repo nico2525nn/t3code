@@ -1,5 +1,7 @@
 import type {
   ApprovalRequestId,
+  CommandId,
+  MessageId,
   OrchestrationThread,
   OrchestrationThreadActivity,
   ThreadId,
@@ -29,11 +31,10 @@ export interface PendingUserInputDraftAnswer {
 }
 
 export interface QueuedThreadMessage {
-  readonly id: string;
   readonly environmentId: string;
   readonly threadId: ThreadId;
-  readonly messageId: string;
-  readonly commandId: string;
+  readonly messageId: MessageId;
+  readonly commandId: CommandId;
   readonly text: string;
   readonly attachments: ReadonlyArray<DraftComposerImageAttachment>;
   readonly createdAt: string;
@@ -380,7 +381,7 @@ export function buildPendingUserInputAnswers(
 export function buildThreadFeed(
   thread: OrchestrationThread,
   queuedMessages: ReadonlyArray<QueuedThreadMessage>,
-  dispatchingQueuedMessageId: string | null,
+  dispatchingQueuedMessageId: MessageId | null,
   options?: {
     readonly loadedMessages?: ReadonlyArray<OrchestrationThread["messages"][number]>;
   },
@@ -398,10 +399,10 @@ export function buildThreadFeed(
       })),
       ...queuedMessages.map<RawThreadFeedEntry>((queuedMessage) => ({
         type: "queued-message",
-        id: queuedMessage.id,
+        id: queuedMessage.messageId,
         createdAt: queuedMessage.createdAt,
         queuedMessage,
-        sending: queuedMessage.id === dispatchingQueuedMessageId,
+        sending: queuedMessage.messageId === dispatchingQueuedMessageId,
       })),
       ...thread.activities
         .filter((activity) => {

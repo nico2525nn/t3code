@@ -10,8 +10,8 @@ import {
 import { EnvironmentId, type OrchestrationReadModel } from "@t3tools/contracts";
 import { resolveRemoteWebSocketConnectionUrl } from "@t3tools/shared/remote";
 import { useShallow } from "zustand/react/shallow";
-
-import { sortCopy } from "../lib/arrayCompat";
+import * as Arr from "effect/Array";
+import * as Order from "effect/Order";
 import { type SavedRemoteConnection, bootstrapRemoteConnection } from "../lib/connection";
 import { applyRealtimeEvent, requiresSnapshotRefresh } from "../lib/orchestration";
 import { clearSavedConnection, loadSavedConnections, saveConnection } from "../lib/storage";
@@ -25,6 +25,22 @@ import { remoteEnvironmentStore, useRemoteEnvironmentStore } from "./remote-envi
 import { useThreadSelectionStore } from "./thread-selection-store";
 
 const environmentSessions = new Map<string, EnvironmentSession>();
+const environmentConnectionListeners = new Set<() => void>();
+
+function notifyEnvironmentConnectionListeners() {
+  for (const listener of environmentConnectionListeners) listener();
+}
+
+/**
+ * Subscribe to environment-connection changes (connect / disconnect / reconnect).
+ * Returns an unsubscribe function.
+ */
+export function subscribeEnvironmentConnections(listener: () => void): () => void {
+  environmentConnectionListeners.add(listener);
+  return () => {
+    environmentConnectionListeners.delete(listener);
+  };
+}
 
 function setEnvironmentConnectionStatus(
   environmentId: string,
@@ -48,6 +64,7 @@ export async function disconnectEnvironment(
 ) {
   const session = environmentSessions.get(environmentId);
   environmentSessions.delete(environmentId);
+  notifyEnvironmentConnectionListeners();
   await session?.connection.dispose();
   remoteEnvironmentStore.getState().removeEnvironmentRuntimeState(environmentId);
 
@@ -176,6 +193,7 @@ export async function connectSavedEnvironment(
     client,
     connection: environmentConnection,
   });
+  notifyEnvironmentConnectionListeners();
 
   try {
     await environmentConnection.ensureBootstrapped();
@@ -188,11 +206,15 @@ export async function connectSavedEnvironment(
   }
 }
 
+const environmentsSortOrder = Order.make<ConnectedEnvironmentSummary>(
+  (left, right) => left.environmentLabel.localeCompare(right.environmentLabel) as -1 | 0 | 1,
+);
+
 function deriveConnectedEnvironments(
   savedConnectionsById: Record<string, SavedRemoteConnection>,
   environmentStateById: ReturnType<typeof remoteEnvironmentStore.getState>["environmentStateById"],
 ): ReadonlyArray<ConnectedEnvironmentSummary> {
-  return sortCopy(
+  return Arr.sort(
     Object.values(savedConnectionsById).map((connection) => {
       const runtime = environmentStateById[connection.environmentId];
       return {
@@ -203,7 +225,7 @@ function deriveConnectedEnvironments(
         connectionError: runtime?.connectionError ?? null,
       };
     }),
-    (left, right) => left.environmentLabel.localeCompare(right.environmentLabel),
+    environmentsSortOrder,
   );
 }
 
@@ -250,6 +272,7 @@ export function useRemoteEnvironmentBootstrap() {
         void session.connection.dispose();
       }
       environmentSessions.clear();
+      notifyEnvironmentConnectionListeners();
     };
   }, [replaceSavedConnections, setIsLoadingSavedConnection]);
 }

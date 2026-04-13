@@ -18,7 +18,7 @@ import {
   derivePendingUserInputs,
   type QueuedThreadMessage,
 } from "../lib/threadActivity";
-import { newClientId } from "../lib/clientId";
+import { uuidv4 } from "../lib/uuid";
 import type { ConnectedEnvironmentSummary } from "./remote-runtime-types";
 import { useRemoteEnvironmentStore } from "./remote-environment-store";
 import { getEnvironmentClient, useRemoteConnectionStatus } from "./use-remote-environment-registry";
@@ -238,7 +238,7 @@ export function useThreadComposerState() {
         return;
       }
 
-      beginDispatchingQueuedMessage(queuedMessage.id);
+      beginDispatchingQueuedMessage(queuedMessage.messageId);
       try {
         await client.orchestration.dispatchCommand({
           type: "thread.turn.start",
@@ -255,7 +255,11 @@ export function useThreadComposerState() {
           createdAt: queuedMessage.createdAt,
         });
 
-        removeQueuedMessage(queuedMessage.environmentId, queuedMessage.threadId, queuedMessage.id);
+        removeQueuedMessage(
+          queuedMessage.environmentId,
+          queuedMessage.threadId,
+          queuedMessage.messageId,
+        );
         patchEnvironmentRuntimeState(queuedMessage.environmentId, (runtime) => ({
           ...runtime,
           snapshot: runtime.snapshot
@@ -269,12 +273,16 @@ export function useThreadComposerState() {
             : runtime.snapshot,
         }));
       } catch (error) {
-        removeQueuedMessage(queuedMessage.environmentId, queuedMessage.threadId, queuedMessage.id);
+        removeQueuedMessage(
+          queuedMessage.environmentId,
+          queuedMessage.threadId,
+          queuedMessage.messageId,
+        );
         setPendingConnectionError(
           error instanceof Error ? error.message : "Failed to send message.",
         );
       } finally {
-        finishDispatchingQueuedMessage(queuedMessage.id);
+        finishDispatchingQueuedMessage(queuedMessage.messageId);
       }
     },
     [
@@ -309,11 +317,10 @@ export function useThreadComposerState() {
 
     const createdAt = new Date().toISOString();
     enqueueQueuedMessage({
-      id: newClientId("queued-message"),
       environmentId: selectedThread.environmentId,
       threadId: selectedThread.id,
-      messageId: newClientId("message"),
-      commandId: newClientId("command"),
+      messageId: MessageId.makeUnsafe(uuidv4()),
+      commandId: CommandId.makeUnsafe(uuidv4()),
       text,
       attachments,
       createdAt,

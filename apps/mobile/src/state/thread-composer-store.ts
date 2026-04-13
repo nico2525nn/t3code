@@ -1,4 +1,4 @@
-import type { ThreadId } from "@t3tools/contracts";
+import type { MessageId, ThreadId } from "@t3tools/contracts";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 
@@ -10,7 +10,7 @@ interface ThreadComposerStoreState {
   readonly nowTick: number;
   readonly draftMessageByThreadKey: Record<string, string>;
   readonly draftAttachmentsByThreadKey: Record<string, ReadonlyArray<DraftComposerImageAttachment>>;
-  readonly dispatchingQueuedMessageId: string | null;
+  readonly dispatchingQueuedMessageId: MessageId | null;
   readonly queuedMessagesByThreadKey: Record<string, ReadonlyArray<QueuedThreadMessage>>;
 
   readonly setNowTick: (tick: number) => void;
@@ -22,13 +22,13 @@ interface ThreadComposerStoreState {
   readonly appendDraftMessage: (threadKey: string, value: string) => void;
   readonly clearDraft: (threadKey: string) => void;
   readonly removeDraftImage: (threadKey: string, imageId: string) => void;
-  readonly beginDispatchingQueuedMessage: (queuedMessageId: string) => void;
-  readonly finishDispatchingQueuedMessage: (queuedMessageId: string) => void;
+  readonly beginDispatchingQueuedMessage: (queuedMessageId: MessageId) => void;
+  readonly finishDispatchingQueuedMessage: (queuedMessageId: MessageId) => void;
   readonly enqueueQueuedMessage: (message: QueuedThreadMessage) => void;
   readonly removeQueuedMessage: (
     environmentId: string,
     threadId: ThreadId,
-    queuedMessageId: string,
+    queuedMessageId: MessageId,
   ) => void;
 }
 
@@ -107,7 +107,7 @@ export const threadComposerStore = createStore<ThreadComposerStoreState>()((set)
       if (!existing) {
         return state;
       }
-      const nextQueue = existing.filter((entry) => entry.id !== queuedMessageId);
+      const nextQueue = existing.filter((entry) => entry.messageId !== queuedMessageId);
       const next = { ...state.queuedMessagesByThreadKey };
       if (nextQueue.length === 0) {
         delete next[threadKey];

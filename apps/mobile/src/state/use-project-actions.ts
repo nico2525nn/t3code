@@ -14,11 +14,12 @@ import {
 import { sanitizeFeatureBranchName } from "@t3tools/shared/git";
 
 import type { DraftComposerImageAttachment } from "../lib/composerImages";
-import { newClientId } from "../lib/clientId";
+import { uuidv4 } from "../lib/uuid";
 import type { ScopedMobileProject } from "../lib/scopedEntities";
 import { buildTemporaryWorktreeBranchName } from "../lib/worktrees";
 import { deriveThreadTitleFromPrompt } from "./remote-runtime-types";
 import { useRemoteEnvironmentStore } from "./remote-environment-store";
+import { gitBranchManager } from "./use-git-branches";
 import { useRemoteCatalog } from "./use-remote-catalog";
 import { getEnvironmentClient, useRemoteEnvironmentState } from "./use-remote-environment-registry";
 import { useThreadSelectionStore } from "./thread-selection-store";
@@ -90,7 +91,7 @@ export function useProjectActions() {
         return null;
       }
 
-      const threadId = ThreadId.makeUnsafe(newClientId("thread"));
+      const threadId = ThreadId.makeUnsafe(uuidv4());
       const createdAt = new Date().toISOString();
       const initialMessageText = input.initialMessageText.trim();
       const nextTitle = deriveThreadTitleFromPrompt(input.initialMessageText);
@@ -102,10 +103,10 @@ export function useProjectActions() {
 
         await client.orchestration.dispatchCommand({
           type: "thread.turn.start",
-          commandId: CommandId.makeUnsafe(newClientId("command")),
+          commandId: CommandId.makeUnsafe(uuidv4()),
           threadId,
           message: {
-            messageId: MessageId.makeUnsafe(newClientId("message")),
+            messageId: MessageId.makeUnsafe(uuidv4()),
             role: "user",
             text: initialMessageText,
             attachments: input.initialAttachments,
@@ -137,7 +138,7 @@ export function useProjectActions() {
       } else {
         await client.orchestration.dispatchCommand({
           type: "thread.create",
-          commandId: CommandId.makeUnsafe(newClientId("command")),
+          commandId: CommandId.makeUnsafe(uuidv4()),
           threadId,
           projectId: input.project.id,
           title: nextTitle,
@@ -152,10 +153,10 @@ export function useProjectActions() {
         if (initialMessageText.length > 0 || input.initialAttachments.length > 0) {
           await client.orchestration.dispatchCommand({
             type: "thread.turn.start",
-            commandId: CommandId.makeUnsafe(newClientId("command")),
+            commandId: CommandId.makeUnsafe(uuidv4()),
             threadId,
             message: {
-              messageId: MessageId.makeUnsafe(newClientId("message")),
+              messageId: MessageId.makeUnsafe(uuidv4()),
               role: "user",
               text: initialMessageText,
               attachments: input.initialAttachments,
@@ -217,11 +218,12 @@ export function useProjectActions() {
       }
 
       try {
-        const result = await client.git.listBranches({
-          cwd: project.workspaceRoot,
-          limit: 100,
-        });
-        return result.branches.filter((branch) => !branch.isRemote);
+        const result = await gitBranchManager.load(
+          { environmentId: project.environmentId, cwd: project.workspaceRoot, query: null },
+          client.git,
+          { limit: 100 },
+        );
+        return (result?.branches ?? []).filter((branch) => !branch.isRemote);
       } catch (error) {
         setPendingConnectionError(
           error instanceof Error ? error.message : "Failed to load branches.",
@@ -254,6 +256,11 @@ export function useProjectActions() {
           branch: nextWorktree.baseBranch,
           newBranch: sanitizeFeatureBranchName(nextWorktree.newBranch),
           path: null,
+        });
+        gitBranchManager.invalidate({
+          environmentId: project.environmentId,
+          cwd: project.workspaceRoot,
+          query: null,
         });
         return {
           branch: result.worktree.branch,

@@ -1,9 +1,9 @@
 import type { ComponentProps, ReactNode } from "react";
-import { Pressable, useColorScheme, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { SymbolView } from "expo-symbols";
+import { useThemeColor } from "../lib/useThemeColor";
 
 import { AppText as Text } from "./AppText";
-import { makeAppPalette } from "../lib/theme";
 
 export function ControlPill(props: {
   readonly icon?: ComponentProps<typeof SymbolView>["name"];
@@ -13,31 +13,36 @@ export function ControlPill(props: {
   readonly variant?: "circle" | "pill" | "primary" | "danger";
   readonly disabled?: boolean;
 }) {
-  const isDarkMode = useColorScheme() === "dark";
-  const palette = makeAppPalette(isDarkMode);
   const variant = props.variant ?? "circle";
+
+  const subtleBg = useThemeColor("--color-subtle");
+  const subtleBgStrong = useThemeColor("--color-subtle-strong");
+  const primaryBg = useThemeColor("--color-primary");
+  const dangerBg = useThemeColor("--color-danger");
+  const iconColor = useThemeColor("--color-icon");
+  const iconSubtle = useThemeColor("--color-icon-subtle");
+  const primaryFg = useThemeColor("--color-primary-foreground");
+  const dangerFg = useThemeColor("--color-danger-foreground");
+  const textColor = useThemeColor("--color-foreground");
+  const textMuted = useThemeColor("--color-foreground-muted");
+
   const backgroundColor =
     variant === "primary"
       ? props.disabled
-        ? palette.subtleBgStrong
-        : palette.primaryButton
+        ? subtleBgStrong
+        : primaryBg
       : variant === "danger"
-        ? palette.dangerButton
-        : palette.subtleBg;
+        ? dangerBg
+        : subtleBg;
   const iconTintColor =
     variant === "primary"
       ? props.disabled
-        ? palette.iconSubtle
-        : palette.primaryButtonText
+        ? iconSubtle
+        : primaryFg
       : variant === "danger"
-        ? palette.dangerText
-        : palette.icon;
-  const textColor =
-    variant === "primary"
-      ? props.disabled
-        ? palette.textMuted
-        : palette.primaryButtonText
-      : palette.text;
+        ? dangerFg
+        : iconColor;
+  const labelColor = variant === "primary" ? (props.disabled ? textMuted : primaryFg) : textColor;
 
   const isCircle =
     variant === "circle" || variant === "danger" || (variant === "primary" && !props.label);
@@ -61,7 +66,7 @@ export function ControlPill(props: {
         <SymbolView name={props.icon} size={16} tintColor={iconTintColor} type="monochrome" />
       ) : null}
       {props.label ? (
-        <Text className="text-center text-[12px] font-t3-bold" style={{ color: textColor }}>
+        <Text className="text-center text-[12px] font-t3-bold" style={{ color: labelColor }}>
           {props.label}
         </Text>
       ) : null}
