@@ -80,7 +80,7 @@ function ComposerSurface(props: {
       <LiquidGlassView
         effect="clear"
         interactive
-        tintColor={props.isDarkMode ? "rgba(15,23,42,0.45)" : "rgba(255,255,255,0.45)"}
+        tintColor={props.isDarkMode ? "rgba(44,44,46,0.5)" : "rgba(255,255,255,0.45)"}
         colorScheme={props.isDarkMode ? "dark" : "light"}
         style={props.style}
       >
@@ -94,7 +94,7 @@ function ComposerSurface(props: {
       style={[
         props.style,
         {
-          backgroundColor: props.isDarkMode ? "rgba(22,27,34,0.96)" : "rgba(255,255,255,0.96)",
+          backgroundColor: props.isDarkMode ? "rgba(44,44,46,0.96)" : "rgba(255,255,255,0.96)",
           borderWidth: 1,
           borderColor: props.isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
         },
@@ -107,7 +107,8 @@ function ComposerSurface(props: {
 
 export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposerProps) {
   const isDarkMode = useColorScheme() === "dark";
-  const placeholderColor = useThemeColor("--color-placeholder");
+  const themePlaceholderColor = useThemeColor("--color-placeholder");
+  const placeholderColor = isDarkMode ? "#a1a1aa" : themePlaceholderColor;
   const foregroundColor = useThemeColor("--color-foreground");
   const inputRef = useRef<RNTextInput>(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -336,11 +337,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   return (
     <View
-      className="bg-screen"
       style={{
         paddingHorizontal: 16,
         paddingTop: isExpanded ? 12 : 10,
         paddingBottom: (props.bottomInset ?? 0) + (isExpanded ? 4 : 10),
+        experimental_backgroundImage: isDarkMode
+          ? "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.85) 40%, rgba(0,0,0,0.95) 100%)"
+          : "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.85) 40%, rgba(255,255,255,0.95) 100%)",
       }}
     >
       <View className="w-full">
