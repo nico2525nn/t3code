@@ -596,10 +596,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
     if (event.startsWith("options:fast-mode:")) {
       const fastMode = event.endsWith(":on");
-      const updated: ModelSelection = {
-        ...currentModelSelection,
-        options: { ...currentModelSelection.options, fastMode: fastMode || undefined },
-      };
+      const updated: ModelSelection =
+        currentModelSelection.provider === "claudeAgent"
+          ? {
+              ...currentModelSelection,
+              options: { ...currentModelSelection.options, fastMode: fastMode || undefined },
+            }
+          : currentModelSelection.provider === "codex"
+            ? { ...currentModelSelection, options: { fastMode: fastMode || undefined } }
+            : currentModelSelection;
       void props.onUpdateModelSelection(updated);
       return;
     }
