@@ -369,7 +369,7 @@ export function NewTaskDraftScreen(props: {
         modelSelection: modelWithOptions,
         envMode: flow.workspaceMode,
         branch: flow.selectedBranchName,
-        worktreePath: flow.workspaceMode === "worktree" ? null : flow.selectedWorktreePath,
+        worktreePath: flow.workspaceMode === "worktree" ? flow.selectedWorktreePath : null,
         runtimeMode: flow.runtimeMode,
         interactionMode: flow.interactionMode,
         initialMessageText: flow.prompt.trim(),
