@@ -1,4 +1,3 @@
-import type { ServerConfig as T3ServerConfig } from "@t3tools/contracts";
 import type { StatusTone } from "../../components/StatusPill";
 import { EnvironmentScopedThreadShell } from "@t3tools/client-runtime";
 
@@ -51,13 +50,4 @@ export function messageImageUrl(httpBaseUrl: string | null, attachmentId: string
 
   const url = new URL(`/attachments/${encodeURIComponent(attachmentId)}`, httpBaseUrl);
   return url.toString();
-}
-
-export function screenTitle(config: T3ServerConfig | null, serverUrl: string | null): string {
-  if (config) {
-    const segments = config.cwd.split(/[/\\]/).filter(Boolean);
-    const candidate = segments.at(-1) ?? config.cwd;
-    return /^t3[-_\s]?code$/i.test(candidate) ? "T3 Code" : candidate;
-  }
-  return serverUrl ?? "T3 Code";
 }

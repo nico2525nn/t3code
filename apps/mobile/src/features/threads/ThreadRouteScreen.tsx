@@ -1,11 +1,12 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import { pipe } from "effect/Function";
 import { Pressable, ScrollView, Text as RNText, View, useColorScheme } from "react-native";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { useGitStatus, gitStatusManager } from "../../state/use-git-status";
+import { dismissGitActionResult, useGitActionProgress } from "../../state/use-git-action-state";
 
 import { EmptyState } from "../../components/EmptyState";
 import { LoadingScreen } from "../../components/LoadingScreen";
@@ -20,10 +21,10 @@ import {
 } from "../../state/use-remote-environment-registry";
 import { useSelectedThreadDetail } from "../../state/use-thread-detail";
 import { useThreadSelection } from "../../state/use-thread-selection";
+import { GitActionProgressOverlay } from "./GitActionProgressOverlay";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
 import { ThreadGitControls } from "./ThreadGitControls";
 import { ThreadNavigationDrawer } from "./ThreadNavigationDrawer";
-import { screenTitle } from "./threadPresentation";
 import { useSelectedThreadCommands } from "./use-selected-thread-commands";
 import { useSelectedThreadGitActions } from "./use-selected-thread-git-actions";
 import { useSelectedThreadGitState } from "./use-selected-thread-git-state";
@@ -81,6 +82,20 @@ export function ThreadRouteScreen() {
     environmentId: selectedThread?.environmentId ?? "",
     cwd: selectedThread?.worktreePath ?? selectedThreadProject?.workspaceRoot ?? null,
   });
+
+  /* ─── Git action progress (for overlay banner) ──────────────────── */
+  const gitActionProgressTarget = useMemo(
+    () => ({
+      environmentId: selectedThread?.environmentId ?? null,
+      cwd: selectedThread?.worktreePath ?? selectedThreadProject?.workspaceRoot ?? null,
+    }),
+    [
+      selectedThread?.environmentId,
+      selectedThread?.worktreePath,
+      selectedThreadProject?.workspaceRoot,
+    ],
+  );
+  const gitActionProgress = useGitActionProgress(gitActionProgressTarget);
 
   const handleRefreshGitStatus = useCallback(async () => {
     if (!selectedThread) return;
@@ -152,7 +167,7 @@ export function ThreadRouteScreen() {
     );
 
   const headerSubtitle = [
-    screenTitle(serverConfig, null),
+    selectedThreadProject?.title ?? null,
     selectedEnvironmentConnection?.environmentLabel ?? null,
   ]
     .filter(Boolean)
@@ -212,6 +227,8 @@ export function ThreadRouteScreen() {
         onRunAction={gitActions.onRunSelectedThreadGitAction}
       />
 
+      <GitActionProgressOverlay progress={gitActionProgress} onDismiss={dismissGitActionResult} />
+
       <View className="flex-1 bg-screen">
         <ThreadDetailScreen
           selectedThread={selectedThreadDetail}
@@ -231,6 +248,7 @@ export function ThreadRouteScreen() {
           draftAttachments={composer.draftAttachments}
           connectionStateLabel={routeConnectionState}
           activeThreadBusy={composer.activeThreadBusy}
+          environmentId={selectedThread.environmentId}
           projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
           selectedThreadQueueCount={composer.selectedThreadQueueCount}
           onOpenDrawer={handleOpenDrawer}

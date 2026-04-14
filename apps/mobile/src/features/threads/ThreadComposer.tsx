@@ -8,6 +8,11 @@ import type {
   ServerConfig as T3ServerConfig,
 } from "@t3tools/contracts";
 import { CLAUDE_CODE_EFFORT_OPTIONS } from "@t3tools/contracts";
+import {
+  detectComposerTrigger,
+  replaceTextRange,
+  type ComposerTrigger,
+} from "@t3tools/shared/composerTrigger";
 import { TextInputWrapper } from "expo-paste-input";
 import type { ReactNode } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +22,8 @@ import {
   TextInput as RNTextInput,
   useColorScheme,
   View,
+  type NativeSyntheticEvent,
+  type TextInputSelectionChangeEventData,
   type ViewStyle,
 } from "react-native";
 import ImageViewing from "react-native-image-viewing";
@@ -30,6 +37,13 @@ import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import type { RemoteClientConnectionState } from "../../lib/connection";
 import { useNativePaste } from "../../hooks/useNativePaste";
+import {
+  insertRankedSearchResult,
+  normalizeSearchQuery,
+  scoreQueryMatch,
+} from "@t3tools/shared/searchRanking";
+import { getEnvironmentClient } from "../../state/use-remote-environment-registry";
+import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -53,6 +67,8 @@ export interface ThreadComposerProps {
   readonly serverConfig: T3ServerConfig | null;
   readonly queueCount: number;
   readonly activeThreadBusy: boolean;
+  readonly environmentId: string;
+  readonly projectCwd: string | null;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftImages: () => Promise<void>;
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
@@ -166,6 +182,281 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const handleNativePaste = useNativePaste((uris) => {
     void props.onNativePasteImages(uris);
   });
+
+  // ── Trigger detection ────────────────────────────────────
+  const [cursorPosition, setCursorPosition] = useState(0);
+  const [composerTrigger, setComposerTrigger] = useState<ComposerTrigger | null>(null);
+  const [pathSearchResults, setPathSearchResults] = useState<
+    ReadonlyArray<{ path: string; kind: "file" | "directory" }>
+  >([]);
+  const [pathSearchLoading, setPathSearchLoading] = useState(false);
+  const pathSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleSelectionChange = useCallback(
+    (event: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+      const { start } = event.nativeEvent.selection;
+      setCursorPosition(start);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const trigger = detectComposerTrigger(props.draftMessage, cursorPosition);
+    setComposerTrigger(trigger);
+  }, [props.draftMessage, cursorPosition]);
+
+  // ── File search (debounced) ──────────────────────────────
+  useEffect(() => {
+    if (pathSearchTimerRef.current) {
+      clearTimeout(pathSearchTimerRef.current);
+      pathSearchTimerRef.current = null;
+    }
+
+    if (composerTrigger?.kind !== "path" || !composerTrigger.query || !props.projectCwd) {
+      setPathSearchResults([]);
+      setPathSearchLoading(false);
+      return;
+    }
+
+    setPathSearchLoading(true);
+    const query = composerTrigger.query;
+    const cwd = props.projectCwd;
+    const envId = props.environmentId;
+
+    pathSearchTimerRef.current = setTimeout(() => {
+      const client = getEnvironmentClient(envId);
+      if (!client) {
+        setPathSearchLoading(false);
+        return;
+      }
+
+      void client.projects
+        .searchEntries({ cwd, query, limit: 20 })
+        .then((result) => {
+          setPathSearchResults(
+            result.entries.map((entry) => ({
+              path: entry.path,
+              kind: entry.kind === "directory" ? ("directory" as const) : ("file" as const),
+            })),
+          );
+        })
+        .catch(() => {
+          setPathSearchResults([]);
+        })
+        .finally(() => {
+          setPathSearchLoading(false);
+        });
+    }, 200);
+
+    return () => {
+      if (pathSearchTimerRef.current) {
+        clearTimeout(pathSearchTimerRef.current);
+      }
+    };
+  }, [composerTrigger?.kind, composerTrigger?.query, props.projectCwd, props.environmentId]);
+
+  // ── Build menu items ─────────────────────────────────────
+  const selectedProviderStatus = useMemo(() => {
+    if (!props.serverConfig) return null;
+    return (
+      props.serverConfig.providers.find(
+        (p) => p.provider === props.selectedThread.modelSelection.provider,
+      ) ?? null
+    );
+  }, [props.serverConfig, props.selectedThread.modelSelection.provider]);
+
+  const composerMenuItems: ComposerCommandItem[] = useMemo(() => {
+    if (!composerTrigger) return [];
+
+    if (composerTrigger.kind === "slash-command") {
+      const q = composerTrigger.query.toLowerCase();
+      const allBuiltIn = [
+        {
+          id: "cmd:model",
+          type: "slash-command" as const,
+          command: "model",
+          label: "/model",
+          description: "Switch model",
+        },
+        {
+          id: "cmd:plan",
+          type: "slash-command" as const,
+          command: "plan",
+          label: "/plan",
+          description: "Switch to plan mode",
+        },
+        {
+          id: "cmd:default",
+          type: "slash-command" as const,
+          command: "default",
+          label: "/default",
+          description: "Switch to default mode",
+        },
+      ];
+      const builtIn = allBuiltIn.filter((item) => item.command.includes(q));
+
+      const providerCommands: ComposerCommandItem[] = (selectedProviderStatus?.slashCommands ?? [])
+        .filter((cmd) => cmd.name.toLowerCase().includes(q))
+        .map((cmd) => ({
+          id: `pcmd:${cmd.name}`,
+          type: "provider-slash-command" as const,
+          command: cmd,
+          label: `/${cmd.name}`,
+          description: cmd.description ?? "",
+        }));
+
+      return [...builtIn, ...providerCommands];
+    }
+
+    if (composerTrigger.kind === "skill") {
+      const enabledSkills = (selectedProviderStatus?.skills ?? []).filter((s) => s.enabled);
+      const normalizedQuery = normalizeSearchQuery(composerTrigger.query, {
+        trimLeadingPattern: /^\$+/,
+      });
+
+      if (!normalizedQuery) {
+        return enabledSkills.slice(0, 20).map((skill) => ({
+          id: `skill:${skill.name}`,
+          type: "skill" as const,
+          skill,
+          label: skill.displayName ?? skill.name,
+          description: skill.shortDescription ?? skill.description ?? "",
+        }));
+      }
+
+      const ranked: Array<{
+        item: (typeof enabledSkills)[number];
+        score: number;
+        tieBreaker: string;
+      }> = [];
+      for (const skill of enabledSkills) {
+        const displayLabel = (skill.displayName ?? skill.name).toLowerCase();
+        const scores = [
+          scoreQueryMatch({
+            value: skill.name.toLowerCase(),
+            query: normalizedQuery,
+            exactBase: 0,
+            prefixBase: 2,
+            boundaryBase: 4,
+            includesBase: 6,
+            fuzzyBase: 100,
+            boundaryMarkers: ["-", "_", "/"],
+          }),
+          scoreQueryMatch({
+            value: displayLabel,
+            query: normalizedQuery,
+            exactBase: 1,
+            prefixBase: 3,
+            boundaryBase: 5,
+            includesBase: 7,
+            fuzzyBase: 110,
+          }),
+          scoreQueryMatch({
+            value: skill.shortDescription?.toLowerCase() ?? "",
+            query: normalizedQuery,
+            exactBase: 20,
+            prefixBase: 22,
+            boundaryBase: 24,
+            includesBase: 26,
+          }),
+          scoreQueryMatch({
+            value: skill.description?.toLowerCase() ?? "",
+            query: normalizedQuery,
+            exactBase: 30,
+            prefixBase: 32,
+            boundaryBase: 34,
+            includesBase: 36,
+          }),
+        ].filter((s): s is number => s !== null);
+
+        if (scores.length > 0) {
+          insertRankedSearchResult(
+            ranked,
+            {
+              item: skill,
+              score: Math.min(...scores),
+              tieBreaker: `${displayLabel}\u0000${skill.name}`,
+            },
+            20,
+          );
+        }
+      }
+
+      return ranked.map(({ item: skill }) => ({
+        id: `skill:${skill.name}`,
+        type: "skill" as const,
+        skill,
+        label: skill.displayName ?? skill.name,
+        description: skill.shortDescription ?? skill.description ?? "",
+      }));
+    }
+
+    if (composerTrigger.kind === "path") {
+      return pathSearchResults.map((entry) => {
+        const parts = entry.path.split("/");
+        return {
+          id: `path:${entry.path}`,
+          type: "path" as const,
+          path: entry.path,
+          kind: entry.kind,
+          label: parts[parts.length - 1] ?? entry.path,
+          description: parts.length > 1 ? parts.slice(0, -1).join("/") : "",
+        };
+      });
+    }
+
+    return [];
+  }, [composerTrigger, selectedProviderStatus, pathSearchResults]);
+
+  // ── Handle command selection ──────────────────────────────
+  const { onChangeDraftMessage, onUpdateInteractionMode, draftMessage, onSendMessage } = props;
+
+  const handleSend = useCallback(() => {
+    onSendMessage();
+    inputRef.current?.blur();
+  }, [onSendMessage]);
+  const handleCommandSelect = useCallback(
+    (item: ComposerCommandItem) => {
+      if (!composerTrigger) return;
+
+      if (
+        item.type === "slash-command" &&
+        (item.command === "plan" || item.command === "default")
+      ) {
+        const result = replaceTextRange(
+          draftMessage,
+          composerTrigger.rangeStart,
+          composerTrigger.rangeEnd,
+          "",
+        );
+        setCursorPosition(result.cursor);
+        onChangeDraftMessage(result.text);
+        void onUpdateInteractionMode(item.command);
+        return;
+      }
+
+      let replacement = "";
+      if (item.type === "path") {
+        replacement = `@${item.path} `;
+      } else if (item.type === "skill") {
+        replacement = `$${item.skill.name} `;
+      } else if (item.type === "slash-command") {
+        replacement = `/${item.command} `;
+      } else if (item.type === "provider-slash-command") {
+        replacement = `/${item.command.name} `;
+      }
+
+      const result = replaceTextRange(
+        draftMessage,
+        composerTrigger.rangeStart,
+        composerTrigger.rangeEnd,
+        replacement,
+      );
+      setCursorPosition(result.cursor);
+      onChangeDraftMessage(result.text);
+    },
+    [composerTrigger, draftMessage, onChangeDraftMessage, onUpdateInteractionMode],
+  );
 
   // ── Model menu ───────────────────────────────────────────
   const providerGroups = useMemo(() => {
@@ -346,8 +637,27 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           : "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.85) 40%, rgba(255,255,255,0.95) 100%)",
       }}
     >
-      <View className="w-full">
-        {/* Input surface — the pill/card IS the glass element */}
+      <View className="w-full" style={{ position: "relative" }}>
+        {composerTrigger && composerMenuItems.length > 0 ? (
+          <View
+            style={{
+              position: "absolute",
+              bottom: "100%",
+              left: 0,
+              right: 0,
+              marginBottom: 8,
+              zIndex: 10,
+            }}
+          >
+            <ComposerCommandPopover
+              items={composerMenuItems}
+              triggerKind={composerTrigger.kind}
+              isLoading={pathSearchLoading}
+              onSelect={handleCommandSelect}
+            />
+          </View>
+        ) : null}
+
         <ComposerSurface
           isDarkMode={isDarkMode}
           style={
@@ -387,6 +697,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 multiline
                 value={props.draftMessage}
                 onChangeText={props.onChangeDraftMessage}
+                onSelectionChange={handleSelectionChange}
                 placeholder={props.placeholder}
                 placeholderTextColor={placeholderColor}
                 editable={props.connectionState === "ready"}
@@ -463,7 +774,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 icon="arrow.up"
                 variant="primary"
                 disabled={!canSend}
-                onPress={props.onSendMessage}
+                onPress={handleSend}
               />
             )
           ) : null}
@@ -508,7 +819,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               label={sendLabel}
               variant="primary"
               disabled={!canSend}
-              onPress={props.onSendMessage}
+              onPress={handleSend}
             />
           </View>
         ) : null}

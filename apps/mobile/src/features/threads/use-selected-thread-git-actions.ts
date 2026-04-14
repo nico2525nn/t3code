@@ -21,7 +21,7 @@ import {
   getEnvironmentClient,
   setPendingConnectionError,
 } from "../../state/use-remote-environment-registry";
-import { gitActionManager } from "../../state/use-git-action-state";
+import { gitActionManager, showGitActionResult } from "../../state/use-git-action-state";
 import { gitBranchManager } from "../../state/use-git-branches";
 import { gitStatusManager } from "../../state/use-git-status";
 import { useThreadSelection } from "../../state/use-thread-selection";
@@ -122,7 +122,9 @@ export function useSelectedThreadGitActions() {
           cwd,
         });
       } catch (error) {
-        setPendingConnectionError(error instanceof Error ? error.message : "Git action failed.");
+        const message = error instanceof Error ? error.message : "Git action failed.";
+        setPendingConnectionError(message);
+        showGitActionResult({ type: "error", title: "Git action failed", description: message });
         return null;
       }
     },
@@ -264,8 +266,17 @@ export function useSelectedThreadGitActions() {
 
   const onPullSelectedThreadBranch = useCallback(async () => {
     await runSelectedThreadGitMutation(async ({ thread, cwd }) => {
-      await gitActionManager.pull({ environmentId: thread.environmentId, cwd });
+      const result = await gitActionManager.pull({ environmentId: thread.environmentId, cwd });
       await refreshSelectedThreadGitStatus({ quiet: true, cwd });
+      if (result) {
+        showGitActionResult({
+          type: "success",
+          title:
+            result.status === "skipped_up_to_date"
+              ? "Already up to date"
+              : `Pulled latest on ${result.branch}`,
+        });
+      }
     });
   }, [refreshSelectedThreadGitStatus, runSelectedThreadGitMutation]);
 
@@ -291,6 +302,13 @@ export function useSelectedThreadGitActions() {
         if (!result) {
           return null;
         }
+
+        showGitActionResult({
+          type: "success",
+          title: result.toast.title,
+          description: result.toast.description,
+          prUrl: result.toast.cta.kind === "open_pr" ? result.toast.cta.url : undefined,
+        });
 
         if (result.branch.status === "created" && result.branch.name) {
           await syncSelectedThreadBranchState({

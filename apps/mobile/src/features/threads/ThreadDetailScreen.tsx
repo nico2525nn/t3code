@@ -53,6 +53,7 @@ export interface ThreadDetailScreenProps {
   readonly draftAttachments: ReadonlyArray<DraftComposerImageAttachment>;
   readonly connectionStateLabel: "ready" | "connecting" | "reconnecting" | "disconnected" | "idle";
   readonly activeThreadBusy: boolean;
+  readonly environmentId: string;
   readonly projectWorkspaceRoot: string | null;
   readonly selectedThreadQueueCount: number;
   readonly serverConfig: T3ServerConfig | null;
@@ -313,6 +314,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 serverConfig={props.serverConfig}
                 queueCount={props.selectedThreadQueueCount}
                 activeThreadBusy={props.activeThreadBusy}
+                environmentId={props.environmentId}
+                projectCwd={props.projectWorkspaceRoot}
                 bottomInset={composerBottomInset}
                 onChangeDraftMessage={props.onChangeDraftMessage}
                 onPickDraftImages={props.onPickDraftImages}

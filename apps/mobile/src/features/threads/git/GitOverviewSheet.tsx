@@ -12,7 +12,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../../lib/useThemeColor";
 
 import { AppText as Text } from "../../../components/AppText";
-import { StatusPill } from "../../../components/StatusPill";
 import { useGitStatus } from "../../../state/use-git-status";
 import { useThreadSelection } from "../../../state/use-thread-selection";
 import { useSelectedThreadGitActions } from "../use-selected-thread-git-actions";
@@ -231,17 +230,6 @@ export function GitOverviewSheet() {
         </View>
 
         {currentWorktreePath ? <MetaCard label="Worktree" value={currentWorktreePath} /> : null}
-
-        {gitOperationLabel ? (
-          <View className="self-start">
-            <StatusPill
-              label={gitOperationLabel}
-              pillClassName="bg-neutral-900/8"
-              textClassName="text-neutral-700"
-              size="compact"
-            />
-          </View>
-        ) : null}
       </ScrollView>
     </View>
   );

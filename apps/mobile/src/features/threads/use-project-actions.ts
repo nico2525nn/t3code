@@ -96,77 +96,53 @@ export function useProjectActions() {
       const initialMessageText = input.initialMessageText.trim();
       const nextTitle = deriveThreadTitleFromPrompt(input.initialMessageText);
 
-      if (input.envMode === "worktree") {
-        if (!input.branch || initialMessageText.length === 0) {
-          return null;
-        }
+      if (initialMessageText.length === 0) {
+        return null;
+      }
+      if (input.envMode === "worktree" && !input.branch) {
+        return null;
+      }
 
-        await client.orchestration.dispatchCommand({
-          type: "thread.turn.start",
-          commandId: CommandId.make(uuidv4()),
-          threadId,
-          message: {
-            messageId: MessageId.make(uuidv4()),
-            role: "user",
-            text: initialMessageText,
-            attachments: input.initialAttachments,
-          },
-          modelSelection: input.modelSelection,
-          titleSeed: nextTitle,
-          runtimeMode: input.runtimeMode,
-          interactionMode: input.interactionMode,
-          bootstrap: {
-            createThread: {
-              projectId: input.project.id,
-              title: nextTitle,
-              modelSelection: input.modelSelection,
-              runtimeMode: input.runtimeMode,
-              interactionMode: input.interactionMode,
-              branch: input.branch,
-              worktreePath: null,
-              createdAt,
-            },
-            prepareWorktree: {
-              projectCwd: input.project.workspaceRoot,
-              baseBranch: input.branch,
-              branch: buildTemporaryWorktreeBranchName(),
-            },
-            runSetupScript: true,
-          },
-          createdAt: new Date().toISOString(),
-        });
-      } else {
-        await client.orchestration.dispatchCommand({
-          type: "thread.create",
-          commandId: CommandId.make(uuidv4()),
-          threadId,
-          projectId: input.project.id,
-          title: nextTitle,
-          modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode,
-          interactionMode: input.interactionMode,
-          branch: input.branch,
-          worktreePath: input.worktreePath,
-          createdAt,
-        });
+      const isWorktree = input.envMode === "worktree";
 
-        if (initialMessageText.length > 0 || input.initialAttachments.length > 0) {
-          await client.orchestration.dispatchCommand({
-            type: "thread.turn.start",
-            commandId: CommandId.make(uuidv4()),
-            threadId,
-            message: {
-              messageId: MessageId.make(uuidv4()),
-              role: "user",
-              text: initialMessageText,
-              attachments: input.initialAttachments,
-            },
+      await client.orchestration.dispatchCommand({
+        type: "thread.turn.start",
+        commandId: CommandId.make(uuidv4()),
+        threadId,
+        message: {
+          messageId: MessageId.make(uuidv4()),
+          role: "user",
+          text: initialMessageText,
+          attachments: input.initialAttachments,
+        },
+        modelSelection: input.modelSelection,
+        titleSeed: nextTitle,
+        runtimeMode: input.runtimeMode,
+        interactionMode: input.interactionMode,
+        bootstrap: {
+          createThread: {
+            projectId: input.project.id,
+            title: nextTitle,
+            modelSelection: input.modelSelection,
             runtimeMode: input.runtimeMode,
             interactionMode: input.interactionMode,
-            createdAt: new Date().toISOString(),
-          });
-        }
-      }
+            branch: input.branch,
+            worktreePath: isWorktree ? null : input.worktreePath,
+            createdAt,
+          },
+          ...(isWorktree
+            ? {
+                prepareWorktree: {
+                  projectCwd: input.project.workspaceRoot,
+                  baseBranch: input.branch!,
+                  branch: buildTemporaryWorktreeBranchName(),
+                },
+                runSetupScript: true,
+              }
+            : {}),
+        },
+        createdAt: new Date().toISOString(),
+      });
 
       await refreshRemoteData([input.project.environmentId]);
       return {
