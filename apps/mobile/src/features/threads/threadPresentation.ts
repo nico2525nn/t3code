@@ -53,15 +53,6 @@ export function messageImageUrl(httpBaseUrl: string | null, attachmentId: string
   return url.toString();
 }
 
-export function lastConversationLine(thread: EnvironmentScopedThreadShell): string {
-  if (!thread.latestUserMessageAt) {
-    return "No messages yet.";
-  }
-  return thread.session?.status === "running" || thread.session?.status === "starting"
-    ? "Working on latest request..."
-    : "Open thread to view latest message.";
-}
-
 export function screenTitle(config: T3ServerConfig | null, serverUrl: string | null): string {
   if (config) {
     const segments = config.cwd.split(/[/\\]/).filter(Boolean);

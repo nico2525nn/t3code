@@ -15,6 +15,7 @@ import { KeyboardAvoidingView, KeyboardStickyView } from "react-native-keyboard-
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { runOnJS } from "react-native-reanimated";
 
+import { AppText as Text } from "../../components/AppText";
 import type { StatusTone } from "../../components/StatusPill";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import type { MobileLayoutVariant } from "../../lib/mobileLayout";
@@ -155,6 +156,7 @@ function useStreamingHaptics(threadId: string, feed: ReadonlyArray<ThreadFeedEnt
 
 export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
   const { onOpenDrawer, onRefresh } = props;
+  const activeWorkIndicatorHeight = props.activeWorkDurationLabel ? 44 : 0;
 
   const insets = useSafeAreaInsets();
   const agentLabel = `${props.selectedThread.modelSelection.provider} agent`;
@@ -215,7 +217,7 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
               httpBaseUrl={props.httpBaseUrl}
               bearerToken={props.bearerToken}
               agentLabel={agentLabel}
-              contentBottomInset={composerOverlapHeight + 8}
+              contentBottomInset={composerOverlapHeight + activeWorkIndicatorHeight + 8}
               layoutVariant={layoutVariant}
               composerExpanded={composerExpanded}
               refreshing={refreshing}
@@ -232,6 +234,21 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
             style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}
             offset={{ closed: 0, opened: 0 }}
           >
+            {props.activeWorkDurationLabel ? (
+              <View className="px-4 pb-2" style={{ flexShrink: 0 }}>
+                <View className="flex-row items-center gap-2 rounded-full border border-neutral-200/80 bg-neutral-50/90 px-3 py-2 self-start dark:border-white/[0.08] dark:bg-white/[0.04]">
+                  <View className="flex-row items-center gap-1">
+                    <View className="h-1.5 w-1.5 rounded-full bg-neutral-400 dark:bg-neutral-500" />
+                    <View className="h-1.5 w-1.5 rounded-full bg-neutral-400/80 dark:bg-neutral-500/80" />
+                    <View className="h-1.5 w-1.5 rounded-full bg-neutral-400/60 dark:bg-neutral-500/60" />
+                  </View>
+                  <Text className="font-t3-medium text-xs text-neutral-600 dark:text-neutral-400">
+                    Working for {props.activeWorkDurationLabel}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
             {props.activePendingApproval || props.activePendingUserInput ? (
               <View className="gap-3 px-4 pb-3" style={{ flexShrink: 0 }}>
                 {props.activePendingApproval ? (

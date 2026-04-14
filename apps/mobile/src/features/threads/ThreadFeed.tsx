@@ -46,10 +46,6 @@ function compactActivityDetail(detail: string | null): string | null {
   return cleaned.length > 0 ? cleaned : null;
 }
 
-function normalizeCompactActivityLabel(value: string): string {
-  return value.replace(/\s+(?:started|complete|completed)\s*$/i, "").trim();
-}
-
 function buildActivityRows(
   activities: ReadonlyArray<{
     readonly id: string;
@@ -59,42 +55,19 @@ function buildActivityRows(
     readonly status: string | null;
   }>,
 ) {
-  const rows: Array<{
+  return activities.map<{
     id: string;
     createdAt: string;
     summary: string;
     detail: string | null;
     status: string | null;
-  }> = [];
-
-  for (const activity of activities) {
-    const detail = compactActivityDetail(activity.detail);
-    const previous = rows.at(-1);
-
-    if (
-      previous &&
-      normalizeCompactActivityLabel(previous.summary) ===
-        normalizeCompactActivityLabel(activity.summary)
-    ) {
-      rows[rows.length - 1] = {
-        ...previous,
-        createdAt: activity.createdAt,
-        detail: detail ?? previous.detail,
-        status: activity.status ?? previous.status,
-      };
-      continue;
-    }
-
-    rows.push({
-      id: activity.id,
-      createdAt: activity.createdAt,
-      summary: activity.summary,
-      detail,
-      status: activity.status,
-    });
-  }
-
-  return rows;
+  }>((activity) => ({
+    id: activity.id,
+    createdAt: activity.createdAt,
+    summary: activity.summary,
+    detail: compactActivityDetail(activity.detail),
+    status: activity.status,
+  }));
 }
 
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
@@ -416,16 +389,14 @@ function renderFeedEntry(
             <Text
               className="text-[12px] leading-[18px] text-neutral-600 dark:text-neutral-400"
               onLongPress={() => {
-                const copyValue = row.detail ?? normalizeCompactActivityLabel(row.summary);
+                const copyValue = row.detail ?? row.summary;
                 props.onCopyWorkRow(row.id, copyValue);
               }}
               style={{
                 fontFamily: "ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace",
               }}
             >
-              {row.detail
-                ? `${normalizeCompactActivityLabel(row.summary)} - ${row.detail}`
-                : normalizeCompactActivityLabel(row.summary)}
+              {row.detail ? `${row.summary} - ${row.detail}` : row.summary}
             </Text>
           </ScrollView>
           {props.copiedRowId === row.id ? (

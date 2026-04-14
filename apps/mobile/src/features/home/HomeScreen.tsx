@@ -15,7 +15,7 @@ import type { SavedRemoteConnection } from "../../lib/connection";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { relativeTime } from "../../lib/time";
 import { useGitStatus } from "../../state/use-git-status";
-import { lastConversationLine, threadStatusTone } from "../threads/threadPresentation";
+import { threadStatusTone } from "../threads/threadPresentation";
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -121,7 +121,6 @@ function ThreadRow(props: {
   const separatorColor = useThemeColor("--color-separator");
   const { bg, fg } = statusColors(props.thread);
   const tone = threadStatusTone(props.thread);
-  const preview = lastConversationLine(props.thread);
   const timestamp = relativeTime(props.thread.updatedAt ?? props.thread.createdAt);
   const branch = props.thread.branch;
 
@@ -189,11 +188,6 @@ function ThreadRow(props: {
               </Text>
             </View>
           </View>
-
-          {/* Message preview */}
-          <Text className="text-[13px] leading-[18px] text-foreground-muted" numberOfLines={2}>
-            {preview}
-          </Text>
 
           {/* Branch + git info */}
           {branch ? (
