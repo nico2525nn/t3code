@@ -1,4 +1,8 @@
-import type { GitStatusState } from "@t3tools/client-runtime";
+import type {
+  EnvironmentScopedProjectShell,
+  EnvironmentScopedThreadShell,
+  GitStatusState,
+} from "@t3tools/client-runtime";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
@@ -8,7 +12,6 @@ import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import type { SavedRemoteConnection } from "../../lib/connection";
-import type { ScopedMobileProject, ScopedMobileThread } from "../../lib/scopedEntities";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { relativeTime } from "../../lib/time";
 import { useGitStatus } from "../../state/use-git-status";
@@ -17,22 +20,22 @@ import { lastConversationLine, threadStatusTone } from "../threads/threadPresent
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
 interface HomeScreenProps {
-  readonly projects: ReadonlyArray<ScopedMobileProject>;
-  readonly threads: ReadonlyArray<ScopedMobileThread>;
+  readonly projects: ReadonlyArray<EnvironmentScopedProjectShell>;
+  readonly threads: ReadonlyArray<EnvironmentScopedThreadShell>;
   readonly savedConnectionsById: Readonly<Record<string, SavedRemoteConnection>>;
   readonly searchQuery: string;
-  readonly onSelectThread: (thread: ScopedMobileThread) => void;
+  readonly onSelectThread: (thread: EnvironmentScopedThreadShell) => void;
 }
 
 interface ProjectGroup {
   readonly key: string;
-  readonly project: ScopedMobileProject;
-  readonly threads: ReadonlyArray<ScopedMobileThread>;
+  readonly project: EnvironmentScopedProjectShell;
+  readonly threads: ReadonlyArray<EnvironmentScopedThreadShell>;
 }
 
 /* ─── Status indicator colors ────────────────────────────────────────── */
 
-function statusColors(thread: ScopedMobileThread): { bg: string; fg: string } {
+function statusColors(thread: EnvironmentScopedThreadShell): { bg: string; fg: string } {
   switch (thread.session?.status) {
     case "running":
       return { bg: "rgba(249,115,22,0.14)", fg: "#f97316" };
@@ -52,7 +55,7 @@ const COLLAPSED_THREAD_LIMIT = 6;
 /* ─── Project group header ───────────────────────────────────────────── */
 
 function ProjectGroupLabel(props: {
-  readonly project: ScopedMobileProject;
+  readonly project: EnvironmentScopedProjectShell;
   readonly totalThreadCount: number;
   readonly httpBaseUrl: string | null;
   readonly bearerToken: string | null;
@@ -110,7 +113,7 @@ function gitSummaryParts(gitStatus: GitStatusState): ReadonlyArray<string> {
 /* ─── Thread row ─────────────────────────────────────────────────────── */
 
 function ThreadRow(props: {
-  readonly thread: ScopedMobileThread;
+  readonly thread: EnvironmentScopedThreadShell;
   readonly projectCwd: string | null;
   readonly onPress: () => void;
   readonly isLast: boolean;
@@ -257,7 +260,7 @@ export function HomeScreen(props: HomeScreenProps) {
 
   /* Group filtered threads by project */
   const projectGroups = useMemo<ReadonlyArray<ProjectGroup>>(() => {
-    const byProject = new Map<string, ScopedMobileThread[]>();
+    const byProject = new Map<string, EnvironmentScopedThreadShell[]>();
     for (const thread of filteredThreads) {
       const key = scopedProjectKey(thread.environmentId, thread.projectId);
       const existing = byProject.get(key);

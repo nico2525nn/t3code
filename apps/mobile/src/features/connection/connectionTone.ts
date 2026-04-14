@@ -1,5 +1,5 @@
 import type { StatusTone } from "../../components/StatusPill";
-import type { RemoteClientConnectionState } from "../../lib/remoteClient";
+import type { RemoteClientConnectionState } from "../../lib/connection";
 
 export function connectionTone(state: RemoteClientConnectionState): StatusTone {
   switch (state) {

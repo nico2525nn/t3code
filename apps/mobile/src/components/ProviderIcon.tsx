@@ -1,5 +1,5 @@
 import { useColorScheme } from "react-native";
-import Svg, { Path } from "react-native-svg";
+import { Path, Svg } from "react-native-svg";
 
 type ProviderIconProps = {
   readonly provider: string | null | undefined;

@@ -2,13 +2,16 @@ import * as Order from "effect/Order";
 import * as Arr from "effect/Array";
 import type { RepositoryIdentity } from "@t3tools/contracts";
 
-import type { ScopedMobileProject, ScopedMobileThread } from "./scopedEntities";
 import { scopedProjectKey } from "./scopedEntities";
+import {
+  EnvironmentScopedProjectShell,
+  EnvironmentScopedThreadShell,
+} from "@t3tools/client-runtime";
 
 export interface MobileRepositoryProjectGroup {
   readonly key: string;
-  readonly project: ScopedMobileProject;
-  readonly threads: ReadonlyArray<ScopedMobileThread>;
+  readonly project: EnvironmentScopedProjectShell;
+  readonly threads: ReadonlyArray<EnvironmentScopedThreadShell>;
   readonly latestActivityAt: string;
 }
 
@@ -27,13 +30,13 @@ function compareIsoDateDescending(left: string, right: string): number {
   return new Date(right).getTime() - new Date(left).getTime();
 }
 
-function deriveRepositoryGroupKey(project: ScopedMobileProject): string {
+function deriveRepositoryGroupKey(project: EnvironmentScopedProjectShell): string {
   return (
     project.repositoryIdentity?.canonicalKey ?? scopedProjectKey(project.environmentId, project.id)
   );
 }
 
-function deriveRepositoryTitle(project: ScopedMobileProject): string {
+function deriveRepositoryTitle(project: EnvironmentScopedProjectShell): string {
   const identity = project.repositoryIdentity;
   return identity?.displayName ?? identity?.name ?? project.title;
 }
@@ -49,18 +52,18 @@ function deriveRepositorySubtitle(identity: RepositoryIdentity | null | undefine
 }
 
 function deriveProjectLatestActivity(
-  project: ScopedMobileProject,
-  threads: ReadonlyArray<ScopedMobileThread>,
+  project: EnvironmentScopedProjectShell,
+  threads: ReadonlyArray<EnvironmentScopedThreadShell>,
 ): string {
   const latestThread = threads[0];
   return latestThread?.updatedAt ?? latestThread?.createdAt ?? project.updatedAt;
 }
 
 export function groupProjectsByRepository(input: {
-  readonly projects: ReadonlyArray<ScopedMobileProject>;
-  readonly threads: ReadonlyArray<ScopedMobileThread>;
+  readonly projects: ReadonlyArray<EnvironmentScopedProjectShell>;
+  readonly threads: ReadonlyArray<EnvironmentScopedThreadShell>;
 }): ReadonlyArray<MobileRepositoryGroup> {
-  const threadsByProjectKey = new Map<string, ScopedMobileThread[]>();
+  const threadsByProjectKey = new Map<string, EnvironmentScopedThreadShell[]>();
 
   for (const thread of input.threads) {
     const key = scopedProjectKey(thread.environmentId, thread.projectId);

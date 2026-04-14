@@ -1,3 +1,6 @@
+import { pipe } from "effect/Function";
+import * as Arr from "effect/Array";
+import * as O from "effect/Order";
 import type {
   MessageId,
   OrchestrationCheckpointSummary,
@@ -31,6 +34,23 @@ export type ThreadDetailReducerResult =
   | { readonly kind: "updated"; readonly thread: OrchestrationThread }
   | { readonly kind: "deleted" }
   | { readonly kind: "unchanged" };
+
+const proposedPlanOrder = O.combine<OrchestrationThread["proposedPlans"][number]>(
+  O.mapInput(O.String, (p) => p.createdAt),
+  O.mapInput(O.String, (p) => p.id),
+);
+
+const checkpointOrder = O.mapInput(
+  O.Number,
+  (cp: OrchestrationThread["checkpoints"][number]) =>
+    cp.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER,
+);
+
+const activityOrder = O.combineAll<OrchestrationThreadActivity>([
+  O.mapInput(O.Number, (a) => a.sequence ?? Number.MAX_SAFE_INTEGER),
+  O.mapInput(O.String, (a) => a.createdAt),
+  O.mapInput(O.String, (a) => a.id),
+]);
 
 /**
  * Apply a single orchestration event to an `OrchestrationThread`, returning
@@ -191,7 +211,7 @@ export function applyThreadDetailEvent(
 
       const existingMessage = thread.messages.find((entry) => entry.id === message.id);
       const messages = existingMessage
-        ? thread.messages.map((entry) =>
+        ? Arr.map(thread.messages, (entry) =>
             entry.id !== message.id
               ? entry
               : {
@@ -209,8 +229,8 @@ export function applyThreadDetailEvent(
                     : {}),
                 },
           )
-        : [...thread.messages, message];
-      const cappedMessages = messages.slice(-limits.maxMessages);
+        : Arr.append(thread.messages, message);
+      const cappedMessages = Arr.takeRight(messages, limits.maxMessages);
 
       // Update latestTurn for assistant messages bound to a turn.
       const latestTurn: OrchestrationThread["latestTurn"] =
@@ -319,15 +339,14 @@ export function applyThreadDetailEvent(
     // ── Proposed plans ──────────────────────────────────────────────
     case "thread.proposed-plan-upserted": {
       const proposedPlan = event.payload.proposedPlan;
-      const proposedPlans = [
-        ...thread.proposedPlans.filter((entry) => entry.id !== proposedPlan.id),
-        proposedPlan,
-      ]
-        .toSorted(
-          (left, right) =>
-            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-        )
-        .slice(-limits.maxProposedPlans);
+
+      const proposedPlans = pipe(
+        thread.proposedPlans,
+        Arr.filter((entry) => entry.id !== proposedPlan.id),
+        Arr.append(proposedPlan),
+        Arr.sort(proposedPlanOrder),
+        Arr.takeRight(limits.maxProposedPlans),
+      );
 
       return {
         kind: "updated",
@@ -353,16 +372,13 @@ export function applyThreadDetailEvent(
         return { kind: "unchanged" };
       }
 
-      const checkpoints = [
-        ...thread.checkpoints.filter((entry) => entry.turnId !== checkpoint.turnId),
-        checkpoint,
-      ]
-        .toSorted(
-          (left, right) =>
-            (left.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) -
-            (right.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER),
-        )
-        .slice(-limits.maxCheckpoints);
+      const checkpoints = pipe(
+        thread.checkpoints,
+        Arr.filter((entry) => entry.turnId !== checkpoint.turnId),
+        Arr.append(checkpoint),
+        Arr.sort(checkpointOrder),
+        Arr.takeRight(limits.maxCheckpoints),
+      );
 
       const latestTurn =
         thread.latestTurn === null || thread.latestTurn.turnId === event.payload.turnId
@@ -384,30 +400,30 @@ export function applyThreadDetailEvent(
 
     // ── Revert ──────────────────────────────────────────────────────
     case "thread.reverted": {
-      const checkpoints = thread.checkpoints
-        .filter(
+      const checkpoints = pipe(
+        thread.checkpoints,
+        Arr.filter(
           (entry) =>
             entry.checkpointTurnCount !== undefined &&
             entry.checkpointTurnCount <= event.payload.turnCount,
-        )
-        .toSorted(
-          (left, right) =>
-            (left.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) -
-            (right.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER),
-        )
-        .slice(-limits.maxCheckpoints);
+        ),
+        Arr.sort(checkpointOrder),
+        Arr.takeRight(limits.maxCheckpoints),
+      );
 
-      const retainedTurnIds = new Set(checkpoints.map((entry) => entry.turnId));
-      const messages = retainMessagesAfterRevert(
-        thread.messages,
-        retainedTurnIds,
-        event.payload.turnCount,
-      ).slice(-limits.maxMessages);
-      const proposedPlans = thread.proposedPlans
-        .filter((plan) => plan.turnId === null || retainedTurnIds.has(plan.turnId))
-        .slice(-limits.maxProposedPlans);
-      const activities = thread.activities.filter(
-        (activity) => activity.turnId === null || retainedTurnIds.has(activity.turnId),
+      const retainedTurnIds = new Set(Arr.map(checkpoints, (entry) => entry.turnId));
+      const messages = pipe(
+        retainMessagesAfterRevert(thread.messages, retainedTurnIds),
+        Arr.takeRight(limits.maxMessages),
+      );
+      const proposedPlans = pipe(
+        thread.proposedPlans,
+        Arr.filter((plan) => plan.turnId === null || retainedTurnIds.has(plan.turnId)),
+        Arr.takeRight(limits.maxProposedPlans),
+      );
+      const activities = pipe(
+        thread.activities,
+        Arr.filter((activity) => activity.turnId === null || retainedTurnIds.has(activity.turnId)),
       );
       const latestCheckpoint = checkpoints.at(-1) ?? null;
 
@@ -439,12 +455,13 @@ export function applyThreadDetailEvent(
 
     // ── Activities ──────────────────────────────────────────────────
     case "thread.activity-appended": {
-      const activities = [
-        ...thread.activities.filter((activity) => activity.id !== event.payload.activity.id),
-        event.payload.activity,
-      ]
-        .toSorted(compareActivities)
-        .slice(-limits.maxActivities);
+      const activities = pipe(
+        thread.activities,
+        Arr.filter((activity) => activity.id !== event.payload.activity.id),
+        Arr.append(event.payload.activity),
+        Arr.sort(activityOrder),
+        Arr.takeRight(limits.maxActivities),
+      );
 
       return {
         kind: "updated",
@@ -478,24 +495,12 @@ function checkpointStatusToTurnState(
   }
 }
 
-function compareActivities(
-  left: OrchestrationThreadActivity,
-  right: OrchestrationThreadActivity,
-): number {
-  const sequenceLeft = left.sequence ?? Number.MAX_SAFE_INTEGER;
-  const sequenceRight = right.sequence ?? Number.MAX_SAFE_INTEGER;
-  if (sequenceLeft !== sequenceRight) {
-    return sequenceLeft - sequenceRight;
-  }
-  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
-}
-
 function rebindCheckpointAssistantMessage(
   checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>,
   turnId: TurnId,
   messageId: MessageId,
 ): OrchestrationCheckpointSummary[] {
-  return checkpoints.map((entry) =>
+  return Arr.map(checkpoints, (entry) =>
     entry.turnId === turnId ? { ...entry, assistantMessageId: messageId } : entry,
   );
 }
@@ -503,11 +508,10 @@ function rebindCheckpointAssistantMessage(
 function retainMessagesAfterRevert(
   messages: ReadonlyArray<OrchestrationMessage>,
   retainedTurnIds: ReadonlySet<string>,
-  turnCount: number,
 ): OrchestrationMessage[] {
   // Keep messages that belong to a retained turn, plus system messages and
   // messages without a turn binding (pre-turn-0 user messages).
-  return messages.filter((message) => {
+  return Arr.filter(messages, (message) => {
     if (message.role === "system") {
       return true;
     }

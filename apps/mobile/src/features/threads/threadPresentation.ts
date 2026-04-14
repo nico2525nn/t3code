@@ -1,15 +1,13 @@
 import type { ServerConfig as T3ServerConfig } from "@t3tools/contracts";
-import * as Arr from "effect/Array";
 import type { StatusTone } from "../../components/StatusPill";
+import { EnvironmentScopedThreadShell } from "@t3tools/client-runtime";
 
-import type { ScopedMobileThread } from "../../lib/scopedEntities";
-
-export function threadSortValue(thread: ScopedMobileThread): number {
+export function threadSortValue(thread: EnvironmentScopedThreadShell): number {
   const candidate = Date.parse(thread.updatedAt ?? thread.createdAt);
   return Number.isNaN(candidate) ? 0 : candidate;
 }
 
-export function threadStatusTone(thread: ScopedMobileThread): StatusTone {
+export function threadStatusTone(thread: EnvironmentScopedThreadShell): StatusTone {
   const status = thread.session?.status;
   if (status === "running") {
     return {
@@ -55,21 +53,13 @@ export function messageImageUrl(httpBaseUrl: string | null, attachmentId: string
   return url.toString();
 }
 
-export function lastConversationLine(thread: ScopedMobileThread): string {
-  const candidate = Arr.findLast(
-    thread.messages,
-    (message) => message.role === "user" || message.role === "assistant",
-  );
-
-  if (candidate._tag === "None") {
+export function lastConversationLine(thread: EnvironmentScopedThreadShell): string {
+  if (!thread.latestUserMessageAt) {
     return "No messages yet.";
   }
-
-  const trimmed = candidate.value.text.trim();
-  if (trimmed.length === 0) {
-    return candidate.value.role === "assistant" ? "(empty assistant response)" : "(empty message)";
-  }
-  return trimmed;
+  return thread.session?.status === "running" || thread.session?.status === "starting"
+    ? "Working on latest request..."
+    : "Open thread to view latest message.";
 }
 
 export function screenTitle(config: T3ServerConfig | null, serverUrl: string | null): string {

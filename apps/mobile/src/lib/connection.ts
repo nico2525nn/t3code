@@ -1,3 +1,4 @@
+import { EnvironmentId } from "@t3tools/contracts";
 import {
   bootstrapRemoteBearerSession,
   fetchRemoteEnvironmentDescriptor,
@@ -9,7 +10,7 @@ export interface RemoteConnectionInput {
 }
 
 export interface SavedRemoteConnection {
-  readonly environmentId: string;
+  readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly pairingUrl: string;
   readonly displayUrl: string;
@@ -17,6 +18,13 @@ export interface SavedRemoteConnection {
   readonly wsBaseUrl: string;
   readonly bearerToken: string;
 }
+
+export type RemoteClientConnectionState =
+  | "idle"
+  | "connecting"
+  | "ready"
+  | "reconnecting"
+  | "disconnected";
 
 export async function bootstrapRemoteConnection(
   input: RemoteConnectionInput,

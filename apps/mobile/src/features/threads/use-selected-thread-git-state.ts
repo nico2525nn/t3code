@@ -2,9 +2,9 @@ import { useMemo } from "react";
 
 import { dedupeRemoteBranchesWithLocalMatches } from "@t3tools/shared/git";
 
-import { useGitActionState } from "./use-git-action-state";
-import { useGitBranches } from "./use-git-branches";
-import { useThreadSelection } from "./use-thread-selection";
+import { useGitActionState } from "../../state/use-git-action-state";
+import { useGitBranches } from "../../state/use-git-branches";
+import { useThreadSelection } from "../../state/use-thread-selection";
 
 export function useSelectedThreadGitState() {
   const { selectedThread, selectedThreadProject } = useThreadSelection();

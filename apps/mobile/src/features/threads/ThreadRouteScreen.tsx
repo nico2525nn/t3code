@@ -1,5 +1,8 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
+import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
+import { pipe } from "effect/Function";
 import { Pressable, ScrollView, Text as RNText, View, useColorScheme } from "react-native";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { useGitStatus, gitStatusManager } from "../../state/use-git-status";
@@ -9,22 +12,22 @@ import { LoadingScreen } from "../../components/LoadingScreen";
 import { buildThreadRoutePath } from "../../lib/routes";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { connectionTone } from "../connection/connectionTone";
-import { firstNonNull } from "../../state/remote-runtime-types";
+
 import { useRemoteCatalog } from "../../state/use-remote-catalog";
 import {
   useRemoteConnectionStatus,
   useRemoteEnvironmentState,
 } from "../../state/use-remote-environment-registry";
-import { useSelectedThreadGitActions } from "../../state/use-selected-thread-git-actions";
-import { useSelectedThreadGitState } from "../../state/use-selected-thread-git-state";
-import { useSelectedThreadCommands } from "../../state/use-selected-thread-commands";
-import { useThreadComposerState } from "../../state/use-thread-composer-state";
-import { useThreadDetailSubscription } from "../../state/use-thread-detail-subscription";
+import { useSelectedThreadDetail } from "../../state/use-thread-detail";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
 import { ThreadGitControls } from "./ThreadGitControls";
 import { ThreadNavigationDrawer } from "./ThreadNavigationDrawer";
 import { screenTitle } from "./threadPresentation";
+import { useSelectedThreadCommands } from "./use-selected-thread-commands";
+import { useSelectedThreadGitActions } from "./use-selected-thread-git-actions";
+import { useSelectedThreadGitState } from "./use-selected-thread-git-state";
+import { useThreadComposerState } from "./use-thread-composer-state";
 
 function firstRouteParam(value: string | string[] | undefined): string | null {
   if (Array.isArray(value)) {
@@ -35,16 +38,14 @@ function firstRouteParam(value: string | string[] | undefined): string | null {
 }
 
 export function ThreadRouteScreen() {
-  const { isLoadingSavedConnection, environmentStateById } = useRemoteEnvironmentState();
-  const { connectionState, connectionError } = useRemoteConnectionStatus();
+  const { isLoadingSavedConnection, environmentStateById, pendingConnectionError } =
+    useRemoteEnvironmentState();
+  const { connectionState, connectionError: aggregateConnectionError } =
+    useRemoteConnectionStatus();
   const { projects, threads } = useRemoteCatalog();
-  const {
-    onSelectThread,
-    selectedThread,
-    selectedThreadProject,
-    selectedEnvironmentConnection,
-    selectedEnvironmentRuntime,
-  } = useThreadSelection();
+  const { selectedThread, selectedThreadProject, selectedEnvironmentConnection } =
+    useThreadSelection();
+  const selectedThreadDetail = useSelectedThreadDetail();
   const composer = useThreadComposerState();
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
@@ -61,8 +62,12 @@ export function ThreadRouteScreen() {
   const [drawerVisible, setDrawerVisible] = useState(false);
   const environmentId = firstRouteParam(params.environmentId);
   const threadId = firstRouteParam(params.threadId);
-
-  useThreadDetailSubscription(environmentId, threadId);
+  const routeEnvironmentRuntime = environmentId
+    ? (environmentStateById[environmentId] ?? null)
+    : null;
+  const routeConnectionState = routeEnvironmentRuntime?.connectionState ?? connectionState;
+  const routeConnectionError =
+    pendingConnectionError ?? routeEnvironmentRuntime?.connectionError ?? aggregateConnectionError;
 
   /* ─── Native header theming ──────────────────────────────────────── */
   const isDark = useColorScheme() === "dark";
@@ -90,41 +95,15 @@ export function ThreadRouteScreen() {
     await handleRefreshGitStatus();
   }, [commands, handleRefreshGitStatus]);
 
-  const routeThread = useMemo(() => {
-    if (!environmentId || !threadId) {
-      return null;
-    }
-
-    return (
-      threads.find((thread) => thread.environmentId === environmentId && thread.id === threadId) ??
-      null
-    );
-  }, [environmentId, threadId, threads]);
-
-  const selectedMatchesRoute =
-    selectedThread?.environmentId === environmentId && selectedThread?.id === threadId;
-
-  useEffect(() => {
-    if (!routeThread) {
-      return;
-    }
-
-    if (selectedMatchesRoute) {
-      return;
-    }
-
-    onSelectThread(routeThread);
-  }, [onSelectThread, routeThread, selectedMatchesRoute]);
-
   if (!environmentId || !threadId) {
     return <LoadingScreen message="Opening thread…" />;
   }
 
-  if (!routeThread) {
+  if (!selectedThread) {
     const stillHydrating =
       isLoadingSavedConnection ||
-      connectionState === "connecting" ||
-      connectionState === "reconnecting";
+      routeConnectionState === "connecting" ||
+      routeConnectionState === "reconnecting";
 
     if (stillHydrating) {
       return <LoadingScreen message="Opening thread…" />;
@@ -149,16 +128,24 @@ export function ThreadRouteScreen() {
     );
   }
 
-  if (!selectedMatchesRoute || !selectedThread) {
+  if (!selectedThreadDetail) {
     return <LoadingScreen message="Opening thread…" />;
   }
 
   const selectedThreadKey = scopedThreadKey(selectedThread.environmentId, selectedThread.id);
   const serverConfig =
-    selectedEnvironmentRuntime?.serverConfig ??
-    firstNonNull(Object.values(environmentStateById).map((runtime) => runtime.serverConfig));
+    routeEnvironmentRuntime?.serverConfig ??
+    pipe(
+      Object.values(environmentStateById),
+      Arr.map((runtime) => runtime.serverConfig),
+      Arr.findFirst((value) => value !== null),
+      Option.getOrNull,
+    );
 
-  const headerSubtitle = [screenTitle(serverConfig, null), selectedThread.environmentLabel]
+  const headerSubtitle = [
+    screenTitle(serverConfig, null),
+    selectedEnvironmentConnection?.environmentLabel ?? null,
+  ]
     .filter(Boolean)
     .join(" · ");
 
@@ -189,7 +176,7 @@ export function ThreadRouteScreen() {
                   letterSpacing: -0.4,
                 }}
               >
-                {selectedThread.title}
+                {selectedThreadDetail.title}
               </RNText>
               <RNText
                 numberOfLines={1}
@@ -209,7 +196,7 @@ export function ThreadRouteScreen() {
       />
 
       <ThreadGitControls
-        currentBranch={selectedThread.branch}
+        currentBranch={selectedThreadDetail.branch}
         gitStatus={gitStatus.data}
         gitOperationLabel={gitState.gitOperationLabel}
         onPull={gitActions.onPullSelectedThreadBranch}
@@ -218,9 +205,9 @@ export function ThreadRouteScreen() {
 
       <View className="flex-1 bg-screen">
         <ThreadDetailScreen
-          selectedThread={selectedThread}
-          screenTone={connectionTone(connectionState)}
-          connectionError={connectionError}
+          selectedThread={selectedThreadDetail}
+          screenTone={connectionTone(routeConnectionState)}
+          connectionError={routeConnectionError}
           httpBaseUrl={selectedEnvironmentConnection?.httpBaseUrl ?? null}
           bearerToken={selectedEnvironmentConnection?.bearerToken ?? null}
           selectedThreadFeed={composer.selectedThreadFeed}
@@ -233,7 +220,7 @@ export function ThreadRouteScreen() {
           respondingUserInputId={commands.respondingUserInputId}
           draftMessage={composer.draftMessage}
           draftAttachments={composer.draftAttachments}
-          connectionStateLabel={connectionState}
+          connectionStateLabel={routeConnectionState}
           activeThreadBusy={composer.activeThreadBusy}
           projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
           selectedThreadQueueCount={composer.selectedThreadQueueCount}
@@ -263,7 +250,6 @@ export function ThreadRouteScreen() {
           selectedThreadKey={selectedThreadKey}
           onClose={() => setDrawerVisible(false)}
           onSelectThread={(thread) => {
-            onSelectThread(thread);
             router.replace(buildThreadRoutePath(thread));
           }}
           onStartNewTask={() => router.push("/new")}

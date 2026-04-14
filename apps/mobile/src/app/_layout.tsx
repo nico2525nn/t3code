@@ -1,5 +1,4 @@
 import "../../global.css";
-
 import {
   DMSans_400Regular,
   DMSans_500Medium,
@@ -14,18 +13,19 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useCSSVariable, useResolveClassNames } from "uniwind";
 
 import { LoadingScreen } from "../components/LoadingScreen";
-import { AppAtomRegistryProvider } from "../state/atomRegistry";
+
 import {
   useRemoteEnvironmentBootstrap,
   useRemoteEnvironmentState,
 } from "../state/use-remote-environment-registry";
+import { RegistryContext } from "@effect/atom-react";
+import { appAtomRegistry } from "../state/atom-registry";
 
 function AppNavigator() {
   const { isLoadingSavedConnection } = useRemoteEnvironmentState();
   const colorScheme = useColorScheme();
   const statusBarBg = useCSSVariable("--color-status-bar");
   const sheetStyle = useResolveClassNames("bg-sheet");
-  const screenStyle = useResolveClassNames("bg-screen");
 
   const newTaskScreenOptions = {
     contentStyle: sheetStyle,
@@ -91,7 +91,7 @@ export default function RootLayout() {
   useRemoteEnvironmentBootstrap();
 
   return (
-    <AppAtomRegistryProvider>
+    <RegistryContext value={appAtomRegistry}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <KeyboardProvider statusBarTranslucent>
           <SafeAreaProvider>
@@ -99,6 +99,6 @@ export default function RootLayout() {
           </SafeAreaProvider>
         </KeyboardProvider>
       </GestureHandlerRootView>
-    </AppAtomRegistryProvider>
+    </RegistryContext>
   );
 }

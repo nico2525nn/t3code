@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 
+import { EnvironmentScopedProjectShell } from "@t3tools/client-runtime";
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -11,24 +12,21 @@ import {
   type ProviderInteractionMode,
   type RuntimeMode,
 } from "@t3tools/contracts";
-import { sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { buildTemporaryWorktreeBranchName, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 
-import type { DraftComposerImageAttachment } from "../lib/composerImages";
-import { uuidv4 } from "../lib/uuid";
-import type { ScopedMobileProject } from "../lib/scopedEntities";
-import { buildTemporaryWorktreeBranchName } from "../lib/worktrees";
-import { deriveThreadTitleFromPrompt } from "./remote-runtime-types";
-import { useRemoteEnvironmentStore } from "./remote-environment-store";
-import { gitBranchManager } from "./use-git-branches";
-import { useRemoteCatalog } from "./use-remote-catalog";
-import { getEnvironmentClient, useRemoteEnvironmentState } from "./use-remote-environment-registry";
-import { useThreadSelectionStore } from "./thread-selection-store";
+import type { DraftComposerImageAttachment } from "../../lib/composerImages";
+import { uuidv4 } from "../../lib/uuid";
+import { environmentRuntimeManager } from "../../state/use-environment-runtime";
+import { gitBranchManager } from "../../state/use-git-branches";
+import { useRemoteCatalog } from "../../state/use-remote-catalog";
+import {
+  getEnvironmentClient,
+  setPendingConnectionError,
+  useRemoteEnvironmentState,
+} from "../../state/use-remote-environment-registry";
 
 function useRefreshRemoteData() {
   const { savedConnectionsById } = useRemoteEnvironmentState();
-  const patchEnvironmentRuntimeState = useRemoteEnvironmentStore(
-    (state) => state.patchEnvironmentRuntimeState,
-  );
 
   return useCallback(
     async (environmentIds?: ReadonlyArray<string>) => {
@@ -43,13 +41,13 @@ function useRefreshRemoteData() {
 
           try {
             const serverConfig = await client.server.getConfig();
-            patchEnvironmentRuntimeState(environmentId, (current) => ({
+            environmentRuntimeManager.patch({ environmentId }, (current) => ({
               ...current,
               serverConfig,
               connectionError: null,
             }));
           } catch (error) {
-            patchEnvironmentRuntimeState(environmentId, (current) => ({
+            environmentRuntimeManager.patch({ environmentId }, (current) => ({
               ...current,
               connectionError:
                 error instanceof Error ? error.message : "Failed to refresh remote data.",
@@ -58,21 +56,27 @@ function useRefreshRemoteData() {
         }),
       );
     },
-    [patchEnvironmentRuntimeState, savedConnectionsById],
+    [savedConnectionsById],
   );
+}
+
+function deriveThreadTitleFromPrompt(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return "New thread";
+  }
+
+  const compact = trimmed.replace(/\s+/g, " ");
+  return compact.length <= 72 ? compact : `${compact.slice(0, 69).trimEnd()}...`;
 }
 
 export function useProjectActions() {
   const { threads } = useRemoteCatalog();
   const refreshRemoteData = useRefreshRemoteData();
-  const setPendingConnectionError = useRemoteEnvironmentStore(
-    (state) => state.setPendingConnectionError,
-  );
-  const selectThreadRef = useThreadSelectionStore((state) => state.selectThreadRef);
 
   const onCreateThreadWithOptions = useCallback(
     async (input: {
-      readonly project: ScopedMobileProject;
+      readonly project: EnvironmentScopedProjectShell;
       readonly modelSelection: ModelSelection;
       readonly envMode: "local" | "worktree";
       readonly branch: string | null;
@@ -164,21 +168,17 @@ export function useProjectActions() {
         }
       }
 
-      selectThreadRef({
-        environmentId: input.project.environmentId,
-        threadId,
-      });
       await refreshRemoteData([input.project.environmentId]);
       return {
         environmentId: input.project.environmentId,
         threadId,
       };
     },
-    [refreshRemoteData, selectThreadRef],
+    [refreshRemoteData],
   );
 
   const onCreateThread = useCallback(
-    async (project: ScopedMobileProject) => {
+    async (project: EnvironmentScopedProjectShell) => {
       const latestProjectThread =
         threads.find(
           (thread) =>
@@ -203,11 +203,11 @@ export function useProjectActions() {
         initialAttachments: [],
       });
     },
-    [onCreateThreadWithOptions, setPendingConnectionError, threads],
+    [onCreateThreadWithOptions, threads],
   );
 
   const onListProjectBranches = useCallback(
-    async (project: ScopedMobileProject): Promise<ReadonlyArray<GitBranch>> => {
+    async (project: EnvironmentScopedProjectShell): Promise<ReadonlyArray<GitBranch>> => {
       const client = getEnvironmentClient(project.environmentId);
       if (!client) {
         return [];
@@ -227,12 +227,12 @@ export function useProjectActions() {
         return [];
       }
     },
-    [setPendingConnectionError],
+    [],
   );
 
   const onCreateProjectWorktree = useCallback(
     async (
-      project: ScopedMobileProject,
+      project: EnvironmentScopedProjectShell,
       nextWorktree: {
         readonly baseBranch: string;
         readonly newBranch: string;
@@ -269,7 +269,7 @@ export function useProjectActions() {
         return null;
       }
     },
-    [setPendingConnectionError],
+    [],
   );
 
   return {

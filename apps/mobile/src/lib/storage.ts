@@ -1,3 +1,5 @@
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
 import * as SecureStore from "expo-secure-store";
 
 import type { SavedRemoteConnection } from "./connection";
@@ -22,7 +24,10 @@ export async function loadSavedConnections(): Promise<ReadonlyArray<SavedRemoteC
     const parsed = JSON.parse(raw) as {
       readonly connections?: ReadonlyArray<SavedRemoteConnection>;
     };
-    return (parsed.connections ?? []).filter((c) => c.environmentId && c.bearerToken?.trim());
+    return pipe(
+      parsed.connections ?? [],
+      Arr.filter((c) => !!c.environmentId && !!c.bearerToken?.trim()),
+    );
   } catch {
     return [];
   }
@@ -31,16 +36,20 @@ export async function loadSavedConnections(): Promise<ReadonlyArray<SavedRemoteC
 export async function saveConnection(connection: SavedRemoteConnection): Promise<void> {
   const current = await loadSavedConnections();
   const next = current.some((entry) => entry.environmentId === connection.environmentId)
-    ? current.map((entry) =>
-        entry.environmentId === connection.environmentId ? connection : entry,
+    ? pipe(
+        current,
+        Arr.map((entry) => (entry.environmentId === connection.environmentId ? connection : entry)),
       )
-    : [...current, connection];
+    : pipe(current, Arr.append(connection));
 
   await writeStorageItem(CONNECTIONS_KEY, JSON.stringify({ connections: next }));
 }
 
 export async function clearSavedConnection(environmentId: string): Promise<void> {
   const current = await loadSavedConnections();
-  const next = current.filter((entry) => entry.environmentId !== environmentId);
+  const next = pipe(
+    current,
+    Arr.filter((entry) => entry.environmentId !== environmentId),
+  );
   await writeStorageItem(CONNECTIONS_KEY, JSON.stringify({ connections: next }));
 }

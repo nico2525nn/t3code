@@ -2,28 +2,33 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
   ClaudeCodeEffort,
+  EnvironmentId,
   GitBranch,
   ModelSelection,
   ProviderInteractionMode,
   RuntimeMode,
 } from "@t3tools/contracts";
 import { DEFAULT_PROVIDER_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "@t3tools/contracts";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
 
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import type { ModelOption, ProviderGroup } from "../../lib/modelOptions";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
-import type { ScopedMobileProject } from "../../lib/scopedEntities";
 import { scopedProjectKey } from "../../lib/scopedEntities";
-import { useRemoteEnvironmentStore } from "../../state/remote-environment-store";
 import { gitBranchManager, useGitBranches } from "../../state/use-git-branches";
 import { useRemoteCatalog } from "../../state/use-remote-catalog";
+import {
+  setPendingConnectionError,
+  useRemoteEnvironmentState,
+} from "../../state/use-remote-environment-registry";
+import { EnvironmentScopedProjectShell } from "@t3tools/client-runtime";
 
-export type { ModelOption, ProviderGroup };
-export type WorkspaceMode = "local" | "worktree";
+type WorkspaceMode = "local" | "worktree";
 
-export function normalizeSelectedWorktreePath(
-  project: ScopedMobileProject,
+function normalizeSelectedWorktreePath(
+  project: EnvironmentScopedProjectShell,
   branch: GitBranch,
 ): string | null {
   if (!branch.worktreePath) {
@@ -35,7 +40,7 @@ export function normalizeSelectedWorktreePath(
 
 export function branchBadgeLabel(input: {
   readonly branch: GitBranch;
-  readonly project: ScopedMobileProject | null;
+  readonly project: EnvironmentScopedProjectShell | null;
 }): string | null {
   if (input.branch.current) {
     return "current";
@@ -55,9 +60,9 @@ export function branchBadgeLabel(input: {
 type NewTaskFlowContextValue = {
   readonly logicalProjects: ReadonlyArray<{
     readonly key: string;
-    readonly project: ScopedMobileProject;
+    readonly project: EnvironmentScopedProjectShell;
   }>;
-  readonly selectedEnvironmentId: string;
+  readonly selectedEnvironmentId: EnvironmentId;
   readonly selectedProjectKey: string | null;
   readonly selectedModelKey: string | null;
   readonly workspaceMode: WorkspaceMode;
@@ -76,18 +81,18 @@ type NewTaskFlowContextValue = {
   readonly contextWindow: string;
   readonly expandedProvider: string | null;
   readonly environments: ReadonlyArray<{
-    readonly environmentId: string;
+    readonly environmentId: EnvironmentId;
     readonly environmentLabel: string;
   }>;
-  readonly selectedProject: ScopedMobileProject | null;
+  readonly selectedProject: EnvironmentScopedProjectShell | null;
   readonly modelOptions: ReadonlyArray<ModelOption>;
   readonly selectedModel: ModelSelection | null;
   readonly selectedModelOption: ModelOption | null;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly filteredBranches: ReadonlyArray<GitBranch>;
   readonly reset: () => void;
-  readonly setProject: (project: ScopedMobileProject) => void;
-  readonly selectEnvironment: (environmentId: string) => void;
+  readonly setProject: (project: EnvironmentScopedProjectShell) => void;
+  readonly selectEnvironment: (environmentId: EnvironmentId) => void;
   readonly setSelectedModelKey: (key: string | null) => void;
   readonly setWorkspaceMode: (mode: WorkspaceMode) => void;
   readonly selectBranch: (branch: GitBranch) => void;
@@ -111,9 +116,7 @@ const NewTaskFlowContext = React.createContext<NewTaskFlowContextValue | null>(n
 
 export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const { projects, serverConfigByEnvironmentId, threads } = useRemoteCatalog();
-  const setPendingConnectionError = useRemoteEnvironmentStore(
-    (state) => state.setPendingConnectionError,
-  );
+  const { savedConnectionsById } = useRemoteEnvironmentState();
 
   const repositoryGroups = useMemo(
     () => groupProjectsByRepository({ projects, threads }),
@@ -121,15 +124,24 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   );
   const logicalProjects = useMemo(
     () =>
-      repositoryGroups
-        .map((group) => {
+      pipe(
+        repositoryGroups,
+        Arr.map((group) => {
           const primaryProject = group.projects[0]?.project;
           if (!primaryProject) {
             return null;
           }
           return { key: group.key, project: primaryProject };
-        })
-        .filter((entry) => entry !== null),
+        }),
+        Arr.filter(
+          (
+            entry,
+          ): entry is {
+            readonly key: string;
+            readonly project: EnvironmentScopedProjectShell;
+          } => entry !== null,
+        ),
+      ),
     [repositoryGroups],
   );
 
@@ -212,19 +224,44 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
 
   const environments = useMemo(
     () =>
-      [
-        ...new Map(
-          projects.map((project) => [project.environmentId, project.environmentLabel]),
-        ).entries(),
-      ].map(([environmentId, environmentLabel]) => ({
-        environmentId,
-        environmentLabel,
-      })),
-    [projects],
+      pipe(
+        [
+          ...new Set(
+            pipe(
+              projects,
+              Arr.map((project) => project.environmentId),
+            ),
+          ),
+        ],
+        Arr.map((environmentId) => {
+          const environment = savedConnectionsById[environmentId];
+          if (!environment) {
+            return null;
+          }
+
+          return {
+            environmentId,
+            environmentLabel: environment.environmentLabel,
+          };
+        }),
+        Arr.filter(
+          (
+            entry,
+          ): entry is {
+            readonly environmentId: EnvironmentId;
+            readonly environmentLabel: string;
+          } => entry !== null,
+        ),
+      ),
+    [projects, savedConnectionsById],
   );
 
   const projectsForEnvironment = useMemo(
-    () => projects.filter((project) => project.environmentId === selectedEnvironmentId),
+    () =>
+      pipe(
+        projects,
+        Arr.filter((project) => project.environmentId === selectedEnvironmentId),
+      ),
     [projects, selectedEnvironmentId],
   );
 
@@ -272,7 +309,11 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const branchState = useGitBranches(branchTarget);
   const branchesLoading = branchState.isPending;
   const availableBranches = useMemo(
-    () => (branchState.data?.branches ?? []).filter((branch) => !branch.isRemote),
+    () =>
+      pipe(
+        branchState.data?.branches ?? [],
+        Arr.filter((branch) => !branch.isRemote),
+      ),
     [branchState.data?.branches],
   );
 
@@ -282,15 +323,18 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       return availableBranches;
     }
 
-    return availableBranches.filter((branch) => branch.name.toLowerCase().includes(query));
+    return pipe(
+      availableBranches,
+      Arr.filter((branch) => branch.name.toLowerCase().includes(query)),
+    );
   }, [availableBranches, branchQuery]);
 
-  const setProject = useCallback((project: ScopedMobileProject) => {
+  const setProject = useCallback((project: EnvironmentScopedProjectShell) => {
     setSelectedEnvironmentId(project.environmentId);
     setSelectedProjectKey(scopedProjectKey(project.environmentId, project.id));
   }, []);
 
-  const selectEnvironment = useCallback((environmentId: string) => {
+  const selectEnvironment = useCallback((environmentId: EnvironmentId) => {
     setSelectedEnvironmentId(environmentId);
     setSelectedProjectKey(null);
     setSelectedBranchName(null);
@@ -319,7 +363,10 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         query: null,
       });
       setPendingConnectionError(null);
-      const branches = (result?.branches ?? []).filter((branch) => !branch.isRemote);
+      const branches = pipe(
+        result?.branches ?? [],
+        Arr.filter((branch) => !branch.isRemote),
+      );
 
       if (workspaceMode === "worktree" && !selectedBranchName) {
         const preferredBranch =
@@ -333,7 +380,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     } catch {
       setPendingConnectionError("Failed to load branches.");
     }
-  }, [selectedBranchName, selectedProject, setPendingConnectionError, workspaceMode]);
+  }, [selectedBranchName, selectedProject, workspaceMode]);
 
   const value = useMemo<NewTaskFlowContextValue>(
     () => ({

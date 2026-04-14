@@ -1,6 +1,10 @@
 import { useCallback, useEffect } from "react";
 
-import { type GitActionRequestInput } from "@t3tools/client-runtime";
+import {
+  EnvironmentScopedProjectShell,
+  EnvironmentScopedThreadShell,
+  type GitActionRequestInput,
+} from "@t3tools/client-runtime";
 import {
   CommandId,
   type GitBranch,
@@ -12,20 +16,18 @@ import {
   sanitizeFeatureBranchName,
 } from "@t3tools/shared/git";
 
-import { uuidv4 } from "../lib/uuid";
-import { type ScopedMobileProject, type ScopedMobileThread } from "../lib/scopedEntities";
-import { useRemoteEnvironmentStore } from "./remote-environment-store";
-import { getEnvironmentClient } from "./use-remote-environment-registry";
-import { gitActionManager } from "./use-git-action-state";
-import { gitBranchManager } from "./use-git-branches";
-import { gitStatusManager } from "./use-git-status";
-import { useThreadSelection } from "./use-thread-selection";
+import { uuidv4 } from "../../lib/uuid";
+import {
+  getEnvironmentClient,
+  setPendingConnectionError,
+} from "../../state/use-remote-environment-registry";
+import { gitActionManager } from "../../state/use-git-action-state";
+import { gitBranchManager } from "../../state/use-git-branches";
+import { gitStatusManager } from "../../state/use-git-status";
+import { useThreadSelection } from "../../state/use-thread-selection";
 
 export function useSelectedThreadGitActions() {
   const { selectedThread, selectedThreadProject } = useThreadSelection();
-  const setPendingConnectionError = useRemoteEnvironmentStore(
-    (state) => state.setPendingConnectionError,
-  );
 
   const selectedThreadGitRootCwd = selectedThreadProject?.workspaceRoot ?? null;
 
@@ -84,7 +86,7 @@ export function useSelectedThreadGitActions() {
         return null;
       }
     },
-    [selectedThread, selectedThreadProject, setPendingConnectionError],
+    [selectedThread, selectedThreadProject],
   );
 
   useEffect(() => {
@@ -98,8 +100,8 @@ export function useSelectedThreadGitActions() {
   const runSelectedThreadGitMutation = useCallback(
     async <T>(
       operation: (input: {
-        readonly thread: ScopedMobileThread;
-        readonly project: ScopedMobileProject;
+        readonly thread: EnvironmentScopedThreadShell;
+        readonly project: EnvironmentScopedProjectShell;
         readonly cwd: string;
       }) => Promise<T>,
     ): Promise<T | null> => {
@@ -124,7 +126,7 @@ export function useSelectedThreadGitActions() {
         return null;
       }
     },
-    [selectedThread, selectedThreadProject, setPendingConnectionError],
+    [selectedThread, selectedThreadProject],
   );
 
   const refreshSelectedThreadBranches = useCallback(async (): Promise<ReadonlyArray<GitBranch>> => {
@@ -152,11 +154,11 @@ export function useSelectedThreadGitActions() {
       );
       return [];
     }
-  }, [selectedThread, selectedThreadGitRootCwd, selectedThreadProject, setPendingConnectionError]);
+  }, [selectedThread, selectedThreadGitRootCwd, selectedThreadProject]);
 
   const syncSelectedThreadBranchState = useCallback(
     async (input: {
-      readonly thread: ScopedMobileThread;
+      readonly thread: EnvironmentScopedThreadShell;
       readonly cwd: string;
       readonly branchRootCwd?: string | null;
       readonly nextThreadState?: {

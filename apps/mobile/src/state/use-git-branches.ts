@@ -9,7 +9,7 @@ import {
   gitBranchStateAtom,
 } from "@t3tools/client-runtime";
 
-import { appAtomRegistry } from "./atomRegistry";
+import { appAtomRegistry } from "./atom-registry";
 import { getEnvironmentClient } from "./use-remote-environment-registry";
 
 export const gitBranchManager = createGitBranchManager({

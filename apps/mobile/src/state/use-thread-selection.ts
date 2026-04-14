@@ -1,18 +1,23 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { useMemo } from "react";
 
-import type { SavedRemoteConnection } from "../lib/connection";
-import type { ScopedMobileProject, ScopedMobileThread } from "../lib/scopedEntities";
-import { scopedThreadKey } from "../lib/scopedEntities";
+import { EnvironmentScopedThreadShell } from "@t3tools/client-runtime";
+import { EnvironmentScopedProjectShell } from "@t3tools/client-runtime";
 import { useRemoteCatalog } from "./use-remote-catalog";
-import { type EnvironmentRuntimeState } from "./remote-runtime-types";
-import { useRemoteEnvironmentStore } from "./remote-environment-store";
 import { useRemoteEnvironmentState } from "./use-remote-environment-registry";
-import { useThreadSelectionStore } from "./thread-selection-store";
+
+function firstRouteParam(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+
+  return value ?? null;
+}
 
 function deriveSelectedThread(
   selectedThreadRef: { readonly environmentId: string; readonly threadId: string } | null,
-  threads: ReadonlyArray<ScopedMobileThread>,
-): ScopedMobileThread | null {
+  threads: ReadonlyArray<EnvironmentScopedThreadShell>,
+): EnvironmentScopedThreadShell | null {
   if (!selectedThreadRef) {
     return null;
   }
@@ -27,9 +32,9 @@ function deriveSelectedThread(
 }
 
 function deriveSelectedThreadProject(
-  selectedThread: ScopedMobileThread | null,
-  projects: ReadonlyArray<ScopedMobileProject>,
-): ScopedMobileProject | null {
+  selectedThread: EnvironmentScopedThreadShell | null,
+  projects: ReadonlyArray<EnvironmentScopedProjectShell>,
+): EnvironmentScopedProjectShell | null {
   if (!selectedThread) {
     return null;
   }
@@ -46,43 +51,23 @@ function deriveSelectedThreadProject(
 export function useThreadSelection() {
   const { projects, threads } = useRemoteCatalog();
   const { environmentStateById, savedConnectionsById } = useRemoteEnvironmentState();
-  const selectedThreadRef = useThreadSelectionStore((state) => state.selectedThreadRef);
-  const selectThreadRef = useThreadSelectionStore((state) => state.selectThreadRef);
-  const clearSelectedThreadRef = useThreadSelectionStore((state) => state.clearSelectedThreadRef);
-
-  const threadDetailByKey = useRemoteEnvironmentStore((state) => state.threadDetailByKey);
-
-  const selectedThread = useMemo(() => {
-    const shell = deriveSelectedThread(selectedThreadRef, threads);
-    if (!shell) {
+  const params = useLocalSearchParams<{
+    environmentId?: string | string[];
+    threadId?: string | string[];
+  }>();
+  const selectedThreadRef = useMemo(() => {
+    const environmentId = firstRouteParam(params.environmentId);
+    const threadId = firstRouteParam(params.threadId);
+    if (!environmentId || !threadId) {
       return null;
     }
 
-    const key = scopedThreadKey(shell.environmentId, shell.id);
-    const detail = threadDetailByKey[key];
-    if (!detail) {
-      return shell;
-    }
-
-    return {
-      ...shell,
-      messages: detail.messages,
-      proposedPlans: detail.proposedPlans,
-      activities: detail.activities,
-      checkpoints: detail.checkpoints,
-      latestTurn: detail.latestTurn,
-      session: detail.session,
-      deletedAt: detail.deletedAt,
-    };
-  }, [selectedThreadRef, threadDetailByKey, threads]);
-
-  useEffect(() => {
-    if (!selectedThreadRef || selectedThread) {
-      return;
-    }
-
-    clearSelectedThreadRef();
-  }, [clearSelectedThreadRef, selectedThread, selectedThreadRef]);
+    return { environmentId, threadId };
+  }, [params.environmentId, params.threadId]);
+  const selectedThread = useMemo(
+    () => deriveSelectedThread(selectedThreadRef, threads),
+    [selectedThreadRef, threads],
+  );
 
   const selectedThreadProject = useMemo(
     () => deriveSelectedThreadProject(selectedThread, projects),
@@ -96,34 +81,11 @@ export function useThreadSelection() {
     ? (environmentStateById[selectedThread.environmentId] ?? null)
     : null;
 
-  const onSelectThread = useCallback(
-    (thread: ScopedMobileThread) => {
-      selectThreadRef({
-        environmentId: thread.environmentId,
-        threadId: thread.id,
-      });
-    },
-    [selectThreadRef],
-  );
-
-  const onBackFromThread = useCallback(() => {
-    clearSelectedThreadRef();
-  }, [clearSelectedThreadRef]);
-
   return {
     selectedThreadRef,
-    selectThreadRef,
-    clearSelectedThreadRef,
     selectedThread,
     selectedThreadProject,
     selectedEnvironmentConnection,
     selectedEnvironmentRuntime,
-    onSelectThread,
-    onBackFromThread,
   };
 }
-
-export type ThreadSelectionSnapshot = {
-  readonly savedConnectionsById: Record<string, SavedRemoteConnection>;
-  readonly environmentStateById: Record<string, EnvironmentRuntimeState>;
-};

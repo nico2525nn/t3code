@@ -173,7 +173,6 @@ export function ConnectionsRouteScreen() {
 
   const primaryFg = useThemeColor("--color-primary-foreground");
   const accentColor = useThemeColor("--color-icon-muted");
-  const mutedColor = useThemeColor("--color-icon-subtle");
 
   const handleToggle = useCallback((environmentId: string) => {
     setExpandedId((prev) => (prev === environmentId ? null : environmentId));

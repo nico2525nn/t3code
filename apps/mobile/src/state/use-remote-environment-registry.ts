@@ -1,34 +1,121 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo } from "react";
 import { Alert } from "react-native";
 
 import {
-  applyShellStreamEvent,
+  type EnvironmentRuntimeState,
   createEnvironmentConnection,
   createKnownEnvironment,
   createWsRpcClient,
+  EnvironmentConnectionState,
   WsTransport,
 } from "@t3tools/client-runtime";
 import { EnvironmentId } from "@t3tools/contracts";
 import { resolveRemoteWebSocketConnectionUrl } from "@t3tools/shared/remote";
-import { useShallow } from "zustand/react/shallow";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
+import * as Option from "effect/Option";
+import { pipe } from "effect/Function";
+import { Atom } from "effect/unstable/reactivity";
 import { type SavedRemoteConnection, bootstrapRemoteConnection } from "../lib/connection";
 import { clearSavedConnection, loadSavedConnections, saveConnection } from "../lib/storage";
-import {
-  firstNonNull,
-  type ConnectedEnvironmentSummary,
-  type EnvironmentSession,
-  type RemoteClientConnectionState,
-} from "./remote-runtime-types";
-import { remoteEnvironmentStore, useRemoteEnvironmentStore } from "./remote-environment-store";
-import { useThreadSelectionStore } from "./thread-selection-store";
+import { appAtomRegistry } from "./atom-registry";
+import { type ConnectedEnvironmentSummary, type EnvironmentSession } from "./remote-runtime-types";
+import { environmentRuntimeManager, useEnvironmentRuntimeStates } from "./use-environment-runtime";
+import { shellSnapshotManager } from "./use-shell-snapshot";
 
 const environmentSessions = new Map<string, EnvironmentSession>();
 const environmentConnectionListeners = new Set<() => void>();
 
+interface RemoteEnvironmentLocalState {
+  readonly isLoadingSavedConnection: boolean;
+  readonly connectionPairingUrl: string;
+  readonly pendingConnectionError: string | null;
+  readonly savedConnectionsById: Record<string, SavedRemoteConnection>;
+}
+
+const isLoadingSavedConnectionAtom = Atom.make(true).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:is-loading-saved-connection"),
+);
+
+const connectionPairingUrlAtom = Atom.make("").pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:connection-pairing-url"),
+);
+
+const pendingConnectionErrorAtom = Atom.make<string | null>(null).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:pending-connection-error"),
+);
+
+const savedConnectionsByIdAtom = Atom.make<Record<string, SavedRemoteConnection>>({}).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:saved-connections"),
+);
+
 function notifyEnvironmentConnectionListeners() {
   for (const listener of environmentConnectionListeners) listener();
+}
+
+function getSavedConnectionsById(): Record<string, SavedRemoteConnection> {
+  return appAtomRegistry.get(savedConnectionsByIdAtom);
+}
+
+function setIsLoadingSavedConnection(value: boolean): void {
+  appAtomRegistry.set(isLoadingSavedConnectionAtom, value);
+}
+
+function setConnectionPairingUrl(pairingUrl: string): void {
+  appAtomRegistry.set(connectionPairingUrlAtom, pairingUrl);
+}
+
+function clearConnectionPairingUrl(): void {
+  appAtomRegistry.set(connectionPairingUrlAtom, "");
+}
+
+export function setPendingConnectionError(message: string | null): void {
+  appAtomRegistry.set(pendingConnectionErrorAtom, message);
+}
+
+function clearPendingConnectionError(): void {
+  appAtomRegistry.set(pendingConnectionErrorAtom, null);
+}
+
+function replaceSavedConnections(connections: Record<string, SavedRemoteConnection>): void {
+  appAtomRegistry.set(savedConnectionsByIdAtom, connections);
+}
+
+function upsertSavedConnection(connection: SavedRemoteConnection): void {
+  const current = appAtomRegistry.get(savedConnectionsByIdAtom);
+  appAtomRegistry.set(savedConnectionsByIdAtom, {
+    ...current,
+    [connection.environmentId]: connection,
+  });
+}
+
+function removeSavedConnection(environmentId: string): void {
+  const current = appAtomRegistry.get(savedConnectionsByIdAtom);
+  const next = { ...current };
+  delete next[environmentId];
+  appAtomRegistry.set(savedConnectionsByIdAtom, next);
+}
+
+function useRemoteEnvironmentLocalState(): RemoteEnvironmentLocalState {
+  const isLoadingSavedConnection = useAtomValue(isLoadingSavedConnectionAtom);
+  const connectionPairingUrl = useAtomValue(connectionPairingUrlAtom);
+  const pendingConnectionError = useAtomValue(pendingConnectionErrorAtom);
+  const savedConnectionsById = useAtomValue(savedConnectionsByIdAtom);
+
+  return useMemo(
+    () => ({
+      isLoadingSavedConnection,
+      connectionPairingUrl,
+      pendingConnectionError,
+      savedConnectionsById,
+    }),
+    [connectionPairingUrl, isLoadingSavedConnection, pendingConnectionError, savedConnectionsById],
+  );
 }
 
 /**
@@ -47,7 +134,7 @@ function setEnvironmentConnectionStatus(
   state: ConnectedEnvironmentSummary["connectionState"],
   error?: string | null,
 ) {
-  remoteEnvironmentStore.getState().patchEnvironmentRuntimeState(environmentId, (current) => ({
+  environmentRuntimeManager.patch({ environmentId }, (current) => ({
     ...current,
     connectionState: state,
     connectionError: error === undefined ? current.connectionError : error,
@@ -66,11 +153,12 @@ export async function disconnectEnvironment(
   environmentSessions.delete(environmentId);
   notifyEnvironmentConnectionListeners();
   await session?.connection.dispose();
-  remoteEnvironmentStore.getState().removeEnvironmentRuntimeState(environmentId);
+  shellSnapshotManager.invalidate({ environmentId });
+  environmentRuntimeManager.invalidate({ environmentId });
 
   if (options?.removeSaved) {
     await clearSavedConnection(environmentId);
-    remoteEnvironmentStore.getState().removeSavedConnection(environmentId);
+    removeSavedConnection(environmentId);
   }
 }
 
@@ -84,9 +172,9 @@ export async function connectSavedEnvironment(
     await saveConnection(connection);
   }
 
-  const store = remoteEnvironmentStore.getState();
-  store.upsertSavedConnection(connection);
+  upsertSavedConnection(connection);
   setEnvironmentConnectionStatus(connection.environmentId, "connecting", null);
+  shellSnapshotManager.markPending({ environmentId: connection.environmentId });
 
   const transport = new WsTransport(
     () =>
@@ -97,21 +185,19 @@ export async function connectSavedEnvironment(
       }),
     {
       onAttempt: () => {
-        remoteEnvironmentStore
-          .getState()
-          .patchEnvironmentRuntimeState(connection.environmentId, (previous) => {
-            const nextState =
-              previous.connectionState === "ready" ||
-              previous.connectionState === "reconnecting" ||
-              previous.connectionState === "disconnected"
-                ? "reconnecting"
-                : "connecting";
-            return {
-              ...previous,
-              connectionState: nextState,
-              connectionError: null,
-            };
-          });
+        environmentRuntimeManager.patch({ environmentId: connection.environmentId }, (previous) => {
+          const nextState =
+            previous.connectionState === "ready" ||
+            previous.connectionState === "reconnecting" ||
+            previous.connectionState === "disconnected"
+              ? "reconnecting"
+              : "connecting";
+          return {
+            ...previous,
+            connectionState: nextState,
+            connectionError: null,
+          };
+        });
       },
       onError: (message) => {
         setEnvironmentConnectionStatus(connection.environmentId, "disconnected", message);
@@ -145,33 +231,25 @@ export async function connectSavedEnvironment(
     },
     client,
     applyShellEvent: (event, environmentId) => {
-      remoteEnvironmentStore.getState().patchEnvironmentRuntimeState(environmentId, (runtime) => {
-        if (!runtime.snapshot) {
-          return runtime;
-        }
-
-        return {
-          ...runtime,
-          snapshot: applyShellStreamEvent(runtime.snapshot, event),
-        };
-      });
+      shellSnapshotManager.applyEvent({ environmentId }, event);
     },
     syncShellSnapshot: (snapshot, environmentId) => {
-      remoteEnvironmentStore.getState().patchEnvironmentRuntimeState(environmentId, (runtime) => ({
+      shellSnapshotManager.syncSnapshot({ environmentId }, snapshot);
+      environmentRuntimeManager.patch({ environmentId }, (runtime) => ({
         ...runtime,
-        snapshot,
         connectionState: "ready",
         connectionError: null,
       }));
     },
+    onShellResubscribe: (environmentId) => {
+      shellSnapshotManager.markPending({ environmentId });
+    },
     applyTerminalEvent: () => undefined,
     onConfigSnapshot: (serverConfig) => {
-      remoteEnvironmentStore
-        .getState()
-        .patchEnvironmentRuntimeState(connection.environmentId, (runtime) => ({
-          ...runtime,
-          serverConfig,
-        }));
+      environmentRuntimeManager.patch({ environmentId: connection.environmentId }, (runtime) => ({
+        ...runtime,
+        serverConfig,
+      }));
     },
   });
 
@@ -198,7 +276,7 @@ const environmentsSortOrder = Order.make<ConnectedEnvironmentSummary>(
 
 function deriveConnectedEnvironments(
   savedConnectionsById: Record<string, SavedRemoteConnection>,
-  environmentStateById: ReturnType<typeof remoteEnvironmentStore.getState>["environmentStateById"],
+  environmentStateById: Record<EnvironmentId, EnvironmentRuntimeState>,
 ): ReadonlyArray<ConnectedEnvironmentSummary> {
   return Arr.sort(
     Object.values(savedConnectionsById).map((connection) => {
@@ -216,13 +294,6 @@ function deriveConnectedEnvironments(
 }
 
 export function useRemoteEnvironmentBootstrap() {
-  const setIsLoadingSavedConnection = useRemoteEnvironmentStore(
-    (state) => state.setIsLoadingSavedConnection,
-  );
-  const replaceSavedConnections = useRemoteEnvironmentStore(
-    (state) => state.replaceSavedConnections,
-  );
-
   useEffect(() => {
     let cancelled = false;
 
@@ -260,34 +331,36 @@ export function useRemoteEnvironmentBootstrap() {
         void session.connection.dispose();
       }
       environmentSessions.clear();
+      environmentRuntimeManager.invalidate();
+      shellSnapshotManager.invalidate();
       notifyEnvironmentConnectionListeners();
     };
-  }, [replaceSavedConnections, setIsLoadingSavedConnection]);
+  }, []);
 }
 
 export function useRemoteEnvironmentState() {
-  return useRemoteEnvironmentStore(
-    useShallow((state) => ({
-      isLoadingSavedConnection: state.isLoadingSavedConnection,
-      connectionPairingUrl: state.connectionPairingUrl,
-      pendingConnectionError: state.pendingConnectionError,
-      savedConnectionsById: state.savedConnectionsById,
-      environmentStateById: state.environmentStateById,
-    })),
+  const state = useRemoteEnvironmentLocalState();
+  const environmentStateById = useEnvironmentRuntimeStates(Object.keys(state.savedConnectionsById));
+
+  return useMemo(
+    () => ({
+      ...state,
+      environmentStateById,
+    }),
+    [environmentStateById, state],
   );
 }
 
 export function useRemoteConnectionStatus() {
   const { environmentStateById, pendingConnectionError, savedConnectionsById } =
     useRemoteEnvironmentState();
-  const selectedThreadRef = useThreadSelectionStore((state) => state.selectedThreadRef);
 
   const connectedEnvironments = useMemo(
     () => deriveConnectedEnvironments(savedConnectionsById, environmentStateById),
     [environmentStateById, savedConnectionsById],
   );
 
-  const connectionState = useMemo<RemoteClientConnectionState>(() => {
+  const connectionState = useMemo<EnvironmentConnectionState>(() => {
     if (connectedEnvironments.length === 0) {
       return "idle";
     }
@@ -307,14 +380,15 @@ export function useRemoteConnectionStatus() {
 
   const connectionError = useMemo(
     () =>
-      firstNonNull([
-        pendingConnectionError,
-        selectedThreadRef
-          ? environmentStateById[selectedThreadRef.environmentId]?.connectionError
-          : null,
-        ...connectedEnvironments.map((environment) => environment.connectionError),
-      ]),
-    [connectedEnvironments, environmentStateById, pendingConnectionError, selectedThreadRef],
+      pipe(
+        Arr.appendAll(
+          [pendingConnectionError],
+          Arr.map(connectedEnvironments, (environment) => environment.connectionError),
+        ),
+        Arr.findFirst((value) => value !== null),
+        Option.getOrNull,
+      ),
+    [connectedEnvironments, pendingConnectionError],
   );
 
   return {
@@ -327,31 +401,23 @@ export function useRemoteConnectionStatus() {
 export function useRemoteConnections() {
   const { connectionPairingUrl } = useRemoteEnvironmentState();
   const { connectedEnvironments, connectionError, connectionState } = useRemoteConnectionStatus();
-  const setConnectionPairingUrl = useRemoteEnvironmentStore(
-    (state) => state.setConnectionPairingUrl,
-  );
-  const clearConnectionPairingUrl = useRemoteEnvironmentStore(
-    (state) => state.clearConnectionPairingUrl,
-  );
 
   const onConnectPress = useCallback(
     async (pairingUrl?: string) => {
       try {
         const nextPairingUrl = pairingUrl ?? connectionPairingUrl;
         const connection = await bootstrapRemoteConnection({ pairingUrl: nextPairingUrl });
-        remoteEnvironmentStore.getState().clearPendingConnectionError();
+        clearPendingConnectionError();
         await connectSavedEnvironment(connection);
         clearConnectionPairingUrl();
       } catch (error) {
-        remoteEnvironmentStore
-          .getState()
-          .setPendingConnectionError(
-            error instanceof Error ? error.message : "Failed to pair with the environment.",
-          );
+        setPendingConnectionError(
+          error instanceof Error ? error.message : "Failed to pair with the environment.",
+        );
         throw error;
       }
     },
-    [clearConnectionPairingUrl, connectionPairingUrl],
+    [connectionPairingUrl],
   );
 
   const onUpdateEnvironment = useCallback(
@@ -359,7 +425,7 @@ export function useRemoteConnections() {
       environmentId: string,
       updates: { readonly label: string; readonly displayUrl: string },
     ) => {
-      const connection = remoteEnvironmentStore.getState().savedConnectionsById[environmentId];
+      const connection = getSavedConnectionsById()[environmentId];
       if (!connection) {
         return;
       }
@@ -371,13 +437,13 @@ export function useRemoteConnections() {
       };
 
       await saveConnection(updated);
-      remoteEnvironmentStore.getState().upsertSavedConnection(updated);
+      upsertSavedConnection(updated);
     },
     [],
   );
 
   const onReconnectEnvironment = useCallback((environmentId: string) => {
-    const connection = remoteEnvironmentStore.getState().savedConnectionsById[environmentId];
+    const connection = getSavedConnectionsById()[environmentId];
     if (!connection) {
       return;
     }
@@ -385,7 +451,7 @@ export function useRemoteConnections() {
   }, []);
 
   const onRemoveEnvironmentPress = useCallback((environmentId: string) => {
-    const connection = remoteEnvironmentStore.getState().savedConnectionsById[environmentId];
+    const connection = getSavedConnectionsById()[environmentId];
     if (!connection) {
       return;
     }

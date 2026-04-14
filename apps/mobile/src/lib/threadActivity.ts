@@ -1,6 +1,7 @@
 import type {
   ApprovalRequestId,
   CommandId,
+  EnvironmentId,
   MessageId,
   OrchestrationThread,
   OrchestrationThreadActivity,
@@ -31,7 +32,7 @@ export interface PendingUserInputDraftAnswer {
 }
 
 export interface QueuedThreadMessage {
-  readonly environmentId: string;
+  readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly messageId: MessageId;
   readonly commandId: CommandId;

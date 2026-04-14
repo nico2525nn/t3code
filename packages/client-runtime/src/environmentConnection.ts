@@ -39,6 +39,7 @@ interface EnvironmentConnectionInput extends OrchestrationHandlers {
   readonly refreshMetadata?: () => Promise<void>;
   readonly onConfigSnapshot?: (config: ServerConfig) => void;
   readonly onWelcome?: (payload: ServerLifecycleWelcomePayload) => void;
+  readonly onShellResubscribe?: (environmentId: EnvironmentId) => void;
 }
 
 export function createEnvironmentConnection(
@@ -118,6 +119,7 @@ export function createEnvironmentConnection(
         // The server will re-emit a snapshot on resubscribe, so reset the
         // bootstrap gate so reconnect callers can await the fresh snapshot.
         resetBootstrapGate();
+        input.onShellResubscribe?.(environmentId);
       },
     },
   );

@@ -1,4 +1,3 @@
-import type { GitRunStackedActionResult } from "@t3tools/contracts";
 import {
   type GitActionRequestInput,
   buildMenuItems,
@@ -15,9 +14,9 @@ import { useThemeColor } from "../../../lib/useThemeColor";
 import { AppText as Text } from "../../../components/AppText";
 import { StatusPill } from "../../../components/StatusPill";
 import { useGitStatus } from "../../../state/use-git-status";
-import { useSelectedThreadGitActions } from "../../../state/use-selected-thread-git-actions";
-import { useSelectedThreadGitState } from "../../../state/use-selected-thread-git-state";
 import { useThreadSelection } from "../../../state/use-thread-selection";
+import { useSelectedThreadGitActions } from "../use-selected-thread-git-actions";
+import { useSelectedThreadGitState } from "../use-selected-thread-git-state";
 import { MetaCard, SheetListRow, menuItemIconName, statusSummary } from "./gitSheetComponents";
 
 export function GitOverviewSheet() {

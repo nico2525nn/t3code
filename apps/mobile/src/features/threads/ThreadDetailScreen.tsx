@@ -1,6 +1,7 @@
 import type {
   ApprovalRequestId,
   ModelSelection,
+  OrchestrationThread,
   ProviderApprovalDecision,
   ProviderInteractionMode,
   RuntimeMode,
@@ -17,7 +18,6 @@ import { runOnJS } from "react-native-reanimated";
 import type { StatusTone } from "../../components/StatusPill";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import type { MobileLayoutVariant } from "../../lib/mobileLayout";
-import type { ScopedMobileThread } from "../../lib/scopedEntities";
 import type {
   PendingApproval,
   PendingUserInput,
@@ -34,7 +34,7 @@ import {
 import { ThreadFeed } from "./ThreadFeed";
 
 export interface ThreadDetailScreenProps {
-  readonly selectedThread: ScopedMobileThread;
+  readonly selectedThread: OrchestrationThread;
   readonly screenTone: StatusTone;
   readonly connectionError: string | null;
   readonly httpBaseUrl: string | null;
@@ -264,7 +264,6 @@ export function ThreadDetailScreen(props: ThreadDetailScreenProps) {
               serverConfig={props.serverConfig}
               queueCount={props.selectedThreadQueueCount}
               activeThreadBusy={props.activeThreadBusy}
-              layoutVariant={layoutVariant}
               bottomInset={composerBottomInset}
               onChangeDraftMessage={props.onChangeDraftMessage}
               onPickDraftImages={props.onPickDraftImages}

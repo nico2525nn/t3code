@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 import {
   ApprovalRequestId,
@@ -9,12 +9,13 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 
-import { uuidv4 } from "../lib/uuid";
-import { useThreadSelection } from "./use-thread-selection";
-import { useRemoteEnvironmentStore } from "./remote-environment-store";
-import { getEnvironmentClient, useRemoteEnvironmentState } from "./use-remote-environment-registry";
-import { useThreadApprovalStore } from "./thread-approval-store";
-import { useThreadUserInputStore } from "./thread-user-input-store";
+import { uuidv4 } from "../../lib/uuid";
+import { environmentRuntimeManager } from "../../state/use-environment-runtime";
+import {
+  getEnvironmentClient,
+  useRemoteEnvironmentState,
+} from "../../state/use-remote-environment-registry";
+import { useThreadSelection } from "../../state/use-thread-selection";
 
 export function useSelectedThreadCommands(input: {
   readonly activePendingUserInput: {
@@ -30,21 +31,10 @@ export function useSelectedThreadCommands(input: {
     input;
   const { selectedThread } = useThreadSelection();
   const { savedConnectionsById } = useRemoteEnvironmentState();
-  const patchEnvironmentRuntimeState = useRemoteEnvironmentStore(
-    (state) => state.patchEnvironmentRuntimeState,
+  const [respondingApprovalId, setRespondingApprovalId] = useState<ApprovalRequestId | null>(null);
+  const [respondingUserInputId, setRespondingUserInputId] = useState<ApprovalRequestId | null>(
+    null,
   );
-  const beginRespondingApproval = useThreadApprovalStore((state) => state.beginRespondingApproval);
-  const finishRespondingApproval = useThreadApprovalStore(
-    (state) => state.finishRespondingApproval,
-  );
-  const respondingApprovalId = useThreadApprovalStore((state) => state.respondingApprovalId);
-  const beginRespondingUserInput = useThreadUserInputStore(
-    (state) => state.beginRespondingUserInput,
-  );
-  const finishRespondingUserInput = useThreadUserInputStore(
-    (state) => state.finishRespondingUserInput,
-  );
-  const respondingUserInputId = useThreadUserInputStore((state) => state.respondingUserInputId);
 
   const onRefresh = useCallback(async () => {
     const targets = selectedThread
@@ -60,13 +50,13 @@ export function useSelectedThreadCommands(input: {
 
         try {
           const serverConfig = await client.server.getConfig();
-          patchEnvironmentRuntimeState(environmentId, (current) => ({
+          environmentRuntimeManager.patch({ environmentId }, (current) => ({
             ...current,
             serverConfig,
             connectionError: null,
           }));
         } catch (error) {
-          patchEnvironmentRuntimeState(environmentId, (current) => ({
+          environmentRuntimeManager.patch({ environmentId }, (current) => ({
             ...current,
             connectionError:
               error instanceof Error ? error.message : "Failed to refresh remote data.",
@@ -78,12 +68,7 @@ export function useSelectedThreadCommands(input: {
     if (selectedThread) {
       await refreshSelectedThreadGitStatus({ quiet: true });
     }
-  }, [
-    patchEnvironmentRuntimeState,
-    refreshSelectedThreadGitStatus,
-    savedConnectionsById,
-    selectedThread,
-  ]);
+  }, [refreshSelectedThreadGitStatus, savedConnectionsById, selectedThread]);
 
   const onUpdateThreadModelSelection = useCallback(
     async (modelSelection: ModelSelection) => {
@@ -215,7 +200,7 @@ export function useSelectedThreadCommands(input: {
         return;
       }
 
-      beginRespondingApproval(requestId);
+      setRespondingApprovalId(requestId);
       try {
         await client.orchestration.dispatchCommand({
           type: "thread.approval.respond",
@@ -226,10 +211,10 @@ export function useSelectedThreadCommands(input: {
           createdAt: new Date().toISOString(),
         });
       } finally {
-        finishRespondingApproval(requestId);
+        setRespondingApprovalId((current) => (current === requestId ? null : current));
       }
     },
-    [beginRespondingApproval, finishRespondingApproval, selectedThread],
+    [selectedThread],
   );
 
   const onSubmitUserInput = useCallback(async () => {
@@ -242,7 +227,7 @@ export function useSelectedThreadCommands(input: {
       return;
     }
 
-    beginRespondingUserInput(activePendingUserInput.requestId);
+    setRespondingUserInputId(activePendingUserInput.requestId);
     try {
       await client.orchestration.dispatchCommand({
         type: "thread.user-input.respond",
@@ -253,15 +238,11 @@ export function useSelectedThreadCommands(input: {
         createdAt: new Date().toISOString(),
       });
     } finally {
-      finishRespondingUserInput(activePendingUserInput.requestId);
+      setRespondingUserInputId((current) =>
+        current === activePendingUserInput.requestId ? null : current,
+      );
     }
-  }, [
-    activePendingUserInput,
-    activePendingUserInputAnswers,
-    beginRespondingUserInput,
-    finishRespondingUserInput,
-    selectedThread,
-  ]);
+  }, [activePendingUserInput, activePendingUserInputAnswers, selectedThread]);
 
   return {
     respondingApprovalId,

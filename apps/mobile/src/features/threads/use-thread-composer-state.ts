@@ -1,30 +1,195 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo } from "react";
 
-import { ApprovalRequestId, CommandId, MessageId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentScopedThreadShell } from "@t3tools/client-runtime";
+import {
+  ApprovalRequestId,
+  CommandId,
+  EnvironmentId,
+  MessageId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { deriveActiveWorkStartedAt, formatElapsed } from "@t3tools/shared/orchestrationTiming";
+import { Atom } from "effect/unstable/reactivity";
 
 import {
   convertPastedImagesToAttachments,
   pasteComposerClipboard,
   pickComposerImages,
-} from "../lib/composerImages";
-import type { ScopedMobileThread } from "../lib/scopedEntities";
-import { scopedRequestKey, scopedThreadKey } from "../lib/scopedEntities";
+} from "../../lib/composerImages";
+import type { DraftComposerImageAttachment } from "../../lib/composerImages";
+import { scopedRequestKey, scopedThreadKey } from "../../lib/scopedEntities";
 import {
   buildPendingUserInputAnswers,
   buildThreadFeed,
   derivePendingApprovals,
   derivePendingUserInputs,
+  setPendingUserInputCustomAnswer,
+  type PendingUserInputDraftAnswer,
   type QueuedThreadMessage,
-} from "../lib/threadActivity";
-import { uuidv4 } from "../lib/uuid";
-import type { ConnectedEnvironmentSummary } from "./remote-runtime-types";
-import { useRemoteEnvironmentStore } from "./remote-environment-store";
-import { getEnvironmentClient, useRemoteConnectionStatus } from "./use-remote-environment-registry";
-import { useRemoteCatalog } from "./use-remote-catalog";
-import { useThreadSelection } from "./use-thread-selection";
-import { useThreadComposerStore } from "./thread-composer-store";
-import { useThreadUserInputStore } from "./thread-user-input-store";
+} from "../../lib/threadActivity";
+import { uuidv4 } from "../../lib/uuid";
+import { appAtomRegistry } from "../../state/atom-registry";
+import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
+import {
+  getEnvironmentClient,
+  setPendingConnectionError,
+  useRemoteConnectionStatus,
+} from "../../state/use-remote-environment-registry";
+import { useRemoteCatalog } from "../../state/use-remote-catalog";
+import { useSelectedThreadDetail } from "../../state/use-thread-detail";
+import { useThreadSelection } from "../../state/use-thread-selection";
+
+const threadComposerNowTickAtom = Atom.make(Date.now()).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:thread-composer:now-tick"),
+);
+
+const draftMessageByThreadKeyAtom = Atom.make<Record<string, string>>({}).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:thread-composer:draft-message"),
+);
+
+const draftAttachmentsByThreadKeyAtom = Atom.make<
+  Record<string, ReadonlyArray<DraftComposerImageAttachment>>
+>({}).pipe(Atom.keepAlive, Atom.withLabel("mobile:thread-composer:draft-attachments"));
+
+const dispatchingQueuedMessageIdAtom = Atom.make<MessageId | null>(null).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:thread-composer:dispatching-message-id"),
+);
+
+const queuedMessagesByThreadKeyAtom = Atom.make<Record<string, ReadonlyArray<QueuedThreadMessage>>>(
+  {},
+).pipe(Atom.keepAlive, Atom.withLabel("mobile:thread-composer:queued-messages"));
+
+const userInputDraftsByRequestKeyAtom = Atom.make<
+  Record<string, Record<string, PendingUserInputDraftAnswer>>
+>({}).pipe(Atom.keepAlive, Atom.withLabel("mobile:user-input-drafts"));
+
+function setNowTick(tick: number): void {
+  appAtomRegistry.set(threadComposerNowTickAtom, tick);
+}
+
+function setDraftMessage(threadKey: string, value: string): void {
+  const current = appAtomRegistry.get(draftMessageByThreadKeyAtom);
+  appAtomRegistry.set(draftMessageByThreadKeyAtom, {
+    ...current,
+    [threadKey]: value,
+  });
+}
+
+function appendDraftAttachments(
+  threadKey: string,
+  attachments: ReadonlyArray<DraftComposerImageAttachment>,
+): void {
+  const current = appAtomRegistry.get(draftAttachmentsByThreadKeyAtom);
+  appAtomRegistry.set(draftAttachmentsByThreadKeyAtom, {
+    ...current,
+    [threadKey]: [...(current[threadKey] ?? []), ...attachments],
+  });
+}
+
+function appendDraftMessage(threadKey: string, value: string): void {
+  const current = appAtomRegistry.get(draftMessageByThreadKeyAtom);
+  appAtomRegistry.set(draftMessageByThreadKeyAtom, {
+    ...current,
+    [threadKey]: `${current[threadKey] ?? ""}${value}`,
+  });
+}
+
+function clearDraft(threadKey: string): void {
+  const draftMessages = appAtomRegistry.get(draftMessageByThreadKeyAtom);
+  const draftAttachments = appAtomRegistry.get(draftAttachmentsByThreadKeyAtom);
+  appAtomRegistry.set(draftMessageByThreadKeyAtom, {
+    ...draftMessages,
+    [threadKey]: "",
+  });
+  appAtomRegistry.set(draftAttachmentsByThreadKeyAtom, {
+    ...draftAttachments,
+    [threadKey]: [],
+  });
+}
+
+function removeDraftImage(threadKey: string, imageId: string): void {
+  const current = appAtomRegistry.get(draftAttachmentsByThreadKeyAtom);
+  appAtomRegistry.set(draftAttachmentsByThreadKeyAtom, {
+    ...current,
+    [threadKey]: (current[threadKey] ?? []).filter((image) => image.id !== imageId),
+  });
+}
+
+function beginDispatchingQueuedMessage(queuedMessageId: MessageId): void {
+  appAtomRegistry.set(dispatchingQueuedMessageIdAtom, queuedMessageId);
+}
+
+function finishDispatchingQueuedMessage(queuedMessageId: MessageId): void {
+  const current = appAtomRegistry.get(dispatchingQueuedMessageIdAtom);
+  appAtomRegistry.set(dispatchingQueuedMessageIdAtom, current === queuedMessageId ? null : current);
+}
+
+function enqueueQueuedMessage(message: QueuedThreadMessage): void {
+  const current = appAtomRegistry.get(queuedMessagesByThreadKeyAtom);
+  const threadKey = scopedThreadKey(message.environmentId, message.threadId);
+  appAtomRegistry.set(queuedMessagesByThreadKeyAtom, {
+    ...current,
+    [threadKey]: [...(current[threadKey] ?? []), message],
+  });
+}
+
+function removeQueuedMessage(
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+  queuedMessageId: MessageId,
+): void {
+  const current = appAtomRegistry.get(queuedMessagesByThreadKeyAtom);
+  const threadKey = scopedThreadKey(environmentId, threadId);
+  const existing = current[threadKey];
+  if (!existing) {
+    return;
+  }
+
+  const nextQueue = existing.filter((entry) => entry.messageId !== queuedMessageId);
+  const next = { ...current };
+  if (nextQueue.length === 0) {
+    delete next[threadKey];
+  } else {
+    next[threadKey] = nextQueue;
+  }
+
+  appAtomRegistry.set(queuedMessagesByThreadKeyAtom, next);
+}
+
+function setUserInputDraftOption(requestKey: string, questionId: string, label: string): void {
+  const current = appAtomRegistry.get(userInputDraftsByRequestKeyAtom);
+  appAtomRegistry.set(userInputDraftsByRequestKeyAtom, {
+    ...current,
+    [requestKey]: {
+      ...current[requestKey],
+      [questionId]: {
+        selectedOptionLabel: label,
+      },
+    },
+  });
+}
+
+function setUserInputDraftCustomAnswer(
+  requestKey: string,
+  questionId: string,
+  customAnswer: string,
+): void {
+  const current = appAtomRegistry.get(userInputDraftsByRequestKeyAtom);
+  appAtomRegistry.set(userInputDraftsByRequestKeyAtom, {
+    ...current,
+    [requestKey]: {
+      ...current[requestKey],
+      [questionId]: setPendingUserInputCustomAnswer(
+        current[requestKey]?.[questionId],
+        customAnswer,
+      ),
+    },
+  });
+}
 
 function useWorkDurationTicker(
   activeWorkStartedAt: string | null,
@@ -47,7 +212,7 @@ function useWorkDurationTicker(
 function useQueueDrain(input: {
   readonly dispatchingQueuedMessageId: string | null;
   readonly queuedMessagesByThreadKey: Record<string, ReadonlyArray<QueuedThreadMessage>>;
-  readonly threads: ReadonlyArray<ScopedMobileThread>;
+  readonly threads: ReadonlyArray<EnvironmentScopedThreadShell>;
   readonly environments: ReadonlyArray<ConnectedEnvironmentSummary>;
   readonly sendQueuedMessage: (message: QueuedThreadMessage) => Promise<void>;
 }) {
@@ -104,49 +269,21 @@ function useQueueDrain(input: {
 export function useThreadComposerState() {
   const { connectedEnvironments } = useRemoteConnectionStatus();
   const { threads } = useRemoteCatalog();
-  const { selectedThread } = useThreadSelection();
+  const { selectedThread: selectedThreadShell } = useThreadSelection();
+  const selectedThread = useSelectedThreadDetail();
+  const nowTick = useAtomValue(threadComposerNowTickAtom);
+  const draftMessageByThreadKey = useAtomValue(draftMessageByThreadKeyAtom);
+  const draftAttachmentsByThreadKey = useAtomValue(draftAttachmentsByThreadKeyAtom);
+  const dispatchingQueuedMessageId = useAtomValue(dispatchingQueuedMessageIdAtom);
+  const queuedMessagesByThreadKey = useAtomValue(queuedMessagesByThreadKeyAtom);
+  const userInputDraftsByRequestKey = useAtomValue(userInputDraftsByRequestKeyAtom);
 
-  const setPendingConnectionError = useRemoteEnvironmentStore(
-    (state) => state.setPendingConnectionError,
-  );
-  const nowTick = useThreadComposerStore((state) => state.nowTick);
-  const draftMessageByThreadKey = useThreadComposerStore((state) => state.draftMessageByThreadKey);
-  const draftAttachmentsByThreadKey = useThreadComposerStore(
-    (state) => state.draftAttachmentsByThreadKey,
-  );
-  const dispatchingQueuedMessageId = useThreadComposerStore(
-    (state) => state.dispatchingQueuedMessageId,
-  );
-  const queuedMessagesByThreadKey = useThreadComposerStore(
-    (state) => state.queuedMessagesByThreadKey,
-  );
-  const userInputDraftsByRequestKey = useThreadUserInputStore(
-    (state) => state.userInputDraftsByRequestKey,
-  );
-  const setNowTick = useThreadComposerStore((state) => state.setNowTick);
-  const beginDispatchingQueuedMessage = useThreadComposerStore(
-    (state) => state.beginDispatchingQueuedMessage,
-  );
-  const finishDispatchingQueuedMessage = useThreadComposerStore(
-    (state) => state.finishDispatchingQueuedMessage,
-  );
-  const enqueueQueuedMessage = useThreadComposerStore((state) => state.enqueueQueuedMessage);
-  const removeQueuedMessage = useThreadComposerStore((state) => state.removeQueuedMessage);
-  const setDraftMessage = useThreadComposerStore((state) => state.setDraftMessage);
-  const appendDraftAttachments = useThreadComposerStore((state) => state.appendDraftAttachments);
-  const appendDraftMessage = useThreadComposerStore((state) => state.appendDraftMessage);
-  const clearDraft = useThreadComposerStore((state) => state.clearDraft);
-  const removeDraftImage = useThreadComposerStore((state) => state.removeDraftImage);
-  const setUserInputDraftOption = useThreadUserInputStore((state) => state.setUserInputDraftOption);
-  const setUserInputDraftCustomAnswer = useThreadUserInputStore(
-    (state) => state.setUserInputDraftCustomAnswer,
-  );
-
-  const selectedThreadKey = selectedThread
-    ? scopedThreadKey(selectedThread.environmentId, selectedThread.id)
+  const selectedThreadKey = selectedThreadShell
+    ? scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id)
     : null;
-  const selectedRequestKey = selectedThread
-    ? (requestId: ApprovalRequestId) => scopedRequestKey(selectedThread.environmentId, requestId)
+  const selectedRequestKey = selectedThreadShell
+    ? (requestId: ApprovalRequestId) =>
+        scopedRequestKey(selectedThreadShell.environmentId, requestId)
     : null;
   const selectedThreadQueuedMessages = useMemo(
     () => (selectedThreadKey ? (queuedMessagesByThreadKey[selectedThreadKey] ?? []) : []),
@@ -270,13 +407,7 @@ export function useThreadComposerState() {
         finishDispatchingQueuedMessage(queuedMessage.messageId);
       }
     },
-    [
-      beginDispatchingQueuedMessage,
-      finishDispatchingQueuedMessage,
-      removeQueuedMessage,
-      setPendingConnectionError,
-      threads,
-    ],
+    [threads],
   );
 
   useQueueDrain({
@@ -288,11 +419,11 @@ export function useThreadComposerState() {
   });
 
   const onSendMessage = useCallback(() => {
-    if (!selectedThread) {
+    if (!selectedThreadShell) {
       return;
     }
 
-    const threadKey = scopedThreadKey(selectedThread.environmentId, selectedThread.id);
+    const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
     const text = (draftMessageByThreadKey[threadKey] ?? "").trim();
     const attachments = draftAttachmentsByThreadKey[threadKey] ?? [];
     if (text.length === 0 && attachments.length === 0) {
@@ -301,8 +432,8 @@ export function useThreadComposerState() {
 
     const createdAt = new Date().toISOString();
     enqueueQueuedMessage({
-      environmentId: selectedThread.environmentId,
-      threadId: selectedThread.id,
+      environmentId: selectedThreadShell.environmentId,
+      threadId: selectedThreadShell.id,
       messageId: MessageId.make(uuidv4()),
       commandId: CommandId.make(uuidv4()),
       text,
@@ -310,62 +441,56 @@ export function useThreadComposerState() {
       createdAt,
     });
     clearDraft(threadKey);
-  }, [
-    clearDraft,
-    draftAttachmentsByThreadKey,
-    draftMessageByThreadKey,
-    enqueueQueuedMessage,
-    selectedThread,
-  ]);
+  }, [draftAttachmentsByThreadKey, draftMessageByThreadKey, selectedThreadShell]);
 
   const onSelectUserInputOption = useCallback(
     (requestId: string, questionId: string, label: string) => {
-      if (!selectedThread) {
+      if (!selectedThreadShell) {
         return;
       }
 
       const requestKey = scopedRequestKey(
-        selectedThread.environmentId,
+        selectedThreadShell.environmentId,
         requestId as ApprovalRequestId,
       );
       setUserInputDraftOption(requestKey, questionId, label);
     },
-    [selectedThread, setUserInputDraftOption],
+    [selectedThreadShell],
   );
 
   const onChangeUserInputCustomAnswer = useCallback(
     (requestId: string, questionId: string, customAnswer: string) => {
-      if (!selectedThread) {
+      if (!selectedThreadShell) {
         return;
       }
 
       const requestKey = scopedRequestKey(
-        selectedThread.environmentId,
+        selectedThreadShell.environmentId,
         requestId as ApprovalRequestId,
       );
       setUserInputDraftCustomAnswer(requestKey, questionId, customAnswer);
     },
-    [selectedThread, setUserInputDraftCustomAnswer],
+    [selectedThreadShell],
   );
 
   const onChangeDraftMessage = useCallback(
     (value: string) => {
-      if (!selectedThread) {
+      if (!selectedThreadShell) {
         return;
       }
 
-      const threadKey = scopedThreadKey(selectedThread.environmentId, selectedThread.id);
+      const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
       setDraftMessage(threadKey, value);
     },
-    [selectedThread, setDraftMessage],
+    [selectedThreadShell],
   );
 
   const onPickDraftImages = useCallback(async () => {
-    if (!selectedThread) {
+    if (!selectedThreadShell) {
       return;
     }
 
-    const threadKey = scopedThreadKey(selectedThread.environmentId, selectedThread.id);
+    const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
     const result = await pickComposerImages({
       existingCount: draftAttachmentsByThreadKey[threadKey]?.length ?? 0,
     });
@@ -375,19 +500,14 @@ export function useThreadComposerState() {
     if (result.error) {
       setPendingConnectionError(result.error);
     }
-  }, [
-    appendDraftAttachments,
-    draftAttachmentsByThreadKey,
-    selectedThread,
-    setPendingConnectionError,
-  ]);
+  }, [draftAttachmentsByThreadKey, selectedThreadShell]);
 
   const onPasteIntoDraft = useCallback(async () => {
-    if (!selectedThread) {
+    if (!selectedThreadShell) {
       return;
     }
 
-    const threadKey = scopedThreadKey(selectedThread.environmentId, selectedThread.id);
+    const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
     const result = await pasteComposerClipboard({
       existingCount: draftAttachmentsByThreadKey[threadKey]?.length ?? 0,
     });
@@ -400,21 +520,15 @@ export function useThreadComposerState() {
     if (result.error) {
       setPendingConnectionError(result.error);
     }
-  }, [
-    appendDraftAttachments,
-    appendDraftMessage,
-    draftAttachmentsByThreadKey,
-    selectedThread,
-    setPendingConnectionError,
-  ]);
+  }, [draftAttachmentsByThreadKey, selectedThreadShell]);
 
   const onNativePasteImages = useCallback(
     async (uris: ReadonlyArray<string>) => {
-      if (!selectedThread || uris.length === 0) {
+      if (!selectedThreadShell || uris.length === 0) {
         return;
       }
 
-      const threadKey = scopedThreadKey(selectedThread.environmentId, selectedThread.id);
+      const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
       try {
         const images = await convertPastedImagesToAttachments({
           uris,
@@ -427,19 +541,19 @@ export function useThreadComposerState() {
         console.error("[native paste] error converting images", error);
       }
     },
-    [appendDraftAttachments, draftAttachmentsByThreadKey, selectedThread],
+    [draftAttachmentsByThreadKey, selectedThreadShell],
   );
 
   const onRemoveDraftImage = useCallback(
     (imageId: string) => {
-      if (!selectedThread) {
+      if (!selectedThreadShell) {
         return;
       }
 
-      const threadKey = scopedThreadKey(selectedThread.environmentId, selectedThread.id);
+      const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
       removeDraftImage(threadKey, imageId);
     },
-    [removeDraftImage, selectedThread],
+    [selectedThreadShell],
   );
 
   return {

@@ -27,9 +27,8 @@ import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStri
 import { ControlPill } from "../../components/ControlPill";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
-import type { MobileLayoutVariant } from "../../lib/mobileLayout";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
-import type { RemoteClientConnectionState } from "../../lib/remoteClient";
+import type { RemoteClientConnectionState } from "../../lib/connection";
 import { useNativePaste } from "../../hooks/useNativePaste";
 
 /**
@@ -54,7 +53,6 @@ export interface ThreadComposerProps {
   readonly serverConfig: T3ServerConfig | null;
   readonly queueCount: number;
   readonly activeThreadBusy: boolean;
-  readonly layoutVariant?: MobileLayoutVariant;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftImages: () => Promise<void>;
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
@@ -143,7 +141,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.selectedThread.session?.status === "running" ||
     props.selectedThread.session?.status === "starting" ||
     props.queueCount > 0;
-  const isSplitLayout = props.layoutVariant === "split";
+
   const sendLabel = props.activeThreadBusy || props.queueCount > 0 ? "Queue" : "Send";
   const modelProvider = props.selectedThread.modelSelection?.provider ?? null;
   const currentModelSelection = props.selectedThread.modelSelection;
@@ -345,13 +343,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         paddingBottom: (props.bottomInset ?? 0) + (isExpanded ? 4 : 10),
       }}
     >
-      <View
-        style={{
-          maxWidth: isSplitLayout ? 960 : undefined,
-          alignSelf: isSplitLayout ? "center" : undefined,
-          width: "100%",
-        }}
-      >
+      <View className="w-full">
         {/* Input surface — the pill/card IS the glass element */}
         <ComposerSurface
           isDarkMode={isDarkMode}

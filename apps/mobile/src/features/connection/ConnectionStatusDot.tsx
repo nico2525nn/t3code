@@ -9,7 +9,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import type { RemoteClientConnectionState } from "../../lib/remoteClient";
+import type { RemoteClientConnectionState } from "../../lib/connection";
 
 function statusDotTone(state: RemoteClientConnectionState): {
   readonly dotColor: string;

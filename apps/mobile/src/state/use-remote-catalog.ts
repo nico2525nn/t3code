@@ -1,74 +1,85 @@
 import { useMemo } from "react";
-
-import type { ServerConfig as T3ServerConfig } from "@t3tools/contracts";
 import * as Order from "effect/Order";
 import * as Arr from "effect/Array";
-import type { ScopedMobileProject, ScopedMobileThread } from "../lib/scopedEntities";
+
 import {
-  deriveOverallConnectionState,
-  type RemoteClientConnectionState,
-} from "./remote-runtime-types";
+  EnvironmentConnectionState,
+  EnvironmentScopedProjectShell,
+  EnvironmentScopedThreadShell,
+  scopeProjectShell,
+  scopeThreadShell,
+} from "@t3tools/client-runtime";
+
+import { ConnectedEnvironmentSummary } from "./remote-runtime-types";
+import { useShellSnapshotStates } from "./use-shell-snapshot";
 import {
   useRemoteConnectionStatus,
   useRemoteEnvironmentState,
 } from "./use-remote-environment-registry";
 
-const projectsSortOrder = Order.make<ScopedMobileProject>(
+const projectsSortOrder = Order.make<EnvironmentScopedProjectShell>(
   (left, right) =>
     (left.title.localeCompare(right.title) as -1 | 0 | 1) ||
-    (left.environmentLabel.localeCompare(right.environmentLabel) as -1 | 0 | 1),
+    (left.environmentId.localeCompare(right.environmentId) as -1 | 0 | 1),
 );
 
-const threadsSortOrder = Order.make<ScopedMobileThread>(
+const threadsSortOrder = Order.make<EnvironmentScopedThreadShell>(
   (left, right) =>
     ((new Date(right.updatedAt ?? right.createdAt).getTime() -
       new Date(left.updatedAt ?? left.createdAt).getTime()) as -1 | 0 | 1) ||
-    (left.environmentLabel.localeCompare(right.environmentLabel) as -1 | 0 | 1),
+    (left.environmentId.localeCompare(right.environmentId) as -1 | 0 | 1),
 );
+
+function deriveOverallConnectionState(
+  environments: ReadonlyArray<ConnectedEnvironmentSummary>,
+): EnvironmentConnectionState {
+  if (environments.length === 0) {
+    return "idle";
+  }
+  if (environments.some((environment) => environment.connectionState === "ready")) {
+    return "ready";
+  }
+  if (environments.some((environment) => environment.connectionState === "reconnecting")) {
+    return "reconnecting";
+  }
+  if (environments.some((environment) => environment.connectionState === "connecting")) {
+    return "connecting";
+  }
+  return "disconnected";
+}
 
 export function useRemoteCatalog() {
   const { connectedEnvironments, connectionState } = useRemoteConnectionStatus();
   const { environmentStateById, savedConnectionsById } = useRemoteEnvironmentState();
+  const shellSnapshotStates = useShellSnapshotStates(Object.keys(savedConnectionsById));
 
-  const projects = useMemo<ReadonlyArray<ScopedMobileProject>>(
+  const projects = useMemo(
     () =>
       Arr.sort(
         Object.values(savedConnectionsById).flatMap((connection) =>
-          (environmentStateById[connection.environmentId]?.snapshot?.projects ?? []).map(
-            (project) =>
-              Object.assign({}, project, {
-                environmentId: connection.environmentId,
-                environmentLabel: connection.environmentLabel,
-              }),
+          (shellSnapshotStates[connection.environmentId]?.data?.projects ?? []).map((project) =>
+            scopeProjectShell(connection.environmentId, project),
           ),
         ),
         projectsSortOrder,
       ),
-    [environmentStateById, savedConnectionsById],
+    [savedConnectionsById, shellSnapshotStates],
   );
 
-  const threads = useMemo<ReadonlyArray<ScopedMobileThread>>(
+  const threads = useMemo(
     () =>
       Arr.sort(
         Object.values(savedConnectionsById).flatMap((connection) =>
-          (environmentStateById[connection.environmentId]?.snapshot?.threads ?? []).map((thread) =>
-            Object.assign({}, thread, {
-              environmentId: connection.environmentId,
-              environmentLabel: connection.environmentLabel,
-              deletedAt: null,
-              messages: [],
-              proposedPlans: [],
-              activities: [],
-              checkpoints: [],
-            }),
+          (shellSnapshotStates[connection.environmentId]?.data?.threads ?? []).map((thread) =>
+            scopeThreadShell(connection.environmentId, thread),
           ),
         ),
         threadsSortOrder,
       ),
-    [environmentStateById, savedConnectionsById],
+    [savedConnectionsById, shellSnapshotStates],
   );
 
-  const serverConfigByEnvironmentId = useMemo<Readonly<Record<string, T3ServerConfig | null>>>(
+  const serverConfigByEnvironmentId = useMemo(
     () =>
       Object.fromEntries(
         Object.entries(environmentStateById).map(([environmentId, runtime]) => [
@@ -79,7 +90,7 @@ export function useRemoteCatalog() {
     [environmentStateById],
   );
 
-  const overallConnectionState = useMemo<RemoteClientConnectionState>(
+  const overallConnectionState = useMemo(
     () => deriveOverallConnectionState(connectedEnvironments),
     [connectedEnvironments],
   );

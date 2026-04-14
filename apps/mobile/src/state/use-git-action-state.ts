@@ -10,7 +10,7 @@ import {
 } from "@t3tools/client-runtime";
 
 import { uuidv4 } from "../lib/uuid";
-import { appAtomRegistry } from "./atomRegistry";
+import { appAtomRegistry } from "./atom-registry";
 import { getEnvironmentClient } from "./use-remote-environment-registry";
 
 export const gitActionManager = createGitActionManager({

@@ -14,12 +14,18 @@ import { useThemeColor } from "../../lib/useThemeColor";
 import { AppText as Text } from "../../components/AppText";
 import { StatusPill } from "../../components/StatusPill";
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
-import type { ScopedMobileProject, ScopedMobileThread } from "../../lib/scopedEntities";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { relativeTime } from "../../lib/time";
 import { threadStatusTone } from "./threadPresentation";
+import {
+  EnvironmentScopedProjectShell,
+  EnvironmentScopedThreadShell,
+} from "@t3tools/client-runtime";
 
-function compareThreadActivity(left: ScopedMobileThread, right: ScopedMobileThread): number {
+function compareThreadActivity(
+  left: EnvironmentScopedThreadShell,
+  right: EnvironmentScopedThreadShell,
+): number {
   return (
     new Date(right.updatedAt ?? right.createdAt).getTime() -
       new Date(left.updatedAt ?? left.createdAt).getTime() || left.title.localeCompare(right.title)
@@ -28,11 +34,11 @@ function compareThreadActivity(left: ScopedMobileThread, right: ScopedMobileThre
 
 export function ThreadNavigationDrawer(props: {
   readonly visible: boolean;
-  readonly projects: ReadonlyArray<ScopedMobileProject>;
-  readonly threads: ReadonlyArray<ScopedMobileThread>;
+  readonly projects: ReadonlyArray<EnvironmentScopedProjectShell>;
+  readonly threads: ReadonlyArray<EnvironmentScopedThreadShell>;
   readonly selectedThreadKey: string | null;
   readonly onClose: () => void;
-  readonly onSelectThread: (thread: ScopedMobileThread) => void;
+  readonly onSelectThread: (thread: EnvironmentScopedThreadShell) => void;
   readonly onStartNewTask: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -59,7 +65,7 @@ export function ThreadNavigationDrawer(props: {
         title: group.projects[0]?.project.title ?? group.title,
         threads: group.projects
           .flatMap((projectGroup) => projectGroup.threads)
-          .sort(compareThreadActivity), // oxlint-disable-line eslint-plugin-unicorn/no-array-sort
+          .sort(compareThreadActivity),
       })),
     [repositoryGroups],
   );

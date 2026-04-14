@@ -1,11 +1,11 @@
 import type { Router } from "expo-router";
 
 import type { SelectedThreadRef } from "../state/remote-runtime-types";
-import type { ScopedMobileThread } from "./scopedEntities";
+import { EnvironmentScopedThreadShell } from "@t3tools/client-runtime";
 
 type ThreadRouteInput =
   | Pick<SelectedThreadRef, "environmentId" | "threadId">
-  | Pick<ScopedMobileThread, "environmentId" | "id">;
+  | Pick<EnvironmentScopedThreadShell, "environmentId" | "id">;
 
 export function buildThreadRoutePath(input: ThreadRouteInput): string {
   const environmentId = input.environmentId;

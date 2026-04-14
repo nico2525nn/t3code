@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { ProjectId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 
-import type { ScopedMobileProject, ScopedMobileThread } from "./scopedEntities";
 import { groupProjectsByRepository } from "./repositoryGroups";
+import {
+  EnvironmentScopedProjectShell,
+  EnvironmentScopedThreadShell,
+} from "@t3tools/client-runtime";
 
 function makeProject(
-  input: Partial<ScopedMobileProject> &
-    Pick<ScopedMobileProject, "environmentId" | "environmentLabel" | "id" | "title">,
-): ScopedMobileProject {
+  input: Partial<EnvironmentScopedProjectShell> &
+    Pick<EnvironmentScopedProjectShell, "environmentId" | "id" | "title">,
+): EnvironmentScopedProjectShell {
   return {
     workspaceRoot: `/workspaces/${input.id}`,
     repositoryIdentity: null,
@@ -21,12 +24,12 @@ function makeProject(
 }
 
 function makeThread(
-  input: Partial<ScopedMobileThread> &
+  input: Partial<EnvironmentScopedThreadShell> &
     Pick<
-      ScopedMobileThread,
-      "environmentId" | "environmentLabel" | "id" | "projectId" | "title" | "modelSelection"
+      EnvironmentScopedThreadShell,
+      "environmentId" | "id" | "projectId" | "title" | "modelSelection"
     >,
-): ScopedMobileThread {
+): EnvironmentScopedThreadShell {
   return {
     runtimeMode: "full-access",
     interactionMode: "default",
@@ -36,11 +39,6 @@ function makeThread(
     createdAt: "2026-04-01T00:00:00.000Z",
     updatedAt: "2026-04-01T00:00:00.000Z",
     archivedAt: null,
-    deletedAt: null,
-    messages: [],
-    proposedPlans: [],
-    activities: [],
-    checkpoints: [],
     session: null,
     latestUserMessageAt: null,
     hasPendingApprovals: false,
@@ -67,15 +65,13 @@ describe("groupProjectsByRepository", () => {
 
     const projects = [
       makeProject({
-        environmentId: "env-local",
-        environmentLabel: "Local",
+        environmentId: EnvironmentId.make("env-local"),
         id: ProjectId.make("project-local"),
         title: "T3 Code",
         repositoryIdentity: repoIdentity,
       }),
       makeProject({
-        environmentId: "env-staging",
-        environmentLabel: "Staging",
+        environmentId: EnvironmentId.make("env-staging"),
         id: ProjectId.make("project-staging"),
         title: "T3 Code",
         repositoryIdentity: repoIdentity,
@@ -84,8 +80,7 @@ describe("groupProjectsByRepository", () => {
 
     const threads = [
       makeThread({
-        environmentId: "env-staging",
-        environmentLabel: "Staging",
+        environmentId: EnvironmentId.make("env-staging"),
         id: ThreadId.make("thread-2"),
         projectId: ProjectId.make("project-staging"),
         title: "Fix reconnect flow",
@@ -93,8 +88,7 @@ describe("groupProjectsByRepository", () => {
         updatedAt: "2026-04-02T12:00:00.000Z",
       }),
       makeThread({
-        environmentId: "env-local",
-        environmentLabel: "Local",
+        environmentId: EnvironmentId.make("env-local"),
         id: ThreadId.make("thread-1"),
         projectId: ProjectId.make("project-local"),
         title: "Polish mobile shell",
@@ -113,17 +107,17 @@ describe("groupProjectsByRepository", () => {
       projectCount: 2,
       threadCount: 2,
     });
-    expect(groups[0]?.projects.map((entry) => entry.project.environmentLabel)).toEqual([
-      "Local",
-      "Staging",
-    ]);
+    expect(
+      groups[0]?.projects
+        .map((entry) => entry.project.environmentId)
+        .toSorted((left, right) => left.localeCompare(right)),
+    ).toEqual(["env-local", "env-staging"]);
   });
 
   it("falls back to a scoped project key when repository identity is unavailable", () => {
     const projects = [
       makeProject({
-        environmentId: "env-local",
-        environmentLabel: "Local",
+        environmentId: EnvironmentId.make("env-local"),
         id: ProjectId.make("project-local"),
         title: "Scratchpad",
       }),

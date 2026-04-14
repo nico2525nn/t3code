@@ -8,7 +8,7 @@ import Animated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-re
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../lib/useThemeColor";
 
-import type { ModelSelection } from "@t3tools/contracts";
+import { EnvironmentId, type ModelSelection } from "@t3tools/contracts";
 import { CLAUDE_CODE_EFFORT_OPTIONS } from "@t3tools/contracts";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
@@ -18,10 +18,10 @@ import { ProviderIcon } from "../../components/ProviderIcon";
 
 import { convertPastedImagesToAttachments, pickComposerImages } from "../../lib/composerImages";
 import { buildThreadRoutePath } from "../../lib/routes";
-import { useProjectActions } from "../../state/use-project-actions";
 import { useRemoteCatalog } from "../../state/use-remote-catalog";
 import { useNativePaste } from "../../hooks/useNativePaste";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
+import { useProjectActions } from "./use-project-actions";
 
 export function NewTaskDraftScreen(props: {
   readonly initialProjectRef?: {
@@ -264,7 +264,7 @@ export function NewTaskDraftScreen(props: {
     if (!event.startsWith("environment:")) {
       return;
     }
-    flow.selectEnvironment(event.slice("environment:".length));
+    flow.selectEnvironment(EnvironmentId.make(event.slice("environment:".length)));
   }
 
   function handleOptionsMenuAction(event: string) {

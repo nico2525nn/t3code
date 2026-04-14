@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extractPairingUrlFromQrPayload } from "./pairingQr";
+import { extractPairingUrlFromQrPayload } from "./pairing";
 
 describe("extractPairingUrlFromQrPayload", () => {
   it("trims raw pairing urls from qr payloads", () => {

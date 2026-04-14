@@ -9,13 +9,10 @@ import { useThemeColor } from "../../lib/useThemeColor";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { dismissRoute } from "../../lib/routes";
-import { extractPairingUrlFromQrPayload } from "./pairingQr";
+import { ConnectionSheetButton } from "./ConnectionSheetButton";
+import { extractPairingUrlFromQrPayload } from "./pairing";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
-import {
-  buildPairingUrl,
-  ConnectionSheetButton as SheetButton,
-  parsePairingUrl,
-} from "./connection-sheet-shared";
+import { buildPairingUrl, parsePairingUrl } from "./pairing";
 
 export function NewConnectionRouteScreen() {
   const {
@@ -184,7 +181,7 @@ export function NewConnectionRouteScreen() {
                 <Text className="text-center text-[14px] leading-[20px] text-foreground-muted">
                   Camera permission is required to scan a QR code.
                 </Text>
-                <SheetButton
+                <ConnectionSheetButton
                   compact
                   icon="camera"
                   label="Allow camera"
@@ -236,7 +233,7 @@ export function NewConnectionRouteScreen() {
 
               {connectionError ? <ErrorBanner message={connectionError} /> : null}
 
-              <SheetButton
+              <ConnectionSheetButton
                 icon="plus"
                 label={
                   isSubmitting || connectionState === "connecting" ? "Pairing..." : "Add backend"

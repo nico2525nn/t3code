@@ -1,3 +1,4 @@
+import * as Arr from "effect/Array";
 import type { OrchestrationShellSnapshot, OrchestrationShellStreamEvent } from "@t3tools/contracts";
 
 /**
@@ -15,26 +16,26 @@ export function applyShellStreamEvent(
   switch (event.kind) {
     case "project-upserted": {
       const projects = snapshot.projects.some((p) => p.id === event.project.id)
-        ? snapshot.projects.map((p) => (p.id === event.project.id ? event.project : p))
-        : [...snapshot.projects, event.project];
+        ? Arr.map(snapshot.projects, (p) => (p.id === event.project.id ? event.project : p))
+        : Arr.append(snapshot.projects, event.project);
       return { ...snapshot, projects, snapshotSequence: event.sequence };
     }
     case "project-removed":
       return {
         ...snapshot,
-        projects: snapshot.projects.filter((p) => p.id !== event.projectId),
+        projects: Arr.filter(snapshot.projects, (p) => p.id !== event.projectId),
         snapshotSequence: event.sequence,
       };
     case "thread-upserted": {
       const threads = snapshot.threads.some((t) => t.id === event.thread.id)
-        ? snapshot.threads.map((t) => (t.id === event.thread.id ? event.thread : t))
-        : [...snapshot.threads, event.thread];
+        ? Arr.map(snapshot.threads, (t) => (t.id === event.thread.id ? event.thread : t))
+        : Arr.append(snapshot.threads, event.thread);
       return { ...snapshot, threads, snapshotSequence: event.sequence };
     }
     case "thread-removed":
       return {
         ...snapshot,
-        threads: snapshot.threads.filter((t) => t.id !== event.threadId),
+        threads: Arr.filter(snapshot.threads, (t) => t.id !== event.threadId),
         snapshotSequence: event.sequence,
       };
     default:

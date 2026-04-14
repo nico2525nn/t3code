@@ -1,5 +1,5 @@
-import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { Stack, useRouter } from "expo-router";
+import { useState } from "react";
 import { Pressable, Text as RNText, View, useColorScheme } from "react-native";
 import { useThemeColor } from "../../lib/useThemeColor";
 
@@ -7,7 +7,6 @@ import { buildThreadRoutePath } from "../../lib/routes";
 import { ConnectionStatusDot } from "../connection/ConnectionStatusDot";
 import { useRemoteCatalog } from "../../state/use-remote-catalog";
 import { useRemoteEnvironmentState } from "../../state/use-remote-environment-registry";
-import { useThreadSelection } from "../../state/use-thread-selection";
 import { HomeScreen } from "./HomeScreen";
 
 /* ─── Connection pill label ──────────────────────────────────────────── */
@@ -25,19 +24,12 @@ const CONNECTION_LABEL: Record<string, string> = {
 export function HomeRouteScreen() {
   const { connectionState, hasRemoteActivity, projects, threads } = useRemoteCatalog();
   const { savedConnectionsById } = useRemoteEnvironmentState();
-  const { onBackFromThread, onSelectThread } = useThreadSelection();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
 
   const isDark = useColorScheme() === "dark";
   const iconColor = String(useThemeColor("--color-icon"));
   const secondaryFg = isDark ? "#a3a3a3" : "#525252";
-
-  useFocusEffect(
-    useCallback(() => {
-      onBackFromThread();
-    }, [onBackFromThread]),
-  );
 
   return (
     <>
@@ -138,7 +130,6 @@ export function HomeRouteScreen() {
         savedConnectionsById={savedConnectionsById}
         searchQuery={searchQuery}
         onSelectThread={(thread) => {
-          onSelectThread(thread);
           router.push(buildThreadRoutePath(thread));
         }}
       />

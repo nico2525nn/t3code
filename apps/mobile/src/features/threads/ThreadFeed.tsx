@@ -100,9 +100,7 @@ function buildActivityRows(
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
 interface MarkdownStyleSets {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly user: Record<string, any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly assistant: Record<string, any>;
 }
 

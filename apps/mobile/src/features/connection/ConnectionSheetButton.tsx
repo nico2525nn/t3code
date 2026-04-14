@@ -5,41 +5,6 @@ import { useThemeColor } from "../../lib/useThemeColor";
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
 
-export function parsePairingUrl(url: string): { host: string; code: string } {
-  const trimmed = url.trim();
-  if (!trimmed) return { host: "", code: "" };
-
-  try {
-    const parsed = new URL(trimmed);
-    const hashParams = new URLSearchParams(parsed.hash.slice(1));
-    const hashToken = hashParams.get("token");
-    const queryToken = parsed.searchParams.get("token");
-    const code = hashToken || queryToken || "";
-
-    parsed.hash = "";
-    parsed.search = "";
-    parsed.pathname = "/";
-    return { host: parsed.toString().replace(/\/$/, ""), code };
-  } catch {
-    return { host: trimmed, code: "" };
-  }
-}
-
-export function buildPairingUrl(host: string, code: string): string {
-  const h = host.trim();
-  const c = code.trim();
-  if (!h) return "";
-  if (!c) return h;
-
-  try {
-    const url = new URL(h.includes("://") ? h : `https://${h}`);
-    url.hash = new URLSearchParams([["token", c]]).toString();
-    return url.toString();
-  } catch {
-    return `${h}#token=${c}`;
-  }
-}
-
 const CARD_SHADOW = Platform.select({
   ios: {
     shadowColor: "rgba(23,23,23,0.08)",

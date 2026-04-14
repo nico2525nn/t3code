@@ -10,7 +10,7 @@ import {
 } from "@t3tools/client-runtime";
 import { useEffect } from "react";
 
-import { appAtomRegistry } from "./atomRegistry";
+import { appAtomRegistry } from "./atom-registry";
 import {
   getEnvironmentClient,
   subscribeEnvironmentConnections,
