@@ -4,8 +4,20 @@ import { KeyboardAvoidingLegendList } from "@legendapp/list/keyboard";
 import { type LegendListRef } from "@legendapp/list/react-native";
 import { SymbolView } from "expo-symbols";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Markdown from "react-native-markdown-display";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import {
+  Markdown,
+  type CustomRenderers,
+  type NodeStyleOverrides,
+  type PartialMarkdownTheme,
+} from "react-native-nitro-markdown";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  Text as NativeText,
+  type ColorValue,
+  View,
+} from "react-native";
 import { TouchableOpacity } from "react-native-gesture-handler";
 import ImageViewing from "react-native-image-viewing";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -73,9 +85,19 @@ function buildActivityRows(
 
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
+function toMarkdownThemeColor(value: ColorValue): string {
+  return value as string;
+}
+
 interface MarkdownStyleSets {
-  readonly user: Record<string, any>;
-  readonly assistant: Record<string, any>;
+  readonly user: MarkdownStyleSet;
+  readonly assistant: MarkdownStyleSet;
+}
+
+interface MarkdownStyleSet {
+  readonly theme: PartialMarkdownTheme;
+  readonly styles: NodeStyleOverrides;
+  readonly renderers: CustomRenderers;
 }
 
 function useMarkdownStyles(): MarkdownStyleSets {
@@ -93,137 +115,193 @@ function useMarkdownStyles(): MarkdownStyleSets {
   const userFenceText = useThemeColor("--color-md-user-fence-text");
 
   return useMemo(() => {
-    const base = {
-      body: {
-        color: bodyColor,
-        fontSize: 15,
-        lineHeight: 22,
-        fontFamily: "DMSans_400Regular",
+    const markdownBodyColor = toMarkdownThemeColor(bodyColor);
+    const markdownStrongColor = toMarkdownThemeColor(strongColor);
+    const markdownLinkColor = toMarkdownThemeColor(linkColor);
+    const markdownBlockquoteBg = toMarkdownThemeColor(blockquoteBg);
+    const markdownBlockquoteBorder = toMarkdownThemeColor(blockquoteBorder);
+    const markdownCodeBg = toMarkdownThemeColor(codeBg);
+    const markdownCodeText = toMarkdownThemeColor(codeText);
+    const markdownHrColor = toMarkdownThemeColor(hrColor);
+    const markdownUserCodeBg = toMarkdownThemeColor(userCodeBg);
+    const markdownUserCodeText = toMarkdownThemeColor(userCodeText);
+    const markdownUserFenceBg = toMarkdownThemeColor(userFenceBg);
+    const markdownUserFenceText = toMarkdownThemeColor(userFenceText);
+
+    const baseTheme: PartialMarkdownTheme = {
+      colors: {
+        text: markdownBodyColor,
+        heading: markdownStrongColor,
+        link: markdownLinkColor,
+        blockquote: markdownBlockquoteBorder,
+        border: markdownHrColor,
+        surfaceLight: markdownBlockquoteBg,
+        accent: markdownLinkColor,
+        tableBorder: markdownHrColor,
+        tableHeader: markdownBlockquoteBg,
+        tableHeaderText: markdownStrongColor,
+        tableRowOdd: "transparent",
+        tableRowEven: "transparent",
       },
+      spacing: {
+        xs: 4,
+        s: 4,
+        m: 8,
+        l: 8,
+        xl: 16,
+      },
+      fontSizes: {
+        s: 13,
+        m: 15,
+        h1: 22,
+        h2: 19,
+        h3: 17,
+        h4: 15,
+        h5: 15,
+        h6: 15,
+      },
+      fontFamilies: {
+        regular: "DMSans_400Regular",
+        heading: "DMSans_700Bold",
+        mono: "ui-monospace",
+      },
+      headingWeight: "700",
+      borderRadius: {
+        s: 4,
+        m: 8,
+        l: 12,
+      },
+      showCodeLanguage: false,
+    };
+
+    const baseStyles: NodeStyleOverrides = {
+      document: { flexShrink: 1 },
       paragraph: { marginTop: 0, marginBottom: 8 },
-      bullet_list: { marginTop: 4, marginBottom: 4 },
-      ordered_list: { marginTop: 4, marginBottom: 4 },
-      list_item: { marginTop: 0, marginBottom: 4, flexDirection: "row" as const },
-      strong: { fontWeight: "700" as const, color: strongColor, fontFamily: "DMSans_700Bold" },
-      em: { fontStyle: "italic" as const },
-      link: { color: linkColor, textDecorationLine: "underline" as const },
+      list: { marginTop: 4, marginBottom: 4 },
+      list_item: { marginTop: 0, marginBottom: 4 },
+      task_list_item: { marginTop: 0, marginBottom: 4 },
+      bold: { fontWeight: "700", color: markdownStrongColor, fontFamily: "DMSans_700Bold" },
+      italic: { fontStyle: "italic" },
+      link: { color: markdownLinkColor, textDecorationLine: "underline" as const },
       blockquote: {
         borderLeftWidth: 3,
-        borderLeftColor: blockquoteBorder,
-        backgroundColor: blockquoteBg,
+        borderLeftColor: markdownBlockquoteBorder,
+        backgroundColor: markdownBlockquoteBg,
         paddingLeft: 12,
         paddingVertical: 6,
         marginLeft: 0,
         marginVertical: 4,
         borderRadius: 4,
       },
-      heading1: {
-        fontSize: 22,
-        lineHeight: 28,
-        fontWeight: "800" as const,
+      heading: {
         fontFamily: "DMSans_700Bold",
-        color: strongColor,
-        marginTop: 16,
-        marginBottom: 8,
-      },
-      heading2: {
-        fontSize: 19,
-        lineHeight: 26,
-        fontWeight: "700" as const,
-        fontFamily: "DMSans_700Bold",
-        color: strongColor,
-        marginTop: 14,
+        color: markdownStrongColor,
+        marginTop: 12,
         marginBottom: 6,
       },
-      heading3: {
-        fontSize: 17,
-        lineHeight: 24,
-        fontWeight: "700" as const,
-        fontFamily: "DMSans_700Bold",
-        color: strongColor,
-        marginTop: 12,
-        marginBottom: 4,
-      },
-      heading4: {
-        fontSize: 15,
-        lineHeight: 22,
-        fontWeight: "700" as const,
-        fontFamily: "DMSans_700Bold",
-        color: strongColor,
-        marginTop: 10,
-        marginBottom: 4,
-      },
-      hr: {
-        backgroundColor: hrColor,
+      horizontal_rule: {
+        backgroundColor: markdownHrColor,
         height: 1,
         marginVertical: 12,
       },
     };
 
-    const user = {
-      ...base,
+    const createCodeRenderers = (
+      inlineBackgroundColor: string,
+      inlineTextColor: string,
+      blockBackgroundColor: string,
+      blockTextColor: string,
+    ): CustomRenderers => ({
+      code_inline: ({ content }) => (
+        <NativeText
+          style={{
+            backgroundColor: inlineBackgroundColor,
+            color: inlineTextColor,
+            borderRadius: 5,
+            paddingHorizontal: 5,
+            paddingVertical: 1,
+            fontFamily: "ui-monospace",
+            fontSize: 13,
+          }}
+        >
+          {content}
+        </NativeText>
+      ),
+      code_block: ({ content }) => (
+        <View
+          style={{
+            backgroundColor: blockBackgroundColor,
+            borderRadius: 12,
+            padding: 12,
+            marginVertical: 8,
+          }}
+        >
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false}>
+            <NativeText
+              selectable
+              style={{
+                color: blockTextColor,
+                fontFamily: "ui-monospace",
+                fontSize: 13,
+                lineHeight: 19,
+              }}
+            >
+              {content}
+            </NativeText>
+          </ScrollView>
+        </View>
+      ),
+    });
+
+    const userTheme: PartialMarkdownTheme = {
+      ...baseTheme,
+      colors: {
+        ...baseTheme.colors,
+        code: markdownUserCodeText,
+        codeBackground: markdownUserCodeBg,
+        border: markdownUserFenceBg,
+      },
+    };
+    const userStyles: NodeStyleOverrides = {
+      ...baseStyles,
       paragraph: { marginTop: 0, marginBottom: 0 },
-      code_inline: {
-        backgroundColor: userCodeBg,
-        color: userCodeText,
-        borderRadius: 5,
-        paddingHorizontal: 5,
-        paddingVertical: 1,
-        fontFamily: "ui-monospace",
-        fontSize: 13,
-      },
-      code_block: {
-        backgroundColor: userFenceBg,
-        color: userFenceText,
-        borderRadius: 12,
-        padding: 12,
-        fontFamily: "ui-monospace",
-        fontSize: 13,
-        lineHeight: 19,
-      },
-      fence: {
-        backgroundColor: userFenceBg,
-        color: userFenceText,
-        borderRadius: 12,
-        padding: 12,
-        fontFamily: "ui-monospace",
-        fontSize: 13,
-        lineHeight: 19,
-      },
     };
 
-    const assistant = {
-      ...base,
-      code_inline: {
-        backgroundColor: codeBg,
-        color: codeText,
-        borderRadius: 5,
-        paddingHorizontal: 5,
-        paddingVertical: 1,
-        fontFamily: "ui-monospace",
-        fontSize: 13,
-      },
-      code_block: {
-        backgroundColor: codeBg,
-        color: codeText,
-        borderRadius: 12,
-        padding: 12,
-        fontFamily: "ui-monospace",
-        fontSize: 13,
-        lineHeight: 19,
-      },
-      fence: {
-        backgroundColor: codeBg,
-        color: codeText,
-        borderRadius: 12,
-        padding: 12,
-        fontFamily: "ui-monospace",
-        fontSize: 13,
-        lineHeight: 19,
+    const assistantTheme: PartialMarkdownTheme = {
+      ...baseTheme,
+      colors: {
+        ...baseTheme.colors,
+        code: markdownCodeText,
+        codeBackground: markdownCodeBg,
+        border: markdownCodeBg,
       },
     };
+    const assistantStyles: NodeStyleOverrides = {
+      ...baseStyles,
+    };
 
-    return { user, assistant };
+    return {
+      user: {
+        theme: userTheme,
+        styles: userStyles,
+        renderers: createCodeRenderers(
+          markdownUserCodeBg,
+          markdownUserCodeText,
+          markdownUserFenceBg,
+          markdownUserFenceText,
+        ),
+      },
+      assistant: {
+        theme: assistantTheme,
+        styles: assistantStyles,
+        renderers: createCodeRenderers(
+          markdownCodeBg,
+          markdownCodeText,
+          markdownCodeBg,
+          markdownCodeText,
+        ),
+      },
+    };
   }, [
     blockquoteBg,
     blockquoteBorder,
@@ -267,7 +345,14 @@ function renderFeedEntry(
         <View className="mb-3.5 items-end gap-1.5">
           <View className="max-w-[85%] gap-2 rounded-[22px] rounded-br-[10px] border border-blue-300/50 bg-blue-50/80 px-4 py-4 dark:border-blue-400/20 dark:bg-blue-500/12">
             {message.text.trim().length > 0 ? (
-              <Markdown style={styles}>{message.text}</Markdown>
+              <Markdown
+                options={{ gfm: true }}
+                renderers={styles.renderers}
+                styles={styles.styles}
+                theme={styles.theme}
+              >
+                {message.text}
+              </Markdown>
             ) : null}
             {attachments.map((attachment) => {
               const uri = messageImageUrl(props.httpBaseUrl, attachment.id);
@@ -308,7 +393,16 @@ function renderFeedEntry(
 
     return (
       <View className="mb-3.5 gap-1.5 px-1">
-        {message.text.trim().length > 0 ? <Markdown style={styles}>{message.text}</Markdown> : null}
+        {message.text.trim().length > 0 ? (
+          <Markdown
+            options={{ gfm: true }}
+            renderers={styles.renderers}
+            styles={styles.styles}
+            theme={styles.theme}
+          >
+            {message.text}
+          </Markdown>
+        ) : null}
         {attachments.map((attachment) => {
           const uri = messageImageUrl(props.httpBaseUrl, attachment.id);
           if (!uri) {
