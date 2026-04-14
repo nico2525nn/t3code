@@ -114,7 +114,7 @@ const authAccessHarness = vi.hoisted(() => {
   };
 });
 
-const mockConnectDesktopSshEnvironment = vi.fn();
+const mockConnectDesktopSshEnvironment = vi.hoisted(() => vi.fn());
 
 vi.mock("../../environments/runtime", () => {
   const primaryConnection = {

@@ -93,10 +93,19 @@ describe("sshEnvironment", () => {
           "|1|hashed|entry ssh-ed25519 CCCC",
           "@cert-authority *.example.com ssh-ed25519 DDDD",
           "[ssh.example.com]:2200 ssh-ed25519 EEEE",
+          "::1 ssh-ed25519 FFFF",
+          "2001:db8::1 ssh-ed25519 GGGG",
           "",
         ].join("\n"),
       ),
-    ).toEqual(["github.com", "gitlab-alias", "gitlab.com", "ssh.example.com"]);
+    ).toEqual([
+      "::1",
+      "2001:db8::1",
+      "github.com",
+      "gitlab-alias",
+      "gitlab.com",
+      "ssh.example.com",
+    ]);
   });
 
   it("parses resolved ssh config output into a target", () => {
@@ -177,10 +186,21 @@ describe("sshEnvironment", () => {
       port: 2222,
     } as const;
 
+    expect(__test.buildRemoteLaunchScript()).toContain(
+      '[ -n "$REMOTE_PID" ] && [ -n "$REMOTE_PORT" ] && kill -0 "$REMOTE_PID" 2>/dev/null',
+    );
     expect(__test.buildRemoteLaunchScript()).toContain('"$RUNNER_FILE" serve --host 127.0.0.1');
     expect(__test.buildRemotePairingScript(target)).toContain(
       '"$RUNNER_FILE" auth pairing create --base-dir "$SERVER_HOME" --json',
     );
+  });
+
+  it("reads the last non-empty ssh output line", () => {
+    expect(
+      __test.getLastNonEmptyOutputLine(
+        ["Welcome to the host", "", '{"credential":"pairing-token"}', ""].join("\n"),
+      ),
+    ).toBe('{"credential":"pairing-token"}');
   });
 
   it("detects ssh auth failures from common permission denied messages", () => {

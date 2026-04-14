@@ -180,8 +180,10 @@ function parseKnownHostsHostnames(raw: string): ReadonlyArray<string> {
     }
 
     for (const rawHost of hostField.split(",")) {
-      const host =
-        /^\[([^\]]+)\]:(\d+)$/u.exec(rawHost)?.[1] ?? rawHost.replace(/:.*$/u, "").trim();
+      const bracketMatch = /^\[([^\]]+)\]:(\d+)$/u.exec(rawHost);
+      const host = (
+        bracketMatch?.[1] ?? (rawHost.includes(":") ? rawHost : rawHost.replace(/:.*$/u, ""))
+      ).trim();
       if (host.length === 0 || hasSshPattern(host)) {
         continue;
       }
@@ -640,7 +642,7 @@ NODE
 }
 REMOTE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
 REMOTE_PORT="$(cat "$PORT_FILE" 2>/dev/null || true)"
-if [ -n "$REMOTE_PID" ] && kill -0 "$REMOTE_PID" 2>/dev/null; then
+if [ -n "$REMOTE_PID" ] && [ -n "$REMOTE_PORT" ] && kill -0 "$REMOTE_PID" 2>/dev/null; then
   :
 else
   REMOTE_PORT="$(pick_port)"
@@ -651,6 +653,16 @@ else
 fi
 printf '{"remotePort":%s}\\n' "$REMOTE_PORT"
 `.trimStart();
+}
+
+function getLastNonEmptyOutputLine(stdout: string): string | null {
+  return (
+    stdout
+      .trim()
+      .split(/\r?\n/u)
+      .map((entry) => entry.trim())
+      .findLast((entry) => entry.length > 0) ?? null
+  );
 }
 
 function buildRemoteT3RunnerScript(): string {
@@ -698,11 +710,7 @@ async function launchOrReuseRemoteServer(
     ...(input?.batchMode === undefined ? {} : { batchMode: input.batchMode }),
     ...(input?.interactiveAuth === undefined ? {} : { interactiveAuth: input.interactiveAuth }),
   });
-  const line = result.stdout
-    .trim()
-    .split(/\r?\n/u)
-    .map((entry) => entry.trim())
-    .findLast((entry) => entry.length > 0);
+  const line = getLastNonEmptyOutputLine(result.stdout);
   if (!line) {
     throw new Error("SSH launch did not return a remote port.");
   }
@@ -725,7 +733,12 @@ async function issueRemotePairingToken(
     ...(input?.batchMode === undefined ? {} : { batchMode: input.batchMode }),
     ...(input?.interactiveAuth === undefined ? {} : { interactiveAuth: input.interactiveAuth }),
   });
-  const parsed = JSON.parse(result.stdout) as { credential?: unknown };
+  const line = getLastNonEmptyOutputLine(result.stdout);
+  if (!line) {
+    throw new Error("SSH pairing did not return a credential.");
+  }
+
+  const parsed = JSON.parse(line) as { credential?: unknown };
   if (typeof parsed.credential !== "string" || parsed.credential.trim().length === 0) {
     throw new Error("SSH pairing command returned an invalid credential.");
   }
@@ -1006,6 +1019,7 @@ export const __test = {
   buildRemoteT3RunnerScript,
   buildSshAskpassHelperDescriptor,
   buildSshChildEnvironment,
+  getLastNonEmptyOutputLine,
   isSshAuthFailure,
   collectSshConfigAliasesFromFile,
   parseKnownHostsHostnames,
