@@ -1654,28 +1654,16 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
       if (clicked === "open-new-tab") {
         openThreadInNewTab(serverThreadSurfaceInput(threadRef));
-        void router.navigate({
-          to: "/$environmentId/$threadId",
-          params: buildThreadRouteParams(threadRef),
-        });
         return;
       }
 
       if (clicked === "open-split-right") {
         openThreadInSplit(serverThreadSurfaceInput(threadRef), "x");
-        void router.navigate({
-          to: "/$environmentId/$threadId",
-          params: buildThreadRouteParams(threadRef),
-        });
         return;
       }
 
       if (clicked === "open-split-down") {
         openThreadInSplit(serverThreadSurfaceInput(threadRef), "y");
-        void router.navigate({
-          to: "/$environmentId/$threadId",
-          params: buildThreadRouteParams(threadRef),
-        });
         return;
       }
 
@@ -1729,7 +1717,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       openThreadInNewTab,
       openThreadInSplit,
       project.cwd,
-      router,
     ],
   );
 
