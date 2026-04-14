@@ -2,6 +2,11 @@ import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import { useCommandPaletteStore } from "../commandPaletteStore";
+import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
+import {
+  isWorkspaceCommandId,
+  useWorkspaceCommandExecutor,
+} from "../hooks/useWorkspaceCommandExecutor";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import {
   startNewLocalThreadFromContext,
@@ -9,8 +14,8 @@ import {
 } from "../lib/chatThreadActions";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
+import { useWorkspaceThreadTerminalOpen } from "../workspace/store";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
 import { useSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "~/rpc/serverState";
@@ -20,12 +25,9 @@ function ChatRouteGlobalShortcuts() {
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
+  const { executeWorkspaceCommand } = useWorkspaceCommandExecutor();
   const keybindings = useServerKeybindings();
-  const terminalOpen = useTerminalStateStore((state) =>
-    routeThreadRef
-      ? selectThreadTerminalState(state.terminalStateByThreadKey, routeThreadRef).terminalOpen
-      : false,
-  );
+  const terminalOpen = useWorkspaceThreadTerminalOpen(routeThreadRef);
   const appSettings = useSettings();
 
   useEffect(() => {
@@ -37,6 +39,12 @@ function ChatRouteGlobalShortcuts() {
           terminalOpen,
         },
       });
+      if (command && isWorkspaceCommandId(command)) {
+        event.preventDefault();
+        event.stopPropagation();
+        void executeWorkspaceCommand(command);
+        return;
+      }
 
       if (useCommandPaletteStore.getState().open) {
         return;
@@ -89,6 +97,7 @@ function ChatRouteGlobalShortcuts() {
     handleNewThread,
     keybindings,
     defaultProjectRef,
+    executeWorkspaceCommand,
     selectedThreadKeysSize,
     terminalOpen,
     appSettings.defaultThreadEnvMode,
@@ -101,6 +110,7 @@ function ChatRouteLayout() {
   return (
     <>
       <ChatRouteGlobalShortcuts />
+      <WorkspaceShell />
       <Outlet />
     </>
   );
