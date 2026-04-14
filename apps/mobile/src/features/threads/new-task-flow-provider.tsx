@@ -189,10 +189,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   }, []);
 
   const reset = useCallback(() => {
-    console.log("[new task flow] reset", {
-      defaultEnvironmentId: projects[0]?.environmentId ?? null,
-      projectCount: projects.length,
-    });
     setSelectedEnvironmentId(projects[0]?.environmentId ?? "");
     setSelectedProjectKey(null);
     setSelectedModelKey(null);
@@ -216,9 +212,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       return;
     }
 
-    console.log("[new task flow] initializing environment", {
-      environmentId: projects[0]!.environmentId,
-    });
     setSelectedEnvironmentId(projects[0]!.environmentId);
   }, [projects, selectedEnvironmentId]);
 
@@ -469,24 +462,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       removeAttachment,
     ],
   );
-
-  useEffect(() => {
-    console.log("[new task flow] state", {
-      availableBranchCount: availableBranches.length,
-      environmentCount: environments.length,
-      logicalProjectCount: logicalProjects.length,
-      selectedEnvironmentId,
-      selectedProjectKey,
-      selectedProjectTitle: selectedProject?.title ?? null,
-    });
-  }, [
-    availableBranches.length,
-    environments.length,
-    logicalProjects.length,
-    selectedEnvironmentId,
-    selectedProject?.title,
-    selectedProjectKey,
-  ]);
 
   return <NewTaskFlowContext.Provider value={value}>{props.children}</NewTaskFlowContext.Provider>;
 }
