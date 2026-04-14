@@ -1,8 +1,9 @@
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
+import { KeyboardAvoidingLegendList } from "@legendapp/list/keyboard";
+import { type LegendListRef } from "@legendapp/list/react-native";
 import { SymbolView } from "expo-symbols";
-import { memo, useCallback, useEffect, useState, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-native-markdown-display";
 import { Image, Pressable, ScrollView, View } from "react-native";
 import { TouchableOpacity } from "react-native-gesture-handler";
@@ -91,137 +92,152 @@ function useMarkdownStyles(): MarkdownStyleSets {
   const userFenceBg = useThemeColor("--color-md-user-fence-bg");
   const userFenceText = useThemeColor("--color-md-user-fence-text");
 
-  const base = {
-    body: {
-      color: bodyColor,
-      fontSize: 15,
-      lineHeight: 22,
-      fontFamily: "DMSans_400Regular",
-    },
-    paragraph: { marginTop: 0, marginBottom: 8 },
-    bullet_list: { marginTop: 4, marginBottom: 4 },
-    ordered_list: { marginTop: 4, marginBottom: 4 },
-    list_item: { marginTop: 0, marginBottom: 4, flexDirection: "row" as const },
-    strong: { fontWeight: "700" as const, color: strongColor, fontFamily: "DMSans_700Bold" },
-    em: { fontStyle: "italic" as const },
-    link: { color: linkColor, textDecorationLine: "underline" as const },
-    blockquote: {
-      borderLeftWidth: 3,
-      borderLeftColor: blockquoteBorder,
-      backgroundColor: blockquoteBg,
-      paddingLeft: 12,
-      paddingVertical: 6,
-      marginLeft: 0,
-      marginVertical: 4,
-      borderRadius: 4,
-    },
-    heading1: {
-      fontSize: 22,
-      lineHeight: 28,
-      fontWeight: "800" as const,
-      fontFamily: "DMSans_700Bold",
-      color: strongColor,
-      marginTop: 16,
-      marginBottom: 8,
-    },
-    heading2: {
-      fontSize: 19,
-      lineHeight: 26,
-      fontWeight: "700" as const,
-      fontFamily: "DMSans_700Bold",
-      color: strongColor,
-      marginTop: 14,
-      marginBottom: 6,
-    },
-    heading3: {
-      fontSize: 17,
-      lineHeight: 24,
-      fontWeight: "700" as const,
-      fontFamily: "DMSans_700Bold",
-      color: strongColor,
-      marginTop: 12,
-      marginBottom: 4,
-    },
-    heading4: {
-      fontSize: 15,
-      lineHeight: 22,
-      fontWeight: "700" as const,
-      fontFamily: "DMSans_700Bold",
-      color: strongColor,
-      marginTop: 10,
-      marginBottom: 4,
-    },
-    hr: {
-      backgroundColor: hrColor,
-      height: 1,
-      marginVertical: 12,
-    },
-  };
+  return useMemo(() => {
+    const base = {
+      body: {
+        color: bodyColor,
+        fontSize: 15,
+        lineHeight: 22,
+        fontFamily: "DMSans_400Regular",
+      },
+      paragraph: { marginTop: 0, marginBottom: 8 },
+      bullet_list: { marginTop: 4, marginBottom: 4 },
+      ordered_list: { marginTop: 4, marginBottom: 4 },
+      list_item: { marginTop: 0, marginBottom: 4, flexDirection: "row" as const },
+      strong: { fontWeight: "700" as const, color: strongColor, fontFamily: "DMSans_700Bold" },
+      em: { fontStyle: "italic" as const },
+      link: { color: linkColor, textDecorationLine: "underline" as const },
+      blockquote: {
+        borderLeftWidth: 3,
+        borderLeftColor: blockquoteBorder,
+        backgroundColor: blockquoteBg,
+        paddingLeft: 12,
+        paddingVertical: 6,
+        marginLeft: 0,
+        marginVertical: 4,
+        borderRadius: 4,
+      },
+      heading1: {
+        fontSize: 22,
+        lineHeight: 28,
+        fontWeight: "800" as const,
+        fontFamily: "DMSans_700Bold",
+        color: strongColor,
+        marginTop: 16,
+        marginBottom: 8,
+      },
+      heading2: {
+        fontSize: 19,
+        lineHeight: 26,
+        fontWeight: "700" as const,
+        fontFamily: "DMSans_700Bold",
+        color: strongColor,
+        marginTop: 14,
+        marginBottom: 6,
+      },
+      heading3: {
+        fontSize: 17,
+        lineHeight: 24,
+        fontWeight: "700" as const,
+        fontFamily: "DMSans_700Bold",
+        color: strongColor,
+        marginTop: 12,
+        marginBottom: 4,
+      },
+      heading4: {
+        fontSize: 15,
+        lineHeight: 22,
+        fontWeight: "700" as const,
+        fontFamily: "DMSans_700Bold",
+        color: strongColor,
+        marginTop: 10,
+        marginBottom: 4,
+      },
+      hr: {
+        backgroundColor: hrColor,
+        height: 1,
+        marginVertical: 12,
+      },
+    };
 
-  const user = {
-    ...base,
-    paragraph: { marginTop: 0, marginBottom: 0 },
-    code_inline: {
-      backgroundColor: userCodeBg,
-      color: userCodeText,
-      borderRadius: 5,
-      paddingHorizontal: 5,
-      paddingVertical: 1,
-      fontFamily: "ui-monospace",
-      fontSize: 13,
-    },
-    code_block: {
-      backgroundColor: userFenceBg,
-      color: userFenceText,
-      borderRadius: 12,
-      padding: 12,
-      fontFamily: "ui-monospace",
-      fontSize: 13,
-      lineHeight: 19,
-    },
-    fence: {
-      backgroundColor: userFenceBg,
-      color: userFenceText,
-      borderRadius: 12,
-      padding: 12,
-      fontFamily: "ui-monospace",
-      fontSize: 13,
-      lineHeight: 19,
-    },
-  };
+    const user = {
+      ...base,
+      paragraph: { marginTop: 0, marginBottom: 0 },
+      code_inline: {
+        backgroundColor: userCodeBg,
+        color: userCodeText,
+        borderRadius: 5,
+        paddingHorizontal: 5,
+        paddingVertical: 1,
+        fontFamily: "ui-monospace",
+        fontSize: 13,
+      },
+      code_block: {
+        backgroundColor: userFenceBg,
+        color: userFenceText,
+        borderRadius: 12,
+        padding: 12,
+        fontFamily: "ui-monospace",
+        fontSize: 13,
+        lineHeight: 19,
+      },
+      fence: {
+        backgroundColor: userFenceBg,
+        color: userFenceText,
+        borderRadius: 12,
+        padding: 12,
+        fontFamily: "ui-monospace",
+        fontSize: 13,
+        lineHeight: 19,
+      },
+    };
 
-  const assistant = {
-    ...base,
-    code_inline: {
-      backgroundColor: codeBg,
-      color: codeText,
-      borderRadius: 5,
-      paddingHorizontal: 5,
-      paddingVertical: 1,
-      fontFamily: "ui-monospace",
-      fontSize: 13,
-    },
-    code_block: {
-      backgroundColor: codeBg,
-      color: codeText,
-      borderRadius: 12,
-      padding: 12,
-      fontFamily: "ui-monospace",
-      fontSize: 13,
-      lineHeight: 19,
-    },
-    fence: {
-      backgroundColor: codeBg,
-      color: codeText,
-      borderRadius: 12,
-      padding: 12,
-      fontFamily: "ui-monospace",
-      fontSize: 13,
-      lineHeight: 19,
-    },
-  };
+    const assistant = {
+      ...base,
+      code_inline: {
+        backgroundColor: codeBg,
+        color: codeText,
+        borderRadius: 5,
+        paddingHorizontal: 5,
+        paddingVertical: 1,
+        fontFamily: "ui-monospace",
+        fontSize: 13,
+      },
+      code_block: {
+        backgroundColor: codeBg,
+        color: codeText,
+        borderRadius: 12,
+        padding: 12,
+        fontFamily: "ui-monospace",
+        fontSize: 13,
+        lineHeight: 19,
+      },
+      fence: {
+        backgroundColor: codeBg,
+        color: codeText,
+        borderRadius: 12,
+        padding: 12,
+        fontFamily: "ui-monospace",
+        fontSize: 13,
+        lineHeight: 19,
+      },
+    };
 
-  return { user, assistant };
+    return { user, assistant };
+  }, [
+    blockquoteBg,
+    blockquoteBorder,
+    bodyColor,
+    codeBg,
+    codeText,
+    hrColor,
+    linkColor,
+    strongColor,
+    userCodeBg,
+    userCodeText,
+    userFenceBg,
+    userFenceText,
+  ]);
 }
 
 function renderFeedEntry(
@@ -527,10 +543,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
 
   return (
     <>
-      <LegendList
+      <KeyboardAvoidingLegendList
         ref={listRef}
         key={props.threadId}
         style={{ flex: 1 }}
+        alignItemsAtEnd
         contentInsetAdjustmentBehavior="never"
         contentInset={{ top: topContentInset }}
         scrollIndicatorInsets={{ top: topContentInset }}
@@ -542,9 +559,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         initialScrollAtEnd
         maintainScrollAtEnd={{ on: { layout: true, itemLayout: true, dataChange: true } }}
         maintainScrollAtEndThreshold={0.1}
-        maintainVisibleContentPosition
         refreshing={props.refreshing ?? false}
         onRefresh={props.onRefresh}
+        safeAreaInsetBottom={insets.bottom}
         contentContainerStyle={{
           paddingTop: 12,
           paddingHorizontal: horizontalPadding,

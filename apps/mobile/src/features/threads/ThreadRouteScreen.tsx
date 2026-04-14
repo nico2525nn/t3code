@@ -54,6 +54,7 @@ export function ThreadRouteScreen() {
     activePendingUserInputAnswers: composer.activePendingUserInputAnswers,
     refreshSelectedThreadGitStatus: gitActions.refreshSelectedThreadGitStatus,
   });
+  const refreshSelectedThread = commands.onRefresh;
   const router = useRouter();
   const params = useLocalSearchParams<{
     environmentId?: string | string[];
@@ -91,9 +92,17 @@ export function ThreadRouteScreen() {
 
   /** Wraps thread refresh + git status refresh for pull-to-refresh */
   const handleRefreshAll = useCallback(async () => {
-    await commands.onRefresh();
+    await refreshSelectedThread();
     await handleRefreshGitStatus();
-  }, [commands, handleRefreshGitStatus]);
+  }, [handleRefreshGitStatus, refreshSelectedThread]);
+
+  const handleOpenDrawer = useCallback(() => {
+    setDrawerVisible(true);
+  }, []);
+
+  const handleOpenConnectionEditor = useCallback(() => {
+    void router.push("/connections");
+  }, [router]);
 
   if (!environmentId || !threadId) {
     return <LoadingScreen message="Opening thread…" />;
@@ -211,7 +220,7 @@ export function ThreadRouteScreen() {
           httpBaseUrl={selectedEnvironmentConnection?.httpBaseUrl ?? null}
           bearerToken={selectedEnvironmentConnection?.bearerToken ?? null}
           selectedThreadFeed={composer.selectedThreadFeed}
-          activeWorkDurationLabel={composer.activeWorkDurationLabel}
+          activeWorkStartedAt={composer.activeWorkStartedAt}
           activePendingApproval={composer.activePendingApproval}
           respondingApprovalId={commands.respondingApprovalId}
           activePendingUserInput={composer.activePendingUserInput}
@@ -224,8 +233,8 @@ export function ThreadRouteScreen() {
           activeThreadBusy={composer.activeThreadBusy}
           projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
           selectedThreadQueueCount={composer.selectedThreadQueueCount}
-          onOpenDrawer={() => setDrawerVisible(true)}
-          onOpenConnectionEditor={() => router.push("/connections")}
+          onOpenDrawer={handleOpenDrawer}
+          onOpenConnectionEditor={handleOpenConnectionEditor}
           onChangeDraftMessage={composer.onChangeDraftMessage}
           onPickDraftImages={composer.onPickDraftImages}
           onNativePasteImages={composer.onNativePasteImages}

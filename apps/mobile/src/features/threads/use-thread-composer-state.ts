@@ -9,7 +9,7 @@ import {
   MessageId,
   ThreadId,
 } from "@t3tools/contracts";
-import { deriveActiveWorkStartedAt, formatElapsed } from "@t3tools/shared/orchestrationTiming";
+import { deriveActiveWorkStartedAt } from "@t3tools/shared/orchestrationTiming";
 import { Atom } from "effect/unstable/reactivity";
 
 import {
@@ -40,11 +40,6 @@ import { useRemoteCatalog } from "../../state/use-remote-catalog";
 import { useSelectedThreadDetail } from "../../state/use-thread-detail";
 import { useThreadSelection } from "../../state/use-thread-selection";
 
-const threadComposerNowTickAtom = Atom.make(Date.now()).pipe(
-  Atom.keepAlive,
-  Atom.withLabel("mobile:thread-composer:now-tick"),
-);
-
 const draftMessageByThreadKeyAtom = Atom.make<Record<string, string>>({}).pipe(
   Atom.keepAlive,
   Atom.withLabel("mobile:thread-composer:draft-message"),
@@ -66,10 +61,6 @@ const queuedMessagesByThreadKeyAtom = Atom.make<Record<string, ReadonlyArray<Que
 const userInputDraftsByRequestKeyAtom = Atom.make<
   Record<string, Record<string, PendingUserInputDraftAnswer>>
 >({}).pipe(Atom.keepAlive, Atom.withLabel("mobile:user-input-drafts"));
-
-function setNowTick(tick: number): void {
-  appAtomRegistry.set(threadComposerNowTickAtom, tick);
-}
 
 function setDraftMessage(threadKey: string, value: string): void {
   const current = appAtomRegistry.get(draftMessageByThreadKeyAtom);
@@ -191,24 +182,6 @@ function setUserInputDraftCustomAnswer(
   });
 }
 
-function useWorkDurationTicker(
-  activeWorkStartedAt: string | null,
-  setNowTick: (tick: number) => void,
-) {
-  useEffect(() => {
-    if (!activeWorkStartedAt) {
-      return;
-    }
-
-    setNowTick(Date.now());
-    const timer = setInterval(() => {
-      setNowTick(Date.now());
-    }, 1_000);
-
-    return () => clearInterval(timer);
-  }, [activeWorkStartedAt, setNowTick]);
-}
-
 function useQueueDrain(input: {
   readonly dispatchingQueuedMessageId: string | null;
   readonly queuedMessagesByThreadKey: Record<string, ReadonlyArray<QueuedThreadMessage>>;
@@ -271,7 +244,6 @@ export function useThreadComposerState() {
   const { threads } = useRemoteCatalog();
   const { selectedThread: selectedThreadShell } = useThreadSelection();
   const selectedThread = useSelectedThreadDetail();
-  const nowTick = useAtomValue(threadComposerNowTickAtom);
   const draftMessageByThreadKey = useAtomValue(draftMessageByThreadKeyAtom);
   const draftAttachmentsByThreadKey = useAtomValue(draftAttachmentsByThreadKeyAtom);
   const dispatchingQueuedMessageId = useAtomValue(dispatchingQueuedMessageIdAtom);
@@ -327,15 +299,6 @@ export function useThreadComposerState() {
       queuedSendStartedAt,
     );
   }, [queuedSendStartedAt, selectedThread, selectedThreadSessionActivity]);
-
-  const activeWorkDurationLabel = useMemo(
-    () =>
-      activeWorkStartedAt
-        ? formatElapsed(activeWorkStartedAt, new Date(nowTick).toISOString())
-        : null,
-    [activeWorkStartedAt, nowTick],
-  );
-  useWorkDurationTicker(activeWorkStartedAt, setNowTick);
 
   const activePendingApprovals = useMemo(
     () => (selectedThread ? derivePendingApprovals(selectedThread.activities) : []),
@@ -559,7 +522,7 @@ export function useThreadComposerState() {
   return {
     selectedThreadFeed,
     selectedThreadQueueCount,
-    activeWorkDurationLabel,
+    activeWorkStartedAt,
     activePendingApproval,
     activePendingUserInput,
     activePendingUserInputDrafts,
