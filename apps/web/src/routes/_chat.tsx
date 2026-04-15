@@ -42,6 +42,10 @@ function ChatRouteGlobalShortcuts() {
           terminalOpen,
         },
       });
+      if (useCommandPaletteStore.getState().open) {
+        return;
+      }
+
       const isFocusedStandaloneTerminal = focusedWorkspaceSurface?.kind === "terminal";
       if (command && isWorkspaceCommandId(command)) {
         event.preventDefault();
@@ -71,10 +75,6 @@ function ChatRouteGlobalShortcuts() {
           closeFocusedWindow();
           return;
         }
-      }
-
-      if (useCommandPaletteStore.getState().open) {
-        return;
       }
 
       if (event.key === "Escape" && selectedThreadKeysSize > 0) {
