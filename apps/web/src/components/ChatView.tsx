@@ -24,7 +24,7 @@ import { applyClaudePromptEffortPrefix } from "@t3tools/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { truncate } from "@t3tools/shared/String";
 import { Debouncer } from "@tanstack/react-pacer";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
 import { useGitStatus } from "~/lib/gitStatusState";
@@ -305,6 +305,7 @@ const SCRIPT_TERMINAL_ROWS = 30;
 
 type ChatViewProps =
   | {
+      activationFocusRequestId?: number;
       bindSharedComposerHandle?: boolean;
       environmentId: EnvironmentId;
       threadId: ThreadId;
@@ -314,6 +315,7 @@ type ChatViewProps =
       draftId?: never;
     }
   | {
+      activationFocusRequestId?: number;
       bindSharedComposerHandle?: boolean;
       environmentId: EnvironmentId;
       threadId: ThreadId;
@@ -392,6 +394,7 @@ function useLocalDispatchState(input: {
 
 export default function ChatView(props: ChatViewProps) {
   const {
+    activationFocusRequestId,
     bindSharedComposerHandle = true,
     environmentId,
     threadId,
@@ -470,9 +473,7 @@ export default function ChatView(props: ChatViewProps) {
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const sharedComposerRef = useComposerHandleContext();
-  const composerRef = bindSharedComposerHandle
-    ? (sharedComposerRef ?? localComposerRef)
-    : localComposerRef;
+  const composerRef = localComposerRef;
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
@@ -519,6 +520,26 @@ export default function ChatView(props: ChatViewProps) {
   const attachmentPreviewPromotionInFlightByMessageIdRef = useRef<Record<string, true>>({});
   const sendInFlightRef = useRef(false);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
+
+  useLayoutEffect(() => {
+    if (!sharedComposerRef) {
+      return;
+    }
+
+    const localComposerHandle = localComposerRef.current;
+    if (bindSharedComposerHandle) {
+      sharedComposerRef.current = localComposerHandle;
+      return () => {
+        if (sharedComposerRef.current === localComposerHandle) {
+          sharedComposerRef.current = null;
+        }
+      };
+    }
+
+    if (sharedComposerRef.current === localComposerHandle) {
+      sharedComposerRef.current = null;
+    }
+  });
 
   const terminalState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadKey, routeThreadRef),
@@ -1746,6 +1767,13 @@ export default function ChatView(props: ChatViewProps) {
       window.cancelAnimationFrame(frame);
     };
   }, [activeThread?.id, focusComposer, terminalSurfaceOpen]);
+
+  useLayoutEffect(() => {
+    if (activationFocusRequestId === undefined) {
+      return;
+    }
+    focusComposer();
+  }, [activationFocusRequestId, focusComposer]);
 
   useEffect(() => {
     if (!activeThread?.id) return;
@@ -2980,6 +3008,7 @@ export default function ChatView(props: ChatViewProps) {
           <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
             <ChatComposer
               ref={composerRef}
+              {...(activationFocusRequestId === undefined ? {} : { activationFocusRequestId })}
               composerDraftTarget={composerDraftTarget}
               environmentId={environmentId}
               routeKind={routeKind}

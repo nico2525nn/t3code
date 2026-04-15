@@ -453,9 +453,42 @@ function OpenCommandPaletteDialog() {
         await executeWorkspaceCommand("workspace.pane.close");
       },
     });
+    actionItems.push({
+      kind: "action",
+      value: "action:workspace-pane-toggle-zoom",
+      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.pane.toggleZoom"].searchTerms,
+      title: WORKSPACE_COMMAND_METADATA["workspace.pane.toggleZoom"].title,
+      icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "workspace.pane.toggleZoom",
+      run: async () => {
+        await executeWorkspaceCommand("workspace.pane.toggleZoom");
+      },
+    });
   }
 
   if (canUseSpatialWorkspaceCommands) {
+    actionItems.push({
+      kind: "action",
+      value: "action:workspace-focus-previous",
+      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.focus.previous"].searchTerms,
+      title: WORKSPACE_COMMAND_METADATA["workspace.focus.previous"].title,
+      icon: <ArrowLeftIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "workspace.focus.previous",
+      run: async () => {
+        await executeWorkspaceCommand("workspace.focus.previous");
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:workspace-focus-next",
+      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.focus.next"].searchTerms,
+      title: WORKSPACE_COMMAND_METADATA["workspace.focus.next"].title,
+      icon: <ArrowRightIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "workspace.focus.next",
+      run: async () => {
+        await executeWorkspaceCommand("workspace.focus.next");
+      },
+    });
     actionItems.push({
       kind: "action",
       value: "action:workspace-focus-left",
@@ -498,6 +531,61 @@ function OpenCommandPaletteDialog() {
       shortcutCommand: "workspace.focus.down",
       run: async () => {
         await executeWorkspaceCommand("workspace.focus.down");
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:workspace-pane-resize-left",
+      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.pane.resizeLeft"].searchTerms,
+      title: WORKSPACE_COMMAND_METADATA["workspace.pane.resizeLeft"].title,
+      icon: <ArrowLeftIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "workspace.pane.resizeLeft",
+      run: async () => {
+        await executeWorkspaceCommand("workspace.pane.resizeLeft");
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:workspace-pane-resize-right",
+      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.pane.resizeRight"].searchTerms,
+      title: WORKSPACE_COMMAND_METADATA["workspace.pane.resizeRight"].title,
+      icon: <ArrowRightIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "workspace.pane.resizeRight",
+      run: async () => {
+        await executeWorkspaceCommand("workspace.pane.resizeRight");
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:workspace-pane-resize-up",
+      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.pane.resizeUp"].searchTerms,
+      title: WORKSPACE_COMMAND_METADATA["workspace.pane.resizeUp"].title,
+      icon: <ArrowUpIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "workspace.pane.resizeUp",
+      run: async () => {
+        await executeWorkspaceCommand("workspace.pane.resizeUp");
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:workspace-pane-resize-down",
+      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.pane.resizeDown"].searchTerms,
+      title: WORKSPACE_COMMAND_METADATA["workspace.pane.resizeDown"].title,
+      icon: <ArrowDownIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "workspace.pane.resizeDown",
+      run: async () => {
+        await executeWorkspaceCommand("workspace.pane.resizeDown");
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:workspace-pane-equalize",
+      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.pane.equalize"].searchTerms,
+      title: WORKSPACE_COMMAND_METADATA["workspace.pane.equalize"].title,
+      icon: <Rows2Icon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "workspace.pane.equalize",
+      run: async () => {
+        await executeWorkspaceCommand("workspace.pane.equalize");
       },
     });
     actionItems.push({

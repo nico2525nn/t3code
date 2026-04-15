@@ -15,11 +15,19 @@ export const WORKSPACE_COMMAND_IDS = [
   "workspace.terminal.newTab",
   "workspace.pane.splitRight",
   "workspace.pane.splitDown",
+  "workspace.focus.previous",
+  "workspace.focus.next",
   "workspace.focus.left",
   "workspace.focus.right",
   "workspace.focus.up",
   "workspace.focus.down",
   "workspace.pane.close",
+  "workspace.pane.toggleZoom",
+  "workspace.pane.resizeLeft",
+  "workspace.pane.resizeRight",
+  "workspace.pane.resizeUp",
+  "workspace.pane.resizeDown",
+  "workspace.pane.equalize",
   "workspace.pane.moveLeft",
   "workspace.pane.moveRight",
   "workspace.pane.moveUp",
@@ -63,6 +71,14 @@ export const WORKSPACE_COMMAND_METADATA: Record<
     title: "Focus pane left",
     searchTerms: ["focus", "pane", "left", "workspace"],
   },
+  "workspace.focus.previous": {
+    title: "Focus previous pane",
+    searchTerms: ["focus", "previous", "pane", "workspace"],
+  },
+  "workspace.focus.next": {
+    title: "Focus next pane",
+    searchTerms: ["focus", "next", "pane", "workspace"],
+  },
   "workspace.focus.right": {
     title: "Focus pane right",
     searchTerms: ["focus", "pane", "right", "workspace"],
@@ -78,6 +94,30 @@ export const WORKSPACE_COMMAND_METADATA: Record<
   "workspace.pane.close": {
     title: "Close current pane",
     searchTerms: ["close", "pane", "window", "workspace"],
+  },
+  "workspace.pane.toggleZoom": {
+    title: "Toggle pane zoom",
+    searchTerms: ["zoom", "maximize", "pane", "workspace"],
+  },
+  "workspace.pane.resizeLeft": {
+    title: "Resize pane left",
+    searchTerms: ["resize", "pane", "left", "workspace"],
+  },
+  "workspace.pane.resizeRight": {
+    title: "Resize pane right",
+    searchTerms: ["resize", "pane", "right", "workspace"],
+  },
+  "workspace.pane.resizeUp": {
+    title: "Resize pane up",
+    searchTerms: ["resize", "pane", "up", "workspace"],
+  },
+  "workspace.pane.resizeDown": {
+    title: "Resize pane down",
+    searchTerms: ["resize", "pane", "down", "workspace"],
+  },
+  "workspace.pane.equalize": {
+    title: "Equalize splits",
+    searchTerms: ["equalize", "reset", "split", "pane", "workspace"],
   },
   "workspace.pane.moveLeft": {
     title: "Move pane left",
@@ -142,6 +182,8 @@ export function useWorkspaceCommandExecutor() {
   const focusedSurface = useFocusedWorkspaceSurface();
   const openWorkspaceTarget = useCommandPaletteStore((state) => state.openWorkspaceTarget);
   const closeFocusedWindow = useWorkspaceStore((state) => state.closeFocusedWindow);
+  const equalizeSplits = useWorkspaceStore((state) => state.equalizeSplits);
+  const focusWindowByStep = useWorkspaceStore((state) => state.focusWindowByStep);
   const focusAdjacentWindow = useWorkspaceStore((state) => state.focusAdjacentWindow);
   const moveActiveTabToAdjacentWindow = useWorkspaceStore(
     (state) => state.moveActiveTabToAdjacentWindow,
@@ -150,6 +192,8 @@ export function useWorkspaceCommandExecutor() {
   const openTerminalSurfaceForThread = useWorkspaceStore(
     (state) => state.openTerminalSurfaceForThread,
   );
+  const resizeFocusedWindow = useWorkspaceStore((state) => state.resizeFocusedWindow);
+  const toggleFocusedWindowZoom = useWorkspaceStore((state) => state.toggleFocusedWindowZoom);
 
   const focusedWindowId = useMemo(() => {
     if (document.focusedWindowId && document.windowsById[document.focusedWindowId]) {
@@ -200,6 +244,12 @@ export function useWorkspaceCommandExecutor() {
         case "workspace.focus.left":
           focusAdjacentWindow("left");
           return true;
+        case "workspace.focus.previous":
+          focusWindowByStep(-1);
+          return true;
+        case "workspace.focus.next":
+          focusWindowByStep(1);
+          return true;
         case "workspace.focus.right":
           focusAdjacentWindow("right");
           return true;
@@ -211,6 +261,24 @@ export function useWorkspaceCommandExecutor() {
           return true;
         case "workspace.pane.close":
           closeFocusedWindow();
+          return true;
+        case "workspace.pane.toggleZoom":
+          toggleFocusedWindowZoom();
+          return true;
+        case "workspace.pane.resizeLeft":
+          resizeFocusedWindow("left");
+          return true;
+        case "workspace.pane.resizeRight":
+          resizeFocusedWindow("right");
+          return true;
+        case "workspace.pane.resizeUp":
+          resizeFocusedWindow("up");
+          return true;
+        case "workspace.pane.resizeDown":
+          resizeFocusedWindow("down");
+          return true;
+        case "workspace.pane.equalize":
+          equalizeSplits();
           return true;
         case "workspace.pane.moveLeft":
           moveFocusedWindow("left");
@@ -240,13 +308,17 @@ export function useWorkspaceCommandExecutor() {
     },
     [
       closeFocusedWindow,
+      equalizeSplits,
       focusAdjacentWindow,
+      focusWindowByStep,
       focusedThreadRef,
       focusedWindowId,
       moveActiveTabToAdjacentWindow,
       moveFocusedWindow,
       openTerminalSurfaceForThread,
       openWorkspaceTarget,
+      resizeFocusedWindow,
+      toggleFocusedWindowZoom,
     ],
   );
 

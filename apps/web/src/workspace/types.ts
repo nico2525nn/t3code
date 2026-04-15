@@ -5,6 +5,7 @@ import type { ThreadRouteTarget } from "../threadRoutes";
 
 export type WorkspaceAxis = "x" | "y";
 export type WorkspaceDirection = "left" | "right" | "up" | "down";
+export type WorkspaceDropPlacement = "center" | "left" | "right" | "top" | "bottom";
 export type WorkspaceLayoutEngine = "split";
 export type WorkspaceSurfaceKind = "thread" | "terminal";
 export type WorkspaceSplitSizingMode = "auto" | "manual";
@@ -24,6 +25,7 @@ export type ThreadSurfaceInput =
 export interface TerminalSurfaceInput {
   scope: "thread";
   threadRef: ScopedThreadRef;
+  terminalId: string;
 }
 
 export type WorkspaceSurfaceInstance =
@@ -43,6 +45,18 @@ export interface WorkspaceWindow {
   tabIds: string[];
   activeTabId: string | null;
 }
+
+export type WorkspacePlacementTarget =
+  | {
+      kind: "window";
+      windowId: string;
+      placement: WorkspaceDropPlacement;
+    }
+  | {
+      kind: "tab";
+      windowId: string;
+      surfaceId: string;
+    };
 
 export type WorkspaceNode =
   | {
@@ -151,7 +165,8 @@ export function sameTerminalSurfaceInput(
   return (
     left.scope === right.scope &&
     left.threadRef.environmentId === right.threadRef.environmentId &&
-    left.threadRef.threadId === right.threadRef.threadId
+    left.threadRef.threadId === right.threadRef.threadId &&
+    left.terminalId === right.terminalId
   );
 }
 
@@ -234,9 +249,13 @@ export function draftThreadSurfaceInput(input: {
   };
 }
 
-export function terminalSurfaceInput(threadRef: ScopedThreadRef): TerminalSurfaceInput {
+export function terminalSurfaceInput(
+  threadRef: ScopedThreadRef,
+  terminalId: string,
+): TerminalSurfaceInput {
   return {
     scope: "thread",
     threadRef,
+    terminalId,
   };
 }

@@ -1,23 +1,144 @@
 import { useParams } from "@tanstack/react-router";
-import { Rows2Icon, Columns2Icon, TerminalSquareIcon, XIcon } from "lucide-react";
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef } from "react";
-
+import { Columns2Icon, Rows2Icon, TerminalSquareIcon, XIcon } from "lucide-react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createThreadSelectorByRef } from "../../storeSelectors";
 import { useStore } from "../../store";
 import { cn } from "../../lib/utils";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { SidebarInset } from "../ui/sidebar";
 import ChatView from "../ChatView";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { resolveThreadRouteTarget } from "../../threadRoutes";
 import { ThreadTerminalSurface } from "./ThreadTerminalSurface";
-import { useWorkspaceDocument, useWorkspaceStore } from "../../workspace/store";
+import { useWorkspaceDragStore } from "../../workspace/dragStore";
+import {
+  useWorkspaceFocusedWindowId,
+  useWorkspaceMobileActiveWindowId,
+  useWorkspaceNode,
+  useWorkspaceRootNodeId,
+  useWorkspaceStore,
+  useWorkspaceSurface,
+  useWorkspaceWindow,
+  useWorkspaceWindowIds,
+  useWorkspaceZoomedWindowId,
+} from "../../workspace/store";
 import {
   normalizeWorkspaceSplitSizes,
   type WorkspaceNode,
+  type WorkspaceDropPlacement,
+  type WorkspacePlacementTarget,
   type WorkspaceSurfaceInstance,
 } from "../../workspace/types";
 
 const WORKSPACE_MIN_PANE_SIZE_PX = 220;
+const WORKSPACE_DROP_EDGE_THRESHOLD = 0.22;
+const INTERACTIVE_PANE_TARGET_SELECTOR = [
+  "button",
+  "a[href]",
+  "input",
+  "textarea",
+  "select",
+  "summary",
+  "[contenteditable='true']",
+  "[contenteditable='']",
+  "[role='button']",
+  "[role='link']",
+  "[role='menuitem']",
+  "[draggable='true']",
+  "[data-pane-autofocus-prevent='true']",
+].join(", ");
+
+function isWorkspaceDropTarget(
+  value: WorkspaceDropPlacement | string | null,
+  target: WorkspaceDropPlacement | string,
+): boolean {
+  return value === target;
+}
+
+function resolveWorkspaceDropPlacementFromPoint(
+  rect: DOMRect,
+  clientX: number,
+  clientY: number,
+): WorkspaceDropPlacement {
+  if (rect.width <= 0 || rect.height <= 0) {
+    return "center";
+  }
+
+  const normalizedX = (clientX - rect.left) / rect.width;
+  const normalizedY = (clientY - rect.top) / rect.height;
+  const distanceLeft = normalizedX;
+  const distanceRight = 1 - normalizedX;
+  const distanceTop = normalizedY;
+  const distanceBottom = 1 - normalizedY;
+  const minEdgeDistance = Math.min(distanceLeft, distanceRight, distanceTop, distanceBottom);
+
+  if (minEdgeDistance > WORKSPACE_DROP_EDGE_THRESHOLD) {
+    return "center";
+  }
+
+  if (minEdgeDistance === distanceLeft) {
+    return "left";
+  }
+  if (minEdgeDistance === distanceRight) {
+    return "right";
+  }
+  if (minEdgeDistance === distanceTop) {
+    return "top";
+  }
+  return "bottom";
+}
+
+function workspaceDropPreviewClass(target: WorkspaceDropPlacement | string | null): string {
+  switch (target) {
+    case "left":
+      return "left-2 top-2 bottom-2 w-1/2";
+    case "right":
+      return "right-2 top-2 bottom-2 w-1/2";
+    case "top":
+      return "left-2 right-2 top-2 h-1/2";
+    case "bottom":
+      return "left-2 right-2 bottom-2 h-1/2";
+    case "center":
+      return "inset-2";
+    default:
+      return "hidden";
+  }
+}
+
+function shouldSuppressPaneActivationAutoFocus(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  if (target.closest("[data-pane-autofocus-allow='true']")) {
+    return false;
+  }
+
+  return target.closest(INTERACTIVE_PANE_TARGET_SELECTOR) !== null;
+}
+
+function applyWorkspaceDrop(params: {
+  clearDragItem: () => void;
+  dragItem:
+    | {
+        kind: "surface";
+        surfaceId: string;
+      }
+    | {
+        kind: "thread";
+        input: Parameters<ReturnType<typeof useWorkspaceStore.getState>["placeThreadSurface"]>[0];
+      };
+  placeSurface: ReturnType<typeof useWorkspaceStore.getState>["placeSurface"];
+  placeThreadSurface: ReturnType<typeof useWorkspaceStore.getState>["placeThreadSurface"];
+  target: WorkspacePlacementTarget;
+}) {
+  if (params.dragItem.kind === "surface") {
+    params.placeSurface(params.dragItem.surfaceId, params.target);
+  } else {
+    params.placeThreadSurface(params.dragItem.input, params.target);
+  }
+  params.clearDragItem();
+}
 
 function WorkspaceEmptyState() {
   return (
@@ -33,12 +154,12 @@ function WorkspaceEmptyState() {
 }
 
 export function WorkspaceShell() {
-  const document = useWorkspaceDocument();
+  const rootNodeId = useWorkspaceRootNodeId();
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
-        {document.rootNodeId ? <WorkspaceLayoutRoot /> : <WorkspaceRouteFallback />}
+        {rootNodeId ? <WorkspaceLayoutRoot /> : <WorkspaceRouteFallback />}
       </div>
     </SidebarInset>
   );
@@ -114,14 +235,15 @@ function WorkspaceRouteFallback() {
 }
 
 function WorkspaceLayoutRoot() {
-  const document = useWorkspaceDocument();
-  const focusedWindowId = useWorkspaceStore((state) => state.document.focusedWindowId);
-  const mobileActiveWindowId = useWorkspaceStore((state) => state.document.mobileActiveWindowId);
+  const rootNodeId = useWorkspaceRootNodeId();
+  const focusedWindowId = useWorkspaceFocusedWindowId();
+  const mobileActiveWindowId = useWorkspaceMobileActiveWindowId();
+  const windowIds = useWorkspaceWindowIds();
+  const zoomedWindowId = useWorkspaceZoomedWindowId();
   const setMobileActiveWindow = useWorkspaceStore((state) => state.setMobileActiveWindow);
-  const windowIds = useMemo(
-    () => Object.keys(document.windowsById).filter((windowId) => document.windowsById[windowId]),
-    [document.windowsById],
-  );
+  const isDesktopViewport = useMediaQuery("md");
+  const activeWindowId =
+    zoomedWindowId ?? mobileActiveWindowId ?? focusedWindowId ?? windowIds[0] ?? null;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -147,39 +269,44 @@ function WorkspaceLayoutRoot() {
           })}
         </div>
       ) : null}
-      <div className="min-h-0 min-w-0 flex-1 overflow-hidden md:flex">
-        <div className="hidden h-full min-h-0 min-w-0 flex-1 overflow-hidden md:flex">
-          <WorkspaceNodeView nodeId={document.rootNodeId} />
-        </div>
-        <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden md:hidden">
-          <MobileWorkspaceWindow
-            windowId={mobileActiveWindowId ?? focusedWindowId ?? windowIds[0] ?? null}
-          />
-        </div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+        {isDesktopViewport ? (
+          zoomedWindowId ? (
+            <WorkspaceWindowView windowId={zoomedWindowId} />
+          ) : (
+            <WorkspaceNodeView nodeId={rootNodeId} />
+          )
+        ) : (
+          <MobileWorkspaceWindow windowId={activeWindowId} />
+        )}
       </div>
     </div>
   );
 }
 
-function MobileWorkspaceWindow(props: { windowId: string | null }) {
-  const document = useWorkspaceDocument();
+const MobileWorkspaceWindow = memo(function MobileWorkspaceWindow(props: {
+  windowId: string | null;
+}) {
+  const window = useWorkspaceWindow(props.windowId);
+
   if (!props.windowId) {
     return <WorkspaceEmptyState />;
   }
-  const window = document.windowsById[props.windowId];
+
   if (!window) {
     return <WorkspaceEmptyState />;
   }
-  return <WorkspaceWindowView windowId={window.id} />;
-}
 
-function WorkspaceNodeView(props: { nodeId: string | null }) {
-  const document = useWorkspaceDocument();
+  return <WorkspaceWindowView windowId={window.id} />;
+});
+
+const WorkspaceNodeView = memo(function WorkspaceNodeView(props: { nodeId: string | null }) {
+  const node = useWorkspaceNode(props.nodeId);
+
   if (!props.nodeId) {
     return null;
   }
 
-  const node = document.nodesById[props.nodeId];
   if (!node) {
     return null;
   }
@@ -189,9 +316,11 @@ function WorkspaceNodeView(props: { nodeId: string | null }) {
   }
 
   return <WorkspaceSplitNodeView node={node} />;
-}
+});
 
-function WorkspaceSplitNodeView(props: { node: Extract<WorkspaceNode, { kind: "split" }> }) {
+const WorkspaceSplitNodeView = memo(function WorkspaceSplitNodeView(props: {
+  node: Extract<WorkspaceNode, { kind: "split" }>;
+}) {
   const setSplitNodeSizes = useWorkspaceStore((state) => state.setSplitNodeSizes);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const resizeStateRef = useRef<{
@@ -383,65 +512,255 @@ function WorkspaceSplitNodeView(props: { node: Extract<WorkspaceNode, { kind: "s
       ))}
     </div>
   );
-}
+});
 
 const WorkspaceWindowView = memo(function WorkspaceWindowView(props: { windowId: string }) {
-  const document = useWorkspaceDocument();
+  const dragItem = useWorkspaceDragStore((state) => state.item);
+  const clearDragItem = useWorkspaceDragStore((state) => state.clearItem);
   const focusWindow = useWorkspaceStore((state) => state.focusWindow);
   const focusTab = useWorkspaceStore((state) => state.focusTab);
   const closeSurface = useWorkspaceStore((state) => state.closeSurface);
+  const placeSurface = useWorkspaceStore((state) => state.placeSurface);
+  const placeThreadSurface = useWorkspaceStore((state) => state.placeThreadSurface);
   const splitWindowSurface = useWorkspaceStore((state) => state.splitWindowSurface);
-  const window = document.windowsById[props.windowId];
-  const focusedWindowId = document.focusedWindowId;
+  const window = useWorkspaceWindow(props.windowId);
+  const activeSurface = useWorkspaceSurface(window?.activeTabId ?? null);
+  const focusedWindowId = useWorkspaceFocusedWindowId();
+  const [isWindowDragActive, setIsWindowDragActive] = useState(false);
+  const [threadActivationFocusRequestId, setThreadActivationFocusRequestId] = useState(0);
+  const [terminalActivationFocusRequestId, setTerminalActivationFocusRequestId] = useState(0);
+  const [hoveredDropTarget, setHoveredDropTarget] = useState<
+    WorkspaceDropPlacement | string | null
+  >(null);
+  const shouldAutoFocusOnActivationRef = useRef(true);
+  const wasFocusedRef = useRef(focusedWindowId === props.windowId);
+  const windowElementRef = useRef<HTMLElement | null>(null);
+  const pendingFocusWindowFrameRef = useRef<number | null>(null);
+
+  const resetHoveredDropTarget = useCallback(() => {
+    setHoveredDropTarget(null);
+  }, []);
+
+  useEffect(() => {
+    if (!dragItem) {
+      setIsWindowDragActive(false);
+      setHoveredDropTarget(null);
+    }
+  }, [dragItem]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingFocusWindowFrameRef.current !== null) {
+        globalThis.cancelAnimationFrame(pendingFocusWindowFrameRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const isFocused = focusedWindowId === props.windowId;
+    const wasFocused = wasFocusedRef.current;
+    wasFocusedRef.current = isFocused;
+
+    if (!isFocused || wasFocused || !activeSurface) {
+      return;
+    }
+
+    const shouldAutoFocus = shouldAutoFocusOnActivationRef.current;
+    shouldAutoFocusOnActivationRef.current = true;
+    if (!shouldAutoFocus) {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    const windowElement = windowElementRef.current;
+    if (
+      activeElement instanceof HTMLElement &&
+      windowElement &&
+      !windowElement.contains(activeElement)
+    ) {
+      activeElement.blur();
+    }
+
+    if (activeSurface.kind === "thread") {
+      setThreadActivationFocusRequestId((current) => current + 1);
+      return;
+    }
+
+    setTerminalActivationFocusRequestId((current) => current + 1);
+  }, [activeSurface, focusedWindowId, props.windowId]);
+
+  const handleWindowDragOver = useCallback(
+    (event: React.DragEvent<HTMLElement>) => {
+      if (!dragItem) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      setIsWindowDragActive(true);
+      setHoveredDropTarget(
+        resolveWorkspaceDropPlacementFromPoint(
+          event.currentTarget.getBoundingClientRect(),
+          event.clientX,
+          event.clientY,
+        ),
+      );
+    },
+    [dragItem],
+  );
+
+  const handleWindowDragLeave = useCallback((event: React.DragEvent<HTMLElement>) => {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    setIsWindowDragActive(false);
+    setHoveredDropTarget(null);
+  }, []);
+
+  const handleDropTarget = useCallback(
+    (target: WorkspacePlacementTarget) => (event: React.DragEvent<HTMLElement>) => {
+      if (!dragItem) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      applyWorkspaceDrop({
+        clearDragItem,
+        dragItem,
+        placeSurface,
+        placeThreadSurface,
+        target,
+      });
+      setIsWindowDragActive(false);
+      setHoveredDropTarget(null);
+    },
+    [clearDragItem, dragItem, placeSurface, placeThreadSurface],
+  );
+
+  const handleDragOverTarget = useCallback(
+    (hoverTarget: WorkspaceDropPlacement | string) => (event: React.DragEvent<HTMLElement>) => {
+      if (!dragItem) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+      setHoveredDropTarget(hoverTarget);
+    },
+    [dragItem],
+  );
+
+  const handleWindowDrop = useCallback(
+    (event: React.DragEvent<HTMLElement>) => {
+      if (!dragItem) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const targetPlacement = resolveWorkspaceDropPlacementFromPoint(
+        event.currentTarget.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      );
+      applyWorkspaceDrop({
+        clearDragItem,
+        dragItem,
+        placeSurface,
+        placeThreadSurface,
+        target: {
+          kind: "window",
+          windowId: props.windowId,
+          placement: targetPlacement,
+        },
+      });
+      setIsWindowDragActive(false);
+      setHoveredDropTarget(null);
+    },
+    [clearDragItem, dragItem, placeSurface, placeThreadSurface, props.windowId],
+  );
+
+  const handleTabDragStart = useCallback(
+    (surfaceId: string) => (event: React.DragEvent<HTMLElement>) => {
+      event.stopPropagation();
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", surfaceId);
+      useWorkspaceDragStore.getState().setItem({
+        kind: "surface",
+        surfaceId,
+      });
+      focusWindow(props.windowId);
+      focusTab(props.windowId, surfaceId);
+    },
+    [focusTab, focusWindow, props.windowId],
+  );
+
+  const handleTabDragEnd = useCallback(() => {
+    useWorkspaceDragStore.getState().clearItem();
+    setHoveredDropTarget(null);
+  }, []);
 
   if (!window) {
     return null;
   }
 
-  const activeSurface = window.activeTabId ? document.surfacesById[window.activeTabId] : null;
-
   return (
     <section
+      ref={windowElementRef}
       className={cn(
-        "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border border-border/70 bg-background",
+        "relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border border-border/70 bg-background",
         focusedWindowId === props.windowId ? "ring-1 ring-border/80" : "",
       )}
-      onMouseDown={() => focusWindow(props.windowId)}
+      onPointerDownCapture={(event) => {
+        if (event.button !== 0) {
+          shouldAutoFocusOnActivationRef.current = true;
+          return;
+        }
+        const shouldSuppressAutoFocus = shouldSuppressPaneActivationAutoFocus(event.target);
+        shouldAutoFocusOnActivationRef.current = !shouldSuppressAutoFocus;
+        if (pendingFocusWindowFrameRef.current !== null) {
+          globalThis.cancelAnimationFrame(pendingFocusWindowFrameRef.current);
+          pendingFocusWindowFrameRef.current = null;
+        }
+        if (!shouldSuppressAutoFocus) {
+          focusWindow(props.windowId);
+          return;
+        }
+        pendingFocusWindowFrameRef.current = globalThis.requestAnimationFrame(() => {
+          pendingFocusWindowFrameRef.current = null;
+          focusWindow(props.windowId);
+        });
+      }}
     >
       <div className="flex min-w-0 items-center gap-1 border-b border-border/70 bg-muted/20 px-2 py-1.5">
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-md transition",
+            isWorkspaceDropTarget(hoveredDropTarget, "tab-strip") ? "bg-accent/60" : "",
+          )}
+          onDragLeave={resetHoveredDropTarget}
+          onDragOver={handleDragOverTarget("tab-strip")}
+          onDrop={handleDropTarget({
+            kind: "window",
+            windowId: props.windowId,
+            placement: "center",
+          })}
+        >
           {window.tabIds.map((surfaceId) => {
-            const surface = document.surfacesById[surfaceId];
-            if (!surface) {
-              return null;
-            }
-            const isActive = window.activeTabId === surfaceId;
             return (
-              <div
+              <WorkspaceTabView
                 key={surfaceId}
-                className={cn(
-                  "group flex max-w-[18rem] min-w-0 items-center gap-1 rounded-md border px-2 py-1 text-xs",
-                  isActive
-                    ? "border-border bg-background text-foreground"
-                    : "border-transparent text-muted-foreground hover:bg-accent/50",
-                )}
-              >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 truncate text-left"
-                  onClick={() => focusTab(props.windowId, surfaceId)}
-                >
-                  <WorkspaceSurfaceTitle surface={surface} />
-                </button>
-                <button
-                  type="button"
-                  className="rounded-sm p-0.5 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:bg-accent hover:text-foreground"
-                  onClick={() => closeSurface(surfaceId)}
-                  aria-label="Close tab"
-                >
-                  <XIcon className="size-3" />
-                </button>
-              </div>
+                closeSurface={closeSurface}
+                focusTab={focusTab}
+                handleDragOverTarget={handleDragOverTarget}
+                handleDropTarget={handleDropTarget}
+                handleTabDragEnd={handleTabDragEnd}
+                handleTabDragStart={handleTabDragStart}
+                hoveredDropTarget={hoveredDropTarget}
+                resetHoveredDropTarget={resetHoveredDropTarget}
+                surfaceId={surfaceId}
+                windowId={props.windowId}
+                isActive={window.activeTabId === surfaceId}
+              />
             );
           })}
         </div>
@@ -466,19 +785,113 @@ const WorkspaceWindowView = memo(function WorkspaceWindowView(props: { windowId:
           </button>
         </div>
       </div>
-      <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div
+        className={cn(
+          "h-0.5 shrink-0 transition-colors",
+          focusedWindowId === props.windowId ? "bg-primary" : "bg-transparent",
+        )}
+      />
+      <div
+        className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+        onDragLeave={handleWindowDragLeave}
+        onDrop={handleWindowDrop}
+        onDragOver={handleWindowDragOver}
+      >
         {activeSurface ? (
           <WorkspaceSurfaceView
+            activationFocusRequestId={
+              activeSurface.kind === "thread"
+                ? threadActivationFocusRequestId
+                : terminalActivationFocusRequestId
+            }
             surface={activeSurface}
             bindSharedComposerHandle={focusedWindowId === props.windowId}
           />
+        ) : null}
+        {dragItem && isWindowDragActive ? (
+          <>
+            <div className="pointer-events-none absolute inset-0 z-10 bg-background/10" />
+            <div
+              className={cn(
+                "pointer-events-none absolute z-20 rounded-lg border-2 border-primary/70 bg-primary/10 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)] transition-all",
+                workspaceDropPreviewClass(hoveredDropTarget),
+              )}
+            />
+          </>
         ) : null}
       </div>
     </section>
   );
 });
 
-function WorkspaceSurfaceView(props: {
+const WorkspaceTabView = memo(function WorkspaceTabView(props: {
+  closeSurface: (surfaceId: string) => void;
+  focusTab: (windowId: string, surfaceId: string) => void;
+  handleDragOverTarget: (
+    hoverTarget: WorkspaceDropPlacement | string,
+  ) => (event: React.DragEvent<HTMLElement>) => void;
+  handleDropTarget: (
+    target: WorkspacePlacementTarget,
+  ) => (event: React.DragEvent<HTMLElement>) => void;
+  handleTabDragEnd: () => void;
+  handleTabDragStart: (surfaceId: string) => (event: React.DragEvent<HTMLElement>) => void;
+  hoveredDropTarget: WorkspaceDropPlacement | string | null;
+  isActive: boolean;
+  resetHoveredDropTarget: () => void;
+  surfaceId: string;
+  windowId: string;
+}) {
+  const surface = useWorkspaceSurface(props.surfaceId);
+
+  if (!surface) {
+    return null;
+  }
+
+  return (
+    <div
+      className={cn(
+        "group flex max-w-[18rem] min-w-0 items-center gap-1 rounded-md border px-2 py-1 text-xs",
+        props.isActive
+          ? "border-border bg-background text-foreground"
+          : "border-transparent text-muted-foreground hover:bg-accent/50",
+        isWorkspaceDropTarget(props.hoveredDropTarget, props.surfaceId)
+          ? "ring-1 ring-primary/50"
+          : "",
+      )}
+      onDragLeave={props.resetHoveredDropTarget}
+      onDragOver={props.handleDragOverTarget(props.surfaceId)}
+      onDrop={props.handleDropTarget({
+        kind: "tab",
+        windowId: props.windowId,
+        surfaceId: props.surfaceId,
+      })}
+    >
+      <button
+        type="button"
+        className="min-w-0 flex-1 truncate text-left"
+        data-pane-autofocus-allow="true"
+        draggable
+        onClick={() => props.focusTab(props.windowId, props.surfaceId)}
+        onDragEnd={props.handleTabDragEnd}
+        onDragStart={props.handleTabDragStart(props.surfaceId)}
+      >
+        <WorkspaceSurfaceTitle surface={surface} />
+      </button>
+      <button
+        type="button"
+        draggable={false}
+        className="rounded-sm p-0.5 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:bg-accent hover:text-foreground"
+        onClick={() => props.closeSurface(props.surfaceId)}
+        aria-label="Close tab"
+      >
+        <XIcon className="size-3" />
+      </button>
+    </div>
+  );
+});
+
+const WorkspaceSurfaceView = memo(function WorkspaceSurfaceView(props: {
+  activationFocusRequestId?: number;
   bindSharedComposerHandle?: boolean;
   surface: WorkspaceSurfaceInstance;
 }) {
@@ -486,6 +899,9 @@ function WorkspaceSurfaceView(props: {
     if (props.surface.input.scope === "server") {
       return (
         <ChatView
+          {...(props.activationFocusRequestId === undefined
+            ? {}
+            : { activationFocusRequestId: props.activationFocusRequestId })}
           environmentId={props.surface.input.threadRef.environmentId}
           threadId={props.surface.input.threadRef.threadId}
           routeKind="server"
@@ -498,6 +914,9 @@ function WorkspaceSurfaceView(props: {
 
     return (
       <ChatView
+        {...(props.activationFocusRequestId === undefined
+          ? {}
+          : { activationFocusRequestId: props.activationFocusRequestId })}
         draftId={props.surface.input.draftId}
         environmentId={props.surface.input.environmentId}
         threadId={props.surface.input.threadId}
@@ -509,8 +928,17 @@ function WorkspaceSurfaceView(props: {
     );
   }
 
-  return <ThreadTerminalSurface threadRef={props.surface.input.threadRef} />;
-}
+  return (
+    <ThreadTerminalSurface
+      surfaceId={props.surface.id}
+      terminalId={props.surface.input.terminalId}
+      threadRef={props.surface.input.threadRef}
+      {...(props.activationFocusRequestId === undefined
+        ? {}
+        : { activationFocusRequestId: props.activationFocusRequestId })}
+    />
+  );
+});
 
 function WorkspaceSurfaceTitle(props: { surface: WorkspaceSurfaceInstance }) {
   if (props.surface.kind === "terminal") {

@@ -151,6 +151,7 @@ import {
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
 import { serverThreadSurfaceInput } from "../workspace/types";
+import { useWorkspaceDragStore } from "../workspace/dragStore";
 import { useWorkspaceStore, useWorkspaceThreadTerminalOpen } from "../workspace/store";
 import type { Project, SidebarThreadSummary } from "../types";
 const THREAD_PREVIEW_LIMIT = 6;
@@ -572,6 +573,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     },
     [],
   );
+  const handleDragStart = useCallback(
+    (event: React.DragEvent<HTMLElement>) => {
+      if (renamingThreadKey === threadKey) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", thread.id);
+      useWorkspaceDragStore.getState().setItem({
+        kind: "thread",
+        input: serverThreadSurfaceInput(threadRef),
+      });
+    },
+    [renamingThreadKey, thread.id, threadKey, threadRef],
+  );
+  const handleDragEnd = useCallback(() => {
+    useWorkspaceDragStore.getState().clearItem();
+  }, []);
   const handleConfirmArchiveClick = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault();
@@ -618,7 +637,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           isActive,
           isSelected,
         })} relative isolate`}
+        draggable={renamingThreadKey !== threadKey}
         onClick={handleRowClick}
+        onDragEnd={handleDragEnd}
+        onDragStart={handleDragStart}
         onKeyDown={handleRowKeyDown}
         onContextMenu={handleRowContextMenu}
       >

@@ -16,6 +16,7 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useWorkspaceThreadTerminalOpen } from "../workspace/store";
+import { useFocusedWorkspaceSurface, useWorkspaceStore } from "../workspace/store";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
 import { useSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "~/rpc/serverState";
@@ -26,6 +27,8 @@ function ChatRouteGlobalShortcuts() {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
   const { executeWorkspaceCommand } = useWorkspaceCommandExecutor();
+  const focusedWorkspaceSurface = useFocusedWorkspaceSurface();
+  const closeFocusedWindow = useWorkspaceStore((state) => state.closeFocusedWindow);
   const keybindings = useServerKeybindings();
   const terminalOpen = useWorkspaceThreadTerminalOpen(routeThreadRef);
   const appSettings = useSettings();
@@ -39,11 +42,35 @@ function ChatRouteGlobalShortcuts() {
           terminalOpen,
         },
       });
+      const isFocusedStandaloneTerminal = focusedWorkspaceSurface?.kind === "terminal";
       if (command && isWorkspaceCommandId(command)) {
         event.preventDefault();
         event.stopPropagation();
         void executeWorkspaceCommand(command);
         return;
+      }
+
+      if (isFocusedStandaloneTerminal) {
+        if (command === "terminal.split") {
+          event.preventDefault();
+          event.stopPropagation();
+          void executeWorkspaceCommand("workspace.terminal.splitRight");
+          return;
+        }
+
+        if (command === "terminal.new") {
+          event.preventDefault();
+          event.stopPropagation();
+          void executeWorkspaceCommand("workspace.terminal.newTab");
+          return;
+        }
+
+        if (command === "terminal.close") {
+          event.preventDefault();
+          event.stopPropagation();
+          closeFocusedWindow();
+          return;
+        }
       }
 
       if (useCommandPaletteStore.getState().open) {
@@ -94,10 +121,12 @@ function ChatRouteGlobalShortcuts() {
     activeDraftThread,
     activeThread,
     clearSelection,
+    closeFocusedWindow,
     handleNewThread,
     keybindings,
     defaultProjectRef,
     executeWorkspaceCommand,
+    focusedWorkspaceSurface,
     selectedThreadKeysSize,
     terminalOpen,
     appSettings.defaultThreadEnvMode,
