@@ -9,8 +9,9 @@ import type {
 } from "@t3tools/contracts";
 import { formatElapsed } from "@t3tools/shared/orchestrationTiming";
 import * as Haptics from "expo-haptics";
+import { SymbolView } from "expo-symbols";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, type LayoutChangeEvent } from "react-native";
+import { Pressable, View, type LayoutChangeEvent } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -34,6 +35,7 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ThreadFeed } from "./ThreadFeed";
+import { ThreadTerminalPanel } from "./ThreadTerminalPanel";
 
 export interface ThreadDetailScreenProps {
   readonly selectedThread: OrchestrationThread;
@@ -203,6 +205,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const estimatedOverlayHeight = composerOverlapHeight + activeWorkIndicatorHeight;
   const [measuredOverlayHeight, setMeasuredOverlayHeight] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [terminalVisible, setTerminalVisible] = useState(false);
   const showContent = props.showContent ?? true;
   const layoutVariant = props.layoutVariant ?? "compact";
   const isSplitLayout = layoutVariant === "split";
@@ -251,6 +254,16 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     );
   }, []);
 
+  const canOpenTerminal = Boolean(props.projectWorkspaceRoot);
+  const handleToggleTerminal = useCallback(() => {
+    if (!canOpenTerminal) {
+      return;
+    }
+
+    void Haptics.selectionAsync();
+    setTerminalVisible((current) => !current);
+  }, [canOpenTerminal]);
+
   return (
     <GestureDetector gesture={headerDrawerGesture}>
       <View className="flex-1">
@@ -270,6 +283,17 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         ) : (
           <View style={{ flex: 1 }} />
         )}
+
+        {showContent && props.projectWorkspaceRoot ? (
+          <ThreadTerminalPanel
+            visible={terminalVisible}
+            environmentId={props.environmentId}
+            threadId={props.selectedThread.id}
+            cwd={props.projectWorkspaceRoot}
+            worktreePath={props.selectedThread.worktreePath}
+            onClose={() => setTerminalVisible(false)}
+          />
+        ) : null}
 
         {/* Floating composer — sticks to keyboard via KeyboardStickyView */}
         {showContent ? (
@@ -304,6 +328,27 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   ) : null}
                 </View>
               ) : null}
+
+              <View className="items-end px-4 pb-2">
+                <Pressable
+                  disabled={!canOpenTerminal}
+                  className="flex-row items-center gap-2 rounded-[8px] border border-neutral-200/80 bg-neutral-50/95 px-3 py-2 dark:border-white/[0.08] dark:bg-white/[0.08]"
+                  style={({ pressed }) => ({
+                    opacity: !canOpenTerminal ? 0.4 : pressed ? 0.65 : 1,
+                  })}
+                  onPress={handleToggleTerminal}
+                >
+                  <SymbolView
+                    name="terminal"
+                    size={13}
+                    tintColor={terminalVisible ? "#22c55e" : "#a3a3a3"}
+                    type="monochrome"
+                  />
+                  <Text className="font-t3-bold text-[12px] text-neutral-700 dark:text-neutral-200">
+                    Terminal
+                  </Text>
+                </Pressable>
+              </View>
 
               <ThreadComposer
                 draftMessage={props.draftMessage}
