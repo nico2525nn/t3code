@@ -11,6 +11,7 @@ export * from "./gitActions";
 export * from "./gitActionState";
 export * from "./gitBranchState";
 export * from "./gitStatusState";
+export * from "./terminalSessionState";
 export * from "./transportError";
 export * from "./wsRpcProtocol";
 export * from "./wsTransport";
