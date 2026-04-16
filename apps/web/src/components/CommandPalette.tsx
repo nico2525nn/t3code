@@ -45,8 +45,9 @@ import {
   selectSidebarThreadsAcrossEnvironments,
   useStore,
 } from "../store";
+import { useThreadTerminalOpen } from "../terminalStateStore";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
-import { useWorkspaceStore, useWorkspaceThreadTerminalOpen } from "../workspace/store";
+import { useWorkspaceStore } from "../workspace/store";
 import { serverThreadSurfaceInput } from "../workspace/types";
 import {
   ADDON_ICON_CLASS,
@@ -90,7 +91,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     select: (params) => resolveThreadRouteTarget(params),
   });
   const routeThreadRef = routeTarget?.kind === "server" ? routeTarget.threadRef : null;
-  const terminalOpen = useWorkspaceThreadTerminalOpen(routeThreadRef);
+  const terminalOpen = useThreadTerminalOpen(routeThreadRef);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -406,17 +407,6 @@ function OpenCommandPaletteDialog() {
         await executeWorkspaceCommand("workspace.terminal.splitDown");
       },
     });
-    actionItems.push({
-      kind: "action",
-      value: "action:workspace-terminal-tab",
-      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.terminal.newTab"].searchTerms,
-      title: WORKSPACE_COMMAND_METADATA["workspace.terminal.newTab"].title,
-      icon: <TerminalSquareIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "workspace.terminal.newTab",
-      run: async () => {
-        await executeWorkspaceCommand("workspace.terminal.newTab");
-      },
-    });
   }
 
   if (canSplitFocusedPane) {
@@ -630,50 +620,6 @@ function OpenCommandPaletteDialog() {
       shortcutCommand: "workspace.pane.moveDown",
       run: async () => {
         await executeWorkspaceCommand("workspace.pane.moveDown");
-      },
-    });
-    actionItems.push({
-      kind: "action",
-      value: "action:workspace-tab-move-left",
-      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.tab.moveLeft"].searchTerms,
-      title: WORKSPACE_COMMAND_METADATA["workspace.tab.moveLeft"].title,
-      icon: <ArrowLeftIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "workspace.tab.moveLeft",
-      run: async () => {
-        await executeWorkspaceCommand("workspace.tab.moveLeft");
-      },
-    });
-    actionItems.push({
-      kind: "action",
-      value: "action:workspace-tab-move-right",
-      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.tab.moveRight"].searchTerms,
-      title: WORKSPACE_COMMAND_METADATA["workspace.tab.moveRight"].title,
-      icon: <ArrowRightIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "workspace.tab.moveRight",
-      run: async () => {
-        await executeWorkspaceCommand("workspace.tab.moveRight");
-      },
-    });
-    actionItems.push({
-      kind: "action",
-      value: "action:workspace-tab-move-up",
-      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.tab.moveUp"].searchTerms,
-      title: WORKSPACE_COMMAND_METADATA["workspace.tab.moveUp"].title,
-      icon: <ArrowUpIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "workspace.tab.moveUp",
-      run: async () => {
-        await executeWorkspaceCommand("workspace.tab.moveUp");
-      },
-    });
-    actionItems.push({
-      kind: "action",
-      value: "action:workspace-tab-move-down",
-      searchTerms: WORKSPACE_COMMAND_METADATA["workspace.tab.moveDown"].searchTerms,
-      title: WORKSPACE_COMMAND_METADATA["workspace.tab.moveDown"].title,
-      icon: <ArrowDownIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "workspace.tab.moveDown",
-      run: async () => {
-        await executeWorkspaceCommand("workspace.tab.moveDown");
       },
     });
   }

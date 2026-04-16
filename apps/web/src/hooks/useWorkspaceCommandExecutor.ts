@@ -12,7 +12,6 @@ import type { WorkspaceSurfaceInstance } from "../workspace/types";
 export const WORKSPACE_COMMAND_IDS = [
   "workspace.terminal.splitRight",
   "workspace.terminal.splitDown",
-  "workspace.terminal.newTab",
   "workspace.pane.splitRight",
   "workspace.pane.splitDown",
   "workspace.focus.previous",
@@ -32,10 +31,6 @@ export const WORKSPACE_COMMAND_IDS = [
   "workspace.pane.moveRight",
   "workspace.pane.moveUp",
   "workspace.pane.moveDown",
-  "workspace.tab.moveLeft",
-  "workspace.tab.moveRight",
-  "workspace.tab.moveUp",
-  "workspace.tab.moveDown",
 ] as const satisfies readonly KeybindingCommand[];
 
 export type WorkspaceCommandId = (typeof WORKSPACE_COMMAND_IDS)[number];
@@ -54,10 +49,6 @@ export const WORKSPACE_COMMAND_METADATA: Record<
   "workspace.terminal.splitDown": {
     title: "Open terminal in split down",
     searchTerms: ["terminal", "split", "down", "bottom", "pane", "workspace"],
-  },
-  "workspace.terminal.newTab": {
-    title: "Open terminal as tab",
-    searchTerms: ["terminal", "tab", "pane", "workspace"],
   },
   "workspace.pane.splitRight": {
     title: "Open in split right",
@@ -135,22 +126,6 @@ export const WORKSPACE_COMMAND_METADATA: Record<
     title: "Move pane down",
     searchTerms: ["move", "pane", "down", "workspace"],
   },
-  "workspace.tab.moveLeft": {
-    title: "Move tab left",
-    searchTerms: ["move", "tab", "left", "workspace"],
-  },
-  "workspace.tab.moveRight": {
-    title: "Move tab right",
-    searchTerms: ["move", "tab", "right", "workspace"],
-  },
-  "workspace.tab.moveUp": {
-    title: "Move tab up",
-    searchTerms: ["move", "tab", "up", "workspace"],
-  },
-  "workspace.tab.moveDown": {
-    title: "Move tab down",
-    searchTerms: ["move", "tab", "down", "workspace"],
-  },
 };
 
 function threadRefForWorkspaceSurface(
@@ -185,9 +160,6 @@ export function useWorkspaceCommandExecutor() {
   const equalizeSplits = useWorkspaceStore((state) => state.equalizeSplits);
   const focusWindowByStep = useWorkspaceStore((state) => state.focusWindowByStep);
   const focusAdjacentWindow = useWorkspaceStore((state) => state.focusAdjacentWindow);
-  const moveActiveTabToAdjacentWindow = useWorkspaceStore(
-    (state) => state.moveActiveTabToAdjacentWindow,
-  );
   const moveFocusedWindow = useWorkspaceStore((state) => state.moveFocusedWindow);
   const openTerminalSurfaceForThread = useWorkspaceStore(
     (state) => state.openTerminalSurfaceForThread,
@@ -222,12 +194,6 @@ export function useWorkspaceCommandExecutor() {
             return false;
           }
           openTerminalSurfaceForThread(focusedThreadRef, "split-down");
-          return true;
-        case "workspace.terminal.newTab":
-          if (!focusedThreadRef) {
-            return false;
-          }
-          openTerminalSurfaceForThread(focusedThreadRef, "new-tab");
           return true;
         case "workspace.pane.splitRight":
           if (!focusedWindowId) {
@@ -292,18 +258,6 @@ export function useWorkspaceCommandExecutor() {
         case "workspace.pane.moveDown":
           moveFocusedWindow("down");
           return true;
-        case "workspace.tab.moveLeft":
-          moveActiveTabToAdjacentWindow("left");
-          return true;
-        case "workspace.tab.moveRight":
-          moveActiveTabToAdjacentWindow("right");
-          return true;
-        case "workspace.tab.moveUp":
-          moveActiveTabToAdjacentWindow("up");
-          return true;
-        case "workspace.tab.moveDown":
-          moveActiveTabToAdjacentWindow("down");
-          return true;
       }
     },
     [
@@ -313,7 +267,6 @@ export function useWorkspaceCommandExecutor() {
       focusWindowByStep,
       focusedThreadRef,
       focusedWindowId,
-      moveActiveTabToAdjacentWindow,
       moveFocusedWindow,
       openTerminalSurfaceForThread,
       openWorkspaceTarget,

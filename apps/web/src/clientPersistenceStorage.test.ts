@@ -99,8 +99,7 @@ describe("clientPersistenceStorage", () => {
       windowsById: {
         "window-1": {
           id: "window-1",
-          tabIds: ["surface-1"],
-          activeTabId: "surface-1",
+          surfaceId: "surface-1",
         },
       },
       surfacesById: {

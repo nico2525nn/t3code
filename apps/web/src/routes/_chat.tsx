@@ -14,8 +14,8 @@ import {
 } from "../lib/chatThreadActions";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
+import { useThreadTerminalOpen } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import { useWorkspaceThreadTerminalOpen } from "../workspace/store";
 import { useFocusedWorkspaceSurface, useWorkspaceStore } from "../workspace/store";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
 import { useSettings } from "~/hooks/useSettings";
@@ -30,7 +30,7 @@ function ChatRouteGlobalShortcuts() {
   const focusedWorkspaceSurface = useFocusedWorkspaceSurface();
   const closeFocusedWindow = useWorkspaceStore((state) => state.closeFocusedWindow);
   const keybindings = useServerKeybindings();
-  const terminalOpen = useWorkspaceThreadTerminalOpen(routeThreadRef);
+  const terminalOpen = useThreadTerminalOpen(routeThreadRef);
   const appSettings = useSettings();
 
   useEffect(() => {
@@ -61,7 +61,7 @@ function ChatRouteGlobalShortcuts() {
         if (command === "terminal.new") {
           event.preventDefault();
           event.stopPropagation();
-          void executeWorkspaceCommand("workspace.terminal.newTab");
+          void executeWorkspaceCommand("workspace.terminal.splitDown");
           return;
         }
 

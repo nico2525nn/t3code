@@ -519,6 +519,12 @@ export function selectThreadTerminalState(
   return terminalStateByThreadKey[terminalThreadKey(threadRef)] ?? getDefaultThreadTerminalState();
 }
 
+export function useThreadTerminalOpen(threadRef: ScopedThreadRef | null | undefined): boolean {
+  return useTerminalStateStore(
+    (state) => selectThreadTerminalState(state.terminalStateByThreadKey, threadRef).terminalOpen,
+  );
+}
+
 function updateTerminalStateByThreadKey(
   terminalStateByThreadKey: Record<string, ThreadTerminalState>,
   threadRef: ScopedThreadRef,

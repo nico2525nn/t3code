@@ -68,7 +68,11 @@ import {
   selectThreadByRef,
   useStore,
 } from "../store";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import {
+  selectThreadTerminalState,
+  useTerminalStateStore,
+  useThreadTerminalOpen,
+} from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
 import {
   resolveShortcutCommand,
@@ -150,9 +154,9 @@ import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
-import { serverThreadSurfaceInput } from "../workspace/types";
+import { serverThreadSurfaceInput, type WorkspaceLayoutEngine } from "../workspace/types";
 import { useWorkspaceDragStore } from "../workspace/dragStore";
-import { useWorkspaceStore, useWorkspaceThreadTerminalOpen } from "../workspace/store";
+import { useWorkspaceLayoutEngine, useWorkspaceStore } from "../workspace/store";
 import type { Project, SidebarThreadSummary } from "../types";
 const THREAD_PREVIEW_LIMIT = 6;
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
@@ -1032,7 +1036,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const removeFromSelection = useThreadSelectionStore((state) => state.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((state) => state.setAnchor);
   const selectedThreadCount = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
-  const openThreadInNewTab = useWorkspaceStore((state) => state.openThreadInNewTab);
   const openThreadInSplit = useWorkspaceStore((state) => state.openThreadInSplit);
   const clearComposerDraftForThread = useComposerDraftStore((state) => state.clearDraftThread);
   const getDraftThreadByProjectRef = useComposerDraftStore(
@@ -1662,7 +1665,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       const threadWorkspacePath = thread.worktreePath ?? project.cwd ?? null;
       const clicked = await api.contextMenu.show(
         [
-          { id: "open-new-tab", label: "Open in new tab" },
           { id: "open-split-right", label: "Open in split right" },
           { id: "open-split-down", label: "Open in split down" },
           { id: "rename", label: "Rename thread" },
@@ -1673,15 +1675,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         ],
         position,
       );
-
-      if (clicked === "open-new-tab") {
-        openThreadInNewTab(serverThreadSurfaceInput(threadRef));
-        void router.navigate({
-          to: "/$environmentId/$threadId",
-          params: buildThreadRouteParams(threadRef),
-        });
-        return;
-      }
 
       if (clicked === "open-split-right") {
         openThreadInSplit(serverThreadSurfaceInput(threadRef), "x");
@@ -1748,7 +1741,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       copyThreadIdToClipboard,
       deleteThread,
       markThreadUnread,
-      openThreadInNewTab,
       openThreadInSplit,
       project.cwd,
       router,
@@ -2060,6 +2052,8 @@ const SidebarChromeHeader = memo(function SidebarChromeHeader({
 
 const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   const navigate = useNavigate();
+  const layoutEngine = useWorkspaceLayoutEngine();
+  const setLayoutEngine = useWorkspaceStore((state) => state.setLayoutEngine);
   const handleSettingsClick = useCallback(() => {
     void navigate({ to: "/settings" });
   }, [navigate]);
@@ -2079,7 +2073,38 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
+      <div className="mt-2 flex items-center gap-1 px-2">
+        <span className="text-[11px] text-muted-foreground/70">Layout</span>
+        <WorkspaceLayoutToggle
+          layoutEngine={layoutEngine}
+          onSelect={(engine) => setLayoutEngine(engine)}
+        />
+      </div>
     </SidebarFooter>
+  );
+});
+
+const WorkspaceLayoutToggle = memo(function WorkspaceLayoutToggle(props: {
+  layoutEngine: WorkspaceLayoutEngine;
+  onSelect: (engine: WorkspaceLayoutEngine) => void;
+}) {
+  return (
+    <div className="ml-auto flex items-center gap-1">
+      {(["split", "paper"] as const).map((engine) => (
+        <button
+          key={engine}
+          type="button"
+          className={
+            props.layoutEngine === engine
+              ? "rounded-md border border-border bg-accent px-2 py-1 text-[11px] text-foreground"
+              : "rounded-md border border-border/60 px-2 py-1 text-[11px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
+          }
+          onClick={() => props.onSelect(engine)}
+        >
+          {engine === "split" ? "Split" : "Paper"}
+        </button>
+      ))}
+    </div>
   );
 });
 
@@ -2449,7 +2474,7 @@ export default function Sidebar() {
     select: (params) => resolveThreadRouteRef(params),
   });
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
-  const routeThreadTerminalOpen = useWorkspaceThreadTerminalOpen(routeThreadRef);
+  const routeThreadTerminalOpen = useThreadTerminalOpen(routeThreadRef);
   const keybindings = useServerKeybindings();
   const setCommandPaletteOpen = useCommandPaletteStore((state) => state.setOpen);
   const [addingProject, setAddingProject] = useState(false);

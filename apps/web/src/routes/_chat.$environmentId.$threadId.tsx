@@ -259,7 +259,7 @@ function ChatThreadRouteView() {
         scope: "server",
         threadRef,
       },
-      "focus-or-tab",
+      "focus-or-replace",
     );
   }, [bootstrapComplete, openThreadSurface, routeThreadExists, threadRef]);
 

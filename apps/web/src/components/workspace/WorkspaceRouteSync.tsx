@@ -74,7 +74,7 @@ export function WorkspaceRouteSync() {
       }
 
       if (!focusedRouteTarget || pathnameChanged) {
-        openThreadSurface(currentRouteSurfaceInput, "focus-or-tab");
+        openThreadSurface(currentRouteSurfaceInput, "focus-or-replace");
         return;
       }
 

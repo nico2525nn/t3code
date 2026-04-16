@@ -13,6 +13,7 @@ import { DEFAULT_THREAD_TERMINAL_ID } from "../types";
 import {
   createEmptyWorkspaceDocument,
   isWorkspaceDocument,
+  normalizeWorkspacePaperColumnWidths,
   normalizeWorkspaceSplitSizes,
   routeTargetForSurface,
   sameTerminalSurfaceInput,
@@ -22,18 +23,20 @@ import {
   type WorkspaceAxis,
   type WorkspaceDirection,
   type WorkspaceDocument,
+  type WorkspaceLayoutEngine,
   type WorkspaceNode,
   type WorkspacePlacementTarget,
   type WorkspaceSurfaceInstance,
   type WorkspaceWindow,
 } from "./types";
 
-type OpenThreadDisposition = "focus-or-tab" | "new-tab" | "split-right" | "split-down";
+type OpenThreadDisposition = "focus-or-replace" | "split-right" | "split-down";
 type OpenTerminalDisposition = OpenThreadDisposition;
 
 const WORKSPACE_PERSIST_DEBOUNCE_MS = 150;
 const WORKSPACE_RESIZE_STEP = 0.08;
 const WORKSPACE_MIN_RESIZE_FRACTION = 0.12;
+const WORKSPACE_MIN_PAPER_COLUMN_WIDTH = 0.45;
 
 let persistTimer: number | null = null;
 const WINDOW_RECT_EPSILON = 0.001;
@@ -63,6 +66,10 @@ function nextTerminalSessionId(): string {
 
 function equalSplitSizes(childCount: number): number[] {
   return normalizeWorkspaceSplitSizes(undefined, childCount);
+}
+
+function equalPaperColumnWidths(childCount: number): number[] {
+  return normalizeWorkspacePaperColumnWidths(undefined, childCount);
 }
 
 function createThreadSurface(input: ThreadSurfaceInput): WorkspaceSurfaceInstance {
@@ -95,7 +102,6 @@ function duplicateSurface(surface: WorkspaceSurfaceInstance): WorkspaceSurfaceIn
 function cloneWindow(window: WorkspaceWindow): WorkspaceWindow {
   return {
     ...window,
-    tabIds: [...window.tabIds],
   };
 }
 
@@ -104,7 +110,7 @@ function getWindowBySurfaceId(
   surfaceId: string,
 ): { windowId: string; window: WorkspaceWindow } | null {
   for (const [windowId, window] of Object.entries(document.windowsById)) {
-    if (window.tabIds.includes(surfaceId)) {
+    if (window.surfaceId === surfaceId) {
       return { windowId, window };
     }
   }
@@ -156,12 +162,37 @@ function collectWindowRects(
     return;
   }
 
+  if (node.kind === "paper-root") {
+    const widths = normalizeWorkspacePaperColumnWidths(node.widths, node.childIds.length);
+    let cursor = 0;
+
+    for (const [index, childId] of node.childIds.entries()) {
+      const width = widths[index] ?? 1;
+      const nextCursor = cursor + width;
+      collectWindowRects(
+        document,
+        childId,
+        {
+          left: cursor,
+          top: 0,
+          right: nextCursor,
+          bottom: 1,
+        },
+        rects,
+      );
+      cursor = nextCursor;
+    }
+
+    return;
+  }
+
   const sizes = normalizeWorkspaceSplitSizes(node.sizes, node.childIds.length);
-  let cursor = node.axis === "x" ? rect.left : rect.top;
+  const axis = node.kind === "paper-column" ? "y" : node.axis;
+  let cursor = axis === "x" ? rect.left : rect.top;
 
   for (const [index, childId] of node.childIds.entries()) {
     const size = sizes[index] ?? 0;
-    if (node.axis === "x") {
+    if (axis === "x") {
       const nextCursor = cursor + (rect.right - rect.left) * size;
       collectWindowRects(
         document,
@@ -213,6 +244,14 @@ function getWorkspaceWindowRects(document: WorkspaceDocument): WorkspaceWindowRe
 function getOrderedWorkspaceWindowIds(document: WorkspaceDocument): string[] {
   return getWorkspaceWindowRects(document)
     .toSorted((left, right) => {
+      if (document.layoutEngine === "paper") {
+        const leftDelta = left.left - right.left;
+        if (Math.abs(leftDelta) > WINDOW_RECT_EPSILON) {
+          return leftDelta;
+        }
+        return left.top - right.top;
+      }
+
       const topDelta = left.top - right.top;
       if (Math.abs(topDelta) > WINDOW_RECT_EPSILON) {
         return topDelta;
@@ -330,6 +369,116 @@ function findParentNode(
   return null;
 }
 
+function getPaperRootNode(
+  document: WorkspaceDocument,
+): { nodeId: string; node: Extract<WorkspaceNode, { kind: "paper-root" }> } | null {
+  if (!document.rootNodeId) {
+    return null;
+  }
+  const node = document.nodesById[document.rootNodeId];
+  if (!node || node.kind !== "paper-root") {
+    return null;
+  }
+  return { nodeId: document.rootNodeId, node };
+}
+
+function getPaperColumnByWindowId(
+  document: WorkspaceDocument,
+  windowId: string,
+): {
+  columnId: string;
+  column: Extract<WorkspaceNode, { kind: "paper-column" }>;
+  root: Extract<WorkspaceNode, { kind: "paper-root" }>;
+  rootId: string;
+  windowNodeId: string;
+  windowIndex: number;
+  columnIndex: number;
+} | null {
+  const root = getPaperRootNode(document);
+  const windowNode = getWindowNodeByWindowId(document, windowId);
+  if (!root || !windowNode) {
+    return null;
+  }
+
+  for (const [columnIndex, columnId] of root.node.childIds.entries()) {
+    const column = document.nodesById[columnId];
+    if (!column || column.kind !== "paper-column") {
+      continue;
+    }
+
+    const windowIndex = column.childIds.indexOf(windowNode.nodeId);
+    if (windowIndex >= 0) {
+      return {
+        columnId,
+        column,
+        root: root.node,
+        rootId: root.nodeId,
+        windowNodeId: windowNode.nodeId,
+        windowIndex,
+        columnIndex,
+      };
+    }
+  }
+
+  return null;
+}
+
+function createPaperTreeForWindow(options: {
+  surface: WorkspaceSurfaceInstance;
+  document: WorkspaceDocument;
+}): WorkspaceDocument {
+  const rootNodeId = nextWorkspaceId("node");
+  const columnNodeId = nextWorkspaceId("node");
+  const windowNodeId = nextWorkspaceId("node");
+  const windowId = nextWorkspaceId("window");
+
+  return {
+    ...options.document,
+    layoutEngine: "paper",
+    rootNodeId,
+    nodesById: {
+      [rootNodeId]: {
+        id: rootNodeId,
+        kind: "paper-root",
+        childIds: [columnNodeId],
+        widths: [1],
+        sizingMode: "auto",
+      },
+      [columnNodeId]: {
+        id: columnNodeId,
+        kind: "paper-column",
+        childIds: [windowNodeId],
+        sizes: [1],
+        sizingMode: "auto",
+      },
+      [windowNodeId]: {
+        id: windowNodeId,
+        kind: "window",
+        windowId,
+      },
+    },
+    windowsById: {
+      [windowId]: {
+        id: windowId,
+        surfaceId: options.surface.id,
+      },
+    },
+    surfacesById: {
+      ...options.document.surfacesById,
+      [options.surface.id]: options.surface,
+    },
+    focusedWindowId: windowId,
+    mobileActiveWindowId: windowId,
+  };
+}
+
+function normalizePaperColumnSizes(
+  column: Extract<WorkspaceNode, { kind: "paper-column" }>,
+  sizes?: number[] | null,
+): number[] {
+  return normalizeWorkspaceSplitSizes(sizes ?? column.sizes, column.childIds.length);
+}
+
 function firstWindowId(document: WorkspaceDocument): string | null {
   if (document.focusedWindowId && document.windowsById[document.focusedWindowId]) {
     return document.focusedWindowId;
@@ -364,7 +513,7 @@ function getFocusedSurface(document: WorkspaceDocument): WorkspaceSurfaceInstanc
     return null;
   }
   const window = document.windowsById[windowId];
-  const surfaceId = window?.activeTabId ?? null;
+  const surfaceId = window?.surfaceId ?? null;
   return surfaceId ? (document.surfacesById[surfaceId] ?? null) : null;
 }
 
@@ -387,7 +536,7 @@ function focusSurfaceById(document: WorkspaceDocument, surfaceId: string): Works
   }
 
   if (
-    located.window.activeTabId === surfaceId &&
+    located.window.surfaceId === surfaceId &&
     document.focusedWindowId === located.windowId &&
     document.mobileActiveWindowId === located.windowId
   ) {
@@ -395,7 +544,7 @@ function focusSurfaceById(document: WorkspaceDocument, surfaceId: string): Works
   }
 
   const nextWindow = cloneWindow(located.window);
-  nextWindow.activeTabId = surfaceId;
+  nextWindow.surfaceId = surfaceId;
 
   return {
     ...document,
@@ -408,12 +557,47 @@ function focusSurfaceById(document: WorkspaceDocument, surfaceId: string): Works
   };
 }
 
+function replaceWindowSurface(
+  document: WorkspaceDocument,
+  windowId: string,
+  surface: WorkspaceSurfaceInstance,
+): WorkspaceDocument {
+  const currentWindow = document.windowsById[windowId];
+  if (!currentWindow) {
+    return insertSurfaceIntoWindow(document, null, surface);
+  }
+
+  const nextSurfacesById = { ...document.surfacesById, [surface.id]: surface };
+  const previousSurfaceId = currentWindow.surfaceId;
+  if (previousSurfaceId && previousSurfaceId !== surface.id) {
+    delete nextSurfacesById[previousSurfaceId];
+  }
+
+  return {
+    ...document,
+    windowsById: {
+      ...document.windowsById,
+      [windowId]: {
+        ...currentWindow,
+        surfaceId: surface.id,
+      },
+    },
+    surfacesById: nextSurfacesById,
+    focusedWindowId: windowId,
+    mobileActiveWindowId: windowId,
+  };
+}
+
 function insertSurfaceIntoWindow(
   document: WorkspaceDocument,
   windowId: string | null,
   surface: WorkspaceSurfaceInstance,
 ): WorkspaceDocument {
   if (!windowId || !document.windowsById[windowId]) {
+    if (document.layoutEngine === "paper") {
+      return createPaperTreeForWindow({ document, surface });
+    }
+
     const nextWindowId = nextWorkspaceId("window");
     const nextNodeId = nextWorkspaceId("node");
     return {
@@ -429,8 +613,7 @@ function insertSurfaceIntoWindow(
       windowsById: {
         [nextWindowId]: {
           id: nextWindowId,
-          tabIds: [surface.id],
-          activeTabId: surface.id,
+          surfaceId: surface.id,
         },
       },
       surfacesById: {
@@ -442,60 +625,7 @@ function insertSurfaceIntoWindow(
     };
   }
 
-  const currentWindow = document.windowsById[windowId];
-  const nextWindow = cloneWindow(currentWindow);
-  nextWindow.tabIds = [...nextWindow.tabIds, surface.id];
-  nextWindow.activeTabId = surface.id;
-
-  return {
-    ...document,
-    windowsById: {
-      ...document.windowsById,
-      [windowId]: nextWindow,
-    },
-    surfacesById: {
-      ...document.surfacesById,
-      [surface.id]: surface,
-    },
-    focusedWindowId: windowId,
-    mobileActiveWindowId: windowId,
-  };
-}
-
-function clampTabIndex(window: WorkspaceWindow, index: number): number {
-  return Math.max(0, Math.min(index, window.tabIds.length));
-}
-
-function insertSurfaceIntoWindowAt(
-  document: WorkspaceDocument,
-  windowId: string | null,
-  surface: WorkspaceSurfaceInstance,
-  index: number,
-): WorkspaceDocument {
-  if (!windowId || !document.windowsById[windowId]) {
-    return insertSurfaceIntoWindow(document, null, surface);
-  }
-
-  const currentWindow = document.windowsById[windowId];
-  const nextWindow = cloneWindow(currentWindow);
-  const nextTabIds = [...nextWindow.tabIds];
-  nextTabIds.splice(clampTabIndex(currentWindow, index), 0, surface.id);
-  nextWindow.tabIds = nextTabIds;
-  nextWindow.activeTabId = surface.id;
-
-  return {
-    ...document,
-    windowsById: {
-      ...document.windowsById,
-      [windowId]: nextWindow,
-    },
-    surfacesById: {
-      ...document.surfacesById,
-      [surface.id]: surface,
-    },
-    focusedWindowId: windowId,
-    mobileActiveWindowId: windowId,
-  };
+  return replaceWindowSurface(document, windowId, surface);
 }
 
 function placementToSplitParams(placement: "left" | "right" | "top" | "bottom"): {
@@ -514,12 +644,260 @@ function placementToSplitParams(placement: "left" | "right" | "top" | "bottom"):
   }
 }
 
+function splitPaperWindowWithSurface(
+  document: WorkspaceDocument,
+  sourceWindowId: string | null,
+  axis: WorkspaceAxis,
+  surface: WorkspaceSurfaceInstance,
+): WorkspaceDocument {
+  if (!sourceWindowId || !document.windowsById[sourceWindowId]) {
+    return insertSurfaceIntoWindow(document, null, surface);
+  }
+
+  const sourceColumn = getPaperColumnByWindowId(document, sourceWindowId);
+  if (!sourceColumn) {
+    return insertSurfaceIntoWindow(document, null, surface);
+  }
+
+  const nextWindowId = nextWorkspaceId("window");
+  const nextWindowNodeId = nextWorkspaceId("node");
+  const nextWindowNode: WorkspaceNode = {
+    id: nextWindowNodeId,
+    kind: "window",
+    windowId: nextWindowId,
+  };
+  const nextNodesById: Record<string, WorkspaceNode> = {
+    ...document.nodesById,
+    [nextWindowNodeId]: nextWindowNode,
+  };
+
+  if (axis === "y") {
+    const nextChildIds = [
+      ...sourceColumn.column.childIds.slice(0, sourceColumn.windowIndex + 1),
+      nextWindowNodeId,
+      ...sourceColumn.column.childIds.slice(sourceColumn.windowIndex + 1),
+    ];
+    nextNodesById[sourceColumn.columnId] = {
+      ...sourceColumn.column,
+      childIds: nextChildIds,
+      sizes:
+        sourceColumn.column.sizingMode === "manual"
+          ? normalizeWorkspaceSplitSizes(
+              [
+                ...sourceColumn.column.sizes.slice(0, sourceColumn.windowIndex + 1),
+                sourceColumn.column.sizes[sourceColumn.windowIndex] ?? 1,
+                ...sourceColumn.column.sizes.slice(sourceColumn.windowIndex + 1),
+              ],
+              nextChildIds.length,
+            )
+          : equalSplitSizes(nextChildIds.length),
+      sizingMode: sourceColumn.column.sizingMode,
+    };
+
+    return {
+      ...document,
+      nodesById: nextNodesById,
+      windowsById: {
+        ...document.windowsById,
+        [nextWindowId]: {
+          id: nextWindowId,
+          surfaceId: surface.id,
+        },
+      },
+      surfacesById: {
+        ...document.surfacesById,
+        [surface.id]: surface,
+      },
+      focusedWindowId: nextWindowId,
+      mobileActiveWindowId: nextWindowId,
+    };
+  }
+
+  const nextColumnId = nextWorkspaceId("node");
+  nextNodesById[nextColumnId] = {
+    id: nextColumnId,
+    kind: "paper-column",
+    childIds: [nextWindowNodeId],
+    sizes: [1],
+    sizingMode: "auto",
+  };
+
+  const nextChildIds = [
+    ...sourceColumn.root.childIds.slice(0, sourceColumn.columnIndex + 1),
+    nextColumnId,
+    ...sourceColumn.root.childIds.slice(sourceColumn.columnIndex + 1),
+  ];
+
+  nextNodesById[sourceColumn.rootId] = {
+    ...sourceColumn.root,
+    childIds: nextChildIds,
+    widths:
+      sourceColumn.root.sizingMode === "manual"
+        ? normalizeWorkspacePaperColumnWidths(
+            [
+              ...sourceColumn.root.widths.slice(0, sourceColumn.columnIndex + 1),
+              sourceColumn.root.widths[sourceColumn.columnIndex] ?? 1,
+              ...sourceColumn.root.widths.slice(sourceColumn.columnIndex + 1),
+            ],
+            nextChildIds.length,
+          )
+        : equalPaperColumnWidths(nextChildIds.length),
+    sizingMode: sourceColumn.root.sizingMode,
+  };
+
+  return {
+    ...document,
+    nodesById: nextNodesById,
+    windowsById: {
+      ...document.windowsById,
+      [nextWindowId]: {
+        id: nextWindowId,
+        surfaceId: surface.id,
+      },
+    },
+    surfacesById: {
+      ...document.surfacesById,
+      [surface.id]: surface,
+    },
+    focusedWindowId: nextWindowId,
+    mobileActiveWindowId: nextWindowId,
+  };
+}
+
+function splitPaperWindowWithSurfaceAtEdge(
+  document: WorkspaceDocument,
+  sourceWindowId: string | null,
+  placement: "left" | "right" | "top" | "bottom",
+  surface: WorkspaceSurfaceInstance,
+): WorkspaceDocument {
+  if (!sourceWindowId || !document.windowsById[sourceWindowId]) {
+    return insertSurfaceIntoWindow(document, null, surface);
+  }
+
+  const sourceColumn = getPaperColumnByWindowId(document, sourceWindowId);
+  if (!sourceColumn) {
+    return insertSurfaceIntoWindow(document, null, surface);
+  }
+
+  const nextWindowId = nextWorkspaceId("window");
+  const nextWindowNodeId = nextWorkspaceId("node");
+  const nextWindowNode: WorkspaceNode = {
+    id: nextWindowNodeId,
+    kind: "window",
+    windowId: nextWindowId,
+  };
+  const nextNodesById: Record<string, WorkspaceNode> = {
+    ...document.nodesById,
+    [nextWindowNodeId]: nextWindowNode,
+  };
+
+  if (placement === "top" || placement === "bottom") {
+    const insertIndex =
+      placement === "top" ? sourceColumn.windowIndex : sourceColumn.windowIndex + 1;
+    const nextChildIds = [
+      ...sourceColumn.column.childIds.slice(0, insertIndex),
+      nextWindowNodeId,
+      ...sourceColumn.column.childIds.slice(insertIndex),
+    ];
+    nextNodesById[sourceColumn.columnId] = {
+      ...sourceColumn.column,
+      childIds: nextChildIds,
+      sizes:
+        sourceColumn.column.sizingMode === "manual"
+          ? normalizeWorkspaceSplitSizes(
+              [
+                ...sourceColumn.column.sizes.slice(0, insertIndex),
+                sourceColumn.column.sizes[sourceColumn.windowIndex] ?? 1,
+                ...sourceColumn.column.sizes.slice(insertIndex),
+              ],
+              nextChildIds.length,
+            )
+          : equalSplitSizes(nextChildIds.length),
+      sizingMode: sourceColumn.column.sizingMode,
+    };
+
+    return {
+      ...document,
+      nodesById: nextNodesById,
+      windowsById: {
+        ...document.windowsById,
+        [nextWindowId]: {
+          id: nextWindowId,
+          surfaceId: surface.id,
+        },
+      },
+      surfacesById: {
+        ...document.surfacesById,
+        [surface.id]: surface,
+      },
+      focusedWindowId: nextWindowId,
+      mobileActiveWindowId: nextWindowId,
+    };
+  }
+
+  const nextColumnId = nextWorkspaceId("node");
+  nextNodesById[nextColumnId] = {
+    id: nextColumnId,
+    kind: "paper-column",
+    childIds: [nextWindowNodeId],
+    sizes: [1],
+    sizingMode: "auto",
+  };
+
+  const insertIndex =
+    placement === "left" ? sourceColumn.columnIndex : sourceColumn.columnIndex + 1;
+  const nextChildIds = [
+    ...sourceColumn.root.childIds.slice(0, insertIndex),
+    nextColumnId,
+    ...sourceColumn.root.childIds.slice(insertIndex),
+  ];
+
+  nextNodesById[sourceColumn.rootId] = {
+    ...sourceColumn.root,
+    childIds: nextChildIds,
+    widths:
+      sourceColumn.root.sizingMode === "manual"
+        ? normalizeWorkspacePaperColumnWidths(
+            [
+              ...sourceColumn.root.widths.slice(0, insertIndex),
+              sourceColumn.root.widths[sourceColumn.columnIndex] ?? 1,
+              ...sourceColumn.root.widths.slice(insertIndex),
+            ],
+            nextChildIds.length,
+          )
+        : equalPaperColumnWidths(nextChildIds.length),
+    sizingMode: sourceColumn.root.sizingMode,
+  };
+
+  return {
+    ...document,
+    nodesById: nextNodesById,
+    windowsById: {
+      ...document.windowsById,
+      [nextWindowId]: {
+        id: nextWindowId,
+        surfaceId: surface.id,
+      },
+    },
+    surfacesById: {
+      ...document.surfacesById,
+      [surface.id]: surface,
+    },
+    focusedWindowId: nextWindowId,
+    mobileActiveWindowId: nextWindowId,
+  };
+}
+
 function splitWindowWithSurface(
   document: WorkspaceDocument,
   sourceWindowId: string | null,
   axis: WorkspaceAxis,
   surface: WorkspaceSurfaceInstance,
 ): WorkspaceDocument {
+  if (document.layoutEngine === "paper") {
+    return splitPaperWindowWithSurface(document, sourceWindowId, axis, surface);
+  }
+
   if (!sourceWindowId || !document.windowsById[sourceWindowId]) {
     return insertSurfaceIntoWindow(document, null, surface);
   }
@@ -562,8 +940,7 @@ function splitWindowWithSurface(
         ...document.windowsById,
         [nextWindowId]: {
           id: nextWindowId,
-          tabIds: [surface.id],
-          activeTabId: surface.id,
+          surfaceId: surface.id,
         },
       },
       surfacesById: {
@@ -606,8 +983,7 @@ function splitWindowWithSurface(
       ...document.windowsById,
       [nextWindowId]: {
         id: nextWindowId,
-        tabIds: [surface.id],
-        activeTabId: surface.id,
+        surfaceId: surface.id,
       },
     },
     surfacesById: {
@@ -625,6 +1001,10 @@ function splitWindowWithSurfaceAtEdge(
   placement: "left" | "right" | "top" | "bottom",
   surface: WorkspaceSurfaceInstance,
 ): WorkspaceDocument {
+  if (document.layoutEngine === "paper") {
+    return splitPaperWindowWithSurfaceAtEdge(document, sourceWindowId, placement, surface);
+  }
+
   if (!sourceWindowId || !document.windowsById[sourceWindowId]) {
     return insertSurfaceIntoWindow(document, null, surface);
   }
@@ -669,8 +1049,7 @@ function splitWindowWithSurfaceAtEdge(
         ...document.windowsById,
         [nextWindowId]: {
           id: nextWindowId,
-          tabIds: [surface.id],
-          activeTabId: surface.id,
+          surfaceId: surface.id,
         },
       },
       surfacesById: {
@@ -716,8 +1095,7 @@ function splitWindowWithSurfaceAtEdge(
       ...document.windowsById,
       [nextWindowId]: {
         id: nextWindowId,
-        tabIds: [surface.id],
-        activeTabId: surface.id,
+        surfaceId: surface.id,
       },
     },
     surfacesById: {
@@ -735,7 +1113,7 @@ function setWorkspaceSplitNodeSizes(
   sizes: number[],
 ): WorkspaceDocument {
   const node = document.nodesById[nodeId];
-  if (!node || node.kind !== "split") {
+  if (!node || (node.kind !== "split" && node.kind !== "paper-column")) {
     return document;
   }
 
@@ -755,6 +1133,38 @@ function setWorkspaceSplitNodeSizes(
       [nodeId]: {
         ...node,
         sizes: nextSizes,
+        sizingMode: "manual",
+      },
+    },
+  };
+}
+
+function setPaperRootWidths(
+  document: WorkspaceDocument,
+  nodeId: string,
+  widths: number[],
+): WorkspaceDocument {
+  const node = document.nodesById[nodeId];
+  if (!node || node.kind !== "paper-root") {
+    return document;
+  }
+
+  const currentWidths = normalizeWorkspacePaperColumnWidths(node.widths, node.childIds.length);
+  const nextWidths = normalizeWorkspacePaperColumnWidths(widths, node.childIds.length);
+  const changed = currentWidths.some(
+    (width, index) => Math.abs(width - (nextWidths[index] ?? 0)) > 0.001,
+  );
+  if (!changed) {
+    return document;
+  }
+
+  return {
+    ...document,
+    nodesById: {
+      ...document.nodesById,
+      [nodeId]: {
+        ...node,
+        widths: nextWidths,
         sizingMode: "manual",
       },
     },
@@ -804,10 +1214,83 @@ function collapseSplitNode(
   return { nodesById: rest, replacementNodeId };
 }
 
+function removeWindowNodeFromPaperTree(
+  document: WorkspaceDocument,
+  windowId: string,
+): Pick<WorkspaceDocument, "rootNodeId" | "nodesById"> {
+  const paperColumn = getPaperColumnByWindowId(document, windowId);
+  if (!paperColumn) {
+    return {
+      rootNodeId: document.rootNodeId,
+      nodesById: document.nodesById,
+    };
+  }
+
+  const nextNodesById = { ...document.nodesById };
+  delete nextNodesById[paperColumn.windowNodeId];
+
+  const nextColumnChildIds = paperColumn.column.childIds.filter(
+    (_, index) => index !== paperColumn.windowIndex,
+  );
+
+  if (nextColumnChildIds.length > 0) {
+    nextNodesById[paperColumn.columnId] = {
+      ...paperColumn.column,
+      childIds: nextColumnChildIds,
+      sizes:
+        paperColumn.column.sizingMode === "manual"
+          ? normalizeWorkspaceSplitSizes(
+              paperColumn.column.sizes.filter((_, index) => index !== paperColumn.windowIndex),
+              nextColumnChildIds.length,
+            )
+          : equalSplitSizes(nextColumnChildIds.length),
+    };
+
+    return {
+      rootNodeId: document.rootNodeId,
+      nodesById: nextNodesById,
+    };
+  }
+
+  delete nextNodesById[paperColumn.columnId];
+  const nextRootChildIds = paperColumn.root.childIds.filter(
+    (_, index) => index !== paperColumn.columnIndex,
+  );
+
+  if (nextRootChildIds.length === 0) {
+    delete nextNodesById[paperColumn.rootId];
+    return {
+      rootNodeId: null,
+      nodesById: nextNodesById,
+    };
+  }
+
+  nextNodesById[paperColumn.rootId] = {
+    ...paperColumn.root,
+    childIds: nextRootChildIds,
+    widths:
+      paperColumn.root.sizingMode === "manual"
+        ? normalizeWorkspacePaperColumnWidths(
+            paperColumn.root.widths.filter((_, index) => index !== paperColumn.columnIndex),
+            nextRootChildIds.length,
+          )
+        : equalPaperColumnWidths(nextRootChildIds.length),
+  };
+
+  return {
+    rootNodeId: paperColumn.rootId,
+    nodesById: nextNodesById,
+  };
+}
+
 function removeWindowNodeFromTree(
   document: WorkspaceDocument,
   windowId: string,
 ): Pick<WorkspaceDocument, "rootNodeId" | "nodesById"> {
+  if (document.layoutEngine === "paper") {
+    return removeWindowNodeFromPaperTree(document, windowId);
+  }
+
   const windowNode = getWindowNodeByWindowId(document, windowId);
   if (!windowNode) {
     return {
@@ -881,31 +1364,8 @@ function closeSurfaceById(document: WorkspaceDocument, surfaceId: string): Works
     return document;
   }
 
-  const nextWindow = cloneWindow(located.window);
-  nextWindow.tabIds = nextWindow.tabIds.filter((tabId) => tabId !== surfaceId);
-  if (nextWindow.activeTabId === surfaceId) {
-    const closedIndex = located.window.tabIds.indexOf(surfaceId);
-    nextWindow.activeTabId =
-      nextWindow.tabIds[Math.min(closedIndex, nextWindow.tabIds.length - 1)] ??
-      nextWindow.tabIds[0] ??
-      null;
-  }
-
   const nextSurfacesById = { ...document.surfacesById };
   delete nextSurfacesById[surfaceId];
-
-  if (nextWindow.tabIds.length > 0) {
-    return {
-      ...document,
-      windowsById: {
-        ...document.windowsById,
-        [located.windowId]: nextWindow,
-      },
-      surfacesById: nextSurfacesById,
-      focusedWindowId: located.windowId,
-      mobileActiveWindowId: located.windowId,
-    };
-  }
 
   const nextWindowsById = { ...document.windowsById };
   delete nextWindowsById[located.windowId];
@@ -930,8 +1390,8 @@ function closeWindowById(document: WorkspaceDocument, windowId: string): Workspa
   }
 
   const nextSurfacesById = { ...document.surfacesById };
-  for (const surfaceId of window.tabIds) {
-    delete nextSurfacesById[surfaceId];
+  if (window.surfaceId) {
+    delete nextSurfacesById[window.surfaceId];
   }
 
   const nextWindowsById = { ...document.windowsById };
@@ -978,30 +1438,6 @@ function detachSurfaceFromWindow(
     };
   }
 
-  const nextWindow = cloneWindow(located.window);
-  nextWindow.tabIds = nextWindow.tabIds.filter((tabId) => tabId !== surfaceId);
-  if (nextWindow.activeTabId === surfaceId) {
-    const removedIndex = located.window.tabIds.indexOf(surfaceId);
-    nextWindow.activeTabId =
-      nextWindow.tabIds[Math.min(removedIndex, nextWindow.tabIds.length - 1)] ??
-      nextWindow.tabIds[0] ??
-      null;
-  }
-
-  if (nextWindow.tabIds.length > 0) {
-    return {
-      document: {
-        ...document,
-        windowsById: {
-          ...document.windowsById,
-          [located.windowId]: nextWindow,
-        },
-      },
-      sourceWindowId: located.windowId,
-      surface,
-    };
-  }
-
   const nextWindowsById = { ...document.windowsById };
   delete nextWindowsById[located.windowId];
   const nextTree = removeWindowNodeFromTree(document, located.windowId);
@@ -1021,71 +1457,49 @@ function detachSurfaceFromWindow(
   };
 }
 
-function moveSurfaceToTabIndex(
+function swapWindowSurfaces(
   document: WorkspaceDocument,
-  surfaceId: string,
+  sourceWindowId: string,
   targetWindowId: string,
-  targetIndex: number,
 ): WorkspaceDocument {
+  if (sourceWindowId === targetWindowId) {
+    return document;
+  }
+
+  const sourceWindow = document.windowsById[sourceWindowId];
   const targetWindow = document.windowsById[targetWindowId];
-  const source = getWindowBySurfaceId(document, surfaceId);
-  if (!targetWindow || !source) {
+  if (!sourceWindow || !targetWindow) {
     return document;
   }
 
-  if (source.windowId === targetWindowId) {
-    const fromIndex = source.window.tabIds.indexOf(surfaceId);
-    if (fromIndex < 0) {
-      return document;
-    }
-    const filteredTabIds = source.window.tabIds.filter((tabId) => tabId !== surfaceId);
-    const boundedIndex = Math.max(0, Math.min(targetIndex, filteredTabIds.length));
-    filteredTabIds.splice(boundedIndex, 0, surfaceId);
-    const unchanged =
-      filteredTabIds.length === source.window.tabIds.length &&
-      filteredTabIds.every((tabId, index) => tabId === source.window.tabIds[index]) &&
-      source.window.activeTabId === surfaceId &&
-      document.focusedWindowId === targetWindowId &&
-      document.mobileActiveWindowId === targetWindowId;
-    if (unchanged) {
-      return document;
-    }
-    return {
-      ...document,
-      windowsById: {
-        ...document.windowsById,
-        [targetWindowId]: {
-          ...source.window,
-          tabIds: filteredTabIds,
-          activeTabId: surfaceId,
-        },
-      },
-      focusedWindowId: targetWindowId,
-      mobileActiveWindowId: targetWindowId,
-    };
-  }
-
-  const detached = detachSurfaceFromWindow(document, surfaceId);
-  const nextTargetWindow = detached.document.windowsById[targetWindowId];
-  if (!nextTargetWindow) {
+  if (!sourceWindow.surfaceId || !targetWindow.surfaceId) {
     return document;
   }
-  const nextTabIds = [...nextTargetWindow.tabIds];
-  nextTabIds.splice(clampTabIndex(nextTargetWindow, targetIndex), 0, surfaceId);
 
   return {
-    ...detached.document,
+    ...document,
     windowsById: {
-      ...detached.document.windowsById,
+      ...document.windowsById,
+      [sourceWindowId]: {
+        ...sourceWindow,
+        surfaceId: targetWindow.surfaceId,
+      },
       [targetWindowId]: {
-        ...nextTargetWindow,
-        tabIds: nextTabIds,
-        activeTabId: surfaceId,
+        ...targetWindow,
+        surfaceId: sourceWindow.surfaceId,
       },
     },
     focusedWindowId: targetWindowId,
     mobileActiveWindowId: targetWindowId,
   };
+}
+
+function replaceWindowSurfaceWithNewSurface(
+  document: WorkspaceDocument,
+  windowId: string,
+  surface: WorkspaceSurfaceInstance,
+): WorkspaceDocument {
+  return replaceWindowSurface(document, windowId, surface);
 }
 
 function moveSurfaceToEdge(
@@ -1099,7 +1513,7 @@ function moveSurfaceToEdge(
     return document;
   }
 
-  if (source.windowId === targetWindowId && source.window.tabIds.length <= 1) {
+  if (source.windowId === targetWindowId) {
     return document;
   }
 
@@ -1110,63 +1524,6 @@ function moveSurfaceToEdge(
   }
 
   return splitWindowWithSurfaceAtEdge(detached.document, targetWindowId, placement, surface);
-}
-
-function moveActiveTabToWindow(
-  document: WorkspaceDocument,
-  sourceWindowId: string,
-  targetWindowId: string,
-): WorkspaceDocument {
-  if (sourceWindowId === targetWindowId) {
-    return document;
-  }
-
-  const sourceWindow = document.windowsById[sourceWindowId];
-  const targetWindow = document.windowsById[targetWindowId];
-  const surfaceId = sourceWindow?.activeTabId ?? null;
-  if (!sourceWindow || !targetWindow || !surfaceId) {
-    return document;
-  }
-
-  const nextSourceWindow = cloneWindow(sourceWindow);
-  nextSourceWindow.tabIds = nextSourceWindow.tabIds.filter((tabId) => tabId !== surfaceId);
-  if (nextSourceWindow.activeTabId === surfaceId) {
-    const closedIndex = sourceWindow.tabIds.indexOf(surfaceId);
-    nextSourceWindow.activeTabId =
-      nextSourceWindow.tabIds[Math.min(closedIndex, nextSourceWindow.tabIds.length - 1)] ??
-      nextSourceWindow.tabIds[0] ??
-      null;
-  }
-
-  const nextTargetWindow = cloneWindow(targetWindow);
-  nextTargetWindow.tabIds = [...nextTargetWindow.tabIds, surfaceId];
-  nextTargetWindow.activeTabId = surfaceId;
-
-  const nextWindowsById = {
-    ...document.windowsById,
-    [targetWindowId]: nextTargetWindow,
-  };
-
-  let nextRootNodeId = document.rootNodeId;
-  let nextNodesById = document.nodesById;
-
-  if (nextSourceWindow.tabIds.length > 0) {
-    nextWindowsById[sourceWindowId] = nextSourceWindow;
-  } else {
-    delete nextWindowsById[sourceWindowId];
-    const nextTree = removeWindowNodeFromTree(document, sourceWindowId);
-    nextRootNodeId = nextTree.rootNodeId;
-    nextNodesById = nextTree.nodesById;
-  }
-
-  return {
-    ...document,
-    rootNodeId: nextRootNodeId,
-    nodesById: nextNodesById,
-    windowsById: nextWindowsById,
-    focusedWindowId: targetWindowId,
-    mobileActiveWindowId: targetWindowId,
-  };
 }
 
 function swapWindowNodePositions(
@@ -1295,6 +1652,62 @@ function resizeFocusedWindow(
   document: WorkspaceDocument,
   direction: WorkspaceDirection,
 ): WorkspaceDocument {
+  if (document.layoutEngine === "paper") {
+    const sourceWindowId = firstWindowId(document);
+    if (!sourceWindowId) {
+      return document;
+    }
+
+    const sourceColumn = getPaperColumnByWindowId(document, sourceWindowId);
+    if (!sourceColumn) {
+      return document;
+    }
+
+    if (direction === "left" || direction === "right") {
+      const shrinkIndex =
+        direction === "left" ? sourceColumn.columnIndex - 1 : sourceColumn.columnIndex + 1;
+      if (shrinkIndex < 0 || shrinkIndex >= sourceColumn.root.childIds.length) {
+        return document;
+      }
+
+      const currentWidths = normalizeWorkspacePaperColumnWidths(
+        sourceColumn.root.widths,
+        sourceColumn.root.childIds.length,
+      );
+      const shrinkWidth = currentWidths[shrinkIndex] ?? 0;
+      const maxDelta = shrinkWidth - WORKSPACE_MIN_PAPER_COLUMN_WIDTH;
+      if (maxDelta <= 0) {
+        return document;
+      }
+
+      const nextWidths = [...currentWidths];
+      const delta = Math.min(WORKSPACE_RESIZE_STEP, maxDelta);
+      nextWidths[sourceColumn.columnIndex] = (nextWidths[sourceColumn.columnIndex] ?? 0) + delta;
+      nextWidths[shrinkIndex] = shrinkWidth - delta;
+      return setPaperRootWidths(document, sourceColumn.rootId, nextWidths);
+    }
+
+    const shrinkIndex =
+      direction === "up" ? sourceColumn.windowIndex - 1 : sourceColumn.windowIndex + 1;
+    if (shrinkIndex < 0 || shrinkIndex >= sourceColumn.column.childIds.length) {
+      return document;
+    }
+
+    const currentSizes = normalizePaperColumnSizes(sourceColumn.column);
+    const shrinkSize = currentSizes[shrinkIndex] ?? 0;
+    const maxDelta = shrinkSize - WORKSPACE_MIN_RESIZE_FRACTION;
+    if (maxDelta <= 0) {
+      return document;
+    }
+
+    const nextSizes = [...currentSizes];
+    const delta = Math.min(WORKSPACE_RESIZE_STEP, maxDelta);
+    nextSizes[sourceColumn.windowIndex] = (nextSizes[sourceColumn.windowIndex] ?? 0) + delta;
+    nextSizes[shrinkIndex] = shrinkSize - delta;
+
+    return setWorkspaceSplitNodeSizes(document, sourceColumn.columnId, nextSizes);
+  }
+
   const adjustment = findResizableSplitAdjustment(document, firstWindowId(document), direction);
   if (!adjustment) {
     return document;
@@ -1332,28 +1745,49 @@ function equalizeWorkspaceSplits(document: WorkspaceDocument): WorkspaceDocument
   let changed = false;
   const nextNodesById = Object.fromEntries(
     Object.entries(document.nodesById).map(([nodeId, node]) => {
-      if (node.kind !== "split") {
-        return [nodeId, node];
+      if (node.kind === "split" || node.kind === "paper-column") {
+        const nextSizes = equalSplitSizes(node.childIds.length);
+        const sameSizes =
+          node.sizingMode === "auto" &&
+          node.sizes.length === nextSizes.length &&
+          node.sizes.every((size, index) => Math.abs(size - (nextSizes[index] ?? 0)) <= 0.001);
+        if (sameSizes) {
+          return [nodeId, node];
+        }
+
+        changed = true;
+        return [
+          nodeId,
+          {
+            ...node,
+            sizes: nextSizes,
+            sizingMode: "auto",
+          } satisfies WorkspaceNode,
+        ];
       }
 
-      const nextSizes = equalSplitSizes(node.childIds.length);
-      const sameSizes =
-        node.sizingMode === "auto" &&
-        node.sizes.length === nextSizes.length &&
-        node.sizes.every((size, index) => Math.abs(size - (nextSizes[index] ?? 0)) <= 0.001);
-      if (sameSizes) {
-        return [nodeId, node];
+      if (node.kind === "paper-root") {
+        const nextWidths = equalPaperColumnWidths(node.childIds.length);
+        const sameWidths =
+          node.sizingMode === "auto" &&
+          node.widths.length === nextWidths.length &&
+          node.widths.every((width, index) => Math.abs(width - (nextWidths[index] ?? 0)) <= 0.001);
+        if (sameWidths) {
+          return [nodeId, node];
+        }
+
+        changed = true;
+        return [
+          nodeId,
+          {
+            ...node,
+            widths: nextWidths,
+            sizingMode: "auto",
+          } satisfies WorkspaceNode,
+        ];
       }
 
-      changed = true;
-      return [
-        nodeId,
-        {
-          ...node,
-          sizes: nextSizes,
-          sizingMode: "auto",
-        } satisfies WorkspaceNode,
-      ];
+      return [nodeId, node];
     }),
   ) as Record<string, WorkspaceNode>;
 
@@ -1421,16 +1855,264 @@ function terminalSurfaceInputForThread(options: {
     scope: "thread",
     threadRef,
     terminalId:
-      disposition === "focus-or-tab"
+      disposition === "focus-or-replace"
         ? preferredTerminalIdForThread(threadRef)
         : nextTerminalSessionId(),
   };
 }
 
+function buildPaperDocumentFromColumns(
+  document: WorkspaceDocument,
+  columns: Array<{ width: number; windowIds: string[]; sizes: number[] }>,
+): WorkspaceDocument {
+  const validColumns = columns
+    .map((column) => ({
+      width: column.width,
+      windowIds: column.windowIds.filter((windowId) => document.windowsById[windowId]),
+      sizes: column.sizes,
+    }))
+    .filter((column) => column.windowIds.length > 0);
+
+  if (validColumns.length === 0) {
+    return createEmptyWorkspaceDocument("paper");
+  }
+
+  const rootNodeId = nextWorkspaceId("node");
+  const nodesById: Record<string, WorkspaceNode> = {};
+  const columnIds: string[] = [];
+
+  for (const column of validColumns) {
+    const columnId = nextWorkspaceId("node");
+    columnIds.push(columnId);
+    const childIds = column.windowIds.map((windowId) => {
+      const nodeId = nextWorkspaceId("node");
+      nodesById[nodeId] = {
+        id: nodeId,
+        kind: "window",
+        windowId,
+      };
+      return nodeId;
+    });
+
+    nodesById[columnId] = {
+      id: columnId,
+      kind: "paper-column",
+      childIds,
+      sizes: normalizeWorkspaceSplitSizes(column.sizes, childIds.length),
+      sizingMode: "auto",
+    };
+  }
+
+  nodesById[rootNodeId] = {
+    id: rootNodeId,
+    kind: "paper-root",
+    childIds: columnIds,
+    widths: normalizeWorkspacePaperColumnWidths(
+      validColumns.map((column) => column.width),
+      columnIds.length,
+    ),
+    sizingMode: "auto",
+  };
+
+  const focusedWindowId =
+    document.focusedWindowId && document.windowsById[document.focusedWindowId]
+      ? document.focusedWindowId
+      : (validColumns[0]?.windowIds[0] ?? null);
+
+  return {
+    ...document,
+    layoutEngine: "paper",
+    rootNodeId,
+    nodesById,
+    focusedWindowId,
+    mobileActiveWindowId: focusedWindowId,
+  };
+}
+
+function convertWorkspaceLayoutEngine(
+  document: WorkspaceDocument,
+  layoutEngine: WorkspaceLayoutEngine,
+): WorkspaceDocument {
+  if (document.layoutEngine === layoutEngine) {
+    return document;
+  }
+
+  if (Object.keys(document.windowsById).length === 0) {
+    return createEmptyWorkspaceDocument(layoutEngine);
+  }
+
+  if (layoutEngine === "paper") {
+    const rects = getWorkspaceWindowRects(document).toSorted((left, right) => {
+      const leftDelta = left.left - right.left;
+      if (Math.abs(leftDelta) > WINDOW_RECT_EPSILON) {
+        return leftDelta;
+      }
+      return left.top - right.top;
+    });
+
+    const groupedColumns: Array<{
+      left: number;
+      right: number;
+      rects: WorkspaceWindowRect[];
+    }> = [];
+
+    for (const rect of rects) {
+      const currentColumn = groupedColumns[groupedColumns.length - 1];
+      if (
+        currentColumn &&
+        Math.abs(currentColumn.left - rect.left) <= WINDOW_RECT_EPSILON &&
+        Math.abs(currentColumn.right - rect.right) <= WINDOW_RECT_EPSILON
+      ) {
+        currentColumn.rects.push(rect);
+      } else {
+        groupedColumns.push({
+          left: rect.left,
+          right: rect.right,
+          rects: [rect],
+        });
+      }
+    }
+
+    const averageWidth =
+      groupedColumns.reduce((sum, column) => sum + (column.right - column.left), 0) /
+        groupedColumns.length || 1;
+
+    return buildPaperDocumentFromColumns(
+      document,
+      groupedColumns.map((column) => ({
+        width: Math.max(
+          (column.right - column.left) / averageWidth,
+          WORKSPACE_MIN_PAPER_COLUMN_WIDTH,
+        ),
+        windowIds: column.rects
+          .toSorted((left, right) => left.top - right.top)
+          .map((rect) => rect.windowId),
+        sizes: column.rects
+          .toSorted((left, right) => left.top - right.top)
+          .map((rect) => rect.bottom - rect.top),
+      })),
+    );
+  }
+
+  const paperRoot = getPaperRootNode(document);
+  if (!paperRoot) {
+    return createEmptyWorkspaceDocument("split");
+  }
+
+  const nodesById: Record<string, WorkspaceNode> = {};
+  const rootChildIds: string[] = [];
+
+  for (const columnId of paperRoot.node.childIds) {
+    const column = document.nodesById[columnId];
+    if (!column || column.kind !== "paper-column") {
+      continue;
+    }
+
+    const windowNodeIds = column.childIds
+      .map((childId) => {
+        const child = document.nodesById[childId];
+        if (!child || child.kind !== "window" || !document.windowsById[child.windowId]) {
+          return null;
+        }
+        const nextNodeId = nextWorkspaceId("node");
+        nodesById[nextNodeId] = {
+          id: nextNodeId,
+          kind: "window",
+          windowId: child.windowId,
+        };
+        return nextNodeId;
+      })
+      .filter((nodeId): nodeId is string => nodeId !== null);
+
+    if (windowNodeIds.length === 0) {
+      continue;
+    }
+
+    if (windowNodeIds.length === 1) {
+      rootChildIds.push(windowNodeIds[0]!);
+      continue;
+    }
+
+    const splitNodeId = nextWorkspaceId("node");
+    nodesById[splitNodeId] = {
+      id: splitNodeId,
+      kind: "split",
+      axis: "y",
+      childIds: windowNodeIds,
+      sizes: normalizeWorkspaceSplitSizes(column.sizes, windowNodeIds.length),
+      sizingMode: column.sizingMode,
+    };
+    rootChildIds.push(splitNodeId);
+  }
+
+  if (rootChildIds.length === 0) {
+    return createEmptyWorkspaceDocument("split");
+  }
+
+  const rootNodeId =
+    rootChildIds.length === 1
+      ? rootChildIds[0]!
+      : (() => {
+          const splitNodeId = nextWorkspaceId("node");
+          nodesById[splitNodeId] = {
+            id: splitNodeId,
+            kind: "split",
+            axis: "x",
+            childIds: rootChildIds,
+            sizes: normalizeWorkspaceSplitSizes(paperRoot.node.widths, rootChildIds.length),
+            sizingMode: paperRoot.node.sizingMode,
+          };
+          return splitNodeId;
+        })();
+
+  const focusedWindowId =
+    document.focusedWindowId && document.windowsById[document.focusedWindowId]
+      ? document.focusedWindowId
+      : (Object.keys(document.windowsById)[0] ?? null);
+
+  return {
+    ...document,
+    layoutEngine: "split",
+    rootNodeId,
+    nodesById,
+    focusedWindowId,
+    mobileActiveWindowId: focusedWindowId,
+  };
+}
+
 function normalizePersistedWorkspaceDocument(document: WorkspaceDocument): WorkspaceDocument {
   if (!document.rootNodeId || !document.nodesById[document.rootNodeId]) {
-    return createEmptyWorkspaceDocument();
+    return createEmptyWorkspaceDocument(document.layoutEngine);
   }
+
+  const persistedWindowsById = document.windowsById as Record<
+    string,
+    WorkspaceWindow & {
+      activeTabId?: string | null;
+      tabIds?: string[] | null;
+    }
+  >;
+  const normalizedWindowsById = Object.fromEntries(
+    Object.entries(persistedWindowsById).map(([windowId, window]) => {
+      const fallbackTabId = Array.isArray(window.tabIds)
+        ? window.tabIds.find((surfaceId) => typeof surfaceId === "string" && surfaceId.length > 0)
+        : null;
+      const surfaceId =
+        typeof window.surfaceId === "string" && window.surfaceId.length > 0
+          ? window.surfaceId
+          : typeof window.activeTabId === "string" && window.activeTabId.length > 0
+            ? window.activeTabId
+            : (fallbackTabId ?? null);
+
+      return [
+        windowId,
+        {
+          id: typeof window.id === "string" && window.id.length > 0 ? window.id : windowId,
+          surfaceId,
+        } satisfies WorkspaceWindow,
+      ];
+    }),
+  ) as Record<string, WorkspaceWindow>;
 
   const normalizedTerminalCountsByThreadKey = new Map<string, number>();
   const normalizedSurfacesById = Object.fromEntries(
@@ -1464,16 +2146,32 @@ function normalizePersistedWorkspaceDocument(document: WorkspaceDocument): Works
 
   const normalizedNodesById = Object.fromEntries(
     Object.entries(document.nodesById).map(([nodeId, node]) => {
-      if (node.kind !== "split") {
-        return [nodeId, node];
+      if (node.kind === "split" || node.kind === "paper-column") {
+        return [
+          nodeId,
+          {
+            ...node,
+            sizes: normalizeWorkspaceSplitSizes(node.sizes, node.childIds.length),
+            sizingMode: node.sizingMode === "manual" ? "manual" : "auto",
+          } satisfies WorkspaceNode,
+        ];
+      }
+
+      if (node.kind === "paper-root") {
+        return [
+          nodeId,
+          {
+            ...node,
+            widths: normalizeWorkspacePaperColumnWidths(node.widths, node.childIds.length),
+            sizingMode: node.sizingMode === "manual" ? "manual" : "auto",
+          } satisfies WorkspaceNode,
+        ];
       }
 
       return [
         nodeId,
         {
           ...node,
-          sizes: normalizeWorkspaceSplitSizes(node.sizes, node.childIds.length),
-          sizingMode: node.sizingMode === "manual" ? "manual" : "auto",
         } satisfies WorkspaceNode,
       ];
     }),
@@ -1482,6 +2180,7 @@ function normalizePersistedWorkspaceDocument(document: WorkspaceDocument): Works
   return {
     ...document,
     nodesById: normalizedNodesById,
+    windowsById: normalizedWindowsById,
     surfacesById: normalizedSurfacesById,
   };
 }
@@ -1499,7 +2198,6 @@ export interface WorkspaceStoreState {
   zoomedWindowId: string | null;
   openRouteTarget: (target: ThreadRouteTarget) => void;
   openThreadSurface: (input: ThreadSurfaceInput, disposition?: OpenThreadDisposition) => void;
-  openThreadInNewTab: (input: ThreadSurfaceInput) => void;
   openThreadInSplit: (input: ThreadSurfaceInput, axis: WorkspaceAxis) => void;
   placeSurface: (surfaceId: string, target: WorkspacePlacementTarget) => void;
   placeThreadSurface: (input: ThreadSurfaceInput, target: WorkspacePlacementTarget) => void;
@@ -1514,18 +2212,17 @@ export interface WorkspaceStoreState {
   focusWindow: (windowId: string) => void;
   focusWindowByStep: (step: -1 | 1) => void;
   focusAdjacentWindow: (direction: WorkspaceDirection) => void;
-  focusTab: (windowId: string, surfaceId: string) => void;
   focusThreadSurface: (input: ThreadSurfaceInput) => void;
   resizeFocusedWindow: (direction: WorkspaceDirection) => void;
   equalizeSplits: () => void;
   toggleFocusedWindowZoom: () => void;
-  moveActiveTabToAdjacentWindow: (direction: WorkspaceDirection) => void;
   moveFocusedWindow: (direction: WorkspaceDirection) => void;
   toggleTerminalSurfaceForThread: (threadRef: TerminalSurfaceInput["threadRef"]) => void;
   ensureTerminalSurfaceForThread: (threadRef: TerminalSurfaceInput["threadRef"]) => void;
   closeTerminalSurfacesForThread: (threadRef: TerminalSurfaceInput["threadRef"]) => void;
   focusTerminalSurfaceForThread: (threadRef: TerminalSurfaceInput["threadRef"]) => void;
   setMobileActiveWindow: (windowId: string) => void;
+  setLayoutEngine: (layoutEngine: WorkspaceLayoutEngine) => void;
   resetWorkspace: () => void;
 }
 
@@ -1541,12 +2238,12 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()((set, get) => ({
     if (target.kind !== "server") {
       return;
     }
-    get().openThreadSurface({ scope: "server", threadRef: target.threadRef }, "focus-or-tab");
+    get().openThreadSurface({ scope: "server", threadRef: target.threadRef }, "focus-or-replace");
   },
-  openThreadSurface: (input, disposition = "focus-or-tab") => {
+  openThreadSurface: (input, disposition = "focus-or-replace") => {
     const current = get().document;
     const existingSurfaceId =
-      disposition === "focus-or-tab" ? findMatchingThreadSurfaceId(current, input) : null;
+      disposition === "focus-or-replace" ? findMatchingThreadSurfaceId(current, input) : null;
     if (existingSurfaceId) {
       set(setDocumentState(focusSurfaceById(current, existingSurfaceId)));
       return;
@@ -1559,15 +2256,6 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()((set, get) => ({
         : disposition === "split-down"
           ? splitWindowWithSurface(current, firstWindowId(current), "y", nextSurface)
           : insertSurfaceIntoWindow(current, firstWindowId(current), nextSurface);
-    set(setDocumentState(nextDocument));
-  },
-  openThreadInNewTab: (input) => {
-    const current = get().document;
-    const nextDocument = insertSurfaceIntoWindow(
-      current,
-      firstWindowId(current),
-      createThreadSurface(input),
-    );
     set(setDocumentState(nextDocument));
   },
   openThreadInSplit: (input, axis) => {
@@ -1583,29 +2271,15 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()((set, get) => ({
   placeSurface: (surfaceId, target) => {
     const current = get().document;
     const nextDocument =
-      target.kind === "tab"
+      target.placement === "center"
         ? (() => {
-            const window = current.windowsById[target.windowId];
-            const targetIndex = window?.tabIds.indexOf(target.surfaceId) ?? -1;
-            if (!window || targetIndex < 0) {
+            const source = getWindowBySurfaceId(current, surfaceId);
+            if (!source || !current.windowsById[target.windowId]) {
               return current;
             }
-            return moveSurfaceToTabIndex(current, surfaceId, target.windowId, targetIndex);
+            return swapWindowSurfaces(current, source.windowId, target.windowId);
           })()
-        : target.placement === "center"
-          ? (() => {
-              const window = current.windowsById[target.windowId];
-              if (!window) {
-                return current;
-              }
-              return moveSurfaceToTabIndex(
-                current,
-                surfaceId,
-                target.windowId,
-                window.tabIds.length,
-              );
-            })()
-          : moveSurfaceToEdge(current, surfaceId, target.windowId, target.placement);
+        : moveSurfaceToEdge(current, surfaceId, target.windowId, target.placement);
     if (nextDocument === current) {
       return;
     }
@@ -1621,38 +2295,24 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()((set, get) => ({
 
     const nextSurface = createThreadSurface(input);
     const nextDocument =
-      target.kind === "tab"
+      target.placement === "center"
         ? (() => {
             const window = current.windowsById[target.windowId];
-            const targetIndex = window?.tabIds.indexOf(target.surfaceId) ?? -1;
-            if (!window || targetIndex < 0) {
+            if (!window) {
               return current;
             }
-            return insertSurfaceIntoWindowAt(current, target.windowId, nextSurface, targetIndex);
+            return replaceWindowSurfaceWithNewSurface(current, target.windowId, nextSurface);
           })()
-        : target.placement === "center"
-          ? (() => {
-              const window = current.windowsById[target.windowId];
-              if (!window) {
-                return current;
-              }
-              return insertSurfaceIntoWindowAt(
-                current,
-                target.windowId,
-                nextSurface,
-                window.tabIds.length,
-              );
-            })()
-          : splitWindowWithSurfaceAtEdge(current, target.windowId, target.placement, nextSurface);
+        : splitWindowWithSurfaceAtEdge(current, target.windowId, target.placement, nextSurface);
     if (nextDocument === current) {
       return;
     }
     set(setDocumentState(nextDocument));
   },
-  openTerminalSurfaceForThread: (threadRef, disposition = "focus-or-tab") => {
+  openTerminalSurfaceForThread: (threadRef, disposition = "focus-or-replace") => {
     const current = get().document;
     const threadSurfaceIds = findTerminalSurfaceIdsForThread(current, threadRef);
-    if (disposition === "focus-or-tab" && threadSurfaceIds.length > 0) {
+    if (disposition === "focus-or-replace" && threadSurfaceIds.length > 0) {
       set(setDocumentState(focusSurfaceById(current, threadSurfaceIds[0]!)));
       return;
     }
@@ -1677,7 +2337,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()((set, get) => ({
   splitWindowSurface: (windowId, axis) => {
     const current = get().document;
     const window = current.windowsById[windowId];
-    const activeSurface = window?.activeTabId ? current.surfacesById[window.activeTabId] : null;
+    const activeSurface = window?.surfaceId ? current.surfacesById[window.surfaceId] : null;
     if (!window || !activeSurface) {
       return;
     }
@@ -1742,27 +2402,6 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()((set, get) => ({
     }
     set(setDocumentState(setFocusedWindow(current, targetWindowId)));
   },
-  focusTab: (windowId, surfaceId) => {
-    const current = get().document;
-    const window = current.windowsById[windowId];
-    if (!window || !window.tabIds.includes(surfaceId)) {
-      return;
-    }
-    set(
-      setDocumentState({
-        ...current,
-        windowsById: {
-          ...current.windowsById,
-          [windowId]: {
-            ...window,
-            activeTabId: surfaceId,
-          },
-        },
-        focusedWindowId: windowId,
-        mobileActiveWindowId: windowId,
-      }),
-    );
-  },
   focusThreadSurface: (input) => {
     const current = get().document;
     const existingSurfaceId = findMatchingThreadSurfaceId(current, input);
@@ -1796,22 +2435,6 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()((set, get) => ({
     set({
       zoomedWindowId: current.zoomedWindowId === focusedWindowId ? null : focusedWindowId,
     });
-  },
-  moveActiveTabToAdjacentWindow: (direction) => {
-    const current = get().document;
-    const sourceWindowId = firstWindowId(current);
-    if (!sourceWindowId) {
-      return;
-    }
-    const targetWindowId = findAdjacentWindowId(current, sourceWindowId, direction);
-    if (!targetWindowId) {
-      return;
-    }
-    const nextDocument = moveActiveTabToWindow(current, sourceWindowId, targetWindowId);
-    if (nextDocument === current) {
-      return;
-    }
-    set(setDocumentState(nextDocument));
   },
   moveFocusedWindow: (direction) => {
     const current = get().document;
@@ -1907,8 +2530,22 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()((set, get) => ({
       }),
     );
   },
+  setLayoutEngine: (layoutEngine) => {
+    const current = get();
+    const nextDocument = convertWorkspaceLayoutEngine(current.document, layoutEngine);
+    if (nextDocument === current.document) {
+      return;
+    }
+    set({
+      ...setDocumentState(nextDocument),
+      zoomedWindowId:
+        current.zoomedWindowId && nextDocument.windowsById[current.zoomedWindowId]
+          ? current.zoomedWindowId
+          : null,
+    });
+  },
   resetWorkspace: () => {
-    const nextDocument = createEmptyWorkspaceDocument();
+    const nextDocument = createEmptyWorkspaceDocument(get().document.layoutEngine);
     set({
       ...setDocumentState(nextDocument),
       zoomedWindowId: null,
@@ -1918,6 +2555,10 @@ export const useWorkspaceStore = create<WorkspaceStoreState>()((set, get) => ({
 
 export function useWorkspaceDocument(): WorkspaceDocument {
   return useWorkspaceStore((state) => state.document);
+}
+
+export function useWorkspaceLayoutEngine(): WorkspaceLayoutEngine {
+  return useWorkspaceStore((state) => state.document.layoutEngine);
 }
 
 export function useWorkspaceRootNodeId(): string | null {
@@ -1974,15 +2615,4 @@ export function useFocusedWorkspaceSurface(): WorkspaceSurfaceInstance | null {
 export function useFocusedWorkspaceRouteTarget(): ThreadRouteTarget | null {
   const document = useWorkspaceDocument();
   return useMemo(() => routeTargetForSurface(getFocusedSurface(document)), [document]);
-}
-
-export function useWorkspaceThreadTerminalOpen(
-  threadRef: TerminalSurfaceInput["threadRef"] | null | undefined,
-): boolean {
-  return useWorkspaceStore((state) => {
-    if (!threadRef) {
-      return false;
-    }
-    return findTerminalSurfaceIdsForThread(state.document, threadRef).length > 0;
-  });
 }

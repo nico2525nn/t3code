@@ -6,7 +6,7 @@ import type { ThreadRouteTarget } from "../threadRoutes";
 export type WorkspaceAxis = "x" | "y";
 export type WorkspaceDirection = "left" | "right" | "up" | "down";
 export type WorkspaceDropPlacement = "center" | "left" | "right" | "top" | "bottom";
-export type WorkspaceLayoutEngine = "split";
+export type WorkspaceLayoutEngine = "split" | "paper";
 export type WorkspaceSurfaceKind = "thread" | "terminal";
 export type WorkspaceSplitSizingMode = "auto" | "manual";
 
@@ -42,21 +42,14 @@ export type WorkspaceSurfaceInstance =
 
 export interface WorkspaceWindow {
   id: string;
-  tabIds: string[];
-  activeTabId: string | null;
+  surfaceId: string | null;
 }
 
-export type WorkspacePlacementTarget =
-  | {
-      kind: "window";
-      windowId: string;
-      placement: WorkspaceDropPlacement;
-    }
-  | {
-      kind: "tab";
-      windowId: string;
-      surfaceId: string;
-    };
+export interface WorkspacePlacementTarget {
+  kind: "window";
+  windowId: string;
+  placement: WorkspaceDropPlacement;
+}
 
 export type WorkspaceNode =
   | {
@@ -68,6 +61,20 @@ export type WorkspaceNode =
       id: string;
       kind: "split";
       axis: WorkspaceAxis;
+      childIds: string[];
+      sizes: number[];
+      sizingMode: WorkspaceSplitSizingMode;
+    }
+  | {
+      id: string;
+      kind: "paper-root";
+      childIds: string[];
+      widths: number[];
+      sizingMode: WorkspaceSplitSizingMode;
+    }
+  | {
+      id: string;
+      kind: "paper-column";
       childIds: string[];
       sizes: number[];
       sizingMode: WorkspaceSplitSizingMode;
@@ -84,10 +91,12 @@ export interface WorkspaceDocument {
   mobileActiveWindowId: string | null;
 }
 
-export function createEmptyWorkspaceDocument(): WorkspaceDocument {
+export function createEmptyWorkspaceDocument(
+  layoutEngine: WorkspaceLayoutEngine = "split",
+): WorkspaceDocument {
   return {
     version: 1,
-    layoutEngine: "split",
+    layoutEngine,
     rootNodeId: null,
     nodesById: {},
     windowsById: {},
@@ -119,13 +128,31 @@ export function normalizeWorkspaceSplitSizes(
   return finiteSizes.map((size) => size / total);
 }
 
+export function normalizeWorkspacePaperColumnWidths(
+  widths: number[] | null | undefined,
+  childCount: number,
+): number[] {
+  if (childCount <= 0) {
+    return [];
+  }
+
+  if (!widths || widths.length !== childCount) {
+    return Array.from({ length: childCount }, () => 1);
+  }
+
+  return widths.map((width) => (Number.isFinite(width) && width > 0 ? width : 1));
+}
+
 export function isWorkspaceDocument(value: unknown): value is WorkspaceDocument {
   if (!value || typeof value !== "object") {
     return false;
   }
 
   const candidate = value as Partial<WorkspaceDocument>;
-  return candidate.version === 1 && candidate.layoutEngine === "split";
+  return (
+    candidate.version === 1 &&
+    (candidate.layoutEngine === "split" || candidate.layoutEngine === "paper")
+  );
 }
 
 export function sameThreadSurfaceInput(

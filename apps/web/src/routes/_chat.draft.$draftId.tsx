@@ -65,7 +65,7 @@ function DraftChatThreadRouteView() {
         environmentId: draftSession.environmentId,
         threadId: draftSession.threadId,
       },
-      "focus-or-tab",
+      "focus-or-replace",
     );
   }, [canonicalThreadRef, draftId, draftSession, openThreadSurface]);
 
