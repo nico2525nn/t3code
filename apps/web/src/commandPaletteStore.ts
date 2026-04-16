@@ -18,10 +18,10 @@ export const useCommandPaletteStore = create<CommandPaletteStore>((set) => ({
   workspaceTarget: null,
   setOpen: (open) => set({ open, ...(open ? {} : { workspaceTarget: null }) }),
   toggleOpen: () =>
-    set((state) => ({
-      open: !state.open,
-      ...(!state.open ? {} : { workspaceTarget: null }),
-    })),
+    set((state) => {
+      const next = !state.open;
+      return { open: next, ...(next ? {} : { workspaceTarget: null }) };
+    }),
   openWorkspaceTarget: (target) => set({ open: true, workspaceTarget: target }),
   clearWorkspaceTarget: () => set({ workspaceTarget: null }),
 }));

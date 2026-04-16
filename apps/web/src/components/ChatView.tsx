@@ -1371,6 +1371,9 @@ export default function ChatView(props: ChatViewProps) {
       if (activeThreadRef) {
         storeCloseTerminal(activeThreadRef, terminalId);
       }
+      if (!isFinalTerminal) {
+        setTerminalFocusRequestId((current) => current + 1);
+      }
     },
     [
       activeThreadId,
