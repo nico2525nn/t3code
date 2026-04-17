@@ -8,6 +8,7 @@ import {
   SearchIcon,
   SettingsIcon,
   SquarePenIcon,
+  Globe,
   TerminalIcon,
   TriangleAlertIcon,
 } from "lucide-react";
@@ -674,7 +675,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 className={`inline-flex cursor-pointer items-center justify-center rounded-sm ${terminalStatus.colorClass} outline-hidden transition-colors hover:bg-accent hover:text-sky-700 focus-visible:ring-1 focus-visible:ring-ring dark:hover:text-sky-200`}
                 onClick={handleTerminalStatusClick}
               >
-                <TerminalIcon className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`} />
+                <Globe className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`} />
               </button>
             ))}
           <div className="flex min-w-12 justify-end">

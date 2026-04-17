@@ -164,10 +164,6 @@ const makeWebPortInspector = Effect.gen(function* () {
       return false;
     }
 
-    if (ipv6Result._tag === "Failure") {
-      return yield* Effect.failCause(ipv6Result.cause);
-    }
-
     return yield* Effect.failCause(ipv4Result.cause);
   });
 
