@@ -290,8 +290,8 @@ export function buildBrowseGroups(input: {
   canBrowseUp: boolean;
   upIcon: ReactNode;
   directoryIcon: ReactNode;
-  browseUp: () => void;
-  browseTo: (name: string) => void;
+  browseUp: () => void | Promise<void>;
+  browseTo: (name: string) => void | Promise<void>;
 }): CommandPaletteGroup[] {
   const items: CommandPaletteActionItem[] = [];
 

@@ -77,6 +77,7 @@ import {
   buildRootGroups,
   buildThreadActionItems,
   type CommandPaletteActionItem,
+  type CommandPaletteGroup,
   type CommandPaletteSubmenuItem,
   type CommandPaletteView,
   filterBrowseEntries,
@@ -333,6 +334,11 @@ function OpenCommandPaletteDialog() {
     browseEnvironmentId && currentProjectEnvironmentId === browseEnvironmentId
       ? currentProjectCwd
       : null;
+  const getBrowseCwdForEnvironment = useCallback(
+    (environmentId: EnvironmentId | null): string | null =>
+      environmentId && currentProjectEnvironmentId === environmentId ? currentProjectCwd : null,
+    [currentProjectCwd, currentProjectEnvironmentId],
+  );
   const relativePathNeedsActiveProject =
     isExplicitRelativeProjectPath(query.trim()) && currentProjectCwdForBrowse === null;
   const browseDirectoryPath = isBrowsing ? getBrowseDirectoryPath(query) : "";
@@ -340,16 +346,20 @@ function OpenCommandPaletteDialog() {
     isBrowsing && !hasTrailingPathSeparator(query) ? getBrowseLeafPathSegment(query) : "";
 
   const fetchBrowseResult = useCallback(
-    async (partialPath: string): Promise<FilesystemBrowseResult | null> => {
-      if (!browseEnvironmentId) return null;
-      const api = readEnvironmentApi(browseEnvironmentId);
+    async (input: {
+      environmentId: EnvironmentId | null;
+      partialPath: string;
+      cwd: string | null;
+    }): Promise<FilesystemBrowseResult | null> => {
+      if (!input.environmentId) return null;
+      const api = readEnvironmentApi(input.environmentId);
       if (!api) return null;
       return api.filesystem.browse({
-        partialPath,
-        ...(currentProjectCwdForBrowse ? { cwd: currentProjectCwdForBrowse } : {}),
+        partialPath: input.partialPath,
+        ...(input.cwd ? { cwd: input.cwd } : {}),
       });
     },
-    [browseEnvironmentId, currentProjectCwdForBrowse],
+    [],
   );
 
   const { data: browseResult, isPending: isBrowsePending } = useQuery({
@@ -359,7 +369,13 @@ function OpenCommandPaletteDialog() {
       browseDirectoryPath,
       currentProjectCwdForBrowse,
     ],
-    queryFn: () => fetchBrowseResult(browseDirectoryPath),
+    queryFn: () =>
+      fetchBrowseResult({
+        environmentId: browseEnvironmentId,
+        partialPath: browseDirectoryPath,
+        cwd: currentProjectCwdForBrowse,
+      }),
+    placeholderData: (previousData) => previousData,
     staleTime: BROWSE_STALE_TIME_MS,
     enabled:
       isBrowsing &&
@@ -374,15 +390,23 @@ function OpenCommandPaletteDialog() {
   );
 
   const prefetchBrowsePath = useCallback(
-    (partialPath: string) => {
-      void queryClient.prefetchQuery({
-        queryKey: [
-          "filesystemBrowse",
-          browseEnvironmentId,
-          partialPath,
-          currentProjectCwdForBrowse,
-        ],
-        queryFn: () => fetchBrowseResult(partialPath),
+    async (
+      partialPath: string,
+      environmentId: EnvironmentId | null = browseEnvironmentId,
+      cwd: string | null = currentProjectCwdForBrowse,
+    ) => {
+      if (!environmentId) {
+        return;
+      }
+
+      await queryClient.prefetchQuery({
+        queryKey: ["filesystemBrowse", environmentId, partialPath, cwd],
+        queryFn: () =>
+          fetchBrowseResult({
+            environmentId,
+            partialPath,
+            cwd,
+          }),
         staleTime: BROWSE_STALE_TIME_MS,
       });
     },
@@ -549,15 +573,23 @@ function OpenCommandPaletteDialog() {
   }
 
   const startAddProjectBrowse = useCallback(
-    (environmentId: EnvironmentId): void => {
+    async (environmentId: EnvironmentId): Promise<void> => {
+      const initialQuery = getAddProjectInitialQueryForEnvironment(environmentId);
+      const initialBrowsePath = getBrowseDirectoryPath(initialQuery);
+      const browseCwd = getBrowseCwdForEnvironment(environmentId);
+
+      if (initialBrowsePath.length > 0) {
+        await prefetchBrowsePath(initialBrowsePath, environmentId, browseCwd);
+      }
+
       setAddProjectEnvironmentId(environmentId);
       pushPaletteView({
         addonIcon: <FolderPlusIcon className={ADDON_ICON_CLASS} />,
         groups: [],
-        initialQuery: getAddProjectInitialQueryForEnvironment(environmentId),
+        initialQuery,
       });
     },
-    [getAddProjectInitialQueryForEnvironment],
+    [getAddProjectInitialQueryForEnvironment, getBrowseCwdForEnvironment, prefetchBrowsePath],
   );
 
   const addProjectEnvironmentItems: CommandPaletteActionItem[] = addProjectEnvironmentOptions.map(
@@ -570,7 +602,7 @@ function OpenCommandPaletteDialog() {
       icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
       keepOpen: true,
       run: async () => {
-        startAddProjectBrowse(option.environmentId);
+        await startAddProjectBrowse(option.environmentId);
       },
     }),
   );
@@ -586,7 +618,7 @@ function OpenCommandPaletteDialog() {
     [addProjectEnvironmentItems],
   );
 
-  const openAddProjectFlow = useCallback(() => {
+  const openAddProjectFlow = useCallback(async () => {
     if (addProjectEnvironmentOptions.length > 1) {
       pushPaletteView({
         addonIcon: <FolderPlusIcon className={ADDON_ICON_CLASS} />,
@@ -605,7 +637,7 @@ function OpenCommandPaletteDialog() {
       return;
     }
 
-    startAddProjectBrowse(environmentId);
+    await startAddProjectBrowse(environmentId);
   }, [
     addProjectEnvironmentGroups,
     addProjectEnvironmentOptions.length,
@@ -618,7 +650,7 @@ function OpenCommandPaletteDialog() {
       return;
     }
     clearOpenIntent();
-    openAddProjectFlow();
+    void openAddProjectFlow();
   }, [clearOpenIntent, openAddProjectFlow, openIntent]);
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
@@ -682,7 +714,7 @@ function OpenCommandPaletteDialog() {
       icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
       keepOpen: true,
       run: async () => {
-        openAddProjectFlow();
+        await openAddProjectFlow();
       },
     });
   }
@@ -803,23 +835,28 @@ function OpenCommandPaletteDialog() {
     ],
   );
 
-  function browseTo(name: string): void {
-    const nextQuery = appendBrowsePathSegment(query, name);
-    setHighlightedItemValue(null);
-    setQuery(nextQuery);
-    setBrowseGeneration((generation) => generation + 1);
-  }
+  const browseTo = useCallback(
+    async (name: string): Promise<void> => {
+      const nextQuery = appendBrowsePathSegment(query, name);
+      await prefetchBrowsePath(getBrowseDirectoryPath(nextQuery));
+      setHighlightedItemValue(null);
+      setQuery(nextQuery);
+      setBrowseGeneration((generation) => generation + 1);
+    },
+    [prefetchBrowsePath, query],
+  );
 
-  function browseUp(): void {
+  const browseUp = useCallback(async (): Promise<void> => {
     const parentPath = getBrowseParentPath(query);
     if (parentPath === null) {
       return;
     }
 
+    await prefetchBrowsePath(parentPath);
     setHighlightedItemValue(null);
     setQuery(parentPath);
     setBrowseGeneration((generation) => generation + 1);
-  }
+  }, [prefetchBrowsePath, query]);
 
   // Resolve the add-project path from browse data when available. When the
   // query has a trailing separator (e.g. "~/projects/foo/"), parentPath is the
@@ -842,7 +879,7 @@ function OpenCommandPaletteDialog() {
     browseTo,
   });
 
-  let displayedGroups = filteredGroups;
+  let displayedGroups: ReadonlyArray<CommandPaletteGroup> = filteredGroups;
   if (isBrowsing) {
     displayedGroups = relativePathNeedsActiveProject ? [] : browseGroups;
   }
