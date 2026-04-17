@@ -3,16 +3,16 @@ import { Buffer } from "node:buffer";
 import { Effect, Layer, Option, PlatformError, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { collectPosixProcessFamilyPids, checkPosixListeningPorts } from "../posix";
+import { collectPosixProcessFamilyPids, checkPosixListeningPorts } from "../posix.ts";
 import type {
   TerminalProcessInspectorShape,
   TerminalSubprocessActivity,
-} from "../Services/TerminalProcessInspector";
+} from "../Services/TerminalProcessInspector.ts";
 import {
   TerminalProcessInspector,
   TerminalProcessInspectionError,
-} from "../Services/TerminalProcessInspector";
-import { checkWindowsListeningPorts, collectWindowsChildPids } from "../win32";
+} from "../Services/TerminalProcessInspector.ts";
+import { checkWindowsListeningPorts, collectWindowsChildPids } from "../win32.ts";
 
 const DEFAULT_COMMAND_KILL_GRACE_MS = 1_000;
 
@@ -176,7 +176,7 @@ const makeTerminalProcessInspector = Effect.gen(function* () {
   });
 
   const inspect: TerminalProcessInspectorShape["inspect"] = Effect.fn("process.inspect")(
-    function* (terminalPid) {
+    function* (terminalPid: number) {
       if (!Number.isInteger(terminalPid) || terminalPid <= 0) {
         return {
           hasRunningSubprocess: false,
@@ -208,7 +208,7 @@ const makeTerminalProcessInspector = Effect.gen(function* () {
         } satisfies TerminalSubprocessActivity;
       }
 
-      const subprocessPids = processFamilyPids.filter((pid) => pid !== terminalPid);
+      const subprocessPids = processFamilyPids.filter((pid: number) => pid !== terminalPid);
       const runningPorts = yield* checkPosixListeningPorts(processFamilyPids, {
         terminalPid,
         runCommand: runInspectorCommand,

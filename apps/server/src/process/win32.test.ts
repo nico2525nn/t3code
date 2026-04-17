@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { collectWindowsChildPids } from "./win32";
+import { collectWindowsChildPids } from "./win32.ts";
 
 function parentPidFromCommand(command: string | undefined): number {
   return Number(/ParentProcessId = (\d+)/.exec(command ?? "")?.[1] ?? "0");

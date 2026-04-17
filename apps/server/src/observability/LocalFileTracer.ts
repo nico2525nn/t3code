@@ -2,7 +2,8 @@ import type * as Exit from "effect/Exit";
 import { Effect, Option, Tracer } from "effect";
 
 import { spanToTraceRecord } from "./TraceRecord.ts";
-import { makeTraceSink } from "./TraceSink.ts";
+import type { EffectTraceRecord } from "./TraceRecord.ts";
+import { makeTraceSink, type TraceSink } from "./TraceSink.ts";
 
 export interface LocalFileTracerOptions {
   readonly filePath: string;
@@ -10,6 +11,7 @@ export interface LocalFileTracerOptions {
   readonly maxFiles: number;
   readonly batchWindowMs: number;
   readonly delegate?: Tracer.Tracer;
+  readonly sink?: TraceSink;
 }
 
 class LocalFileSpan implements Tracer.Span {
@@ -26,12 +28,16 @@ class LocalFileSpan implements Tracer.Span {
   status: Tracer.SpanStatus;
   attributes: Map<string, unknown>;
   events: Array<[name: string, startTime: bigint, attributes: Record<string, unknown>]>;
+  private readonly delegate: Tracer.Span;
+  private readonly push: (record: EffectTraceRecord) => void;
 
   constructor(
     options: Parameters<Tracer.Tracer["span"]>[0],
-    private readonly delegate: Tracer.Span,
-    private readonly push: (record: ReturnType<typeof spanToTraceRecord>) => void,
+    delegate: Tracer.Span,
+    push: (record: EffectTraceRecord) => void,
   ) {
+    this.delegate = delegate;
+    this.push = push;
     this.name = delegate.name;
     this.spanId = delegate.spanId;
     this.traceId = delegate.traceId;
@@ -82,12 +88,14 @@ class LocalFileSpan implements Tracer.Span {
 export const makeLocalFileTracer = Effect.fn("makeLocalFileTracer")(function* (
   options: LocalFileTracerOptions,
 ) {
-  const sink = yield* makeTraceSink({
-    filePath: options.filePath,
-    maxBytes: options.maxBytes,
-    maxFiles: options.maxFiles,
-    batchWindowMs: options.batchWindowMs,
-  });
+  const sink =
+    options.sink ??
+    (yield* makeTraceSink({
+      filePath: options.filePath,
+      maxBytes: options.maxBytes,
+      maxFiles: options.maxFiles,
+      batchWindowMs: options.batchWindowMs,
+    }));
 
   const delegate =
     options.delegate ??

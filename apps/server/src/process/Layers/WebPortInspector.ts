@@ -3,8 +3,8 @@ import { Buffer } from "node:buffer";
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 
-import type { WebPortInspectorShape } from "../Services/WebPortInspector";
-import { WebPortInspector, WebPortInspectionError } from "../Services/WebPortInspector";
+import type { WebPortInspectorShape } from "../Services/WebPortInspector.ts";
+import { WebPortInspector, WebPortInspectionError } from "../Services/WebPortInspector.ts";
 
 const DEFAULT_WEB_PORT_PROBE_TIMEOUT_MS = 2_000;
 const WEB_PORT_PROBE_MAX_BODY_BYTES = 8_192;
@@ -140,7 +140,7 @@ const makeWebPortInspector = Effect.gen(function* () {
   });
 
   const inspect: WebPortInspectorShape["inspect"] = Effect.fn("process.inspectWebPort")(
-    function* (port) {
+    function* (port: number) {
       if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
         return yield* new WebPortInspectionError({
           port,

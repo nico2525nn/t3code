@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
-import type { TerminalProcessInspectionError } from "./Services/TerminalProcessInspector";
-import { parsePidList, parsePortList } from "./utils";
+import type { TerminalProcessInspectionError } from "./Services/TerminalProcessInspector.ts";
+import { parsePidList, parsePortList } from "./utils.ts";
 
 interface InspectorCommandResult {
   readonly stdout: string;

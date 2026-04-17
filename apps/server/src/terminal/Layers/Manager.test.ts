@@ -27,40 +27,43 @@ import {
 import { TestClock } from "effect/testing";
 import { expect } from "vitest";
 
-import { TerminalProcessInspectorLive } from "../../process/Layers/TerminalProcessInspector";
-import { WebPortInspectorLive } from "../../process/Layers/WebPortInspector";
+import { TerminalProcessInspectorLive } from "../../process/Layers/TerminalProcessInspector.ts";
+import { WebPortInspectorLive } from "../../process/Layers/WebPortInspector.ts";
 import {
   TerminalProcessInspectionError,
   TerminalProcessInspector,
-} from "../../process/Services/TerminalProcessInspector";
+} from "../../process/Services/TerminalProcessInspector.ts";
 import {
   WebPortInspector,
   WebPortInspectionError,
   type TerminalWebPortInspector,
-} from "../../process/Services/WebPortInspector";
-import type { TerminalManagerShape } from "../Services/Manager";
+} from "../../process/Services/WebPortInspector.ts";
+import type { TerminalManagerShape } from "../Services/Manager.ts";
 import {
   type PtyAdapterShape,
   type PtyExitEvent,
   type PtyProcess,
   type PtySpawnInput,
   PtySpawnError,
-} from "../Services/PTY";
+} from "../Services/PTY.ts";
 import {
   describeSubprocessInspectorError,
   makeTerminalManagerWithOptions,
   nextSubprocessActivityErrorLogState,
-} from "./Manager";
+} from "./Manager.ts";
 
 class FakePtyProcess implements PtyProcess {
   readonly writes: string[] = [];
   readonly resizeCalls: Array<{ cols: number; rows: number }> = [];
   readonly killSignals: Array<string | undefined> = [];
+  readonly pid: number;
   private readonly dataListeners = new Set<(data: string) => void>();
   private readonly exitListeners = new Set<(event: PtyExitEvent) => void>();
   killed = false;
 
-  constructor(readonly pid: number) {}
+  constructor(pid: number) {
+    this.pid = pid;
+  }
 
   write(data: string): void {
     this.writes.push(data);
@@ -106,9 +109,12 @@ class FakePtyAdapter implements PtyAdapterShape {
   readonly spawnInputs: PtySpawnInput[] = [];
   readonly processes: FakePtyProcess[] = [];
   readonly spawnFailures: Error[] = [];
+  private readonly mode: "sync" | "async";
   private nextPid = 9000;
 
-  constructor(private readonly mode: "sync" | "async" = "sync") {}
+  constructor(mode: "sync" | "async" = "sync") {
+    this.mode = mode;
+  }
 
   spawn(input: PtySpawnInput): Effect.Effect<PtyProcess, PtySpawnError> {
     this.spawnInputs.push(input);
@@ -211,6 +217,8 @@ interface CreateManagerOptions {
   ) => Effect.Effect<{ hasRunningSubprocess: boolean; runningPorts: number[] }>;
   webPortInspector?: TerminalWebPortInspector;
   webPortProbeCacheTtlMs?: number;
+  platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
   subprocessPollIntervalMs?: number;
   processKillGraceMs?: number;
   maxRetainedInactiveSessions?: number;
@@ -253,6 +261,8 @@ const createManager = (
         ...(options.webPortProbeCacheTtlMs !== undefined
           ? { webPortProbeCacheTtlMs: options.webPortProbeCacheTtlMs }
           : {}),
+        ...(options.platform !== undefined ? { platform: options.platform } : {}),
+        ...(options.env !== undefined ? { env: options.env } : {}),
         ...(options.subprocessPollIntervalMs !== undefined
           ? { subprocessPollIntervalMs: options.subprocessPollIntervalMs }
           : {}),
@@ -383,6 +393,8 @@ it.layer(
 
   it.effect("preserves non-notFound cwd stat failures", () =>
     Effect.gen(function* () {
+      if (process.platform === "win32") return;
+
       const { manager, baseDir } = yield* createManager();
       const blockedRoot = path.join(baseDir, "blocked-root");
       const blockedCwd = path.join(blockedRoot, "cwd");
@@ -998,8 +1010,12 @@ it.layer(
 
   it.effect("retries with fallback shells when preferred shell spawn fails", () =>
     Effect.gen(function* () {
+      const missingShell =
+        process.platform === "win32"
+          ? "C:\\definitely\\missing-shell.exe"
+          : "/definitely/missing-shell -l";
       const { manager, ptyAdapter } = yield* createManager(5, {
-        shellResolver: () => "/definitely/missing-shell -l",
+        shellResolver: () => missingShell,
       });
       ptyAdapter.spawnFailures.push(new Error("posix_spawnp failed."));
 
@@ -1007,12 +1023,17 @@ it.layer(
 
       assert.equal(snapshot.status, "running");
       expect(ptyAdapter.spawnInputs.length).toBeGreaterThanOrEqual(2);
-      expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/definitely/missing-shell");
+      expect(ptyAdapter.spawnInputs[0]?.shell).toBe(
+        process.platform === "win32" ? missingShell : "/definitely/missing-shell",
+      );
 
       if (process.platform === "win32") {
         expect(
           ptyAdapter.spawnInputs.some(
-            (input) => input.shell === "cmd.exe" || input.shell === "powershell.exe",
+            (input) =>
+              input.shell === "pwsh.exe" ||
+              input.shell === "powershell.exe" ||
+              input.shell === "cmd.exe",
           ),
         ).toBe(true);
       } else {
@@ -1022,6 +1043,56 @@ it.layer(
             .some((input) => input.shell !== "/definitely/missing-shell"),
         ).toBe(true);
       }
+    }),
+  );
+
+  it.effect("prefers PowerShell over ComSpec for Windows terminals", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        platform: "win32",
+        env: {
+          ComSpec: "C:\\Windows\\System32\\cmd.exe",
+          PATH: "C:\\Windows\\System32",
+          SystemRoot: "C:\\Windows",
+        },
+      });
+
+      yield* manager.open(openInput());
+
+      expect(ptyAdapter.spawnInputs[0]).toEqual(
+        expect.objectContaining({
+          shell: "pwsh.exe",
+          args: ["-NoLogo"],
+        }),
+      );
+    }),
+  );
+
+  it.effect("falls back to built-in PowerShell by absolute path on Windows", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        platform: "win32",
+        env: {
+          ComSpec: "C:\\Windows\\System32\\cmd.exe",
+          PATH: "C:\\Windows\\System32",
+          SystemRoot: "C:\\Windows",
+        },
+        shellResolver: () => "C:\\missing\\custom-shell.exe",
+      });
+      ptyAdapter.spawnFailures.push(
+        new Error("spawn custom-shell.exe ENOENT"),
+        new Error("spawn pwsh.exe ENOENT"),
+      );
+
+      yield* manager.open(openInput());
+
+      expect(ptyAdapter.spawnInputs.map((input) => input.shell)).toEqual([
+        "C:\\missing\\custom-shell.exe",
+        "pwsh.exe",
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      ]);
+      expect(ptyAdapter.spawnInputs[1]?.args).toEqual(["-NoLogo"]);
+      expect(ptyAdapter.spawnInputs[2]?.args).toEqual(["-NoLogo"]);
     }),
   );
 

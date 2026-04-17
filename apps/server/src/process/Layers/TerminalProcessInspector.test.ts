@@ -6,8 +6,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
-import { TerminalProcessInspector } from "../Services/TerminalProcessInspector";
-import { TerminalProcessInspectorLive } from "./TerminalProcessInspector";
+import { TerminalProcessInspector } from "../Services/TerminalProcessInspector.ts";
+import { TerminalProcessInspectorLive } from "./TerminalProcessInspector.ts";
 
 type ListenerProcess = ChildProcessByStdio<null, Readable, Readable>;
 

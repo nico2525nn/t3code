@@ -4,8 +4,8 @@ import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 
-import { WebPortInspectionError, WebPortInspector } from "../Services/WebPortInspector";
-import { WebPortInspectorLive } from "./WebPortInspector";
+import { WebPortInspectionError, WebPortInspector } from "../Services/WebPortInspector.ts";
+import { WebPortInspectorLive } from "./WebPortInspector.ts";
 
 const closeServer = (server: Server) =>
   Effect.callback<void>((resume) => {

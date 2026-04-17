@@ -1,4 +1,4 @@
-import { ServiceMap, Schema } from "effect";
+import { Context, Schema } from "effect";
 import type { Effect } from "effect";
 
 function describeTerminalInspectorCause(cause: unknown): string | null {
@@ -47,7 +47,7 @@ export interface TerminalProcessInspectorShape {
   ) => Effect.Effect<TerminalSubprocessActivity, TerminalProcessInspectionError>;
 }
 
-export class TerminalProcessInspector extends ServiceMap.Service<
+export class TerminalProcessInspector extends Context.Service<
   TerminalProcessInspector,
   TerminalProcessInspectorShape
 >()("t3/process/Services/TerminalProcessInspector") {}

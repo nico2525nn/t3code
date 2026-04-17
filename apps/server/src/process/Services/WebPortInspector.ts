@@ -1,4 +1,4 @@
-import { ServiceMap, Schema } from "effect";
+import { Context, Schema } from "effect";
 import type { Effect } from "effect";
 
 export const DEFAULT_WEB_PORT_PROBE_TTL_MS = 10_000;
@@ -25,6 +25,6 @@ export interface WebPortInspectorShape {
   readonly inspect: (port: number) => Effect.Effect<boolean, WebPortInspectionError>;
 }
 
-export class WebPortInspector extends ServiceMap.Service<WebPortInspector, WebPortInspectorShape>()(
+export class WebPortInspector extends Context.Service<WebPortInspector, WebPortInspectorShape>()(
   "t3/process/Services/WebPortInspector",
 ) {}

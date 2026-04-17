@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { checkPosixListeningPorts } from "./posix";
+import { checkPosixListeningPorts } from "./posix.ts";
 
 describe("process.checkPosixListeningPorts", () => {
   it.effect("falls back to ss when lsof exits with code 1", () =>

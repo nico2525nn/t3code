@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
-import type { TerminalProcessInspectionError } from "./Services/TerminalProcessInspector";
-import { MAX_PORT_NUMBER, portFromAddress } from "./utils";
+import type { TerminalProcessInspectionError } from "./Services/TerminalProcessInspector.ts";
+import { MAX_PORT_NUMBER, portFromAddress } from "./utils.ts";
 
 interface InspectorCommandResult {
   readonly stdout: string;

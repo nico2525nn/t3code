@@ -1,4 +1,4 @@
-import { Option, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
   EventId,
   IsoDateTime,
@@ -11,8 +11,8 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
   TurnId,
-} from "./baseSchemas";
-import { ProviderKind } from "./orchestration";
+} from "./baseSchemas.ts";
+import { ProviderKind } from "./orchestration.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
@@ -435,7 +435,7 @@ export const UserInputQuestion = Schema.Struct({
   question: TrimmedNonEmptyStringSchema,
   options: Schema.Array(UserInputQuestionOption),
   multiSelect: Schema.optional(Schema.Boolean).pipe(
-    Schema.withConstructorDefault(() => Option.some(false)),
+    Schema.withConstructorDefault(Effect.succeed(false)),
   ),
 });
 export type UserInputQuestion = typeof UserInputQuestion.Type;
