@@ -175,51 +175,51 @@ const makeTerminalProcessInspector = Effect.gen(function* () {
     );
   });
 
-  const inspect: TerminalProcessInspectorShape["inspect"] = Effect.fn("process.inspect")(
-    function* (terminalPid: number) {
-      if (!Number.isInteger(terminalPid) || terminalPid <= 0) {
-        return {
-          hasRunningSubprocess: false,
-          runningPorts: [],
-        } satisfies TerminalSubprocessActivity;
-      }
+  const inspect: TerminalProcessInspectorShape["inspect"] = Effect.fn("process.inspect")(function* (
+    terminalPid: number,
+  ) {
+    if (!Number.isInteger(terminalPid) || terminalPid <= 0) {
+      return {
+        hasRunningSubprocess: false,
+        runningPorts: [],
+      } satisfies TerminalSubprocessActivity;
+    }
 
-      if (process.platform === "win32") {
-        const childPids = yield* collectWindowsChildPids(terminalPid, runInspectorCommand);
-        const processPidsForPortScan = [terminalPid, ...childPids];
-        const runningPorts = yield* checkWindowsListeningPorts(processPidsForPortScan, {
-          terminalPid,
-          runCommand: runInspectorCommand,
-        });
-        return {
-          hasRunningSubprocess: childPids.length > 0 || runningPorts.length > 0,
-          runningPorts,
-        } satisfies TerminalSubprocessActivity;
-      }
-
-      const processFamilyPids = yield* collectPosixProcessFamilyPids(
-        terminalPid,
-        runInspectorCommand,
-      );
-      if (processFamilyPids.length === 0) {
-        return {
-          hasRunningSubprocess: false,
-          runningPorts: [],
-        } satisfies TerminalSubprocessActivity;
-      }
-
-      const subprocessPids = processFamilyPids.filter((pid: number) => pid !== terminalPid);
-      const runningPorts = yield* checkPosixListeningPorts(processFamilyPids, {
+    if (process.platform === "win32") {
+      const childPids = yield* collectWindowsChildPids(terminalPid, runInspectorCommand);
+      const processPidsForPortScan = [terminalPid, ...childPids];
+      const runningPorts = yield* checkWindowsListeningPorts(processPidsForPortScan, {
         terminalPid,
         runCommand: runInspectorCommand,
-        platform: process.platform,
       });
       return {
-        hasRunningSubprocess: subprocessPids.length > 0 || runningPorts.length > 0,
+        hasRunningSubprocess: childPids.length > 0 || runningPorts.length > 0,
         runningPorts,
       } satisfies TerminalSubprocessActivity;
-    },
-  );
+    }
+
+    const processFamilyPids = yield* collectPosixProcessFamilyPids(
+      terminalPid,
+      runInspectorCommand,
+    );
+    if (processFamilyPids.length === 0) {
+      return {
+        hasRunningSubprocess: false,
+        runningPorts: [],
+      } satisfies TerminalSubprocessActivity;
+    }
+
+    const subprocessPids = processFamilyPids.filter((pid: number) => pid !== terminalPid);
+    const runningPorts = yield* checkPosixListeningPorts(processFamilyPids, {
+      terminalPid,
+      runCommand: runInspectorCommand,
+      platform: process.platform,
+    });
+    return {
+      hasRunningSubprocess: subprocessPids.length > 0 || runningPorts.length > 0,
+      runningPorts,
+    } satisfies TerminalSubprocessActivity;
+  });
 
   return {
     inspect,

@@ -139,37 +139,37 @@ const makeWebPortInspector = Effect.gen(function* () {
     );
   });
 
-  const inspect: WebPortInspectorShape["inspect"] = Effect.fn("process.inspectWebPort")(
-    function* (port: number) {
-      if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
-        return yield* new WebPortInspectionError({
-          port,
-          host: "127.0.0.1",
-          detail: "Port must be an integer between 1 and 65535.",
-        });
-      }
+  const inspect: WebPortInspectorShape["inspect"] = Effect.fn("process.inspectWebPort")(function* (
+    port: number,
+  ) {
+    if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
+      return yield* new WebPortInspectionError({
+        port,
+        host: "127.0.0.1",
+        detail: "Port must be an integer between 1 and 65535.",
+      });
+    }
 
-      const ipv4Result = yield* probeWebPortOnHost(port, "127.0.0.1").pipe(Effect.exit);
-      if (ipv4Result._tag === "Success" && isLikelyWebProbe(ipv4Result.value)) {
-        return true;
-      }
+    const ipv4Result = yield* probeWebPortOnHost(port, "127.0.0.1").pipe(Effect.exit);
+    if (ipv4Result._tag === "Success" && isLikelyWebProbe(ipv4Result.value)) {
+      return true;
+    }
 
-      const ipv6Result = yield* probeWebPortOnHost(port, "::1").pipe(Effect.exit);
-      if (ipv6Result._tag === "Success" && isLikelyWebProbe(ipv6Result.value)) {
-        return true;
-      }
+    const ipv6Result = yield* probeWebPortOnHost(port, "::1").pipe(Effect.exit);
+    if (ipv6Result._tag === "Success" && isLikelyWebProbe(ipv6Result.value)) {
+      return true;
+    }
 
-      if (ipv4Result._tag === "Success" || ipv6Result._tag === "Success") {
-        return false;
-      }
+    if (ipv4Result._tag === "Success" || ipv6Result._tag === "Success") {
+      return false;
+    }
 
-      if (ipv6Result._tag === "Failure") {
-        return yield* Effect.failCause(ipv6Result.cause);
-      }
+    if (ipv6Result._tag === "Failure") {
+      return yield* Effect.failCause(ipv6Result.cause);
+    }
 
-      return yield* Effect.failCause(ipv4Result.cause);
-    },
-  );
+    return yield* Effect.failCause(ipv4Result.cause);
+  });
 
   return {
     inspect,
