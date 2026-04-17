@@ -188,6 +188,60 @@ jobs:
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 
+      - name: Install VS 2022 Spectre-mitigated MSVC libraries
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $setup = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $spectreComponent = "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre"
+
+          if (-not (Test-Path $vswhere)) {
+            throw "vswhere.exe not found at $vswhere"
+          }
+
+          if (-not (Test-Path $setup)) {
+            throw "Visual Studio installer setup.exe not found at $setup"
+          }
+
+          $existingSpectreInstall = & $vswhere -products * -requires $spectreComponent -property installationPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "vswhere failed while checking for $spectreComponent"
+          }
+
+          if ($existingSpectreInstall) {
+            Write-Host "Spectre-mitigated MSVC libraries already installed at $existingSpectreInstall"
+            exit 0
+          }
+
+          $installPath = & $vswhere -products * -requires Microsoft.Component.MSBuild -property installationPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "vswhere failed while locating the Visual Studio Build Tools installation"
+          }
+
+          if (-not $installPath) {
+            throw "Could not find a Visual Studio Build Tools installation to modify"
+          }
+
+          Write-Host "Installing $spectreComponent into $installPath"
+          & $setup modify `
+            --installPath $installPath `
+            --add $spectreComponent `
+            --quiet `
+            --wait `
+            --norestart
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Visual Studio installer failed with exit code $LASTEXITCODE"
+          }
+
+          $verifiedInstall = & $vswhere -products * -requires $spectreComponent -property installationPath
+          if (-not $verifiedInstall) {
+            throw "$spectreComponent was not detected after installation"
+          }
+
+          Write-Host "Installed Spectre-mitigated MSVC libraries at $verifiedInstall"
+
       - name: Build desktop artifact
         shell: bash
         env:
