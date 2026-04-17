@@ -167,26 +167,36 @@ describe("buildThreadActionItems", () => {
 });
 
 describe("getBrowsePrefetchPaths", () => {
-  it("prefetches the parent path and an exact typed child path", () => {
+  it("prefetches child path when query has no trailing separator and an exact entry matches", () => {
     expect(
       getBrowsePrefetchPaths({
         browseQuery: "~/Downloads",
-        canBrowseUp: true,
+        canBrowseUp: false,
         exactEntry: {
           name: "Downloads",
           fullPath: "/Users/test/Downloads",
         },
       }),
-    ).toEqual(["~/", "~/Downloads/"]);
+    ).toEqual(["~/Downloads/"]);
   });
 
-  it("does not prefetch a child path when the user only has a highlighted browse row", () => {
+  it("prefetches parent path when query has a trailing separator", () => {
     expect(
       getBrowsePrefetchPaths({
-        browseQuery: "~/Do",
+        browseQuery: "~/Downloads/",
         canBrowseUp: true,
         exactEntry: null,
       }),
     ).toEqual(["~/"]);
+  });
+
+  it("returns no paths for a partial query with no exact match", () => {
+    expect(
+      getBrowsePrefetchPaths({
+        browseQuery: "~/Do",
+        canBrowseUp: false,
+        exactEntry: null,
+      }),
+    ).toEqual([]);
   });
 });
