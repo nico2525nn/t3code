@@ -6,10 +6,15 @@ import * as Path from "node:path";
 import * as Net from "node:net";
 
 import type {
+  AuthBearerBootstrapResult,
+  AuthSessionState,
+  AuthWebSocketTokenResult,
   DesktopDiscoveredSshHost,
   DesktopSshEnvironmentBootstrap,
   DesktopSshEnvironmentTarget,
+  DesktopSshPasswordPromptRequest,
   DesktopUpdateChannel,
+  ExecutionEnvironmentDescriptor,
 } from "@t3tools/contracts";
 
 import { waitForHttpReady } from "./backendReadiness";
@@ -20,6 +25,16 @@ const SSH_ASKPASS_DIR_NAME = "t3code-ssh-askpass";
 const TUNNEL_SHUTDOWN_TIMEOUT_MS = 2_000;
 const SSH_READY_TIMEOUT_MS = 20_000;
 const PUBLISHABLE_T3_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
+
+const DISCOVER_SSH_HOSTS_CHANNEL = "desktop:discover-ssh-hosts";
+const ENSURE_SSH_ENVIRONMENT_CHANNEL = "desktop:ensure-ssh-environment";
+const FETCH_SSH_ENVIRONMENT_DESCRIPTOR_CHANNEL = "desktop:fetch-ssh-environment-descriptor";
+const BOOTSTRAP_SSH_BEARER_SESSION_CHANNEL = "desktop:bootstrap-ssh-bearer-session";
+const FETCH_SSH_SESSION_STATE_CHANNEL = "desktop:fetch-ssh-session-state";
+const ISSUE_SSH_WEBSOCKET_TOKEN_CHANNEL = "desktop:issue-ssh-websocket-token";
+const SSH_PASSWORD_PROMPT_CHANNEL = "desktop:ssh-password-prompt";
+const RESOLVE_SSH_PASSWORD_PROMPT_CHANNEL = "desktop:resolve-ssh-password-prompt";
+const DEFAULT_SSH_PASSWORD_PROMPT_TIMEOUT_MS = 3 * 60 * 1000;
 
 interface SshTunnelEntry {
   readonly key: string;
@@ -1145,6 +1160,317 @@ export class DesktopSshEnvironmentManager {
     this.tunnels.clear();
     this.pendingTunnelEntries.clear();
     await Promise.all(entries.map((entry) => stopTunnel(entry).catch(() => undefined)));
+  }
+}
+
+function getSafeDesktopSshTarget(rawTarget: unknown): DesktopSshEnvironmentTarget | null {
+  if (typeof rawTarget !== "object" || rawTarget === null) {
+    return null;
+  }
+
+  const target = rawTarget as Partial<DesktopSshEnvironmentTarget>;
+  if (typeof target.alias !== "string" || typeof target.hostname !== "string") {
+    return null;
+  }
+  if (
+    target.username !== null &&
+    target.username !== undefined &&
+    typeof target.username !== "string"
+  ) {
+    return null;
+  }
+  if (target.port !== null && target.port !== undefined && !Number.isInteger(target.port)) {
+    return null;
+  }
+
+  const alias = target.alias.trim();
+  const hostname = target.hostname.trim();
+  if (alias.length === 0 || hostname.length === 0) {
+    return null;
+  }
+
+  return {
+    alias,
+    hostname,
+    username: target.username?.trim() || null,
+    port: target.port ?? null,
+  };
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[(.*)\]$/, "$1");
+  return normalized === "127.0.0.1" || normalized === "::1" || normalized === "localhost";
+}
+
+function resolveLoopbackSshHttpUrl(rawHttpBaseUrl: unknown, pathname: string): URL {
+  if (typeof rawHttpBaseUrl !== "string" || rawHttpBaseUrl.trim().length === 0) {
+    throw new Error("Invalid SSH forwarded http base URL.");
+  }
+
+  let baseUrl: URL;
+  try {
+    baseUrl = new URL(rawHttpBaseUrl);
+  } catch {
+    throw new Error("Invalid SSH forwarded http base URL.");
+  }
+
+  if (!isLoopbackHostname(baseUrl.hostname)) {
+    throw new Error("SSH desktop bridge only supports loopback forwarded URLs.");
+  }
+
+  const url = new URL(baseUrl.toString());
+  url.pathname = pathname;
+  url.search = "";
+  url.hash = "";
+  return url;
+}
+
+async function readRemoteFetchErrorMessage(
+  response: Response,
+  fallbackMessage: string,
+): Promise<string> {
+  const text = await response.text();
+  if (!text) {
+    return fallbackMessage;
+  }
+
+  try {
+    const parsed = JSON.parse(text) as { readonly error?: string };
+    if (typeof parsed.error === "string" && parsed.error.trim().length > 0) {
+      return parsed.error;
+    }
+  } catch {
+    // Fall back to the raw text below.
+  }
+
+  return text;
+}
+
+async function fetchLoopbackSshJson<T>(input: {
+  readonly httpBaseUrl: unknown;
+  readonly pathname: string;
+  readonly method?: "GET" | "POST";
+  readonly bearerToken?: unknown;
+  readonly body?: unknown;
+}): Promise<T> {
+  const requestUrl = resolveLoopbackSshHttpUrl(input.httpBaseUrl, input.pathname).toString();
+  const bearerToken =
+    typeof input.bearerToken === "string" && input.bearerToken.trim().length > 0
+      ? input.bearerToken
+      : null;
+
+  let response: Response;
+  try {
+    response = await fetch(requestUrl, {
+      method: input.method ?? "GET",
+      headers: {
+        ...(input.body !== undefined ? { "content-type": "application/json" } : {}),
+        ...(bearerToken ? { authorization: `Bearer ${bearerToken}` } : {}),
+      },
+      ...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {}),
+    });
+  } catch (error) {
+    throw new Error(
+      `Failed to reach SSH forwarded endpoint ${requestUrl} (${error instanceof Error ? error.message : String(error)}).`,
+      { cause: error },
+    );
+  }
+
+  if (!response.ok) {
+    const message = await readRemoteFetchErrorMessage(
+      response,
+      `SSH forwarded request failed (${response.status}).`,
+    );
+    throw new Error(`[ssh_http:${response.status}] ${message}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+/** Minimal subset of Electron's BrowserWindow used by the SSH bridge. */
+export interface DesktopSshBridgeWindow {
+  isDestroyed(): boolean;
+  isMinimized(): boolean;
+  restore(): void;
+  focus(): void;
+  readonly webContents: {
+    send(channel: string, ...args: readonly unknown[]): void;
+  };
+}
+
+/** Minimal subset of Electron's ipcMain used by the SSH bridge. */
+export interface DesktopSshBridgeIpcMain {
+  removeHandler(channel: string): void;
+  handle(
+    channel: string,
+    listener: (event: unknown, ...args: readonly unknown[]) => unknown | Promise<unknown>,
+  ): void;
+}
+
+export interface DesktopSshEnvironmentBridgeOptions {
+  readonly getMainWindow: () => DesktopSshBridgeWindow | null;
+  readonly resolveCliPackageSpec: () => string;
+  readonly passwordPromptTimeoutMs?: number;
+}
+
+interface PendingSshPasswordPrompt {
+  readonly resolve: (password: string | null) => void;
+  readonly reject: (error: Error) => void;
+  readonly timeout: ReturnType<typeof setTimeout>;
+}
+
+/**
+ * Wires the SSH environment manager to Electron IPC, owning the renderer-facing
+ * password prompt state so `main.ts` only needs to register, cancel, and dispose.
+ */
+export class DesktopSshEnvironmentBridge {
+  private readonly options: DesktopSshEnvironmentBridgeOptions;
+  private readonly manager: DesktopSshEnvironmentManager;
+  private readonly pendingPrompts = new Map<string, PendingSshPasswordPrompt>();
+  private readonly passwordPromptTimeoutMs: number;
+
+  constructor(options: DesktopSshEnvironmentBridgeOptions) {
+    this.options = options;
+    this.passwordPromptTimeoutMs =
+      options.passwordPromptTimeoutMs ?? DEFAULT_SSH_PASSWORD_PROMPT_TIMEOUT_MS;
+    this.manager = new DesktopSshEnvironmentManager({
+      passwordProvider: (request) => this.requestPasswordFromRenderer(request),
+      resolveCliPackageSpec: options.resolveCliPackageSpec,
+    });
+  }
+
+  registerIpcHandlers(ipcMain: DesktopSshBridgeIpcMain): void {
+    ipcMain.removeHandler(DISCOVER_SSH_HOSTS_CHANNEL);
+    ipcMain.handle(DISCOVER_SSH_HOSTS_CHANNEL, async () => this.manager.discoverHosts());
+
+    ipcMain.removeHandler(ENSURE_SSH_ENVIRONMENT_CHANNEL);
+    ipcMain.handle(ENSURE_SSH_ENVIRONMENT_CHANNEL, async (_event, rawTarget, rawOptions) => {
+      const target = getSafeDesktopSshTarget(rawTarget);
+      if (!target) {
+        throw new Error("Invalid desktop SSH target.");
+      }
+
+      const issuePairingToken =
+        typeof rawOptions === "object" &&
+        rawOptions !== null &&
+        "issuePairingToken" in rawOptions &&
+        (rawOptions as { issuePairingToken?: unknown }).issuePairingToken === true;
+
+      return await this.manager.ensureEnvironment(target, { issuePairingToken });
+    });
+
+    ipcMain.removeHandler(FETCH_SSH_ENVIRONMENT_DESCRIPTOR_CHANNEL);
+    ipcMain.handle(FETCH_SSH_ENVIRONMENT_DESCRIPTOR_CHANNEL, async (_event, rawHttpBaseUrl) =>
+      fetchLoopbackSshJson<ExecutionEnvironmentDescriptor>({
+        httpBaseUrl: rawHttpBaseUrl,
+        pathname: "/.well-known/t3/environment",
+      }),
+    );
+
+    ipcMain.removeHandler(BOOTSTRAP_SSH_BEARER_SESSION_CHANNEL);
+    ipcMain.handle(
+      BOOTSTRAP_SSH_BEARER_SESSION_CHANNEL,
+      async (_event, rawHttpBaseUrl, rawCredential) =>
+        fetchLoopbackSshJson<AuthBearerBootstrapResult>({
+          httpBaseUrl: rawHttpBaseUrl,
+          pathname: "/api/auth/bootstrap/bearer",
+          method: "POST",
+          body: { credential: rawCredential },
+        }),
+    );
+
+    ipcMain.removeHandler(FETCH_SSH_SESSION_STATE_CHANNEL);
+    ipcMain.handle(
+      FETCH_SSH_SESSION_STATE_CHANNEL,
+      async (_event, rawHttpBaseUrl, rawBearerToken) =>
+        fetchLoopbackSshJson<AuthSessionState>({
+          httpBaseUrl: rawHttpBaseUrl,
+          pathname: "/api/auth/session",
+          bearerToken: rawBearerToken,
+        }),
+    );
+
+    ipcMain.removeHandler(ISSUE_SSH_WEBSOCKET_TOKEN_CHANNEL);
+    ipcMain.handle(
+      ISSUE_SSH_WEBSOCKET_TOKEN_CHANNEL,
+      async (_event, rawHttpBaseUrl, rawBearerToken) =>
+        fetchLoopbackSshJson<AuthWebSocketTokenResult>({
+          httpBaseUrl: rawHttpBaseUrl,
+          pathname: "/api/auth/ws-token",
+          method: "POST",
+          bearerToken: rawBearerToken,
+        }),
+    );
+
+    ipcMain.removeHandler(RESOLVE_SSH_PASSWORD_PROMPT_CHANNEL);
+    ipcMain.handle(
+      RESOLVE_SSH_PASSWORD_PROMPT_CHANNEL,
+      async (_event, rawRequestId, rawPassword) => {
+        if (typeof rawRequestId !== "string" || rawRequestId.trim().length === 0) {
+          throw new Error("Invalid SSH password prompt id.");
+        }
+        if (rawPassword !== null && typeof rawPassword !== "string") {
+          throw new Error("Invalid SSH password prompt response.");
+        }
+
+        const pending = this.pendingPrompts.get(rawRequestId);
+        if (!pending) {
+          throw new Error("SSH password prompt is no longer pending.");
+        }
+
+        clearTimeout(pending.timeout);
+        this.pendingPrompts.delete(rawRequestId);
+        pending.resolve(rawPassword);
+      },
+    );
+  }
+
+  cancelPendingPasswordPrompts(reason: string): void {
+    for (const [requestId, pending] of this.pendingPrompts) {
+      clearTimeout(pending.timeout);
+      this.pendingPrompts.delete(requestId);
+      pending.reject(new Error(reason));
+    }
+  }
+
+  async dispose(): Promise<void> {
+    this.cancelPendingPasswordPrompts("SSH environment bridge disposed.");
+    await this.manager.dispose();
+  }
+
+  private async requestPasswordFromRenderer(
+    input: DesktopSshPasswordRequest,
+  ): Promise<string | null> {
+    const window = this.options.getMainWindow();
+    if (!window || window.isDestroyed()) {
+      throw new Error("T3 Code window is not available for SSH authentication.");
+    }
+
+    const request: DesktopSshPasswordPromptRequest = {
+      requestId: Crypto.randomUUID(),
+      destination: input.destination,
+      username: input.username,
+      prompt: input.prompt,
+    };
+
+    return await new Promise<string | null>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingPrompts.delete(request.requestId);
+        reject(new Error(`SSH authentication timed out for ${input.destination}.`));
+      }, this.passwordPromptTimeoutMs);
+      timeout.unref();
+
+      this.pendingPrompts.set(request.requestId, { resolve, reject, timeout });
+
+      window.webContents.send(SSH_PASSWORD_PROMPT_CHANNEL, request);
+      if (window.isMinimized()) {
+        window.restore();
+      }
+      window.focus();
+    });
   }
 }
 
