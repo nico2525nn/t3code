@@ -81,6 +81,7 @@ import {
   type CommandPaletteView,
   filterBrowseEntries,
   filterCommandPaletteGroups,
+  getBrowsePrefetchPaths,
   getCommandPaletteInputPlaceholder,
   getCommandPaletteMode,
   ITEM_ICON_CLASS,
@@ -367,11 +368,7 @@ function OpenCommandPaletteDialog() {
       !relativePathNeedsActiveProject,
   });
   const browseEntries = browseResult?.entries ?? EMPTY_BROWSE_ENTRIES;
-  const {
-    filteredEntries: filteredBrowseEntries,
-    highlightedEntry: highlightedBrowseEntry,
-    exactEntry: exactBrowseEntry,
-  } = useMemo(
+  const { filteredEntries: filteredBrowseEntries, exactEntry: exactBrowseEntry } = useMemo(
     () => filterBrowseEntries({ browseEntries, browseFilterQuery, highlightedItemValue }),
     [browseEntries, browseFilterQuery, highlightedItemValue],
   );
@@ -392,27 +389,25 @@ function OpenCommandPaletteDialog() {
     [browseEnvironmentId, currentProjectCwdForBrowse, fetchBrowseResult, queryClient],
   );
 
-  // Prefetch the parent and the most likely next child so browse navigation
-  // stays warm without scanning every child directory in large trees.
+  const browsePrefetchPaths = useMemo(
+    () =>
+      getBrowsePrefetchPaths({
+        browseQuery: query,
+        canBrowseUp: canNavigateUp(query),
+        exactEntry: exactBrowseEntry,
+      }),
+    [exactBrowseEntry, query],
+  );
+
+  // Prefetch the parent and only an exact typed child so browse navigation
+  // stays warm without turning pointer hover into a directory read.
   useEffect(() => {
     if (!isBrowsing || filteredBrowseEntries.length === 0) return;
 
-    if (canNavigateUp(query)) {
-      prefetchBrowsePath(getBrowseParentPath(query)!);
+    for (const partialPath of browsePrefetchPaths) {
+      prefetchBrowsePath(partialPath);
     }
-
-    const nextChild = highlightedBrowseEntry ?? exactBrowseEntry;
-    if (nextChild) {
-      prefetchBrowsePath(appendBrowsePathSegment(query, nextChild.name));
-    }
-  }, [
-    exactBrowseEntry,
-    filteredBrowseEntries.length,
-    highlightedBrowseEntry,
-    isBrowsing,
-    prefetchBrowsePath,
-    query,
-  ]);
+  }, [filteredBrowseEntries.length, browsePrefetchPaths, isBrowsing, prefetchBrowsePath]);
 
   const openProjectFromSearch = useMemo(
     () => async (project: (typeof projects)[number]) => {
