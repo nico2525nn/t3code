@@ -28,7 +28,7 @@ import {
   sanitizeThreadTitle,
   toJsonSchemaObject,
 } from "../Utils.ts";
-import { getCodexModelCapabilities } from "../../provider/Layers/CodexProvider.ts";
+import { getCodexModelCapabilities } from "../../provider/codexModels.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { normalizeCodexModelOptionsWithCapabilities } from "@t3tools/shared/model";
 

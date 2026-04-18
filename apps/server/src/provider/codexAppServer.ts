@@ -1,85 +1,67 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import readline from "node:readline";
-import type { ServerProviderSkill } from "@t3tools/contracts";
-import { readCodexAccountSnapshot, type CodexAccountSnapshot } from "./codexAccount.ts";
+import { spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-interface JsonRpcProbeResponse {
-  readonly id?: unknown;
-  readonly result?: unknown;
-  readonly error?: {
-    readonly message?: unknown;
-  };
-}
+import type { ServerProviderSkill } from "@t3tools/contracts";
+import { Effect, Layer, Schema } from "effect";
+import * as CodexClient from "effect-codex-app-server/client";
+import type * as EffectCodexSchema from "effect-codex-app-server/schema";
+import type { Mutable } from "effect/Types";
+
+import { readCodexAccountSnapshotResponse, type CodexAccountSnapshot } from "./codexAccount.ts";
 
 export interface CodexDiscoverySnapshot {
   readonly account: CodexAccountSnapshot;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
 }
 
-function readErrorMessage(response: JsonRpcProbeResponse): string | undefined {
-  return typeof response.error?.message === "string" ? response.error.message : undefined;
+export class CodexDiscoveryProbeError extends Schema.TaggedErrorClass<CodexDiscoveryProbeError>()(
+  "CodexDiscoveryProbeError",
+  {
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return this.detail;
+  }
 }
 
-function readObject(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
-}
+export function parseCodexSkillsListResponse(
+  response: EffectCodexSchema.V2SkillsListResponse,
+  cwd: string,
+): ReadonlyArray<ServerProviderSkill> {
+  const matchingEntry = response.data.find((entry) => entry.cwd === cwd);
+  const skills = matchingEntry
+    ? matchingEntry.skills
+    : response.data.flatMap((entry) => entry.skills);
 
-function readArray(value: unknown): ReadonlyArray<unknown> | undefined {
-  return Array.isArray(value) ? value : undefined;
-}
+  return skills.map((skill) => {
+    const shortDescription =
+      skill.shortDescription ?? skill.interface?.shortDescription ?? undefined;
 
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
+    const parsedSkill: Mutable<ServerProviderSkill> = {
+      name: skill.name,
+      path: skill.path,
+      enabled: skill.enabled,
+    };
 
-function nonEmptyTrimmed(value: unknown): string | undefined {
-  const candidate = readString(value)?.trim();
-  return candidate ? candidate : undefined;
-}
-
-function parseCodexSkillsResult(result: unknown, cwd: string): ReadonlyArray<ServerProviderSkill> {
-  const resultRecord = readObject(result);
-  const dataBuckets = readArray(resultRecord?.data) ?? [];
-  const matchingBucket = dataBuckets.find(
-    (value) => nonEmptyTrimmed(readObject(value)?.cwd) === cwd,
-  );
-  const rawSkills =
-    readArray(readObject(matchingBucket)?.skills) ?? readArray(resultRecord?.skills) ?? [];
-
-  return rawSkills.flatMap((value) => {
-    const skill = readObject(value);
-    const display = readObject(skill?.interface);
-    const name = nonEmptyTrimmed(skill?.name);
-    const path = nonEmptyTrimmed(skill?.path);
-    if (!name || !path) {
-      return [];
+    if (skill.description) {
+      parsedSkill.description = skill.description;
+    }
+    if (skill.scope) {
+      parsedSkill.scope = skill.scope;
+    }
+    if (skill.interface?.displayName) {
+      parsedSkill.displayName = skill.interface.displayName;
+    }
+    if (shortDescription) {
+      parsedSkill.shortDescription = shortDescription;
     }
 
-    return [
-      {
-        name,
-        path,
-        enabled: skill?.enabled !== false,
-        ...(nonEmptyTrimmed(skill?.description)
-          ? { description: nonEmptyTrimmed(skill?.description) }
-          : {}),
-        ...(nonEmptyTrimmed(skill?.scope) ? { scope: nonEmptyTrimmed(skill?.scope) } : {}),
-        ...(nonEmptyTrimmed(display?.displayName)
-          ? { displayName: nonEmptyTrimmed(display?.displayName) }
-          : {}),
-        ...(nonEmptyTrimmed(skill?.shortDescription) || nonEmptyTrimmed(display?.shortDescription)
-          ? {
-              shortDescription:
-                nonEmptyTrimmed(skill?.shortDescription) ??
-                nonEmptyTrimmed(display?.shortDescription),
-            }
-          : {}),
-      } satisfies ServerProviderSkill,
-    ];
+    return parsedSkill;
   });
 }
 
-export function buildCodexInitializeParams() {
+export function buildCodexInitializeParams(): EffectCodexSchema.V1InitializeParams {
   return {
     clientInfo: {
       name: "t3code_desktop",
@@ -89,7 +71,7 @@ export function buildCodexInitializeParams() {
     capabilities: {
       experimentalApi: true,
     },
-  } as const;
+  };
 }
 
 export function killCodexChildProcess(child: ChildProcessWithoutNullStreams): void {
@@ -105,137 +87,69 @@ export function killCodexChildProcess(child: ChildProcessWithoutNullStreams): vo
   child.kill();
 }
 
-export async function probeCodexDiscovery(input: {
+export const probeCodexDiscovery = Effect.fn("probeCodexDiscovery")(function* (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly cwd: string;
-  readonly signal?: AbortSignal;
-}): Promise<CodexDiscoverySnapshot> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(input.binaryPath, ["app-server"], {
-      env: {
-        ...process.env,
-        ...(input.homePath ? { CODEX_HOME: input.homePath } : {}),
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-      shell: process.platform === "win32",
-    });
-    const output = readline.createInterface({ input: child.stdout });
+}) {
+  const clientContext = yield* Layer.build(
+    CodexClient.layerCommand({
+      command: input.binaryPath,
+      args: ["app-server"],
+      ...(input.homePath ? { env: { CODEX_HOME: input.homePath } } : {}),
+    }),
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new CodexDiscoveryProbeError({
+          detail: `Codex discovery probe spawn failed: ${cause.message}`,
+          cause,
+        }),
+    ),
+  );
+  const client = yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
+    Effect.provide(clientContext),
+  );
 
-    let completed = false;
-    let account: CodexAccountSnapshot | undefined;
-    let skills: ReadonlyArray<ServerProviderSkill> | undefined;
+  yield* client.request("initialize", buildCodexInitializeParams()).pipe(
+    Effect.mapError(
+      (cause) =>
+        new CodexDiscoveryProbeError({
+          detail: `Codex discovery probe initialize failed: ${cause.message}`,
+          cause,
+        }),
+    ),
+  );
+  yield* client.notify("initialized", undefined).pipe(
+    Effect.mapError(
+      (cause) =>
+        new CodexDiscoveryProbeError({
+          detail: `Codex discovery probe initialized notification failed: ${cause.message}`,
+          cause,
+        }),
+    ),
+  );
 
-    const cleanup = () => {
-      output.removeAllListeners();
-      output.close();
-      child.removeAllListeners();
-      if (!child.killed) {
-        killCodexChildProcess(child);
-      }
-    };
+  const [skillsResponse, accountResponse] = yield* Effect.all(
+    [
+      client.request("skills/list", {
+        cwds: [input.cwd],
+      }),
+      client.request("account/read", {}),
+    ],
+    { concurrency: "unbounded" },
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new CodexDiscoveryProbeError({
+          detail: `Codex discovery probe request failed: ${cause.message}`,
+          cause,
+        }),
+    ),
+  );
 
-    const finish = (callback: () => void) => {
-      if (completed) return;
-      completed = true;
-      cleanup();
-      callback();
-    };
-
-    const fail = (error: unknown) =>
-      finish(() =>
-        reject(
-          error instanceof Error
-            ? error
-            : new Error(`Codex discovery probe failed: ${String(error)}.`),
-        ),
-      );
-
-    const maybeResolve = () => {
-      if (account && skills !== undefined) {
-        const resolvedAccount = account;
-        const resolvedSkills = skills;
-        finish(() => resolve({ account: resolvedAccount, skills: resolvedSkills }));
-      }
-    };
-
-    if (input.signal?.aborted) {
-      fail(new Error("Codex discovery probe aborted."));
-      return;
-    }
-    input.signal?.addEventListener("abort", () =>
-      fail(new Error("Codex discovery probe aborted.")),
-    );
-
-    const writeMessage = (message: unknown) => {
-      if (!child.stdin.writable) {
-        fail(new Error("Cannot write to codex app-server stdin."));
-        return;
-      }
-
-      child.stdin.write(`${JSON.stringify(message)}\n`);
-    };
-
-    output.on("line", (line) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
-        fail(new Error("Received invalid JSON from codex app-server during discovery probe."));
-        return;
-      }
-
-      if (!parsed || typeof parsed !== "object") {
-        return;
-      }
-
-      const response = parsed as JsonRpcProbeResponse;
-      if (response.id === 1) {
-        const errorMessage = readErrorMessage(response);
-        if (errorMessage) {
-          fail(new Error(`initialize failed: ${errorMessage}`));
-          return;
-        }
-
-        writeMessage({ method: "initialized" });
-        writeMessage({ id: 2, method: "skills/list", params: { cwds: [input.cwd] } });
-        writeMessage({ id: 3, method: "account/read", params: {} });
-        return;
-      }
-
-      if (response.id === 2) {
-        const errorMessage = readErrorMessage(response);
-        skills = errorMessage ? [] : parseCodexSkillsResult(response.result, input.cwd);
-        maybeResolve();
-        return;
-      }
-
-      if (response.id === 3) {
-        const errorMessage = readErrorMessage(response);
-        if (errorMessage) {
-          fail(new Error(`account/read failed: ${errorMessage}`));
-          return;
-        }
-
-        account = readCodexAccountSnapshot(response.result);
-        maybeResolve();
-      }
-    });
-
-    child.once("error", fail);
-    child.once("exit", (code, signal) => {
-      if (completed) return;
-      fail(
-        new Error(
-          `codex app-server exited before probe completed (code=${code ?? "null"}, signal=${signal ?? "null"}).`,
-        ),
-      );
-    });
-
-    writeMessage({
-      id: 1,
-      method: "initialize",
-      params: buildCodexInitializeParams(),
-    });
-  });
-}
+  return {
+    account: readCodexAccountSnapshotResponse(accountResponse),
+    skills: parseCodexSkillsListResponse(skillsResponse, input.cwd),
+  } satisfies CodexDiscoverySnapshot;
+}, Effect.scoped);

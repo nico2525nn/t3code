@@ -1,3 +1,4 @@
+import type * as EffectCodexSchema from "effect-codex-app-server/schema";
 import type { ServerProviderModel } from "@t3tools/contracts";
 
 export type CodexPlanType =
@@ -21,23 +22,19 @@ export const CODEX_DEFAULT_MODEL = "gpt-5.3-codex";
 export const CODEX_SPARK_MODEL = "gpt-5.3-codex-spark";
 const CODEX_SPARK_ENABLED_PLAN_TYPES = new Set<CodexPlanType>(["pro"]);
 
-function asObject(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
+export function readCodexAccountSnapshotResponse(
+  response: EffectCodexSchema.V2GetAccountResponse,
+): CodexAccountSnapshot {
+  const account = response.account;
+  if (!account) {
+    return {
+      type: "unknown",
+      planType: null,
+      sparkEnabled: false,
+    };
   }
-  return value as Record<string, unknown>;
-}
 
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapshot {
-  const record = asObject(response);
-  const account = asObject(record?.account) ?? record;
-  const accountType = asString(account?.type);
-
-  if (accountType === "apiKey") {
+  if (account.type === "apiKey") {
     return {
       type: "apiKey",
       planType: null,
@@ -45,19 +42,10 @@ export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapsho
     };
   }
 
-  if (accountType === "chatgpt") {
-    const planType = (account?.planType as CodexPlanType | null) ?? "unknown";
-    return {
-      type: "chatgpt",
-      planType,
-      sparkEnabled: CODEX_SPARK_ENABLED_PLAN_TYPES.has(planType),
-    };
-  }
-
   return {
-    type: "unknown",
-    planType: null,
-    sparkEnabled: false,
+    type: "chatgpt",
+    planType: account.planType as CodexPlanType,
+    sparkEnabled: CODEX_SPARK_ENABLED_PLAN_TYPES.has(account.planType as CodexPlanType),
   };
 }
 
