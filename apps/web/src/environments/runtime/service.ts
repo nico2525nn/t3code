@@ -7,6 +7,8 @@ import {
   type ServerConfig,
   ThreadId,
 } from "@t3tools/contracts";
+import { createWsRpcClient as createBaseWsRpcClient, WsRpcClient } from "@t3tools/client-runtime";
+
 import { type QueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 import {
@@ -58,10 +60,10 @@ import {
 } from "~/store";
 import { useTerminalUiStateStore } from "~/terminalUiStateStore";
 import { useUiStateStore } from "~/uiStateStore";
-import { WsTransport } from "../../rpc/wsTransport";
-import { createWsRpcClient, type WsRpcClient } from "../../rpc/wsRpcClient";
+import { WsTransport } from "~/rpc/wsTransport";
 import { derivePhysicalProjectKey } from "../../logicalProject";
 import { subscribeTerminalMetadata, terminalSessionManager } from "../../terminalSessionState";
+import { resetWsReconnectBackoff } from "~/rpc/wsConnectionState";
 
 type EnvironmentServiceState = {
   readonly queryClient: QueryClient;
@@ -636,6 +638,12 @@ function createEnvironmentConnectionHandlers() {
       reconcileSnapshotDerivedState();
     },
   };
+}
+
+function createWsRpcClient(transport: WsTransport): WsRpcClient {
+  return createBaseWsRpcClient(transport, {
+    beforeReconnect: () => resetWsReconnectBackoff(),
+  });
 }
 
 function createPrimaryEnvironmentClient(
