@@ -26,7 +26,6 @@ import {
   DraftId,
 } from "./composerDraftStore";
 import { removeLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
-import { getModelSelectionOptions } from "./modelSelection";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   insertInlineTerminalContextPlaceholder,
@@ -94,13 +93,17 @@ function resetComposerDraftStore() {
 function modelSelection(
   provider: "codex" | "claudeAgent" | "cursor",
   model: string,
-  options?: NonNullable<ReturnType<typeof getModelSelectionOptions>>,
+  options?: ProviderModelOptions["codex" | "claudeAgent" | "cursor"],
 ): ModelSelection {
   return {
     provider,
     model,
     ...(options ? { options } : {}),
   } as ModelSelection;
+}
+
+function modelOptions(selection: ModelSelection | null | undefined) {
+  return selection && "options" in selection ? selection.options : undefined;
 }
 
 function providerModelOptions(options: ProviderModelOptions): ProviderModelOptions {
@@ -1097,13 +1100,11 @@ describe("composerDraftStore modelSelection", () => {
     // Now set options for only codex — claudeAgent should be untouched
     store.setModelOptions(threadRef, providerModelOptions({ codex: { reasoningEffort: "xhigh" } }));
 
-    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
-    expect(getModelSelectionOptions(draft?.modelSelectionByProvider.codex)).toEqual({
+    const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
+    expect(modelOptions(draft?.modelSelectionByProvider.codex)).toEqual({
       reasoningEffort: "xhigh",
     });
-    expect(getModelSelectionOptions(draft?.modelSelectionByProvider.claudeAgent)).toEqual({
-      effort: "max",
-    });
+    expect(modelOptions(draft?.modelSelectionByProvider.claudeAgent)).toEqual({ effort: "max" });
   });
 
   it("preserves other provider options when switching the active model selection", () => {
@@ -1123,9 +1124,7 @@ describe("composerDraftStore modelSelection", () => {
     expect(draft?.modelSelectionByProvider.claudeAgent).toEqual(
       modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
     );
-    expect(getModelSelectionOptions(draft?.modelSelectionByProvider.codex)).toEqual({
-      fastMode: true,
-    });
+    expect(modelOptions(draft?.modelSelectionByProvider.codex)).toEqual({ fastMode: true });
     expect(draft?.activeProvider).toBe("claudeAgent");
   });
 
@@ -1291,9 +1290,7 @@ describe("composerDraftStore provider-scoped option updates", () => {
     expect(draft?.modelSelectionByProvider.codex).toEqual(
       modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
     );
-    expect(getModelSelectionOptions(draft?.modelSelectionByProvider.claudeAgent)).toEqual({
-      effort: "max",
-    });
+    expect(modelOptions(draft?.modelSelectionByProvider.claudeAgent)).toEqual({ effort: "max" });
     expect(draft?.activeProvider).toBe("codex");
   });
 });

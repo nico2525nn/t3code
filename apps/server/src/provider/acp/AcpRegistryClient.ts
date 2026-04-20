@@ -6,15 +6,11 @@ import {
 import { Effect, Layer, Schema } from "effect";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { AcpRegistryClient, type AcpRegistryClientShape } from "../Services/AcpRegistryClient.ts";
-
-class AcpRegistryClientError extends Schema.TaggedErrorClass<AcpRegistryClientError>()(
-  "AcpRegistryClientError",
-  {
-    detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
-  },
-) {}
+import {
+  AcpRegistryClient,
+  AcpRegistryClientError,
+  type AcpRegistryClientShape,
+} from "../Services/AcpRegistryClient.ts";
 
 function toLaunchSpec(agent: AcpRegistryAgent) {
   if (agent.distribution.npx) {
@@ -48,6 +44,13 @@ const makeAcpRegistryClient = Effect.gen(function* () {
   const settings = yield* ServerSettingsService;
 
   const listAgents: AcpRegistryClientShape["listAgents"] = settings.getSettings.pipe(
+    Effect.mapError(
+      (cause) =>
+        new AcpRegistryClientError({
+          detail: cause.message,
+          cause,
+        }),
+    ),
     Effect.flatMap((serverSettings) =>
       Effect.tryPromise({
         try: async () => {
@@ -64,7 +67,17 @@ const makeAcpRegistryClient = Effect.gen(function* () {
           }),
       }),
     ),
-    Effect.flatMap((raw) => Schema.decodeUnknownEffect(AcpRegistryIndex)(raw)),
+    Effect.flatMap((raw) =>
+      Schema.decodeUnknownEffect(AcpRegistryIndex)(raw).pipe(
+        Effect.mapError(
+          (cause) =>
+            new AcpRegistryClientError({
+              detail: "Registry response did not match the ACP registry schema.",
+              cause,
+            }),
+        ),
+      ),
+    ),
     Effect.map(
       (registry): AcpRegistryListResult => ({
         registryVersion: registry.version,

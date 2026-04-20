@@ -29,8 +29,8 @@ import type {
   ServerConfig,
   ServerProviderUpdatedPayload,
   ServerUpsertKeybindingResult,
-} from "./server";
-import type { AcpRegistryListResult } from "./acp";
+} from "./server.ts";
+import type { AcpRegistryListResult } from "./acp.ts";
 import type {
   TerminalClearInput,
   TerminalCloseInput,

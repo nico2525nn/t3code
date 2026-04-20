@@ -20,7 +20,7 @@ import * as Stream from "effect/Stream";
 import * as Reactivity from "effect/unstable/reactivity/Reactivity";
 import * as Client from "effect/unstable/sql/SqlClient";
 import type { Connection } from "effect/unstable/sql/SqlConnection";
-import { classifySqliteError, SqlError } from "effect/unstable/sql/SqlError";
+import { SqlError, classifySqliteError } from "effect/unstable/sql/SqlError";
 import * as Statement from "effect/unstable/sql/Statement";
 
 const ATTR_DB_SYSTEM_NAME = "db.system.name";
@@ -102,73 +102,38 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
       return value;
     };
 
-      const prepareCache = yield* Cache.make({
-        capacity: options.prepareCacheSize ?? 200,
-        timeToLive: options.prepareCacheTTL ?? Duration.minutes(10),
-        lookup: (sql: string) =>
-          Effect.try({
-            try: () => db.prepare(sql),
-            catch: (cause) =>
-              new SqlError({
-                reason: classifySqliteError(cause, {
-                  message: "Failed to prepare statement",
-                  operation: "prepare",
-                }),
+    const prepareCache = yield* Cache.make({
+      capacity: options.prepareCacheSize ?? 200,
+      timeToLive: options.prepareCacheTTL ?? Duration.minutes(10),
+      lookup: (sql: string) =>
+        Effect.try({
+          try: () => db.prepare(sql),
+          catch: (cause) =>
+            new SqlError({
+              reason: classifySqliteError(cause, {
+                message: "Failed to prepare statement",
+                operation: "prepare",
               }),
-          }),
-      });
+            }),
+        }),
+    });
 
-      const runStatement = (
-        statement: StatementSync,
-        params: ReadonlyArray<unknown>,
-        raw: boolean,
-      ) =>
-        Effect.withFiber<ReadonlyArray<any>, SqlError>((fiber) => {
-          statement.setReadBigInts(Boolean(ServiceMap.get(fiber.services, Client.SafeIntegers)));
-          try {
-            if (hasRows(statement)) {
-              return Effect.succeed(statement.all(...(params as any)));
-            }
-            const result = statement.run(...(params as any));
-            return Effect.succeed(raw ? (result as unknown as ReadonlyArray<any>) : []);
-          } catch (cause) {
-            return Effect.fail(
-              new SqlError({
-                reason: classifySqliteError(cause, {
-                  message: "Failed to execute statement",
-                  operation: "execute",
-                }),
-              }),
-            );
+    const runStatement = (statement: StatementSync, params: ReadonlyArray<unknown>, raw: boolean) =>
+      Effect.withFiber<ReadonlyArray<any>, SqlError>((fiber) => {
+        statement.setReadBigInts(Boolean(Context.get(fiber.context, Client.SafeIntegers)));
+        try {
+          if (hasRows(statement)) {
+            return Effect.succeed(statement.all(...(params as any)));
           }
-        });
-
-      const run = (sql: string, params: ReadonlyArray<unknown>, raw = false) =>
-        Effect.flatMap(Cache.get(prepareCache, sql), (s) => runStatement(s, params, raw));
-
-      const runValues = (sql: string, params: ReadonlyArray<unknown>) =>
-        Effect.acquireUseRelease(
-          Cache.get(prepareCache, sql),
-          (statement) =>
-            Effect.try({
-              try: () => {
-                if (hasRows(statement)) {
-                  statement.setReturnArrays(true);
-                  // Safe to cast to array after we've setReturnArrays(true)
-                  return statement.all(...(params as any)) as unknown as ReadonlyArray<
-                    ReadonlyArray<unknown>
-                  >;
-                }
-                statement.run(...(params as any));
-                return [];
-              },
-              catch: (cause) =>
-                new SqlError({
-                  reason: classifySqliteError(cause, {
-                    message: "Failed to execute statement",
-                    operation: "execute",
-                  }),
-                }),
+          const result = statement.run(...(params as any));
+          return Effect.succeed(raw ? (result as unknown as ReadonlyArray<any>) : []);
+        } catch (cause) {
+          return Effect.fail(
+            new SqlError({
+              reason: classifySqliteError(cause, {
+                message: "Failed to execute statement",
+                operation: "execute",
+              }),
             }),
           );
         }

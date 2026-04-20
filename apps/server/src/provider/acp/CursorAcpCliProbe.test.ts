@@ -16,7 +16,6 @@ describe.runIf(process.env.T3_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", 
       const runtime = yield* AcpSessionRuntime;
       const started = yield* runtime.start();
       expect(started.initializeResult).toBeDefined();
-      yield* runtime.close;
     }).pipe(
       Effect.provide(
         AcpSessionRuntime.layer({
@@ -26,6 +25,11 @@ describe.runIf(process.env.T3_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", 
             cwd: process.cwd(),
           },
           cwd: process.cwd(),
+          clientCapabilities: {
+            _meta: {
+              parameterizedModelPicker: true,
+            },
+          },
           clientInfo: { name: "t3-probe", version: "0.0.0" },
           authMethodId: "cursor_login",
         }),
@@ -49,11 +53,20 @@ describe.runIf(process.env.T3_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", 
 
       if (Array.isArray(configOptions)) {
         const modelConfig = configOptions.find((opt) => opt.category === "model");
+        const parameterizedOptions = configOptions.filter(
+          (opt) =>
+            opt.category === "thought_level" ||
+            opt.category === "model_option" ||
+            opt.category === "model_config",
+        );
         console.log("Model config option:", JSON.stringify(modelConfig, null, 2));
+        console.log(
+          "Parameterized model config options:",
+          JSON.stringify(parameterizedOptions, null, 2),
+        );
         expect(modelConfig).toBeDefined();
         expect(typeof modelConfig?.id).toBe("string");
       }
-      yield* runtime.close;
     }).pipe(
       Effect.provide(
         AcpSessionRuntime.layer({
@@ -64,6 +77,11 @@ describe.runIf(process.env.T3_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", 
             cwd: process.cwd(),
           },
           cwd: process.cwd(),
+          clientCapabilities: {
+            _meta: {
+              parameterizedModelPicker: true,
+            },
+          },
           clientInfo: { name: "t3-probe", version: "0.0.0" },
         }),
       ),
@@ -88,17 +106,23 @@ describe.runIf(process.env.T3_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", 
       }
 
       const setResult: EffectAcpSchema.SetSessionConfigOptionResponse =
-        yield* runtime.setConfigOption(modelConfigId, "composer-2");
+        yield* runtime.setConfigOption(modelConfigId, "gpt-5.4");
 
       console.log("session/set_config_option result:", JSON.stringify(setResult, null, 2));
 
       if (Array.isArray(setResult.configOptions)) {
         const modelConfig = setResult.configOptions.find((opt) => opt.category === "model");
+        const parameterizedOptions = setResult.configOptions.filter(
+          (opt) =>
+            opt.category === "thought_level" ||
+            opt.category === "model_option" ||
+            opt.category === "model_config",
+        );
         if (modelConfig?.type === "select") {
-          expect(modelConfig.currentValue).toBe("composer-2");
+          expect(modelConfig.currentValue).toBe("gpt-5.4");
         }
+        expect(parameterizedOptions.length).toBeGreaterThan(0);
       }
-      yield* runtime.close;
     }).pipe(
       Effect.provide(
         AcpSessionRuntime.layer({
@@ -109,6 +133,11 @@ describe.runIf(process.env.T3_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", 
             cwd: process.cwd(),
           },
           cwd: process.cwd(),
+          clientCapabilities: {
+            _meta: {
+              parameterizedModelPicker: true,
+            },
+          },
           clientInfo: { name: "t3-probe", version: "0.0.0" },
         }),
       ),

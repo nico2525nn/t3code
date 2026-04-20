@@ -1,18 +1,43 @@
-import { Fragment, type ReactNode, createElement, useEffect } from "react";
-import {
-  ProviderKind,
+import type {
+  EnvironmentId,
+  MessageId,
+  OrchestrationCheckpointSummary,
+  OrchestrationEvent,
+  OrchestrationLatestTurn,
+  OrchestrationMessage,
+  OrchestrationProposedPlan,
+  OrchestrationReadModel,
+  OrchestrationShellSnapshot,
+  OrchestrationShellStreamEvent,
+  OrchestrationSession,
+  OrchestrationSessionStatus,
+  OrchestrationThread,
+  OrchestrationThreadActivity,
+  OrchestrationThreadShell,
+  ProjectId,
+  ScopedProjectRef,
+  ScopedThreadRef,
   ThreadId,
-  type OrchestrationReadModel,
-  type OrchestrationSessionStatus,
+  TurnId,
 } from "@t3tools/contracts";
 import { ProviderKind } from "@t3tools/contracts";
-import type { ThreadId, TurnId } from "@t3tools/contracts";
-import { Schema } from "effect";
 import { resolveModelSlugForProvider } from "@t3tools/shared/model";
 import { create } from "zustand";
-import { type ChatMessage, type Project, type Thread } from "./types";
-import { Debouncer } from "@tanstack/react-pacer";
 import { Schema } from "effect";
+import { resolveEnvironmentHttpUrl } from "./environments/runtime";
+import { sanitizeThreadErrorMessage } from "./rpc/transportError";
+import { getThreadFromEnvironmentState } from "./threadDerivation";
+import {
+  type ChatMessage,
+  type Project,
+  type ProposedPlan,
+  type SidebarThreadSummary,
+  type Thread,
+  type ThreadSession,
+  type ThreadShell,
+  type ThreadTurnState,
+  type TurnDiffSummary,
+} from "./types";
 
 export interface EnvironmentState {
   projectIds: ProjectId[];

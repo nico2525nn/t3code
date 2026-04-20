@@ -38,12 +38,6 @@ interface AssistantSegmentState {
   activeMessageId: MessageId | null;
 }
 
-interface AssistantSegmentState {
-  baseKey: string;
-  nextSegmentIndex: number;
-  activeMessageId: MessageId | null;
-}
-
 const TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY = 10_000;
 const TURN_MESSAGE_IDS_BY_TURN_TTL = Duration.minutes(120);
 const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY = 20_000;
@@ -116,16 +110,6 @@ function proposedPlanIdFromEvent(event: ProviderRuntimeEvent, threadId: ThreadId
 
 function assistantSegmentBaseKeyFromEvent(event: ProviderRuntimeEvent): string {
   return String(event.itemId ?? event.turnId ?? event.eventId);
-}
-
-function assistantSegmentMessageId(baseKey: string, segmentIndex: number): MessageId {
-  return MessageId.makeUnsafe(
-    segmentIndex === 0 ? `assistant:${baseKey}` : `assistant:${baseKey}:segment:${segmentIndex}`,
-  );
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }
 
 function assistantSegmentMessageId(baseKey: string, segmentIndex: number): MessageId {

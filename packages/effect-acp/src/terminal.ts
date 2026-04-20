@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 
-import type * as AcpSchema from "./_generated/schema.gen";
-import type * as AcpError from "./errors";
+import type * as AcpSchema from "./_generated/schema.gen.ts";
+import type * as AcpError from "./errors.ts";
 
 export interface AcpTerminal {
   readonly sessionId: string;

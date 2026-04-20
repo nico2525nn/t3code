@@ -2,6 +2,7 @@ import {
   type ClaudeModelOptions,
   type CodexModelOptions,
   type CursorModelOptions,
+  type OpenCodeModelOptions,
   type ProviderKind,
   type ProviderModelOptions,
   type ScopedThreadRef,
@@ -63,13 +64,34 @@ function getRawEffort(
   if (provider === "cursor") {
     return trimOrNull((modelOptions as CursorModelOptions | undefined)?.reasoning);
   }
+  if (provider === "opencode") {
+    return trimOrNull((modelOptions as OpenCodeModelOptions | undefined)?.variant);
+  }
   return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.effort);
 }
 
 function getEffortKey(provider: ProviderKind): string {
   if (provider === "codex") return "reasoningEffort";
   if (provider === "cursor") return "reasoning";
+  if (provider === "opencode") return "variant";
   return "effort";
+}
+
+function getRawAgent(modelOptions: ProviderOptions | null | undefined): string | null {
+  return trimOrNull((modelOptions as OpenCodeModelOptions | undefined)?.agent);
+}
+
+function resolveNamedOption(
+  options: ReadonlyArray<NamedOption>,
+  raw: string | null,
+): NamedOption | null {
+  if (raw) {
+    const matchingOption = options.find((option) => option.value === raw);
+    if (matchingOption) {
+      return matchingOption;
+    }
+  }
+  return options.find((option) => option.isDefault) ?? options[0] ?? null;
 }
 
 function getRawContextWindow(
@@ -188,6 +210,7 @@ function getTraitsSectionVisibility(input: {
   const showThinking = selected.thinkingEnabled !== null;
   const showFastMode = selected.caps.supportsFastMode;
   const showContextWindow = selected.contextWindowOptions.length > 1;
+  const showAgent = selected.agentOptions.length > 0;
 
   return {
     ...selected,
@@ -195,7 +218,8 @@ function getTraitsSectionVisibility(input: {
     showThinking,
     showFastMode,
     showContextWindow,
-    hasAnyControls: showEffort || showThinking || showFastMode || showContextWindow,
+    showAgent,
+    hasAnyControls: showEffort || showThinking || showFastMode || showContextWindow || showAgent,
   };
 }
 
@@ -264,6 +288,9 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     showThinking,
     showFastMode,
     showContextWindow,
+    ultrathinkInBodyText,
+    agentOptions,
+    selectedAgent,
     hasAnyControls,
   } = getTraitsSectionVisibility({
     provider,
@@ -274,6 +301,12 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     allowPromptInjectedEffort,
   });
   const defaultEffort = getDefaultEffort(caps);
+  const showsEffortSection = showEffort;
+  const showsThinkingSection = !showEffort && showThinking;
+  const showsFastModeSection = showFastMode;
+  const showsContextWindowSection = showContextWindow;
+  const hasSectionsBeforeAgent =
+    showsEffortSection || showsThinkingSection || showsFastModeSection || showsContextWindowSection;
 
   const handleEffortChange = useCallback(
     (value: string) => {
@@ -291,6 +324,11 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
             : applyClaudePromptEffortPrefix(prompt, "ultrathink");
         onPromptChange(nextPrompt);
         return;
+      }
+      if (ultrathinkInBodyText) return;
+      if (ultrathinkPromptControlled) {
+        const stripped = prompt.replace(/^Ultrathink:\s*/i, "");
+        onPromptChange(stripped);
       }
       const effortKey = getEffortKey(provider);
       updateModelOptions(
@@ -316,7 +354,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
 
   return (
     <>
-      {showEffort ? (
+      {showsEffortSection ? (
         <>
           <MenuGroup>
             <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
@@ -346,7 +384,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
             </MenuRadioGroup>
           </MenuGroup>
         </>
-      ) : showThinking ? (
+      ) : showsThinkingSection ? (
         <MenuGroup>
           <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Thinking</div>
           <MenuRadioGroup
@@ -362,9 +400,9 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
           </MenuRadioGroup>
         </MenuGroup>
       ) : null}
-      {showFastMode ? (
+      {showsFastModeSection ? (
         <>
-          {showEffort || showThinking ? <MenuDivider /> : null}
+          {showsEffortSection || showsThinkingSection ? <MenuDivider /> : null}
           <MenuGroup>
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Fast Mode</div>
             <MenuRadioGroup
@@ -381,9 +419,11 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
           </MenuGroup>
         </>
       ) : null}
-      {showContextWindow ? (
+      {showsContextWindowSection ? (
         <>
-          {showEffort || showThinking || showFastMode ? <MenuDivider /> : null}
+          {showsEffortSection || showsThinkingSection || showsFastModeSection ? (
+            <MenuDivider />
+          ) : null}
           <MenuGroup>
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
               Context Window
@@ -410,7 +450,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       ) : null}
       {agentOptions.length > 0 ? (
         <>
-          <MenuDivider />
+          {hasSectionsBeforeAgent ? <MenuDivider /> : null}
           <MenuGroup>
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Agent</div>
             <MenuRadioGroup
@@ -467,6 +507,14 @@ export const TraitsPicker = memo(function TraitsPicker({
     modelOptions,
     allowPromptInjectedEffort,
   });
+  const { selectedAgentLabel } = getSelectedTraits(
+    provider,
+    models,
+    model,
+    prompt,
+    modelOptions,
+    allowPromptInjectedEffort,
+  );
 
   const effortLabel = effort
     ? (effortLevels.find((l) => l.value === effort)?.label ?? effort)
@@ -497,23 +545,27 @@ export const TraitsPicker = memo(function TraitsPicker({
     return null;
   }
 
+  const selectedTriggerTraits = [
+    primaryTraitLabel,
+    ...(caps.supportsFastMode &&
+    (fastModeEnabled || (primaryTraitLabel === null && contextWindowLabel !== null))
+      ? [fastModeEnabled ? "Fast" : "Normal"]
+      : []),
+    ...(contextWindowLabel ? [contextWindowLabel] : []),
+    ...(selectedAgentLabel ? [selectedAgentLabel] : []),
+  ].filter(Boolean);
   const triggerLabel = fastOnlyControl
     ? fastModeEnabled
       ? "Fast"
       : "Normal"
-    : [
-        ultrathinkPromptControlled
-          ? "Ultrathink"
-          : effortLabel
-            ? effortLabel
-            : thinkingEnabled === null
-              ? null
-              : `Thinking ${thinkingEnabled ? "On" : "Off"}`,
-        ...(caps.supportsFastMode && fastModeEnabled ? ["Fast"] : []),
-        ...(contextWindowLabel ? [contextWindowLabel] : []),
-      ]
-        .filter(Boolean)
-        .join(" · ");
+    : selectedTriggerTraits.length > 0
+      ? selectedTriggerTraits.join(" · ")
+      : caps.supportsFastMode
+        ? "Normal"
+        : defaultContextWindow
+          ? (contextWindowOptions.find((option) => option.value === defaultContextWindow)?.label ??
+            defaultContextWindow)
+          : (selectedAgentLabel ?? "");
 
   const isCodexStyle = provider === "codex";
 

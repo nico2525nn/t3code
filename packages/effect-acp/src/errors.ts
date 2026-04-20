@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import * as AcpSchema from "./_generated/schema.gen";
+import * as AcpSchema from "./_generated/schema.gen.ts";
 
 export class AcpSpawnError extends Schema.TaggedErrorClass<AcpSpawnError>()("AcpSpawnError", {
   command: Schema.optional(Schema.String),
@@ -120,7 +120,7 @@ export class AcpRequestError extends Schema.TaggedErrorClass<AcpRequestError>()(
   }
 
   toProtocolError() {
-    return AcpSchema.Error.makeUnsafe({
+    return AcpSchema.Error.make({
       code: this.code,
       message: this.errorMessage,
       ...(this.data !== undefined ? { data: this.data } : {}),

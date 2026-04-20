@@ -5,7 +5,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 
-import * as AcpClient from "../../src/client";
+import * as AcpClient from "../../src/client.ts";
 
 const program = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -30,33 +30,38 @@ const program = Effect.gen(function* () {
         },
       }),
     );
-    yield* acp.handleSessionUpdate((notification) =>
-      Console.log("session/update", JSON.stringify(notification)),
-    );
+    // yield* acp.handleSessionUpdate((notification) =>
+    //   Console.log("session/update", JSON.stringify(notification)),
+    // );
 
     const initialized = yield* acp.agent.initialize({
       protocolVersion: 1,
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
+        _meta: {
+          parameterizedModelPicker: true,
+        },
       },
       clientInfo: {
         name: "effect-acp-example",
         version: "0.0.0",
       },
     });
-    yield* Console.log("initialized", JSON.stringify(initialized));
+    yield* Console.log("initialized", JSON.stringify(initialized, null, 4));
 
     const session = yield* acp.agent.createSession({
       cwd: process.cwd(),
       mcpServers: [],
     });
 
-    yield* acp.agent.setSessionConfigOption({
+    const config = yield* acp.agent.setSessionConfigOption({
       sessionId: session.sessionId,
       configId: "model",
-      value: "gpt-5.4[reasoning=medium,context=272k,fast=false]",
+      value: "claude-opus-4-6",
     });
+
+    yield* Console.log("config", JSON.stringify(config, null, 4));
 
     const result = yield* acp.agent.prompt({
       sessionId: session.sessionId,

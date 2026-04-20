@@ -1,9 +1,15 @@
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   MODEL_SLUG_ALIASES_BY_PROVIDER,
-  type ClaudeCodeEffort,
+  type ClaudeAgentEffort,
+  type ClaudeModelOptions,
+  type CodexModelOptions,
+  type CursorModelOptions,
+  type ModelSelection,
+  type OpenCodeModelOptions,
   type ModelCapabilities,
   type ProviderKind,
+  type ProviderModelOptions,
 } from "@t3tools/contracts";
 
 export interface SelectableModelOption {
@@ -128,7 +134,7 @@ function resolveLabeledOption(
   if (raw && options.some((option) => option.value === raw)) {
     return raw;
   }
-  return options.find((option) => option.isDefault)?.value;
+  return options.find((option) => option.isDefault)?.value ?? options[0]?.value;
 }
 
 export function normalizeOpenCodeModelOptionsWithCapabilities(
@@ -161,6 +167,8 @@ export function normalizeProviderModelOptionsWithCapabilities(
         caps,
         modelOptions as OpenCodeModelOptions,
       );
+    case "acp":
+      return undefined;
   }
 }
 
@@ -241,6 +249,45 @@ export function trimOrNull<T extends string>(value: T | null | undefined): T | n
   if (typeof value !== "string") return null;
   const trimmed = value.trim() as T;
   return trimmed || null;
+}
+
+export function createModelSelection(
+  provider: ProviderKind,
+  model: string,
+  options?: ProviderModelOptions[ProviderKind] | undefined,
+): ModelSelection {
+  switch (provider) {
+    case "codex":
+      return {
+        provider,
+        model,
+        ...(options ? { options: options as CodexModelOptions } : {}),
+      };
+    case "claudeAgent":
+      return {
+        provider,
+        model,
+        ...(options ? { options: options as ClaudeModelOptions } : {}),
+      };
+    case "cursor":
+      return {
+        provider,
+        model,
+        ...(options ? { options: options as CursorModelOptions } : {}),
+      };
+    case "opencode":
+      return {
+        provider,
+        model,
+        ...(options ? { options: options as OpenCodeModelOptions } : {}),
+      };
+    case "acp":
+      return {
+        provider,
+        agentServerId: model,
+        model: "default",
+      };
+  }
 }
 
 export function applyClaudePromptEffortPrefix(

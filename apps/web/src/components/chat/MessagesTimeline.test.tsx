@@ -160,15 +160,11 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Work log");
   });
 
-  it("adds a hover title for full work log text", async () => {
+  it("formats changed file paths from the workspace root", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        scrollContainer={null}
+        {...buildProps()}
         timelineEntries={[
           {
             id: "entry-1",
@@ -177,33 +173,17 @@ describe("MessagesTimeline", () => {
             entry: {
               id: "work-1",
               createdAt: "2026-03-17T19:12:28.000Z",
-              label: "Provider turn start failed",
-              tone: "error",
-              detail:
-                'Provider adapter request failed (cursor) for session/set_config_option: Invalid value for session config option "model"',
+              label: "Updated files",
+              tone: "tool",
+              changedFiles: ["C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts"],
             },
           },
         ]}
-        completionDividerBeforeEntryId={null}
-        completionSummary={null}
-        turnDiffSummaryByAssistantMessageId={new Map()}
-        nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        onOpenTurnDiff={() => {}}
-        revertTurnCountByUserMessageId={new Map()}
-        onRevertUserMessage={() => {}}
-        isRevertingCheckpoint={false}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="light"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
+        workspaceRoot="C:/Users/mike/dev-stuff/t3code"
       />,
     );
 
-    expect(markup).toContain(
-      'title="Provider turn start failed - Provider adapter request failed (cursor) for session/set_config_option: Invalid value for session config option &quot;model&quot;"',
-    );
+    expect(markup).toContain("t3code/apps/web/src/session-logic.ts");
+    expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
   });
 });

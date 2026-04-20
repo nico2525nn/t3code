@@ -11,7 +11,6 @@ import { Effect, Layer } from "effect";
 
 import { ProviderUnsupportedError, type ProviderAdapterError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
-import { AcpAdapter } from "../Services/AcpAdapter.ts";
 import {
   ProviderAdapterRegistry,
   type ProviderAdapterRegistryShape,
@@ -19,18 +18,26 @@ import {
 import { ClaudeAdapter } from "../Services/ClaudeAdapter.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
 import { CursorAdapter } from "../Services/CursorAdapter.ts";
+import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
 
 export interface ProviderAdapterRegistryLiveOptions {
   readonly adapters?: ReadonlyArray<ProviderAdapterShape<ProviderAdapterError>>;
 }
 
-const makeProviderAdapterRegistry = (options?: ProviderAdapterRegistryLiveOptions) =>
-  Effect.gen(function* () {
-    const adapters =
-      options?.adapters !== undefined
-        ? options.adapters
-        : [yield* CodexAdapter, yield* ClaudeAdapter, yield* CursorAdapter, yield* AcpAdapter];
-    const byProvider = new Map(adapters.map((adapter) => [adapter.provider, adapter]));
+const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(function* (
+  options?: ProviderAdapterRegistryLiveOptions,
+) {
+  const cursorAdapterOption = yield* Effect.serviceOption(CursorAdapter);
+  const adapters =
+    options?.adapters !== undefined
+      ? options.adapters
+      : [
+          yield* CodexAdapter,
+          yield* ClaudeAdapter,
+          yield* OpenCodeAdapter,
+          ...(cursorAdapterOption._tag === "Some" ? [cursorAdapterOption.value] : []),
+        ];
+  const byProvider = new Map(adapters.map((adapter) => [adapter.provider, adapter]));
 
   const getByProvider: ProviderAdapterRegistryShape["getByProvider"] = (provider) => {
     const adapter = byProvider.get(provider);

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
-import { AcpAgentServerId } from "./acp";
-import { TrimmedNonEmptyString } from "./baseSchemas";
+import { AcpAgentServerId } from "./acp.ts";
+import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   ApprovalRequestId,
   EventId,

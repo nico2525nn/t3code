@@ -13,9 +13,9 @@ import * as RpcMessage from "effect/unstable/rpc/RpcMessage";
 import * as RpcSerialization from "effect/unstable/rpc/RpcSerialization";
 import * as RpcServer from "effect/unstable/rpc/RpcServer";
 
-import * as AcpSchema from "./_generated/schema.gen";
-import { CLIENT_METHODS } from "./_generated/meta.gen";
-import * as AcpError from "./errors";
+import * as AcpSchema from "./_generated/schema.gen.ts";
+import { CLIENT_METHODS } from "./_generated/meta.gen.ts";
+import * as AcpError from "./errors.ts";
 
 export interface AcpProtocolLogEvent {
   readonly direction: "incoming" | "outgoing";
@@ -159,13 +159,12 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
     resolveExtPending(requestId, (deferred) => Deferred.succeed(deferred, value));
 
   const failAllExtPending = (error: AcpError.AcpError) =>
-    Ref.get(extPending).pipe(
+    Ref.getAndSet(extPending, new Map()).pipe(
       Effect.flatMap((pending) =>
         Effect.forEach([...pending.values()], (deferred) => Deferred.fail(deferred, error), {
           discard: true,
         }),
       ),
-      Effect.andThen(Ref.set(extPending, new Map())),
     );
 
   const dispatchNotification = (notification: AcpIncomingNotification) =>
@@ -435,12 +434,12 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
   yield* Stream.fromQueue(outgoing).pipe(Stream.run(options.stdio.stdout()), Effect.forkScoped);
 
   const clientProtocol = RpcClient.Protocol.of({
-    run: (f) =>
+    run: (_clientId, f) =>
       Stream.fromQueue(clientQueue).pipe(
         Stream.runForEach((message) => f(message)),
         Effect.forever,
       ),
-    send: (request) => offerOutgoing(request).pipe(Effect.mapError(toRpcClientError)),
+    send: (_clientId, request) => offerOutgoing(request).pipe(Effect.mapError(toRpcClientError)),
     supportsAck: true,
     supportsTransferables: false,
   });
@@ -453,7 +452,7 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
       ),
     disconnects,
     send: (_clientId, response) => offerOutgoing(response).pipe(Effect.orDie),
-    end: () => Queue.end(outgoing),
+    end: (_clientId) => Queue.end(outgoing),
     clientIds: Effect.succeed(new Set([0])),
     initialMessage: Effect.succeedNone,
     supportsAck: true,

@@ -1,5 +1,5 @@
 import * as Path from "effect/Path";
-import * as AcpError from "./errors";
+import * as AcpError from "./errors.ts";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -12,15 +12,15 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { it, assert } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
-import * as AcpSchema from "./_generated/schema.gen";
-import * as AcpProtocol from "./protocol";
+import * as AcpSchema from "./_generated/schema.gen.ts";
+import * as AcpProtocol from "./protocol.ts";
 import {
   encodeJsonl,
   jsonRpcNotification,
   jsonRpcRequest,
   jsonRpcResponse,
-} from "./_internal/shared";
-import { makeInMemoryStdio, makeTerminationError, makeChildStdio } from "./_internal/stdio";
+} from "./_internal/shared.ts";
+import { makeInMemoryStdio, makeTerminationError, makeChildStdio } from "./_internal/stdio.ts";
 
 const SessionCancelNotification = jsonRpcNotification(
   "session/cancel",
@@ -163,7 +163,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
           direction: "outgoing",
           stage: "raw",
           payload:
-            '{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"session-1"},"headers":[]}\n',
+            '{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"session-1"},"id":"","headers":[]}\n',
         },
       ]);
     }),
@@ -315,7 +315,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       const lateResponse = yield* Deferred.make<unknown>();
 
       yield* transport.clientProtocol
-        .run((message) => Deferred.succeed(lateResponse, message).pipe(Effect.asVoid))
+        .run(0, (message) => Deferred.succeed(lateResponse, message).pipe(Effect.asVoid))
         .pipe(Effect.forkScoped);
 
       const response = yield* transport
@@ -371,7 +371,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       });
 
       yield* transport.clientProtocol
-        .run((message) => Deferred.succeed(firstMessage, message).pipe(Effect.asVoid))
+        .run(0, (message) => Deferred.succeed(firstMessage, message).pipe(Effect.asVoid))
         .pipe(Effect.forkScoped);
 
       const message = yield* Deferred.await(firstMessage);
@@ -405,7 +405,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       });
 
       yield* transport.clientProtocol
-        .run((message) => Deferred.succeed(firstMessage, message).pipe(Effect.asVoid))
+        .run(0, (message) => Deferred.succeed(firstMessage, message).pipe(Effect.asVoid))
         .pipe(Effect.forkScoped);
 
       const message = yield* Deferred.await(firstMessage);

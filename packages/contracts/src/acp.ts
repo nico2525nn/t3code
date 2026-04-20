@@ -1,5 +1,5 @@
-import { Schema } from "effect";
-import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas";
+import { Effect, Schema } from "effect";
+import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 export const AcpAgentServerId = TrimmedNonEmptyString.check(
   Schema.isMaxLength(128),
@@ -15,14 +15,14 @@ export type AcpAgentSource = typeof AcpAgentSource.Type;
 
 export const AcpLaunchSpec = Schema.Struct({
   command: TrimmedNonEmptyString,
-  args: Schema.Array(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => [])),
+  args: Schema.Array(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type AcpLaunchSpec = typeof AcpLaunchSpec.Type;
 
 export const AcpAgentServer = Schema.Struct({
   id: AcpAgentServerId,
   name: TrimmedNonEmptyString,
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   source: AcpAgentSource,
   distributionType: AcpDistributionType,
   launch: AcpLaunchSpec,

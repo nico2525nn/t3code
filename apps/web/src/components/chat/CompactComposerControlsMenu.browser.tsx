@@ -1,4 +1,10 @@
-import { DEFAULT_MODEL_BY_PROVIDER, ModelSelection, ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_MODEL_BY_PROVIDER,
+  EnvironmentId,
+  ModelSelection,
+  ThreadId,
+} from "@t3tools/contracts";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
 import "../../index.css";
 
 import { page } from "vitest/browser";
@@ -8,7 +14,6 @@ import { render } from "vitest-browser-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { TraitsMenuContent } from "./TraitsPicker";
 import { useComposerDraftStore } from "../../composerDraftStore";
-import { getModelSelectionOptions } from "../../modelSelection";
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 
@@ -18,20 +23,29 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
   const threadKey = scopedThreadKey(threadRef);
   const provider = props?.modelSelection?.provider ?? "claudeAgent";
   const model = props?.modelSelection?.model ?? DEFAULT_MODEL_BY_PROVIDER[provider];
+  const modelSelectionOptions =
+    props?.modelSelection && "options" in props.modelSelection
+      ? props.modelSelection.options
+      : undefined;
 
-  draftsByThreadId[threadId] = {
-    prompt: props?.prompt ?? "",
-    images: [],
-    nonPersistedImageIds: [],
-    persistedAttachments: [],
-    terminalContexts: [],
-    modelSelectionByProvider: {
-      [provider]: {
-        provider,
-        model,
-        ...(getModelSelectionOptions(props?.modelSelection)
-          ? { options: getModelSelectionOptions(props?.modelSelection) }
-          : {}),
+  useComposerDraftStore.setState({
+    draftsByThreadKey: {
+      [threadKey]: {
+        prompt: props?.prompt ?? "",
+        images: [],
+        nonPersistedImageIds: [],
+        persistedAttachments: [],
+        terminalContexts: [],
+        modelSelectionByProvider: {
+          [provider]: {
+            provider,
+            model,
+            ...(modelSelectionOptions ? { options: modelSelectionOptions } : {}),
+          },
+        },
+        activeProvider: provider,
+        runtimeMode: null,
+        interactionMode: null,
       },
     },
     draftThreadsByThreadKey: {},
@@ -40,7 +54,7 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
   const host = document.createElement("div");
   document.body.append(host);
   const onPromptChange = vi.fn();
-  const providerOptions = getModelSelectionOptions(props?.modelSelection);
+  const providerOptions = modelSelectionOptions;
   const models =
     provider === "claudeAgent"
       ? [
@@ -92,24 +106,23 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
             },
           },
         ]
-      : provider === "codex"
-        ? [
-            {
-              slug: "gpt-5.4",
-              name: "GPT-5.4",
-              isCustom: false,
-              capabilities: {
-                reasoningEffortLevels: [
-                  { value: "xhigh", label: "Extra High" },
-                  { value: "high", label: "High", isDefault: true },
-                ],
-                supportsFastMode: true,
-                supportsThinkingToggle: false,
-                promptInjectedEffortLevels: [],
-              },
+      : [
+          {
+            slug: "gpt-5.4",
+            name: "GPT-5.4",
+            isCustom: false,
+            capabilities: {
+              reasoningEffortLevels: [
+                { value: "xhigh", label: "Extra High" },
+                { value: "high", label: "High", isDefault: true },
+              ],
+              supportsFastMode: true,
+              supportsThinkingToggle: false,
+              contextWindowOptions: [],
+              promptInjectedEffortLevels: [],
             },
-          ]
-        : [];
+          },
+        ];
   const screen = await render(
     <CompactComposerControlsMenu
       activePlan={false}
@@ -122,7 +135,7 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
         <TraitsMenuContent
           provider={provider}
           models={models}
-          threadId={threadId}
+          threadRef={threadRef}
           model={model}
           prompt={props?.prompt ?? ""}
           modelOptions={providerOptions}
@@ -221,7 +234,7 @@ describe("CompactComposerControlsMenu", () => {
     });
   });
 
-  it("shows prompt-controlled Ultrathink messaging with disabled effort controls", async () => {
+  it("shows prompt-controlled Ultrathink state with selectable effort controls", async () => {
     await using _ = await mountMenu({
       modelSelection: {
         provider: "claudeAgent",

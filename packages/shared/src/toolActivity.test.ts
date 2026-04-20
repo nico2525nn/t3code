@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveToolActivityPresentation } from "./toolActivity";
+import { deriveToolActivityPresentation } from "./toolActivity.ts";
 
 describe("toolActivity", () => {
   it("normalizes command tools to a stable ran-command label", () => {

@@ -4,11 +4,14 @@ import { assertFailure } from "@effect/vitest/utils";
 
 import { Effect, Layer, Stream } from "effect";
 
-import { ServerSettingsService } from "../../serverSettings.ts";
-import { AcpAdapter, type AcpAdapterShape } from "../Services/AcpAdapter.ts";
-import { ClaudeAdapter, ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
-import { CodexAdapter, CodexAdapterShape } from "../Services/CodexAdapter.ts";
-import { CursorAdapter, CursorAdapterShape } from "../Services/CursorAdapter.ts";
+import { ClaudeAdapter } from "../Services/ClaudeAdapter.ts";
+import type { ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
+import { CodexAdapter } from "../Services/CodexAdapter.ts";
+import type { CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import { CursorAdapter } from "../Services/CursorAdapter.ts";
+import type { CursorAdapterShape } from "../Services/CursorAdapter.ts";
+import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
+import type { OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderAdapterRegistryLive } from "./ProviderAdapterRegistry.ts";
 import { ProviderUnsupportedError } from "../Errors.ts";
@@ -48,8 +51,8 @@ const fakeClaudeAdapter: ClaudeAdapterShape = {
   streamEvents: Stream.empty,
 };
 
-const fakeCursorAdapter: CursorAdapterShape = {
-  provider: "cursor",
+const fakeOpenCodeAdapter: OpenCodeAdapterShape = {
+  provider: "opencode",
   capabilities: { sessionModelSwitch: "in-session" },
   startSession: vi.fn(),
   sendTurn: vi.fn(),
@@ -65,9 +68,9 @@ const fakeCursorAdapter: CursorAdapterShape = {
   streamEvents: Stream.empty,
 };
 
-const fakeAcpAdapter: AcpAdapterShape = {
-  provider: "acp",
-  capabilities: { sessionModelSwitch: "unsupported" },
+const fakeCursorAdapter: CursorAdapterShape = {
+  provider: "cursor",
+  capabilities: { sessionModelSwitch: "in-session" },
   startSession: vi.fn(),
   sendTurn: vi.fn(),
   interruptTurn: vi.fn(),
@@ -89,9 +92,8 @@ const layer = it.layer(
       Layer.mergeAll(
         Layer.succeed(CodexAdapter, fakeCodexAdapter),
         Layer.succeed(ClaudeAdapter, fakeClaudeAdapter),
+        Layer.succeed(OpenCodeAdapter, fakeOpenCodeAdapter),
         Layer.succeed(CursorAdapter, fakeCursorAdapter),
-        Layer.succeed(AcpAdapter, fakeAcpAdapter),
-        ServerSettingsService.layerTest(),
       ),
     ),
     NodeServices.layer,
@@ -104,13 +106,15 @@ layer("ProviderAdapterRegistryLive", (it) => {
       const registry = yield* ProviderAdapterRegistry;
       const codex = yield* registry.getByProvider("codex");
       const claude = yield* registry.getByProvider("claudeAgent");
+      const openCode = yield* registry.getByProvider("opencode");
       const cursor = yield* registry.getByProvider("cursor");
       assert.equal(codex, fakeCodexAdapter);
       assert.equal(claude, fakeClaudeAdapter);
+      assert.equal(openCode, fakeOpenCodeAdapter);
       assert.equal(cursor, fakeCursorAdapter);
 
       const providers = yield* registry.listProviders();
-      assert.deepEqual(providers, ["codex", "claudeAgent", "cursor", "acp"]);
+      assert.deepEqual(providers, ["codex", "claudeAgent", "opencode", "cursor"]);
     }),
   );
 

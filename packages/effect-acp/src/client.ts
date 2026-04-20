@@ -1,26 +1,26 @@
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Stdio from "effect/Stdio";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
-import * as ServiceMap from "effect/ServiceMap";
 import * as Stream from "effect/Stream";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
 import * as RpcServer from "effect/unstable/rpc/RpcServer";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import * as AcpError from "./errors";
-import * as AcpProtocol from "./protocol";
-import * as AcpRpcs from "./rpc";
-import * as AcpSchema from "./_generated/schema.gen";
-import { AGENT_METHODS, CLIENT_METHODS } from "./_generated/meta.gen";
+import * as AcpError from "./errors.ts";
+import * as AcpProtocol from "./protocol.ts";
+import * as AcpRpcs from "./rpc.ts";
+import * as AcpSchema from "./_generated/schema.gen.ts";
+import { AGENT_METHODS, CLIENT_METHODS } from "./_generated/meta.gen.ts";
 import {
   callRpc,
   decodeExtNotificationRegistration,
   decodeExtRequestRegistration,
   runHandler,
-} from "./_internal/shared";
-import { makeChildStdio, makeTerminationError } from "./_internal/stdio";
+} from "./_internal/shared.ts";
+import { makeChildStdio, makeTerminationError } from "./_internal/stdio.ts";
 
 export interface AcpClientOptions {
   readonly logIncoming?: boolean;
@@ -262,7 +262,7 @@ export interface AcpClientShape {
   ) => Effect.Effect<void>;
 }
 
-export class AcpClient extends ServiceMap.Service<AcpClient, AcpClientShape>()(
+export class AcpClient extends Context.Service<AcpClient, AcpClientShape>()(
   "effect-acp/AcpClient",
 ) {}
 
@@ -297,14 +297,13 @@ interface AcpCoreRequestHandlers {
 }
 
 interface AcpNotificationHandlers {
-  readonly sessionUpdate: Array<
-    (notification: AcpSchema.SessionNotification) => Effect.Effect<void, AcpError.AcpError>
-  >;
-  readonly elicitationComplete: Array<
-    (
-      notification: AcpSchema.ElicitationCompleteNotification,
-    ) => Effect.Effect<void, AcpError.AcpError>
-  >;
+  readonly sessionUpdate: BufferedNotificationHandler<AcpSchema.SessionNotification>;
+  readonly elicitationComplete: BufferedNotificationHandler<AcpSchema.ElicitationCompleteNotification>;
+}
+
+interface BufferedNotificationHandler<A> {
+  readonly handlers: Array<(notification: A) => Effect.Effect<void, AcpError.AcpError>>;
+  readonly pending: Array<A>;
 }
 
 export const make = Effect.fn("effect-acp/AcpClient.make")(function* (
@@ -314,8 +313,8 @@ export const make = Effect.fn("effect-acp/AcpClient.make")(function* (
 ): Effect.fn.Return<AcpClientShape, never, Scope.Scope> {
   const coreHandlers: AcpCoreRequestHandlers = {};
   const notificationHandlers: AcpNotificationHandlers = {
-    sessionUpdate: [],
-    elicitationComplete: [],
+    sessionUpdate: { handlers: [], pending: [] },
+    elicitationComplete: { handlers: [], pending: [] },
   };
   const extRequestHandlers = new Map<
     string,
@@ -332,20 +331,50 @@ export const make = Effect.fn("effect-acp/AcpClient.make")(function* (
     | ((method: string, params: unknown) => Effect.Effect<void, AcpError.AcpError>)
     | undefined;
 
+  const runNotificationHandlers = <A>(
+    registration: BufferedNotificationHandler<A>,
+    notification: A,
+  ) =>
+    Effect.forEach(
+      registration.handlers,
+      (handler) => handler(notification).pipe(Effect.catch(() => Effect.void)),
+      { discard: true },
+    );
+
+  const flushBufferedNotifications = <A>(registration: BufferedNotificationHandler<A>) =>
+    Effect.suspend(() => {
+      if (registration.handlers.length === 0 || registration.pending.length === 0) {
+        return Effect.void;
+      }
+      const pending = registration.pending.splice(0, registration.pending.length);
+      return Effect.forEach(
+        pending,
+        (notification) => runNotificationHandlers(registration, notification),
+        {
+          discard: true,
+        },
+      );
+    });
+
   const dispatchNotification = (notification: AcpProtocol.AcpIncomingNotification) => {
     switch (notification._tag) {
-      case "SessionUpdate":
-        return Effect.forEach(
-          notificationHandlers.sessionUpdate,
-          (handler) => handler(notification.params),
-          { discard: true },
-        );
-      case "ElicitationComplete":
-        return Effect.forEach(
+      case "SessionUpdate": {
+        if (notificationHandlers.sessionUpdate.handlers.length === 0) {
+          notificationHandlers.sessionUpdate.pending.push(notification.params);
+          return Effect.void;
+        }
+        return runNotificationHandlers(notificationHandlers.sessionUpdate, notification.params);
+      }
+      case "ElicitationComplete": {
+        if (notificationHandlers.elicitationComplete.handlers.length === 0) {
+          notificationHandlers.elicitationComplete.pending.push(notification.params);
+          return Effect.void;
+        }
+        return runNotificationHandlers(
           notificationHandlers.elicitationComplete,
-          (handler) => handler(notification.params),
-          { discard: true },
+          notification.params,
         );
+      }
       case "ExtNotification": {
         const handler = extNotificationHandlers.get(notification.method);
         if (handler) {
@@ -422,7 +451,7 @@ export const make = Effect.fn("effect-acp/AcpClient.make")(function* (
     Effect.forkScoped,
   );
 
-  let nextRpcRequestId = 1n;
+  let nextRpcRequestId = 1n << 32n;
   const rpc = yield* RpcClient.make(AcpRpcs.AgentRpcs, {
     generateRequestId: () => nextRpcRequestId++ as never,
   }).pipe(Effect.provideService(RpcClient.Protocol, transport.clientProtocol));
@@ -496,13 +525,13 @@ export const make = Effect.fn("effect-acp/AcpClient.make")(function* (
       }),
     handleSessionUpdate: (handler) =>
       Effect.suspend(() => {
-        notificationHandlers.sessionUpdate.push(handler);
-        return Effect.void;
+        notificationHandlers.sessionUpdate.handlers.push(handler);
+        return flushBufferedNotifications(notificationHandlers.sessionUpdate);
       }),
     handleElicitationComplete: (handler) =>
       Effect.suspend(() => {
-        notificationHandlers.elicitationComplete.push(handler);
-        return Effect.void;
+        notificationHandlers.elicitationComplete.handlers.push(handler);
+        return flushBufferedNotifications(notificationHandlers.elicitationComplete);
       }),
     handleUnknownExtRequest: (handler) =>
       Effect.suspend(() => {

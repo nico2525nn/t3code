@@ -18,7 +18,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mockAgentPath = path.join(__dirname, "../../../scripts/acp-mock-agent.ts");
 const bunExe = "bun";
 
-async function makeMockAgentWrapper(extraEnv?: Record<string, string>) {
+async function makeMockAgentWrapper(
+  extraEnv?: Record<string, string>,
+  options?: { initialDelaySeconds?: number },
+) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "cursor-acp-mock-"));
   const wrapperPath = path.join(dir, "fake-agent.sh");
   const envExports = Object.entries(extraEnv ?? {})
@@ -26,6 +29,7 @@ async function makeMockAgentWrapper(extraEnv?: Record<string, string>) {
     .join("\n");
   const script = `#!/bin/sh
 ${envExports}
+${options?.initialDelaySeconds ? `sleep ${JSON.stringify(String(options.initialDelaySeconds))}` : ""}
 exec ${JSON.stringify(bunExe)} ${JSON.stringify(mockAgentPath)} "$@"
 `;
   await writeFile(wrapperPath, script, "utf8");
@@ -73,6 +77,19 @@ async function readJsonLines(filePath: string) {
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+async function waitForFileContent(filePath: string, attempts = 40) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const raw = await readFile(filePath, "utf8");
+      if (raw.trim().length > 0) {
+        return raw;
+      }
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for file content at ${filePath}`);
+}
+
 const cursorAdapterTestLayer = it.layer(
   makeCursorAdapterLive().pipe(
     Layer.provideMerge(ServerSettingsService.layerTest()),
@@ -90,7 +107,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const settings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-mock-thread");
+      const threadId = ThreadId.make("cursor-mock-thread");
 
       const wrapperPath = yield* Effect.promise(() => makeMockAgentWrapper());
       yield* settings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
@@ -168,12 +185,96 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     }),
   );
 
+  it.effect("closes the ACP child process when a session stops", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CursorAdapter;
+      const settings = yield* ServerSettingsService;
+      const threadId = ThreadId.make("cursor-stop-session-close");
+      const tempDir = yield* Effect.promise(() =>
+        mkdtemp(path.join(os.tmpdir(), "cursor-adapter-exit-log-")),
+      );
+      const exitLogPath = path.join(tempDir, "exit.log");
+
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockAgentWrapper({
+          T3_ACP_EXIT_LOG_PATH: exitLogPath,
+        }),
+      );
+      yield* settings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
+
+      yield* adapter.startSession({
+        threadId,
+        provider: "cursor",
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: { provider: "cursor", model: "default" },
+      });
+
+      yield* adapter.stopSession(threadId);
+
+      const exitLog = yield* Effect.promise(() => waitForFileContent(exitLogPath));
+      assert.include(exitLog, "SIGTERM");
+    }),
+  );
+
+  it.effect(
+    "serializes concurrent startSession calls for the same thread and closes the replaced ACP session",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CursorAdapter;
+        const settings = yield* ServerSettingsService;
+        const threadId = ThreadId.make("cursor-concurrent-start-session");
+        const tempDir = yield* Effect.promise(() =>
+          mkdtemp(path.join(os.tmpdir(), "cursor-adapter-concurrent-exit-log-")),
+        );
+        const exitLogPath = path.join(tempDir, "exit.log");
+
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockAgentWrapper(
+            {
+              T3_ACP_EXIT_LOG_PATH: exitLogPath,
+            },
+            { initialDelaySeconds: 0.2 },
+          ),
+        );
+        yield* settings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
+
+        const [firstSession, secondSession] = yield* Effect.all(
+          [
+            adapter.startSession({
+              threadId,
+              provider: "cursor",
+              cwd: process.cwd(),
+              runtimeMode: "full-access",
+              modelSelection: { provider: "cursor", model: "default" },
+            }),
+            adapter.startSession({
+              threadId,
+              provider: "cursor",
+              cwd: process.cwd(),
+              runtimeMode: "full-access",
+              modelSelection: { provider: "cursor", model: "default" },
+            }),
+          ],
+          { concurrency: "unbounded" },
+        );
+
+        assert.equal(firstSession.threadId, threadId);
+        assert.equal(secondSession.threadId, threadId);
+
+        yield* adapter.stopSession(threadId);
+
+        const exitLog = yield* Effect.promise(() => waitForFileContent(exitLogPath));
+        assert.equal(exitLog.match(/SIGTERM/g)?.length ?? 0, 2);
+      }),
+  );
+
   it.effect("rejects startSession when provider mismatches", () =>
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const result = yield* adapter
         .startSession({
-          threadId: ThreadId.makeUnsafe("bad-provider"),
+          threadId: ThreadId.make("bad-provider"),
           provider: "codex",
           cwd: process.cwd(),
           runtimeMode: "full-access",
@@ -188,7 +289,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const serverSettings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-plan-mode-probe");
+      const threadId = ThreadId.make("cursor-plan-mode-probe");
       const tempDir = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "cursor-acp-")));
       const requestLogPath = path.join(tempDir, "requests.ndjson");
       const argvLogPath = path.join(tempDir, "argv.txt");
@@ -215,12 +316,14 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       yield* adapter.stopSession(threadId);
 
       const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
-      const modeRequest = requests.find(
-        (entry) =>
-          entry.method === "session/set_mode" ||
-          (entry.method === "session/set_config_option" &&
-            (entry.params as Record<string, unknown> | undefined)?.configId === "mode"),
-      );
+      const modeRequest = requests
+        .toReversed()
+        .find(
+          (entry) =>
+            entry.method === "session/set_mode" ||
+            (entry.method === "session/set_config_option" &&
+              (entry.params as Record<string, unknown> | undefined)?.configId === "mode"),
+        );
       assert.isDefined(modeRequest);
       assert.equal(
         (modeRequest?.params as Record<string, unknown> | undefined)?.sessionId,
@@ -237,6 +340,80 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
   );
 
   it.effect(
+    "applies initial model and mode configuration during startSession and skips repeating it on first send",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CursorAdapter;
+        const serverSettings = yield* ServerSettingsService;
+        const threadId = ThreadId.make("cursor-initial-config-probe");
+        const tempDir = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "cursor-acp-")));
+        const requestLogPath = path.join(tempDir, "requests.ndjson");
+        const argvLogPath = path.join(tempDir, "argv.txt");
+        yield* Effect.promise(() => writeFile(requestLogPath, "", "utf8"));
+        const wrapperPath = yield* Effect.promise(() =>
+          makeProbeWrapper(requestLogPath, argvLogPath),
+        );
+        yield* serverSettings.updateSettings({
+          providers: { cursor: { binaryPath: wrapperPath } },
+        });
+
+        const modelSelection = {
+          provider: "cursor" as const,
+          model: "gpt-5.4",
+          options: {
+            reasoning: "xhigh" as const,
+            contextWindow: "1m",
+            fastMode: true,
+          },
+        };
+
+        yield* adapter.startSession({
+          threadId,
+          provider: "cursor",
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+          modelSelection,
+        });
+
+        yield* Effect.promise(() => waitForFileContent(requestLogPath));
+
+        const requestsAfterStart = yield* Effect.promise(() => readJsonLines(requestLogPath));
+        const configIdsAfterStart = requestsAfterStart.flatMap((entry) =>
+          entry.method === "session/set_config_option" &&
+          typeof (entry.params as Record<string, unknown> | undefined)?.configId === "string"
+            ? [String((entry.params as Record<string, unknown>).configId)]
+            : [],
+        );
+        assert.deepStrictEqual(configIdsAfterStart, [
+          "model",
+          "reasoning",
+          "context",
+          "fast",
+          "mode",
+        ]);
+
+        yield* adapter.sendTurn({
+          threadId,
+          input: "hello mock",
+          attachments: [],
+          modelSelection,
+          interactionMode: "default",
+        });
+        yield* adapter.stopSession(threadId);
+
+        const finalRequests = yield* Effect.promise(() => readJsonLines(requestLogPath));
+        const finalConfigIds = finalRequests.flatMap((entry) =>
+          entry.method === "session/set_config_option" &&
+          typeof (entry.params as Record<string, unknown> | undefined)?.configId === "string"
+            ? [String((entry.params as Record<string, unknown>).configId)]
+            : [],
+        );
+        assert.deepStrictEqual(finalConfigIds, ["model", "reasoning", "context", "fast", "mode"]);
+        assert.equal(finalRequests.filter((entry) => entry.method === "session/prompt").length, 1);
+      }),
+  );
+
+  it.effect(
     "streams ACP tool calls and approvals on the active turn in approval-required mode",
     () =>
       Effect.gen(function* () {
@@ -245,7 +422,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
 
         const adapter = yield* CursorAdapter;
         const serverSettings = yield* ServerSettingsService;
-        const threadId = ThreadId.makeUnsafe("cursor-tool-call-probe");
+        const threadId = ThreadId.make("cursor-tool-call-probe");
         const runtimeEvents: Array<ProviderRuntimeEvent> = [];
         const settledEventTypes = new Set<string>();
         const settledEventsReady = yield* Deferred.make<void>();
@@ -266,7 +443,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
             if (event.type === "request.opened" && event.requestId) {
               yield* adapter.respondToRequest(
                 threadId,
-                ApprovalRequestId.makeUnsafe(String(event.requestId)),
+                ApprovalRequestId.make(String(event.requestId)),
                 "accept",
               );
             }
@@ -322,7 +499,9 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
             (event) => String(event.turnId) === String(turn.turnId),
           );
           const toolUpdates = turnEvents.filter((event) => event.type === "item.updated");
-          assert.lengthOf(toolUpdates, 2);
+          // ACP updates can arrive either as distinct pending + in-progress events
+          // or as a single coalesced in-progress update before approval resolves.
+          assert.isAtLeast(toolUpdates.length, 1);
           for (const toolUpdate of toolUpdates) {
             if (toolUpdate.type !== "item.updated") {
               continue;
@@ -403,7 +582,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       Effect.gen(function* () {
         const adapter = yield* CursorAdapter;
         const serverSettings = yield* ServerSettingsService;
-        const threadId = ThreadId.makeUnsafe("cursor-full-access-auto-approve");
+        const threadId = ThreadId.make("cursor-full-access-auto-approve");
         const runtimeEvents: Array<ProviderRuntimeEvent> = [];
         const settledEventTypes = new Set<string>();
         const settledEventsReady = yield* Deferred.make<void>();
@@ -496,7 +675,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const serverSettings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-assistant-tool-segmentation");
+      const threadId = ThreadId.make("cursor-assistant-tool-segmentation");
       const runtimeEvents: Array<ProviderRuntimeEvent> = [];
       const settledEventTypes = new Set<string>();
       const settledEventsReady = yield* Deferred.make<void>();
@@ -624,7 +803,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const serverSettings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-cancel-probe");
+      const threadId = ThreadId.make("cursor-cancel-probe");
       const tempDir = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "cursor-acp-")));
       const requestLogPath = path.join(tempDir, "requests.ndjson");
       const argvLogPath = path.join(tempDir, "argv.txt");
@@ -713,7 +892,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const serverSettings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-stop-pending-approval");
+      const threadId = ThreadId.make("cursor-stop-pending-approval");
       const approvalRequested = yield* Deferred.make<void>();
 
       const wrapperPath = yield* Effect.promise(() =>
@@ -756,7 +935,7 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const serverSettings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-stop-pending-user-input");
+      const threadId = ThreadId.make("cursor-stop-pending-user-input");
       const userInputRequested = yield* Deferred.make<void>();
 
       const wrapperPath = yield* Effect.promise(() =>
@@ -795,11 +974,97 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
     }),
   );
 
+  it.effect("interrupting a session settles pending user-input waits", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CursorAdapter;
+      const serverSettings = yield* ServerSettingsService;
+      const threadId = ThreadId.make("cursor-interrupt-pending-user-input");
+      const userInputRequested = yield* Deferred.make<void>();
+
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockAgentWrapper({ T3_ACP_EMIT_ASK_QUESTION: "1" }),
+      );
+      yield* serverSettings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
+
+      yield* Stream.runForEach(adapter.streamEvents, (event) => {
+        if (String(event.threadId) !== String(threadId) || event.type !== "user-input.requested") {
+          return Effect.void;
+        }
+        return Deferred.succeed(userInputRequested, undefined).pipe(Effect.ignore);
+      }).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId,
+        provider: "cursor",
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: { provider: "cursor", model: "default" },
+      });
+
+      const sendTurnFiber = yield* adapter
+        .sendTurn({
+          threadId,
+          input: "ask me a question and then interrupt",
+          attachments: [],
+        })
+        .pipe(Effect.forkChild);
+
+      yield* Deferred.await(userInputRequested);
+      yield* adapter.interruptTurn(threadId);
+      yield* Fiber.await(sendTurnFiber);
+
+      assert.equal(yield* adapter.hasSession(threadId), true);
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("broadcasts runtime events to multiple stream consumers", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CursorAdapter;
+      const settings = yield* ServerSettingsService;
+      const threadId = ThreadId.make("cursor-runtime-event-broadcast");
+
+      const wrapperPath = yield* Effect.promise(() => makeMockAgentWrapper());
+      yield* settings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
+
+      const firstConsumer = yield* Stream.take(adapter.streamEvents, 3).pipe(
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const secondConsumer = yield* Stream.take(adapter.streamEvents, 3).pipe(
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId,
+        provider: "cursor",
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: { provider: "cursor", model: "default" },
+      });
+
+      const firstEvents = Array.from(yield* Fiber.join(firstConsumer));
+      const secondEvents = Array.from(yield* Fiber.join(secondConsumer));
+
+      assert.deepStrictEqual(
+        firstEvents.map((event) => event.type),
+        ["session.started", "session.state.changed", "thread.started"],
+      );
+      assert.deepStrictEqual(
+        secondEvents.map((event) => event.type),
+        ["session.started", "session.state.changed", "thread.started"],
+      );
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("switches model in-session via session/set_config_option", () =>
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const serverSettings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-model-switch");
+      const threadId = ThreadId.make("cursor-model-switch");
       const tempDir = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "cursor-acp-")));
       const requestLogPath = path.join(tempDir, "requests.ndjson");
       const argvLogPath = path.join(tempDir, "argv.txt");
@@ -842,11 +1107,66 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       );
       assert.isAbove(setConfigRequests.length, 0, "should call session/set_config_option");
       assert.equal((setConfigRequests[0]?.params as Record<string, unknown>)?.value, "composer-2");
-      const lastSetConfig = setConfigRequests[setConfigRequests.length - 1];
-      assert.equal(
-        (lastSetConfig?.params as Record<string, unknown>)?.value,
-        "composer-2[fast=true]",
+
+      const fastConfigRequests = requests.filter(
+        (entry) =>
+          entry.method === "session/set_config_option" &&
+          (entry.params as Record<string, unknown> | undefined)?.configId === "fast",
       );
+      assert.isAbove(fastConfigRequests.length, 0, "should apply fast mode as a separate config");
+      const lastFastConfig = fastConfigRequests[fastConfigRequests.length - 1];
+      assert.equal((lastFastConfig?.params as Record<string, unknown>)?.value, "true");
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("clears prior fast mode in-session when the next turn sets fastMode: false", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CursorAdapter;
+      const serverSettings = yield* ServerSettingsService;
+      const threadId = ThreadId.make("cursor-fast-mode-reset");
+      const tempDir = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "cursor-acp-")));
+      const requestLogPath = path.join(tempDir, "requests.ndjson");
+      const argvLogPath = path.join(tempDir, "argv.txt");
+      yield* Effect.promise(() => writeFile(requestLogPath, "", "utf8"));
+      const wrapperPath = yield* Effect.promise(() =>
+        makeProbeWrapper(requestLogPath, argvLogPath),
+      );
+      yield* serverSettings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
+
+      yield* adapter.startSession({
+        threadId,
+        provider: "cursor",
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: { provider: "cursor", model: "composer-2" },
+      });
+
+      yield* adapter.sendTurn({
+        threadId,
+        input: "first turn with fast mode",
+        attachments: [],
+        modelSelection: { provider: "cursor", model: "composer-2", options: { fastMode: true } },
+      });
+
+      yield* adapter.sendTurn({
+        threadId,
+        input: "second turn without fast mode",
+        attachments: [],
+        modelSelection: { provider: "cursor", model: "composer-2", options: { fastMode: false } },
+      });
+
+      const requests = yield* Effect.promise(() => readJsonLines(requestLogPath));
+      const fastConfigRequests = requests.filter(
+        (entry) =>
+          entry.method === "session/set_config_option" &&
+          (entry.params as Record<string, unknown> | undefined)?.configId === "fast",
+      );
+      assert.isAtLeast(fastConfigRequests.length, 2, "should set fast mode on and then off");
+
+      const lastFastConfig = fastConfigRequests[fastConfigRequests.length - 1];
+      assert.equal((lastFastConfig?.params as Record<string, unknown>)?.value, "false");
 
       yield* adapter.stopSession(threadId);
     }),
