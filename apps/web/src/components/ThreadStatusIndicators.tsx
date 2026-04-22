@@ -19,6 +19,8 @@ export interface PrStatusIndicator {
   label: "PR open" | "PR closed" | "PR merged";
   colorClass: string;
   tooltip: string;
+  tooltipLead: string;
+  tooltipTitle: string;
   url: string;
 }
 
@@ -30,14 +32,27 @@ export interface TerminalStatusIndicator {
 
 export type ThreadPr = GitStatusResult["pr"];
 
+function formatPrState(state: NonNullable<ThreadPr>["state"]): string {
+  return state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+function formatPrStatusTooltip(pr: NonNullable<ThreadPr>): string {
+  return `PR #${pr.number} - ${formatPrState(pr.state)}: ${pr.title}`;
+}
+
 export function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   if (!pr) return null;
+
+  const tooltip = formatPrStatusTooltip(pr);
+  const tooltipLead = `PR #${pr.number} - ${formatPrState(pr.state)}`;
 
   if (pr.state === "open") {
     return {
       label: "PR open",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",
-      tooltip: `#${pr.number} PR open: ${pr.title}`,
+      tooltip,
+      tooltipLead,
+      tooltipTitle: pr.title,
       url: pr.url,
     };
   }
@@ -45,7 +60,9 @@ export function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
     return {
       label: "PR closed",
       colorClass: "text-zinc-500 dark:text-zinc-400/80",
-      tooltip: `#${pr.number} PR closed: ${pr.title}`,
+      tooltip,
+      tooltipLead,
+      tooltipTitle: pr.title,
       url: pr.url,
     };
   }
@@ -53,11 +70,23 @@ export function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
     return {
       label: "PR merged",
       colorClass: "text-violet-600 dark:text-violet-300/90",
-      tooltip: `#${pr.number} PR merged: ${pr.title}`,
+      tooltip,
+      tooltipLead,
+      tooltipTitle: pr.title,
       url: pr.url,
     };
   }
   return null;
+}
+
+export function PrStatusTooltipContent({ status }: { status: PrStatusIndicator }) {
+  return (
+    <span className="flex max-w-[min(34rem,calc(100vw-2rem))] items-stretch overflow-hidden whitespace-nowrap">
+      <span className="shrink-0 pr-2 font-medium">{status.tooltipLead}</span>
+      <span className="min-h-4 shrink-0 border-border/70 border-l" aria-hidden="true" />
+      <span className="min-w-0 truncate pl-2">{status.tooltipTitle}</span>
+    </span>
+  );
 }
 
 export function resolveThreadPr(input: {
@@ -186,7 +215,9 @@ export function ThreadRowLeadingStatus({ thread }: { thread: SidebarThreadSummar
           >
             <GitPullRequestIcon className="size-3" />
           </TooltipTrigger>
-          <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
+          <TooltipPopup side="top">
+            <PrStatusTooltipContent status={prStatus} />
+          </TooltipPopup>
         </Tooltip>
       ) : null}
       {threadStatus ? <ThreadStatusLabel status={threadStatus} /> : null}
