@@ -60,11 +60,21 @@ export function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   return null;
 }
 
-export function resolveThreadPr(
-  threadBranch: string | null,
-  gitStatus: GitStatusResult | null,
-): ThreadPr | null {
-  if (threadBranch === null || gitStatus === null || gitStatus.branch !== threadBranch) {
+export function resolveThreadPr(input: {
+  threadBranch: string | null;
+  gitStatus: GitStatusResult | null;
+  hasDedicatedWorktree: boolean;
+}): ThreadPr | null {
+  const { threadBranch, gitStatus, hasDedicatedWorktree } = input;
+  if (gitStatus === null) {
+    return null;
+  }
+
+  if (hasDedicatedWorktree) {
+    return gitStatus.pr ?? null;
+  }
+
+  if (threadBranch === null || gitStatus.branch !== threadBranch) {
     return null;
   }
 
@@ -143,9 +153,13 @@ export function ThreadRowLeadingStatus({ thread }: { thread: SidebarThreadSummar
   const gitCwd = thread.worktreePath ?? threadProjectCwd;
   const gitStatus = useGitStatus({
     environmentId: thread.environmentId,
-    cwd: thread.branch != null ? gitCwd : null,
+    cwd: thread.branch != null || thread.worktreePath !== null ? gitCwd : null,
   });
-  const pr = resolveThreadPr(thread.branch, gitStatus.data);
+  const pr = resolveThreadPr({
+    threadBranch: thread.branch,
+    gitStatus: gitStatus.data,
+    hasDedicatedWorktree: thread.worktreePath !== null,
+  });
   const prStatus = prStatusIndicator(pr);
   const threadStatus = resolveThreadStatusPill({
     thread: {
