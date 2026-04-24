@@ -51,6 +51,13 @@ import type {
   OrchestrationSubscribeThreadInput,
   OrchestrationThreadStreamItem,
 } from "./orchestration.ts";
+import type {
+  OrchestrationV2Command,
+  OrchestrationV2DispatchCommandResult,
+  OrchestrationV2GetThreadProjectionInput,
+  OrchestrationV2ThreadProjection,
+  OrchestrationV2ThreadStreamItem,
+} from "./orchestrationV2.ts";
 import type { EnvironmentId } from "./baseSchemas.ts";
 import { EditorId } from "./editor.ts";
 import { ServerSettings, type ClientSettings, type ServerSettingsPatch } from "./settings.ts";
@@ -284,6 +291,21 @@ export interface EnvironmentApi {
     subscribeThread: (
       input: OrchestrationSubscribeThreadInput,
       callback: (event: OrchestrationThreadStreamItem) => void,
+      options?: {
+        onResubscribe?: () => void;
+      },
+    ) => () => void;
+  };
+  orchestrationV2: {
+    dispatchCommand: (
+      command: OrchestrationV2Command,
+    ) => Promise<OrchestrationV2DispatchCommandResult>;
+    getThreadProjection: (
+      input: OrchestrationV2GetThreadProjectionInput,
+    ) => Promise<OrchestrationV2ThreadProjection>;
+    subscribeThread: (
+      input: OrchestrationV2GetThreadProjectionInput,
+      callback: (event: OrchestrationV2ThreadStreamItem) => void,
       options?: {
         onResubscribe?: () => void;
       },

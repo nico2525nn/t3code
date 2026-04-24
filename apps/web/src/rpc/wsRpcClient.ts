@@ -5,6 +5,7 @@ import {
   type GitStatusResult,
   type GitStatusStreamEvent,
   type LocalApi,
+  ORCHESTRATION_V2_WS_METHODS,
   ORCHESTRATION_WS_METHODS,
   type ServerSettingsPatch,
   WS_METHODS,
@@ -118,6 +119,15 @@ export interface WsRpcClient {
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
     readonly subscribeShell: RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeShell>;
     readonly subscribeThread: RpcInputStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeThread>;
+  };
+  readonly orchestrationV2: {
+    readonly dispatchCommand: RpcUnaryMethod<typeof ORCHESTRATION_V2_WS_METHODS.dispatchCommand>;
+    readonly getThreadProjection: RpcUnaryMethod<
+      typeof ORCHESTRATION_V2_WS_METHODS.getThreadProjection
+    >;
+    readonly subscribeThread: RpcInputStreamMethod<
+      typeof ORCHESTRATION_V2_WS_METHODS.subscribeThread
+    >;
   };
 }
 
@@ -248,6 +258,20 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       subscribeThread: (input, listener, options) =>
         transport.subscribe(
           (client) => client[ORCHESTRATION_WS_METHODS.subscribeThread](input),
+          listener,
+          options,
+        ),
+    },
+    orchestrationV2: {
+      dispatchCommand: (input) =>
+        transport.request((client) => client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand](input)),
+      getThreadProjection: (input) =>
+        transport.request((client) =>
+          client[ORCHESTRATION_V2_WS_METHODS.getThreadProjection](input),
+        ),
+      subscribeThread: (input, listener, options) =>
+        transport.subscribe(
+          (client) => client[ORCHESTRATION_V2_WS_METHODS.subscribeThread](input),
           listener,
           options,
         ),

@@ -3,6 +3,7 @@ import type {
   GitStatusRemoteResult,
   GitStatusStreamEvent,
 } from "@t3tools/contracts";
+import { CommandId, ORCHESTRATION_V2_WS_METHODS, RunId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./wsTransport", () => ({
@@ -35,6 +36,41 @@ const baseRemoteStatus: GitStatusRemoteResult = {
 };
 
 describe("wsRpcClient", () => {
+  it("routes orchestration V2 methods through websocket transport", async () => {
+    const request = vi.fn(async (connect: (client: Record<string, unknown>) => unknown) =>
+      connect({
+        [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: vi.fn(() => ({ sequence: 2 })),
+        [ORCHESTRATION_V2_WS_METHODS.getThreadProjection]: vi.fn(() => ({
+          thread: { id: ThreadId.make("thread-1") },
+        })),
+      }),
+    );
+    const subscribe = vi.fn(() => () => undefined);
+    const transport = {
+      dispose: vi.fn(async () => undefined),
+      reconnect: vi.fn(async () => undefined),
+      request,
+      requestStream: vi.fn(),
+      subscribe,
+    } as unknown as WsTransport;
+    const client = createWsRpcClient(transport);
+
+    const dispatchResult = await client.orchestrationV2.dispatchCommand({
+      type: "run.interrupt",
+      commandId: CommandId.make("cmd-1"),
+      threadId: ThreadId.make("thread-1"),
+      runId: RunId.make("run-1"),
+    });
+    client.orchestrationV2.subscribeThread(
+      { threadId: ThreadId.make("thread-1") },
+      () => undefined,
+    );
+
+    expect(dispatchResult).toEqual({ sequence: 2 });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(subscribe).toHaveBeenCalledTimes(1);
+  });
+
   it("reduces git status stream events into flat status snapshots", () => {
     const subscribe = vi.fn(<TValue>(_connect: unknown, listener: (value: TValue) => void) => {
       for (const event of [
