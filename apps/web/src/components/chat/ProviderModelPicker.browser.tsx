@@ -908,6 +908,72 @@ describe("ProviderModelPicker", () => {
     }
   });
 
+  it("reorders favorited models from the favorites list", async () => {
+    localStorage.setItem(
+      "t3code:client-settings:v1",
+      JSON.stringify({
+        ...DEFAULT_CLIENT_SETTINGS,
+        favorites: [
+          { provider: "codex", model: "gpt-5-codex" },
+          { provider: "claudeAgent", model: "claude-sonnet-4-6" },
+        ],
+      }),
+    );
+
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await vi.waitFor(() => {
+        expect(getVisibleModelNames().slice(0, 2)).toEqual(["GPT-5 Codex", "Claude Sonnet 4.6"]);
+      });
+
+      await page
+        .getByRole("button", { name: "Move Claude Sonnet 4.6 up in favorites", exact: true })
+        .click();
+
+      await vi.waitFor(() => {
+        expect(getVisibleModelNames().slice(0, 2)).toEqual(["Claude Sonnet 4.6", "GPT-5 Codex"]);
+      });
+    } finally {
+      await mounted.cleanup();
+      localStorage.removeItem("t3code:client-settings:v1");
+    }
+  });
+
+  it("does not show hidden models in the picker", async () => {
+    localStorage.setItem(
+      "t3code:client-settings:v1",
+      JSON.stringify({
+        ...DEFAULT_CLIENT_SETTINGS,
+        hiddenModels: [{ provider: "codex", model: "gpt-5.3-codex" }],
+      }),
+    );
+
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { name: "Codex", exact: true }).click();
+
+      await vi.waitFor(() => {
+        expect(getVisibleModelNames()).toEqual(["GPT-5 Codex"]);
+      });
+    } finally {
+      await mounted.cleanup();
+      localStorage.removeItem("t3code:client-settings:v1");
+    }
+  });
+
   it("dispatches callback with correct provider and model when selected", async () => {
     const mounted = await mountPicker({
       provider: "claudeAgent",

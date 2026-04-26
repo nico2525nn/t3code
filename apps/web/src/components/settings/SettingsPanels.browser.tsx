@@ -10,6 +10,7 @@ import {
   type DesktopUpdateChannel,
   type DesktopUpdateState,
   type LocalApi,
+  type ServerProvider,
   type ServerConfig,
 } from "@t3tools/contracts";
 import { DateTime } from "effect";
@@ -198,6 +199,43 @@ function createBaseServerConfig(): ServerConfig {
       otlpMetricsEnabled: false,
     },
     settings: DEFAULT_SERVER_SETTINGS,
+  };
+}
+
+function createProviderSettingsServerConfig(): ServerConfig {
+  const config = createBaseServerConfig();
+  const providers: ServerProvider[] = [
+    {
+      provider: "codex",
+      displayName: "Codex",
+      enabled: true,
+      installed: true,
+      version: "0.116.0",
+      status: "ready",
+      auth: { status: "authenticated" },
+      checkedAt: new Date().toISOString(),
+      slashCommands: [],
+      skills: [],
+      models: [
+        {
+          slug: "gpt-5-codex",
+          name: "GPT-5 Codex",
+          isCustom: false,
+          capabilities: null,
+        },
+        {
+          slug: "gpt-5.3-codex",
+          name: "GPT-5.3 Codex",
+          isCustom: false,
+          capabilities: null,
+        },
+      ],
+    },
+  ];
+
+  return {
+    ...config,
+    providers,
   };
 }
 
@@ -717,5 +755,56 @@ describe("GeneralSettingsPanel observability", () => {
     await expect.element(page.getByPlaceholder("http://127.0.0.1:4096")).toBeInTheDocument();
     await expect.element(page.getByText("OpenCode server password")).toBeInTheDocument();
     await expect.element(page.getByPlaceholder("Server password")).toBeInTheDocument();
+  });
+
+  it("toggles model visibility from provider settings", async () => {
+    const updateSettings = vi
+      .fn<LocalApi["server"]["updateSettings"]>()
+      .mockResolvedValue(undefined);
+    const config = {
+      ...createBaseServerConfig(),
+      providers: [
+        {
+          provider: "codex" as const,
+          displayName: "Codex",
+          enabled: true,
+          installed: true,
+          version: "0.116.0",
+          status: "ready" as const,
+          auth: { status: "authenticated" as const },
+          checkedAt: new Date().toISOString(),
+          slashCommands: [],
+          skills: [],
+          models: [
+            {
+              slug: "gpt-5-codex",
+              name: "GPT-5 Codex",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+        },
+      ] satisfies ReadonlyArray<ServerProvider>,
+    };
+    setServerConfigSnapshot(config);
+    window.nativeApi = {
+      server: {
+        updateSettings,
+      },
+    } as unknown as LocalApi;
+
+    mounted = await render(
+      <AppAtomRegistryProvider>
+        <GeneralSettingsPanel />
+      </AppAtomRegistryProvider>,
+    );
+
+    await page.getByLabelText("Toggle Codex details").click();
+    await page.getByRole("button", { name: "Hide GPT-5 Codex in model picker" }).click();
+
+    await expect.element(page.getByText("hidden")).toBeInTheDocument();
+    const persisted = JSON.parse(localStorage.getItem("t3code:client-settings:v1") ?? "{}");
+    expect(persisted.hiddenModels).toEqual([{ provider: "codex", model: "gpt-5-codex" }]);
+    expect(updateSettings).not.toHaveBeenCalled();
   });
 });
