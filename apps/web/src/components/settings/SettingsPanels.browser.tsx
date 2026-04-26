@@ -3,6 +3,7 @@ import "../../index.css";
 import {
   type AuthAccessStreamEvent,
   type AuthAccessSnapshot,
+  type ClientSettings,
   AuthSessionId,
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
@@ -23,6 +24,7 @@ import { AppAtomRegistryProvider } from "../../rpc/atomRegistry";
 import { resetServerStateForTests, setServerConfigSnapshot } from "../../rpc/serverState";
 import { ConnectionsSettings } from "./ConnectionsSettings";
 import { GeneralSettingsPanel } from "./SettingsPanels";
+import { __resetClientSettingsPersistenceForTests } from "../../hooks/useSettings";
 
 const authAccessHarness = vi.hoisted(() => {
   type Snapshot = AuthAccessSnapshot;
@@ -380,6 +382,7 @@ describe("GeneralSettingsPanel observability", () => {
   beforeEach(async () => {
     resetServerStateForTests();
     await __resetLocalApiForTests();
+    __resetClientSettingsPersistenceForTests();
     localStorage.clear();
     authAccessHarness.reset();
   });
@@ -396,6 +399,7 @@ describe("GeneralSettingsPanel observability", () => {
     document.body.innerHTML = "";
     resetServerStateForTests();
     await __resetLocalApiForTests();
+    __resetClientSettingsPersistenceForTests();
     authAccessHarness.reset();
   });
 
@@ -760,8 +764,8 @@ describe("GeneralSettingsPanel observability", () => {
   it("toggles model visibility from provider settings", async () => {
     const updateSettings = vi
       .fn<LocalApi["server"]["updateSettings"]>()
-      .mockResolvedValue(undefined);
-    const config = {
+      .mockImplementation(async () => DEFAULT_SERVER_SETTINGS);
+    const config: ServerConfig = {
       ...createBaseServerConfig(),
       providers: [
         {
@@ -788,6 +792,12 @@ describe("GeneralSettingsPanel observability", () => {
     };
     setServerConfigSnapshot(config);
     window.nativeApi = {
+      persistence: {
+        getClientSettings: async () => null,
+        setClientSettings: async (settings: ClientSettings) => {
+          localStorage.setItem("t3code:client-settings:v1", JSON.stringify(settings));
+        },
+      },
       server: {
         updateSettings,
       },

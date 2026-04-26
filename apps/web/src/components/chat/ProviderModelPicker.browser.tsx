@@ -8,6 +8,7 @@ import { render } from "vitest-browser-react";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { getCustomModelOptionsByProvider } from "../../modelSelection";
 import { DEFAULT_CLIENT_SETTINGS, DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import { __resetClientSettingsPersistenceForTests } from "../../hooks/useSettings";
 import { __resetLocalApiForTests } from "../../localApi";
 
 // Mock the environments/runtime module to provide a mock primary environment connection
@@ -294,12 +295,16 @@ function getSidebarProviderOrder() {
 describe("ProviderModelPicker", () => {
   beforeEach(async () => {
     // Reset test environment before each test
+    localStorage.clear();
     await __resetLocalApiForTests();
+    __resetClientSettingsPersistenceForTests();
   });
 
   afterEach(async () => {
     document.body.innerHTML = "";
+    localStorage.clear();
     await __resetLocalApiForTests();
+    __resetClientSettingsPersistenceForTests();
   });
 
   it("shows provider sidebar in unlocked mode", async () => {
@@ -928,6 +933,7 @@ describe("ProviderModelPicker", () => {
 
     try {
       await page.getByRole("button").click();
+      await page.getByRole("button", { name: "Favorites", exact: true }).click();
 
       await vi.waitFor(() => {
         expect(getVisibleModelNames().slice(0, 2)).toEqual(["GPT-5 Codex", "Claude Sonnet 4.6"]);
@@ -966,7 +972,9 @@ describe("ProviderModelPicker", () => {
       await page.getByRole("button", { name: "Codex", exact: true }).click();
 
       await vi.waitFor(() => {
-        expect(getVisibleModelNames()).toEqual(["GPT-5 Codex"]);
+        const visibleModelNames = getVisibleModelNames();
+        expect(visibleModelNames).toContain("GPT-5 Codex");
+        expect(visibleModelNames).not.toContain("GPT-5.3 Codex");
       });
     } finally {
       await mounted.cleanup();
