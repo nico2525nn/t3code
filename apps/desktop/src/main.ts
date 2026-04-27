@@ -55,7 +55,10 @@ import {
 } from "./clientPersistence.ts";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness.ts";
 import { showDesktopConfirmDialog } from "./confirmDialog.ts";
-import { resolveDesktopServerExposure } from "./serverExposure.ts";
+import {
+  resolveDesktopCoreAdvertisedEndpoints,
+  resolveDesktopServerExposure,
+} from "./serverExposure.ts";
 import { syncShellEnvironment } from "./syncShellEnvironment.ts";
 import { waitForBackendStartupReady } from "./backendStartupReadiness.ts";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState.ts";
@@ -102,6 +105,7 @@ const SET_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:set-saved-environment-secr
 const REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:remove-saved-environment-secret";
 const GET_SERVER_EXPOSURE_STATE_CHANNEL = "desktop:get-server-exposure-state";
 const SET_SERVER_EXPOSURE_MODE_CHANNEL = "desktop:set-server-exposure-mode";
+const GET_ADVERTISED_ENDPOINTS_CHANNEL = "desktop:get-advertised-endpoints";
 const BASE_DIR = process.env.T3CODE_HOME?.trim() || Path.join(OS.homedir(), ".t3");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
@@ -297,6 +301,7 @@ function backendChildEnv(): NodeJS.ProcessEnv {
   delete env.T3CODE_DESKTOP_WS_URL;
   delete env.T3CODE_DESKTOP_LAN_ACCESS;
   delete env.T3CODE_DESKTOP_LAN_HOST;
+  delete env.T3CODE_DESKTOP_HTTPS_ENDPOINTS;
   return env;
 }
 
@@ -306,6 +311,20 @@ function getDesktopServerExposureState(): DesktopServerExposureState {
     endpointUrl: backendEndpointUrl,
     advertisedHost: backendAdvertisedHost,
   };
+}
+
+function getDesktopAdvertisedEndpoints() {
+  const exposure = resolveDesktopServerExposure({
+    mode: desktopServerExposureMode,
+    port: backendPort,
+    networkInterfaces: OS.networkInterfaces(),
+    ...(backendAdvertisedHost ? { advertisedHostOverride: backendAdvertisedHost } : {}),
+  });
+  return resolveDesktopCoreAdvertisedEndpoints({
+    port: backendPort,
+    exposure,
+    customHttpsEndpointUrls: resolveCustomHttpsEndpointUrls(),
+  });
 }
 
 function getDesktopSecretStorage() {
@@ -319,6 +338,13 @@ function getDesktopSecretStorage() {
 function resolveAdvertisedHostOverride(): string | undefined {
   const override = process.env.T3CODE_DESKTOP_LAN_HOST?.trim();
   return override && override.length > 0 ? override : undefined;
+}
+
+function resolveCustomHttpsEndpointUrls(): readonly string[] {
+  return (process.env.T3CODE_DESKTOP_HTTPS_ENDPOINTS ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 
 async function applyDesktopServerExposureMode(
@@ -1668,6 +1694,9 @@ function registerIpcHandlers(): void {
     relaunchDesktopApp(`serverExposureMode=${nextMode}`);
     return nextState;
   });
+
+  ipcMain.removeHandler(GET_ADVERTISED_ENDPOINTS_CHANNEL);
+  ipcMain.handle(GET_ADVERTISED_ENDPOINTS_CHANNEL, async () => getDesktopAdvertisedEndpoints());
 
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async (_event, rawOptions: unknown) => {

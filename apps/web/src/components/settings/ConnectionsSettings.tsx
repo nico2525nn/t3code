@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   type AuthClientSession,
   type AuthPairingLink,
+  type AdvertisedEndpoint,
   type DesktopServerExposureState,
   type EnvironmentId,
 } from "@t3tools/contracts";
@@ -244,6 +245,31 @@ function removeDesktopClientSession(
   return current.filter((clientSession) => clientSession.sessionId !== sessionId);
 }
 
+function selectPairingEndpoint(
+  endpoints: ReadonlyArray<AdvertisedEndpoint>,
+): AdvertisedEndpoint | null {
+  const availableEndpoints = endpoints.filter((endpoint) => endpoint.status !== "unavailable");
+  return (
+    availableEndpoints.find((endpoint) => endpoint.compatibility.hostedHttpsApp === "compatible") ??
+    availableEndpoints.find((endpoint) => endpoint.isDefault) ??
+    availableEndpoints.find((endpoint) => endpoint.reachability !== "loopback") ??
+    null
+  );
+}
+
+function resolveAdvertisedEndpointPairingUrl(
+  endpoint: AdvertisedEndpoint,
+  credential: string,
+): string {
+  if (endpoint.compatibility.hostedHttpsApp === "compatible") {
+    return (
+      resolveHostedPairingUrl(endpoint.httpBaseUrl, credential) ??
+      resolveDesktopPairingUrl(endpoint.httpBaseUrl, credential)
+    );
+  }
+  return resolveDesktopPairingUrl(endpoint.httpBaseUrl, credential);
+}
+
 function resolveCurrentOriginPairingUrl(credential: string): string {
   const url = new URL("/pair", window.location.href);
   return setPairingTokenOnUrl(url, credential).toString();
@@ -252,6 +278,7 @@ function resolveCurrentOriginPairingUrl(credential: string): string {
 type PairingLinkListRowProps = {
   pairingLink: ServerPairingLinkRecord;
   endpointUrl: string | null | undefined;
+  endpoints: ReadonlyArray<AdvertisedEndpoint>;
   revokingPairingLinkId: string | null;
   onRevoke: (id: string) => void;
 };
@@ -259,6 +286,7 @@ type PairingLinkListRowProps = {
 const PairingLinkListRow = memo(function PairingLinkListRow({
   pairingLink,
   endpointUrl,
+  endpoints,
   revokingPairingLinkId,
   onRevoke,
 }: PairingLinkListRowProps) {
@@ -280,12 +308,17 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
         : null,
     [endpointUrl, pairingLink.credential],
   );
+  const endpointPairingUrl = useMemo(() => {
+    const endpoint = selectPairingEndpoint(endpoints);
+    return endpoint ? resolveAdvertisedEndpointPairingUrl(endpoint, pairingLink.credential) : null;
+  }, [endpoints, pairingLink.credential]);
   const shareablePairingUrl =
-    endpointUrl != null && endpointUrl !== ""
+    endpointPairingUrl ??
+    (endpointUrl != null && endpointUrl !== ""
       ? (hostedPairingUrl ?? resolveDesktopPairingUrl(endpointUrl, pairingLink.credential))
       : isLoopbackHostname(window.location.hostname)
         ? null
-        : currentOriginPairingUrl;
+        : currentOriginPairingUrl);
   const copyValue = shareablePairingUrl ?? pairingLink.credential;
   const canCopyToClipboard =
     typeof window !== "undefined" &&
@@ -622,6 +655,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
 
 type PairingClientsListProps = {
   endpointUrl: string | null | undefined;
+  endpoints: ReadonlyArray<AdvertisedEndpoint>;
   isLoading: boolean;
   pairingLinks: ReadonlyArray<ServerPairingLinkRecord>;
   clientSessions: ReadonlyArray<ServerClientSessionRecord>;
@@ -633,6 +667,7 @@ type PairingClientsListProps = {
 
 const PairingClientsList = memo(function PairingClientsList({
   endpointUrl,
+  endpoints,
   isLoading,
   pairingLinks,
   clientSessions,
@@ -648,6 +683,7 @@ const PairingClientsList = memo(function PairingClientsList({
           key={pairingLink.id}
           pairingLink={pairingLink}
           endpointUrl={endpointUrl}
+          endpoints={endpoints}
           revokingPairingLinkId={revokingPairingLinkId}
           onRevoke={onRevokePairingLink}
         />
@@ -668,6 +704,58 @@ const PairingClientsList = memo(function PairingClientsList({
         </div>
       ) : null}
     </>
+  );
+});
+
+type AdvertisedEndpointListRowProps = {
+  endpoint: AdvertisedEndpoint;
+};
+
+const endpointCompatibilityLabel = (endpoint: AdvertisedEndpoint): string => {
+  if (endpoint.compatibility.hostedHttpsApp === "compatible") {
+    return "Works with hosted app";
+  }
+  if (endpoint.compatibility.hostedHttpsApp === "mixed-content-blocked") {
+    return "Desktop or direct browser only";
+  }
+  if (endpoint.compatibility.hostedHttpsApp === "requires-configuration") {
+    return "Needs HTTPS setup";
+  }
+  return "Compatibility unknown";
+};
+
+const AdvertisedEndpointListRow = memo(function AdvertisedEndpointListRow({
+  endpoint,
+}: AdvertisedEndpointListRowProps) {
+  return (
+    <div className={ITEM_ROW_CLASSNAME}>
+      <div className={ITEM_ROW_INNER_CLASSNAME}>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex min-h-5 items-center gap-1.5">
+            <ConnectionStatusDot
+              tooltipText={`${endpoint.provider.label} · ${endpoint.reachability}`}
+              dotClassName={
+                endpoint.compatibility.hostedHttpsApp === "compatible"
+                  ? "bg-success"
+                  : "bg-muted-foreground/40"
+              }
+            />
+            <h3 className="text-sm font-medium text-foreground">{endpoint.label}</h3>
+            {endpoint.provider.isAddon ? (
+              <span className="rounded-md border border-border/50 bg-muted/50 px-1 py-0.5 text-[10px] text-muted-foreground/80">
+                Add-on
+              </span>
+            ) : null}
+          </div>
+          <p className="truncate text-xs text-muted-foreground" title={endpoint.httpBaseUrl}>
+            {endpoint.httpBaseUrl}
+          </p>
+        </div>
+        <p className="shrink-0 text-xs text-muted-foreground">
+          {endpointCompatibilityLabel(endpoint)}
+        </p>
+      </div>
+    </div>
   );
 });
 
@@ -776,6 +864,9 @@ export function ConnectionsSettings() {
 
   const [desktopServerExposureState, setDesktopServerExposureState] =
     useState<DesktopServerExposureState | null>(null);
+  const [desktopAdvertisedEndpoints, setDesktopAdvertisedEndpoints] = useState<
+    ReadonlyArray<AdvertisedEndpoint>
+  >([]);
   const [desktopServerExposureError, setDesktopServerExposureError] = useState<string | null>(null);
   const [desktopPairingLinks, setDesktopPairingLinks] = useState<
     ReadonlyArray<ServerPairingLinkRecord>
@@ -1107,8 +1198,21 @@ export function ConnectionsSettings() {
             error instanceof Error ? error.message : "Failed to load network exposure state.";
           setDesktopServerExposureError(message);
         });
+      void desktopBridge
+        .getAdvertisedEndpoints()
+        .then((endpoints) => {
+          if (cancelled) return;
+          setDesktopAdvertisedEndpoints(endpoints);
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          const message =
+            error instanceof Error ? error.message : "Failed to load reachable endpoints.";
+          setDesktopServerExposureError(message);
+        });
     } else {
       setDesktopServerExposureState(null);
+      setDesktopAdvertisedEndpoints([]);
       setDesktopServerExposureError(null);
     }
 
@@ -1125,6 +1229,7 @@ export function ConnectionsSettings() {
     setDesktopClientSessions([]);
     setDesktopAccessManagementError(null);
     setDesktopServerExposureState(null);
+    setDesktopAdvertisedEndpoints([]);
     setDesktopServerExposureError(null);
   }, [canManageLocalBackend]);
   const visibleDesktopPairingLinks = useMemo(
@@ -1137,87 +1242,95 @@ export function ConnectionsSettings() {
         <>
           <SettingsSection title="Manage local backend">
             {desktopBridge ? (
-              <SettingsRow
-                title="Network access"
-                description={
-                  desktopServerExposureState?.endpointUrl
-                    ? `Reachable at ${desktopServerExposureState.endpointUrl}`
-                    : desktopServerExposureState?.mode === "network-accessible"
-                      ? desktopServerExposureState.advertisedHost
-                        ? `Exposed on all interfaces. Pairing links use ${desktopServerExposureState.advertisedHost}.`
-                        : "Exposed on all interfaces."
-                      : desktopServerExposureState
-                        ? "Limited to this machine."
-                        : "Loading…"
-                }
-                status={
-                  desktopServerExposureError ? (
-                    <span className="block text-destructive">{desktopServerExposureError}</span>
-                  ) : null
-                }
-                control={
-                  <AlertDialog
-                    open={pendingDesktopServerExposureMode !== null}
-                    onOpenChange={(open) => {
-                      if (isUpdatingDesktopServerExposure) return;
-                      if (!open) setPendingDesktopServerExposureMode(null);
-                    }}
-                  >
-                    <Switch
-                      checked={desktopServerExposureState?.mode === "network-accessible"}
-                      disabled={!desktopServerExposureState || isUpdatingDesktopServerExposure}
-                      onCheckedChange={(checked) => {
-                        setPendingDesktopServerExposureMode(
-                          checked ? "network-accessible" : "local-only",
-                        );
+              <>
+                <SettingsRow
+                  title="Network access"
+                  description={
+                    desktopServerExposureState?.endpointUrl
+                      ? `Reachable at ${desktopServerExposureState.endpointUrl}`
+                      : desktopServerExposureState?.mode === "network-accessible"
+                        ? desktopServerExposureState.advertisedHost
+                          ? `Exposed on all interfaces. Pairing links use ${desktopServerExposureState.advertisedHost}.`
+                          : "Exposed on all interfaces."
+                        : desktopServerExposureState
+                          ? "Limited to this machine."
+                          : "Loading…"
+                  }
+                  status={
+                    desktopServerExposureError ? (
+                      <span className="block text-destructive">{desktopServerExposureError}</span>
+                    ) : null
+                  }
+                  control={
+                    <AlertDialog
+                      open={pendingDesktopServerExposureMode !== null}
+                      onOpenChange={(open) => {
+                        if (isUpdatingDesktopServerExposure) return;
+                        if (!open) setPendingDesktopServerExposureMode(null);
                       }}
-                      aria-label="Enable network access"
-                    />
-                    <AlertDialogPopup>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          {pendingDesktopServerExposureMode === "network-accessible"
-                            ? "Enable network access?"
-                            : "Disable network access?"}
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {pendingDesktopServerExposureMode === "network-accessible"
-                            ? "T3 Code will restart to expose this environment over the network."
-                            : "T3 Code will restart and limit this environment back to this machine."}
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogClose
-                          disabled={isUpdatingDesktopServerExposure}
-                          render={
-                            <Button variant="outline" disabled={isUpdatingDesktopServerExposure} />
-                          }
-                        >
-                          Cancel
-                        </AlertDialogClose>
-                        <Button
-                          onClick={handleConfirmDesktopServerExposureChange}
-                          disabled={
-                            pendingDesktopServerExposureMode === null ||
-                            isUpdatingDesktopServerExposure
-                          }
-                        >
-                          {isUpdatingDesktopServerExposure ? (
-                            <>
-                              <Spinner className="size-3.5" />
-                              Restarting…
-                            </>
-                          ) : pendingDesktopServerExposureMode === "network-accessible" ? (
-                            "Restart and enable"
-                          ) : (
-                            "Restart and disable"
-                          )}
-                        </Button>
-                      </AlertDialogFooter>
-                    </AlertDialogPopup>
-                  </AlertDialog>
-                }
-              />
+                    >
+                      <Switch
+                        checked={desktopServerExposureState?.mode === "network-accessible"}
+                        disabled={!desktopServerExposureState || isUpdatingDesktopServerExposure}
+                        onCheckedChange={(checked) => {
+                          setPendingDesktopServerExposureMode(
+                            checked ? "network-accessible" : "local-only",
+                          );
+                        }}
+                        aria-label="Enable network access"
+                      />
+                      <AlertDialogPopup>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            {pendingDesktopServerExposureMode === "network-accessible"
+                              ? "Enable network access?"
+                              : "Disable network access?"}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {pendingDesktopServerExposureMode === "network-accessible"
+                              ? "T3 Code will restart to expose this environment over the network."
+                              : "T3 Code will restart and limit this environment back to this machine."}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogClose
+                            disabled={isUpdatingDesktopServerExposure}
+                            render={
+                              <Button
+                                variant="outline"
+                                disabled={isUpdatingDesktopServerExposure}
+                              />
+                            }
+                          >
+                            Cancel
+                          </AlertDialogClose>
+                          <Button
+                            onClick={handleConfirmDesktopServerExposureChange}
+                            disabled={
+                              pendingDesktopServerExposureMode === null ||
+                              isUpdatingDesktopServerExposure
+                            }
+                          >
+                            {isUpdatingDesktopServerExposure ? (
+                              <>
+                                <Spinner className="size-3.5" />
+                                Restarting…
+                              </>
+                            ) : pendingDesktopServerExposureMode === "network-accessible" ? (
+                              "Restart and enable"
+                            ) : (
+                              "Restart and disable"
+                            )}
+                          </Button>
+                        </AlertDialogFooter>
+                      </AlertDialogPopup>
+                    </AlertDialog>
+                  }
+                />
+                {desktopAdvertisedEndpoints.map((endpoint) => (
+                  <AdvertisedEndpointListRow key={endpoint.id} endpoint={endpoint} />
+                ))}
+              </>
             ) : (
               <SettingsRow
                 title="Network access"
@@ -1267,6 +1380,7 @@ export function ConnectionsSettings() {
               ) : null}
               <PairingClientsList
                 endpointUrl={desktopServerExposureState?.endpointUrl}
+                endpoints={desktopAdvertisedEndpoints}
                 isLoading={isLoadingDesktopAccessManagement}
                 pairingLinks={visibleDesktopPairingLinks}
                 clientSessions={desktopClientSessions}
