@@ -22,8 +22,16 @@ If you are already running the desktop app and want to make it reachable from ot
 
 1. Open **Settings** → **Connections**.
 2. Under **Manage Local Backend**, toggle **Network access** on. This will restart the app and run the backend on all network interfaces.
-3. The settings panel will show the address the server is reachable at (e.g. `http://192.168.x.y:3773`).
+3. The settings panel will show reachable endpoints for the backend. At minimum this includes the local LAN HTTP endpoint when network access is enabled.
 4. Use **Create Link** to generate a pairing link you can share with another device.
+
+The app chooses the best reachable endpoint for pairing links:
+
+- HTTPS/WSS-compatible endpoints are preferred because they work from `https://app.t3.codes`.
+- Non-loopback HTTP endpoints are used for direct LAN pairing when HTTPS is not available.
+- Loopback-only endpoints are not useful for another device unless that device is the same machine.
+
+If the copied link points directly at `http://192.168.x.y:3773`, open it from a client that can reach that LAN address. If it points at `https://app.t3.codes/pair?...`, the hosted web app will save the environment and connect directly to the backend URL in the link.
 
 ### Option 2: Headless Server (CLI)
 

@@ -110,6 +110,28 @@ A single environment may have many endpoints:
 
 The environment stays the same. Only the access path changes.
 
+### AdvertisedEndpoint
+
+An `AdvertisedEndpoint` is a server or desktop-authored candidate endpoint for an environment. It is how the backend tells the client which URLs may be useful for pairing and reconnecting.
+
+`AdvertisedEndpoint` is deliberately narrower than the full access model:
+
+- it describes a concrete HTTP and WebSocket base URL pair
+- it can mark the endpoint as default, available, or unavailable
+- it includes reachability hints such as loopback, LAN, private, public, or tunnel
+- it includes compatibility hints such as whether the endpoint can be used from the hosted HTTPS app
+
+Clients should treat advertised endpoints as hints, not as proof that a route works from the current device. The final connection attempt still decides whether the endpoint is reachable.
+
+Endpoint selection should prefer:
+
+1. endpoints compatible with the hosted HTTPS app
+2. explicitly default endpoints
+3. non-loopback endpoints
+4. loopback endpoints only for same-machine clients
+
+This keeps endpoint discovery centralized without making any one provider, such as Tailscale or a future tunnel service, part of the core environment model.
+
 ### Hosted pairing request
 
 A hosted pairing request is a bootstrap URL for the static web app, not a transport.
