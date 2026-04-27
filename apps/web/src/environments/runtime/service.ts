@@ -61,7 +61,11 @@ import { useTerminalStateStore } from "~/terminalStateStore";
 import { useUiStateStore } from "~/uiStateStore";
 import { WsTransport } from "../../rpc/wsTransport";
 import { createWsRpcClient, type WsRpcClient } from "../../rpc/wsRpcClient";
-import { buildLogicalProjectKeyMap, derivePhysicalProjectKey } from "../../logicalProject";
+import {
+  buildLogicalProjectKeyMap,
+  deriveLogicalProjectKeyFromSettings,
+  derivePhysicalProjectKey,
+} from "../../logicalProject";
 import { getClientSettings } from "~/hooks/useSettings";
 
 type EnvironmentServiceState = {
@@ -476,7 +480,7 @@ function syncProjectUiFromStore() {
       key: derivePhysicalProjectKey(project),
       logicalKey:
         logicalKeyByPhysicalKey.get(derivePhysicalProjectKey(project)) ??
-        derivePhysicalProjectKey(project),
+        deriveLogicalProjectKeyFromSettings(project, clientSettings),
       cwd: project.cwd,
     })),
   );
@@ -554,7 +558,7 @@ function applyRecoveredEventBatch(
         key: derivePhysicalProjectKey(project),
         logicalKey:
           logicalKeyByPhysicalKey.get(derivePhysicalProjectKey(project)) ??
-          derivePhysicalProjectKey(project),
+          deriveLogicalProjectKeyFromSettings(project, clientSettings),
         cwd: project.cwd,
       })),
     );
