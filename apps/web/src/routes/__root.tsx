@@ -58,7 +58,7 @@ import {
   resolveInitialServerAuthGateState,
   updatePrimaryEnvironmentDescriptor,
 } from "../environments/primary";
-import { hasHostedPairingRequest } from "../hostedPairing";
+import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -68,6 +68,15 @@ export const Route = createRootRouteWithContext<{
       return {
         authGateState: {
           status: "hosted-pairing",
+        } as const,
+      };
+    }
+
+    if (isHostedStaticApp(new URL(window.location.href))) {
+      await waitForSavedEnvironmentRegistryHydration();
+      return {
+        authGateState: {
+          status: "hosted-static",
         } as const,
       };
     }
@@ -103,6 +112,7 @@ export const Route = createRootRouteWithContext<{
 function RootRouteView() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
+  const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -120,23 +130,30 @@ function RootRouteView() {
   if (authGateState.status !== "authenticated" && authGateState.status !== "hosted-static") {
     return <Outlet />;
   }
+
+  const appShell = (
+    <CommandPalette>
+      <AppSidebarLayout>
+        <Outlet />
+      </AppSidebarLayout>
+    </CommandPalette>
+  );
+
   return (
     <ToastProvider>
       <AnchoredToastProvider>
-        <AuthenticatedTracingBootstrap />
-        <ServerStateBootstrap />
+        {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
+        {primaryEnvironmentAuthenticated ? <ServerStateBootstrap /> : null}
         <EnvironmentConnectionManagerBootstrap />
         <HostedStaticEnvironmentBootstrap />
-        <EventRouter />
-        <WebSocketConnectionCoordinator />
-        <SlowRpcAckToastCoordinator />
-        <WebSocketConnectionSurface>
-          <CommandPalette>
-            <AppSidebarLayout>
-              <Outlet />
-            </AppSidebarLayout>
-          </CommandPalette>
-        </WebSocketConnectionSurface>
+        {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
+        {primaryEnvironmentAuthenticated ? <WebSocketConnectionCoordinator /> : null}
+        {primaryEnvironmentAuthenticated ? <SlowRpcAckToastCoordinator /> : null}
+        {primaryEnvironmentAuthenticated ? (
+          <WebSocketConnectionSurface>{appShell}</WebSocketConnectionSurface>
+        ) : (
+          appShell
+        )}
       </AnchoredToastProvider>
     </ToastProvider>
   );

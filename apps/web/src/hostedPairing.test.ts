@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildHostedPairingUrl,
   hasHostedPairingRequest,
+  isHostedStaticApp,
   readHostedPairingRequest,
 } from "./hostedPairing";
 
@@ -48,5 +49,18 @@ describe("hostedPairing", () => {
     expect(hasHostedPairingRequest(new URL("https://app.t3.codes/pair?token=ABCD1234"))).toBe(
       false,
     );
+  });
+
+  it("detects the hosted static app only when no backend URL is configured", () => {
+    vi.stubEnv("VITE_HOSTED_APP_URL", "https://preview.t3.codes");
+    vi.stubEnv("VITE_HTTP_URL", "");
+    vi.stubEnv("VITE_WS_URL", "");
+
+    expect(isHostedStaticApp(new URL("https://preview.t3.codes/"))).toBe(true);
+    expect(isHostedStaticApp(new URL("https://preview.t3.codes/pair"))).toBe(true);
+    expect(isHostedStaticApp(new URL("https://backend.example.com/"))).toBe(false);
+
+    vi.stubEnv("VITE_HTTP_URL", "https://backend.example.com");
+    expect(isHostedStaticApp(new URL("https://preview.t3.codes/"))).toBe(false);
   });
 });

@@ -12,6 +12,27 @@ function configuredHostedAppUrl(): string {
   return import.meta.env.VITE_HOSTED_APP_URL?.trim() || DEFAULT_HOSTED_APP_URL;
 }
 
+function configuredBackendUrl(): string {
+  return import.meta.env.VITE_HTTP_URL?.trim() || import.meta.env.VITE_WS_URL?.trim() || "";
+}
+
+function originFromUrl(value: string): string | null {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+export function isHostedStaticApp(url: URL = new URL(window.location.href)): boolean {
+  if (configuredBackendUrl()) {
+    return false;
+  }
+
+  const hostedOrigin = originFromUrl(configuredHostedAppUrl());
+  return hostedOrigin !== null && url.origin === hostedOrigin;
+}
+
 export function readHostedPairingRequest(url: URL = new URL(window.location.href)) {
   const host = url.searchParams.get("host")?.trim() ?? "";
   const token = getPairingTokenFromUrl(url)?.trim() ?? "";
