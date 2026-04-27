@@ -307,6 +307,28 @@ function resolveAdvertisedEndpointPairingUrl(
   return resolveDesktopPairingUrl(endpoint.httpBaseUrl, credential);
 }
 
+function selectPairingEndpoint(
+  endpoints: ReadonlyArray<AdvertisedEndpoint>,
+): AdvertisedEndpoint | null {
+  const availableEndpoints = endpoints.filter((endpoint) => endpoint.status !== "unavailable");
+  return (
+    availableEndpoints.find((endpoint) => endpoint.compatibility.hostedHttpsApp === "compatible") ??
+    availableEndpoints.find((endpoint) => endpoint.isDefault) ??
+    availableEndpoints.find((endpoint) => endpoint.reachability !== "loopback") ??
+    null
+  );
+}
+
+function resolveAdvertisedEndpointPairingUrl(
+  endpoint: AdvertisedEndpoint,
+  credential: string,
+): string {
+  if (endpoint.compatibility.hostedHttpsApp === "compatible") {
+    return resolveHostedPairingUrl(endpoint.httpBaseUrl, credential);
+  }
+  return resolveDesktopPairingUrl(endpoint.httpBaseUrl, credential);
+}
+
 function resolveCurrentOriginPairingUrl(credential: string): string {
   const url = new URL("/pair", window.location.href);
   return setPairingTokenOnUrl(url, credential).toString();
