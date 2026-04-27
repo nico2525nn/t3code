@@ -1,5 +1,5 @@
-import { PlusIcon, QrCodeIcon } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDownIcon, PlusIcon, QrCodeIcon } from "lucide-react";
+import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   type AuthClientSession,
   type AuthPairingLink,
@@ -46,6 +46,8 @@ import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { Button } from "../ui/button";
+import { Group, GroupSeparator } from "../ui/group";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Textarea } from "../ui/textarea";
 import { setPairingTokenOnUrl } from "../../pairingUrl";
 import {
@@ -69,6 +71,7 @@ import {
   reconnectSavedEnvironment,
   removeSavedEnvironment,
 } from "~/environments/runtime";
+import { useUiStateStore } from "~/uiStateStore";
 
 const accessTimestampFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -164,6 +167,7 @@ function getSavedBackendStatusTooltip(
 
 /** Direct row in the card – same pattern as the Provider / ACP-agent list rows. */
 const ITEM_ROW_CLASSNAME = "border-t border-border/60 px-4 py-4 first:border-t-0 sm:px-5";
+const ENDPOINT_ROW_CLASSNAME = "border-t border-border/60 px-4 py-2.5 first:border-t-0 sm:px-5";
 
 const ITEM_ROW_INNER_CLASSNAME =
   "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between";
@@ -247,14 +251,47 @@ function removeDesktopClientSession(
 
 function selectPairingEndpoint(
   endpoints: ReadonlyArray<AdvertisedEndpoint>,
+  defaultEndpointKey?: string | null,
 ): AdvertisedEndpoint | null {
   const availableEndpoints = endpoints.filter((endpoint) => endpoint.status !== "unavailable");
+  if (defaultEndpointKey) {
+    const selectedEndpoint = availableEndpoints.find(
+      (endpoint) => endpointDefaultPreferenceKey(endpoint) === defaultEndpointKey,
+    );
+    if (selectedEndpoint) {
+      return selectedEndpoint;
+    }
+  }
   return (
     availableEndpoints.find((endpoint) => endpoint.compatibility.hostedHttpsApp === "compatible") ??
     availableEndpoints.find((endpoint) => endpoint.isDefault) ??
     availableEndpoints.find((endpoint) => endpoint.reachability !== "loopback") ??
     null
   );
+}
+
+function endpointDefaultPreferenceKey(endpoint: AdvertisedEndpoint): string {
+  if (endpoint.id.startsWith("desktop-loopback:")) {
+    return "desktop-core:loopback:http";
+  }
+  if (endpoint.id.startsWith("desktop-lan:")) {
+    return "desktop-core:lan:http";
+  }
+  if (endpoint.id.startsWith("tailscale-ip:")) {
+    return "tailscale:ip:http";
+  }
+  if (endpoint.id.startsWith("tailscale-magicdns:")) {
+    return "tailscale:magicdns:https";
+  }
+
+  let scheme = "unknown";
+  try {
+    scheme = new URL(endpoint.httpBaseUrl).protocol.replace(/:$/u, "");
+  } catch {
+    // Keep the stored preference stable even if a custom endpoint is malformed.
+  }
+
+  return `${endpoint.provider.id}:${endpoint.reachability}:${scheme}:${endpoint.label}`;
 }
 
 function resolveAdvertisedEndpointPairingUrl(
@@ -279,6 +316,7 @@ type PairingLinkListRowProps = {
   pairingLink: ServerPairingLinkRecord;
   endpointUrl: string | null | undefined;
   endpoints: ReadonlyArray<AdvertisedEndpoint>;
+  defaultEndpointKey: string | null;
   revokingPairingLinkId: string | null;
   onRevoke: (id: string) => void;
 };
@@ -287,6 +325,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
   pairingLink,
   endpointUrl,
   endpoints,
+  defaultEndpointKey,
   revokingPairingLinkId,
   onRevoke,
 }: PairingLinkListRowProps) {
@@ -309,9 +348,20 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     [endpointUrl, pairingLink.credential],
   );
   const endpointPairingUrl = useMemo(() => {
-    const endpoint = selectPairingEndpoint(endpoints);
+    const endpoint = selectPairingEndpoint(endpoints, defaultEndpointKey);
     return endpoint ? resolveAdvertisedEndpointPairingUrl(endpoint, pairingLink.credential) : null;
-  }, [endpoints, pairingLink.credential]);
+  }, [defaultEndpointKey, endpoints, pairingLink.credential]);
+  const endpointCopyOptions = useMemo(
+    () =>
+      endpoints
+        .filter((endpoint) => endpoint.status !== "unavailable")
+        .map((endpoint) => ({
+          key: endpointDefaultPreferenceKey(endpoint),
+          label: endpoint.label,
+          url: resolveAdvertisedEndpointPairingUrl(endpoint, pairingLink.credential),
+        })),
+    [endpoints, pairingLink.credential],
+  );
   const shareablePairingUrl =
     endpointPairingUrl ??
     (endpointUrl != null && endpointUrl !== ""
@@ -319,37 +369,54 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
       : isLoopbackHostname(window.location.hostname)
         ? null
         : currentOriginPairingUrl);
-  const copyValue = shareablePairingUrl ?? pairingLink.credential;
+  const revealValue = shareablePairingUrl ?? pairingLink.credential;
   const canCopyToClipboard =
     typeof window !== "undefined" &&
     window.isSecureContext &&
     navigator.clipboard?.writeText != null;
 
-  const { copyToClipboard, isCopied } = useCopyToClipboard({
-    onCopy: () => {
+  const { copyToClipboard } = useCopyToClipboard<"code" | "link">({
+    onCopy: (kind) => {
       toastManager.add({
         type: "success",
-        title: shareablePairingUrl ? "Pairing URL copied" : "Pairing token copied",
-        description: shareablePairingUrl
-          ? "Open it in the client you want to pair to this environment."
-          : "Paste it into another client with this backend's reachable host.",
+        title: kind === "link" ? "Pairing URL copied" : "Pairing code copied",
+        description:
+          kind === "link"
+            ? "Open it in the client you want to pair to this environment."
+            : "Paste it into another client to finish pairing.",
       });
     },
-    onError: (error) => {
+    onError: (error, kind) => {
       setIsRevealDialogOpen(true);
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: canCopyToClipboard ? "Could not copy pairing URL" : "Clipboard copy unavailable",
+          title: canCopyToClipboard
+            ? kind === "link"
+              ? "Could not copy pairing URL"
+              : "Could not copy pairing code"
+            : "Clipboard copy unavailable",
           description: canCopyToClipboard ? error.message : "Showing the full value instead.",
         }),
       );
     },
   });
 
-  const handleCopy = useCallback(() => {
-    copyToClipboard(copyValue, undefined);
-  }, [copyToClipboard, copyValue]);
+  const copyPairingValue = useCallback(
+    (value: string, kind: "code" | "link") => {
+      copyToClipboard(value, kind);
+    },
+    [copyToClipboard],
+  );
+
+  const handleCopyCode = useCallback(() => {
+    copyPairingValue(pairingLink.credential, "code");
+  }, [copyPairingValue, pairingLink.credential]);
+
+  const handleCopyDefaultLink = useCallback(() => {
+    if (!shareablePairingUrl) return;
+    copyPairingValue(shareablePairingUrl, "link");
+  }, [copyPairingValue, shareablePairingUrl]);
 
   const expiresAbsolute = formatAccessTimestamp(pairingLink.expiresAt);
 
@@ -412,27 +479,71 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
           <Dialog open={isRevealDialogOpen} onOpenChange={setIsRevealDialogOpen}>
             {canCopyToClipboard ? (
-              <Button size="xs" variant="outline" onClick={handleCopy}>
-                {isCopied ? "Copied" : shareablePairingUrl ? "Copy" : "Copy token"}
-              </Button>
+              <>
+                <Button size="xs" variant="outline" onClick={handleCopyCode}>
+                  Copy code
+                </Button>
+                {shareablePairingUrl ? (
+                  endpointCopyOptions.length > 1 ? (
+                    <Group aria-label="Copy pairing URL">
+                      <Button size="xs" variant="outline" onClick={handleCopyDefaultLink}>
+                        Copy pairing URL
+                      </Button>
+                      <GroupSeparator />
+                      <Menu>
+                        <MenuTrigger
+                          render={
+                            <Button
+                              size="icon-xs"
+                              variant="outline"
+                              aria-label="Pairing URL copy options"
+                            />
+                          }
+                        >
+                          <ChevronDownIcon className="size-3.5" />
+                        </MenuTrigger>
+                        <MenuPopup align="end" className="min-w-52">
+                          {endpointCopyOptions.map((option) => (
+                            <MenuItem
+                              key={option.key}
+                              onClick={() => copyPairingValue(option.url, "link")}
+                            >
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate">{option.label}</span>
+                                <span className="block truncate text-[11px] text-muted-foreground">
+                                  Pairing URL
+                                </span>
+                              </span>
+                            </MenuItem>
+                          ))}
+                        </MenuPopup>
+                      </Menu>
+                    </Group>
+                  ) : (
+                    <Button size="xs" variant="outline" onClick={handleCopyDefaultLink}>
+                      Copy pairing URL
+                    </Button>
+                  )
+                ) : null}
+              </>
             ) : (
               <DialogTrigger render={<Button size="xs" variant="outline" />}>
-                {shareablePairingUrl ? "Show link" : "Show token"}
+                {shareablePairingUrl ? "Show link" : "Show code"}
               </DialogTrigger>
             )}
             <DialogPopup className="max-w-md">
               <DialogHeader>
-                <DialogTitle>{shareablePairingUrl ? "Pairing link" : "Pairing token"}</DialogTitle>
+                <DialogTitle>{shareablePairingUrl ? "Pairing link" : "Pairing code"}</DialogTitle>
                 <DialogDescription>
                   {shareablePairingUrl
                     ? "Clipboard copy is unavailable here. Open or manually copy this full pairing URL on the device you want to connect."
-                    : "Clipboard copy is unavailable here. Manually copy this token and pair from another client using this backend's reachable host."}
+                    : "Clipboard copy is unavailable here. Manually copy this code into another client."}
                 </DialogDescription>
               </DialogHeader>
               <DialogPanel className="space-y-4">
                 <Textarea
                   readOnly
-                  value={copyValue}
+                  value={revealValue}
                   rows={shareablePairingUrl ? 4 : 3}
                   className="text-xs leading-relaxed"
                   onFocus={(event) => event.currentTarget.select()}
@@ -455,8 +566,8 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
                   Done
                 </Button>
                 {canCopyToClipboard ? (
-                  <Button variant="outline" size="xs" onClick={handleCopy}>
-                    {isCopied ? "Copied" : "Copy again"}
+                  <Button variant="outline" size="xs" onClick={handleCopyCode}>
+                    Copy code
                   </Button>
                 ) : null}
               </DialogFooter>
@@ -656,6 +767,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
 type PairingClientsListProps = {
   endpointUrl: string | null | undefined;
   endpoints: ReadonlyArray<AdvertisedEndpoint>;
+  defaultEndpointKey: string | null;
   isLoading: boolean;
   pairingLinks: ReadonlyArray<ServerPairingLinkRecord>;
   clientSessions: ReadonlyArray<ServerClientSessionRecord>;
@@ -668,6 +780,7 @@ type PairingClientsListProps = {
 const PairingClientsList = memo(function PairingClientsList({
   endpointUrl,
   endpoints,
+  defaultEndpointKey,
   isLoading,
   pairingLinks,
   clientSessions,
@@ -684,6 +797,7 @@ const PairingClientsList = memo(function PairingClientsList({
           pairingLink={pairingLink}
           endpointUrl={endpointUrl}
           endpoints={endpoints}
+          defaultEndpointKey={defaultEndpointKey}
           revokingPairingLinkId={revokingPairingLinkId}
           onRevoke={onRevokePairingLink}
         />
@@ -709,55 +823,79 @@ const PairingClientsList = memo(function PairingClientsList({
 
 type AdvertisedEndpointListRowProps = {
   endpoint: AdvertisedEndpoint;
-};
-
-const endpointCompatibilityLabel = (endpoint: AdvertisedEndpoint): string => {
-  if (endpoint.compatibility.hostedHttpsApp === "compatible") {
-    return "Works with hosted app";
-  }
-  if (endpoint.compatibility.hostedHttpsApp === "mixed-content-blocked") {
-    return "Desktop or direct browser only";
-  }
-  if (endpoint.compatibility.hostedHttpsApp === "requires-configuration") {
-    return "Needs HTTPS setup";
-  }
-  return "Compatibility unknown";
+  isDefault: boolean;
+  onSetDefault: (endpoint: AdvertisedEndpoint) => void;
 };
 
 const AdvertisedEndpointListRow = memo(function AdvertisedEndpointListRow({
   endpoint,
+  isDefault,
+  onSetDefault,
 }: AdvertisedEndpointListRowProps) {
   return (
-    <div className={ITEM_ROW_CLASSNAME}>
-      <div className={ITEM_ROW_INNER_CLASSNAME}>
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex min-h-5 items-center gap-1.5">
-            <ConnectionStatusDot
-              tooltipText={`${endpoint.provider.label} · ${endpoint.reachability}`}
-              dotClassName={
-                endpoint.compatibility.hostedHttpsApp === "compatible"
-                  ? "bg-success"
-                  : "bg-muted-foreground/40"
-              }
-            />
-            <h3 className="text-sm font-medium text-foreground">{endpoint.label}</h3>
-            {endpoint.provider.isAddon ? (
-              <span className="rounded-md border border-border/50 bg-muted/50 px-1 py-0.5 text-[10px] text-muted-foreground/80">
-                Add-on
-              </span>
-            ) : null}
-          </div>
-          <p className="truncate text-xs text-muted-foreground" title={endpoint.httpBaseUrl}>
+    <div className={ENDPOINT_ROW_CLASSNAME}>
+      <div className="flex min-h-6 min-w-0 flex-col gap-2 sm:-my-0.5 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <h3 className="shrink-0 text-sm leading-5 font-medium text-foreground">
+            {endpoint.label}
+          </h3>
+          <p
+            className="min-w-0 truncate text-xs leading-5 text-muted-foreground"
+            title={endpoint.httpBaseUrl}
+          >
             {endpoint.httpBaseUrl}
           </p>
         </div>
-        <p className="shrink-0 text-xs text-muted-foreground">
-          {endpointCompatibilityLabel(endpoint)}
-        </p>
+        <div className="ml-auto flex min-h-6 shrink-0 items-center justify-end gap-2">
+          {isDefault ? (
+            <span className="rounded-md border border-primary/30 bg-primary/10 px-1 py-0.5 text-[10px] text-primary">
+              Default
+            </span>
+          ) : null}
+          {!isDefault ? (
+            <Button size="xs" variant="outline" onClick={() => onSetDefault(endpoint)}>
+              Set as default
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
 });
+
+function NetworkAccessDescription({
+  endpoint,
+  hiddenEndpointCount,
+  expanded,
+  onToggleExpanded,
+  fallback,
+}: {
+  endpoint: AdvertisedEndpoint | null;
+  hiddenEndpointCount: number;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  fallback: ReactNode;
+}) {
+  if (!endpoint) {
+    return fallback;
+  }
+
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="min-w-0 truncate">Reachable at {endpoint.httpBaseUrl}</span>
+      {hiddenEndpointCount > 0 ? (
+        <button
+          type="button"
+          className="inline-flex h-5 shrink-0 items-center rounded-md border border-border/60 px-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={onToggleExpanded}
+          aria-expanded={expanded}
+        >
+          {expanded ? "Hide" : `+${hiddenEndpointCount}`}
+        </button>
+      ) : null}
+    </span>
+  );
+}
 
 type SavedBackendListRowProps = {
   environmentId: EnvironmentId;
@@ -903,6 +1041,13 @@ export function ConnectionsSettings() {
   const [pendingDesktopServerExposureMode, setPendingDesktopServerExposureMode] = useState<
     DesktopServerExposureState["mode"] | null
   >(null);
+  const [isAdvertisedEndpointListExpanded, setIsAdvertisedEndpointListExpanded] = useState(false);
+  const defaultAdvertisedEndpointKey = useUiStateStore(
+    (state) => state.defaultAdvertisedEndpointKey,
+  );
+  const setDefaultAdvertisedEndpointKey = useUiStateStore(
+    (state) => state.setDefaultAdvertisedEndpointKey,
+  );
   const canManageLocalBackend = currentSessionRole === "owner";
   const isLocalBackendNetworkAccessible = desktopBridge
     ? desktopServerExposureState?.mode === "network-accessible"
@@ -1236,9 +1381,23 @@ export function ConnectionsSettings() {
     () => desktopPairingLinks.filter((pairingLink) => pairingLink.role === "client"),
     [desktopPairingLinks],
   );
-  const visibleDesktopAdvertisedEndpoints = isLocalBackendNetworkAccessible
-    ? desktopAdvertisedEndpoints
-    : [];
+  const visibleDesktopAdvertisedEndpoints = useMemo(
+    () => (isLocalBackendNetworkAccessible ? desktopAdvertisedEndpoints : []),
+    [desktopAdvertisedEndpoints, isLocalBackendNetworkAccessible],
+  );
+  const defaultDesktopAdvertisedEndpoint = useMemo(
+    () => selectPairingEndpoint(visibleDesktopAdvertisedEndpoints, defaultAdvertisedEndpointKey),
+    [defaultAdvertisedEndpointKey, visibleDesktopAdvertisedEndpoints],
+  );
+  const defaultDesktopAdvertisedEndpointKey = defaultDesktopAdvertisedEndpoint
+    ? endpointDefaultPreferenceKey(defaultDesktopAdvertisedEndpoint)
+    : null;
+  const handleSetDefaultAdvertisedEndpoint = useCallback(
+    (endpoint: AdvertisedEndpoint) => {
+      setDefaultAdvertisedEndpointKey(endpointDefaultPreferenceKey(endpoint));
+    },
+    [setDefaultAdvertisedEndpointKey],
+  );
   return (
     <SettingsPageContainer>
       {canManageLocalBackend ? (
@@ -1249,15 +1408,30 @@ export function ConnectionsSettings() {
                 <SettingsRow
                   title="Network access"
                   description={
-                    desktopServerExposureState?.endpointUrl
-                      ? `Reachable at ${desktopServerExposureState.endpointUrl}`
-                      : desktopServerExposureState?.mode === "network-accessible"
-                        ? desktopServerExposureState.advertisedHost
-                          ? `Exposed on all interfaces. Pairing links use ${desktopServerExposureState.advertisedHost}.`
-                          : "Exposed on all interfaces."
-                        : desktopServerExposureState
-                          ? "Limited to this machine."
-                          : "Loading…"
+                    isLocalBackendNetworkAccessible ? (
+                      <NetworkAccessDescription
+                        endpoint={defaultDesktopAdvertisedEndpoint}
+                        hiddenEndpointCount={Math.max(
+                          visibleDesktopAdvertisedEndpoints.length - 1,
+                          0,
+                        )}
+                        expanded={isAdvertisedEndpointListExpanded}
+                        onToggleExpanded={() =>
+                          setIsAdvertisedEndpointListExpanded((expanded) => !expanded)
+                        }
+                        fallback={
+                          desktopServerExposureState?.endpointUrl
+                            ? `Reachable at ${desktopServerExposureState.endpointUrl}`
+                            : desktopServerExposureState?.advertisedHost
+                              ? `Exposed on all interfaces. Pairing links use ${desktopServerExposureState.advertisedHost}.`
+                              : "Exposed on all interfaces."
+                        }
+                      />
+                    ) : desktopServerExposureState ? (
+                      "Limited to this machine."
+                    ) : (
+                      "Loading…"
+                    )
                   }
                   status={
                     desktopServerExposureError ? (
@@ -1330,9 +1504,19 @@ export function ConnectionsSettings() {
                     </AlertDialog>
                   }
                 />
-                {visibleDesktopAdvertisedEndpoints.map((endpoint) => (
-                  <AdvertisedEndpointListRow key={endpoint.id} endpoint={endpoint} />
-                ))}
+                {isAdvertisedEndpointListExpanded
+                  ? visibleDesktopAdvertisedEndpoints.map((endpoint) => {
+                      const endpointKey = endpointDefaultPreferenceKey(endpoint);
+                      return (
+                        <AdvertisedEndpointListRow
+                          key={endpoint.id}
+                          endpoint={endpoint}
+                          isDefault={endpointKey === defaultDesktopAdvertisedEndpointKey}
+                          onSetDefault={handleSetDefaultAdvertisedEndpoint}
+                        />
+                      );
+                    })
+                  : null}
               </>
             ) : (
               <SettingsRow
@@ -1384,6 +1568,7 @@ export function ConnectionsSettings() {
               <PairingClientsList
                 endpointUrl={desktopServerExposureState?.endpointUrl}
                 endpoints={visibleDesktopAdvertisedEndpoints}
+                defaultEndpointKey={defaultDesktopAdvertisedEndpointKey}
                 isLoading={isLoadingDesktopAccessManagement}
                 pairingLinks={visibleDesktopPairingLinks}
                 clientSessions={desktopClientSessions}

@@ -123,7 +123,11 @@ An `AdvertisedEndpoint` is a server or desktop-authored candidate endpoint for a
 
 Clients should treat advertised endpoints as hints, not as proof that a route works from the current device. The final connection attempt still decides whether the endpoint is reachable.
 
-Endpoint selection should prefer:
+The UI presents one default advertised endpoint in the network-access summary and keeps the rest behind an expandable advanced list. The default controls pairing QR codes and primary copy actions. Users can override it, but that override is a UI preference, not backend configuration.
+
+Persist the override by stable endpoint kind rather than raw URL whenever possible. For example, a LAN endpoint should be stored as the desktop LAN endpoint preference, not as `192.168.x.y`, because the address can change when the user switches networks. Provider endpoints should use provider-specific stable keys such as Tailscale IP or Tailscale MagicDNS HTTPS. Custom endpoints may fall back to their concrete identity.
+
+When no user default is saved, endpoint selection should prefer:
 
 1. endpoints compatible with the hosted HTTPS app
 2. explicitly default endpoints

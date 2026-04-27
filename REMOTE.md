@@ -22,10 +22,12 @@ If you are already running the desktop app and want to make it reachable from ot
 
 1. Open **Settings** → **Connections**.
 2. Under **Manage Local Backend**, toggle **Network access** on. This will restart the app and run the backend on all network interfaces.
-3. The settings panel will show reachable endpoints for the backend. At minimum this includes the local LAN HTTP endpoint when network access is enabled.
+3. The settings panel will show the default reachable endpoint, with a `+N` control when more endpoints are available. Expand it to inspect alternatives such as loopback, LAN, private-network, or HTTPS endpoints.
 4. Use **Create Link** to generate a pairing link you can share with another device.
 
-The app chooses the best reachable endpoint for pairing links:
+The default endpoint controls the QR code and primary copy action for pairing links. You can change it from the expanded endpoint list. The preference is stored by endpoint type, so choosing the local LAN endpoint survives normal IP address changes when you move between networks.
+
+When no user default is saved, the app chooses the best reachable endpoint for pairing links:
 
 - HTTPS/WSS-compatible endpoints are preferred because they work from `https://app.t3.codes`.
 - Non-loopback HTTP endpoints are used for direct LAN pairing when HTTPS is not available.

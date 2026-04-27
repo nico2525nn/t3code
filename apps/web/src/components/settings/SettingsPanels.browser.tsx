@@ -20,6 +20,7 @@ import { render } from "vitest-browser-react";
 import { __resetLocalApiForTests } from "../../localApi";
 import { AppAtomRegistryProvider } from "../../rpc/atomRegistry";
 import { resetServerStateForTests, setServerConfigSnapshot } from "../../rpc/serverState";
+import { useUiStateStore } from "../../uiStateStore";
 import { ConnectionsSettings } from "./ConnectionsSettings";
 import { GeneralSettingsPanel } from "./SettingsPanels";
 
@@ -345,6 +346,7 @@ describe("GeneralSettingsPanel observability", () => {
     resetServerStateForTests();
     await __resetLocalApiForTests();
     localStorage.clear();
+    useUiStateStore.setState({ defaultAdvertisedEndpointKey: null });
     authAccessHarness.reset();
   });
 
@@ -501,6 +503,104 @@ describe("GeneralSettingsPanel observability", () => {
       .not.toBeInTheDocument();
   });
 
+  it("collapses advertised endpoints behind the network access summary", async () => {
+    window.desktopBridge = createDesktopBridgeStub({
+      serverExposureState: {
+        mode: "network-accessible",
+        endpointUrl: "http://192.168.86.39:3773",
+        advertisedHost: "192.168.86.39",
+      },
+      advertisedEndpoints: [
+        {
+          id: "desktop-loopback:3773",
+          label: "This machine",
+          provider: {
+            id: "desktop-core",
+            label: "Desktop",
+            kind: "manual",
+            isAddon: false,
+          },
+          httpBaseUrl: "http://127.0.0.1:3773/",
+          wsBaseUrl: "ws://127.0.0.1:3773/",
+          reachability: "loopback",
+          compatibility: {
+            hostedHttpsApp: "mixed-content-blocked",
+            desktopApp: "compatible",
+          },
+          source: "desktop-core",
+          status: "available",
+        },
+        {
+          id: "desktop-lan:http://192.168.86.39:3773",
+          label: "Local network",
+          provider: {
+            id: "desktop-core",
+            label: "Desktop",
+            kind: "manual",
+            isAddon: false,
+          },
+          httpBaseUrl: "http://192.168.86.39:3773/",
+          wsBaseUrl: "ws://192.168.86.39:3773/",
+          reachability: "lan",
+          compatibility: {
+            hostedHttpsApp: "mixed-content-blocked",
+            desktopApp: "compatible",
+          },
+          source: "desktop-core",
+          status: "available",
+          isDefault: true,
+        },
+        {
+          id: "tailscale-ip:http://100.105.39.17:3773",
+          label: "Tailscale IP",
+          provider: {
+            id: "tailscale",
+            label: "Tailscale",
+            kind: "private-network",
+            isAddon: true,
+          },
+          httpBaseUrl: "http://100.105.39.17:3773/",
+          wsBaseUrl: "ws://100.105.39.17:3773/",
+          reachability: "private-network",
+          compatibility: {
+            hostedHttpsApp: "mixed-content-blocked",
+            desktopApp: "compatible",
+          },
+          source: "desktop-addon",
+          status: "available",
+        },
+      ],
+    });
+    authAccessHarness.setSnapshot({
+      pairingLinks: [],
+      clientSessions: [],
+    });
+    setServerConfigSnapshot(createBaseServerConfig());
+
+    mounted = await render(
+      <AppAtomRegistryProvider>
+        <ConnectionsSettings />
+      </AppAtomRegistryProvider>,
+    );
+
+    await expect
+      .element(page.getByText("Reachable at http://192.168.86.39:3773/"))
+      .toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "+2" })).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("heading", { name: "Local network", exact: true }))
+      .not.toBeInTheDocument();
+
+    await page.getByRole("button", { name: "+2" }).click();
+
+    await expect
+      .element(page.getByRole("heading", { name: "Local network", exact: true }))
+      .toBeInTheDocument();
+    await expect.element(page.getByText("Default", { exact: true })).toBeInTheDocument();
+    await page.getByRole("button", { name: "Set as default" }).first().click();
+    await expect.element(page.getByText("Reachable at http://127.0.0.1:3773/")).toBeInTheDocument();
+  });
+
   it("shows diagnostics inside About with a single logs-folder action", async () => {
     setServerConfigSnapshot(createBaseServerConfig());
 
@@ -636,7 +736,7 @@ describe("GeneralSettingsPanel observability", () => {
       .element(page.getByText("Client · Mobile · iOS · Safari · 192.168.1.88"))
       .toBeInTheDocument();
     await expect
-      .element(page.getByRole("button", { name: /^(Copy|Show link)$/ }))
+      .element(page.getByRole("button", { name: /^(Copy code|Show link)$/ }))
       .toBeInTheDocument();
     await expect.element(page.getByText("Revoke others")).toBeInTheDocument();
   });
