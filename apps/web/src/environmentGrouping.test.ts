@@ -451,7 +451,7 @@ describe("environment grouping", () => {
   });
 
   describe("buildLogicalProjectKeyMap", () => {
-    it("groups matching projects across environments without merging distinct projects in one environment", () => {
+    it("groups matching projects by repository under repository grouping", () => {
       const localRoot = makeProject({
         id: sharedProjectPrimaryId,
         environmentId: primaryEnvId,
@@ -524,8 +524,50 @@ describe("environment grouping", () => {
       expect(keys.get(derivePhysicalProjectKey(localWeb))).toBe(
         keys.get(derivePhysicalProjectKey(remoteWeb)),
       );
-      expect(keys.get(derivePhysicalProjectKey(localRoot))).not.toBe(
+      expect(keys.get(derivePhysicalProjectKey(localRoot))).toBe(
         keys.get(derivePhysicalProjectKey(localWeb)),
+      );
+    });
+
+    it("splits repo root and nested projects under repository path grouping", () => {
+      const rootProject = makeProject({
+        id: sharedProjectPrimaryId,
+        environmentId: primaryEnvId,
+        name: "shared-repo",
+        cwd: "/workspace/repo",
+        repositoryIdentity: {
+          canonicalKey: SHARED_REPO_CANONICAL_KEY,
+          rootPath: "/workspace/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "https://github.com/example/shared-repo.git",
+          },
+        },
+      });
+      const nestedProject = makeProject({
+        id: localOnlyProjectId,
+        environmentId: primaryEnvId,
+        name: "web",
+        cwd: "/workspace/repo/apps/web",
+        repositoryIdentity: {
+          canonicalKey: SHARED_REPO_CANONICAL_KEY,
+          rootPath: "/workspace/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "https://github.com/example/shared-repo.git",
+          },
+        },
+      });
+
+      const keys = buildLogicalProjectKeyMap([rootProject, nestedProject], {
+        ...DEFAULT_GROUPING_SETTINGS,
+        sidebarProjectGroupingMode: "repository_path",
+      });
+
+      expect(keys.get(derivePhysicalProjectKey(rootProject))).not.toBe(
+        keys.get(derivePhysicalProjectKey(nestedProject)),
       );
     });
 

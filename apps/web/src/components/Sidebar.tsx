@@ -2759,9 +2759,8 @@ export default function Sidebar() {
     });
   }, [projectOrder, projects]);
 
-  // Build a mapping from physical project key -> logical project key. Matching
-  // projects can group across environments, but each rendered group keeps at
-  // most one member per environment so thread creation remains unambiguous.
+  // Build a mapping from physical project key -> logical project key so the
+  // sidebar, active route, and thread buckets all use the same grouping mode.
   const physicalToLogicalKey = useMemo(() => {
     return buildPhysicalToLogicalProjectKeyMap({
       projects: orderedProjects,

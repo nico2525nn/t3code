@@ -51,21 +51,6 @@ function deriveRepositoryRelativeProjectPath(
   return normalizedProjectPath.slice(rootPrefix.length).replaceAll("\\", "/");
 }
 
-function formatProjectGroupDiscriminator(value: string): string {
-  return value.length === 0 ? "." : value;
-}
-
-function hasDuplicateEnvironment(projects: ReadonlyArray<Pick<Project, "environmentId">>): boolean {
-  const seen = new Set<string>();
-  for (const project of projects) {
-    if (seen.has(project.environmentId)) {
-      return true;
-    }
-    seen.add(project.environmentId);
-  }
-  return false;
-}
-
 export function derivePhysicalProjectKeyFromPath(environmentId: string, cwd: string): string {
   return `${environmentId}:${normalizeProjectPathForComparison(cwd)}`;
 }
@@ -151,67 +136,11 @@ export function buildLogicalProjectKeyMap(
   projects: ReadonlyArray<Pick<Project, "environmentId" | "id" | "cwd" | "repositoryIdentity">>,
   settings: ProjectGroupingSettings,
 ): Map<string, string> {
-  const baseBuckets = new Map<
-    string,
-    Array<Pick<Project, "environmentId" | "id" | "cwd" | "repositoryIdentity">>
-  >();
-  const physicalKeyByProject = new Map<
-    Pick<Project, "environmentId" | "id" | "cwd" | "repositoryIdentity">,
-    string
-  >();
+  const result = new Map<string, string>();
 
   for (const project of projects) {
     const physicalKey = derivePhysicalProjectKey(project);
-    physicalKeyByProject.set(project, physicalKey);
-    const baseKey = deriveLogicalProjectKeyFromSettings(project, settings);
-    const bucket = baseBuckets.get(baseKey);
-    if (bucket) {
-      bucket.push(project);
-    } else {
-      baseBuckets.set(baseKey, [project]);
-    }
-  }
-
-  const result = new Map<string, string>();
-  const assignBucket = (
-    baseKey: string,
-    bucket: ReadonlyArray<Pick<Project, "environmentId" | "id" | "cwd" | "repositoryIdentity">>,
-  ) => {
-    if (!hasDuplicateEnvironment(bucket)) {
-      for (const project of bucket) {
-        result.set(physicalKeyByProject.get(project)!, baseKey);
-      }
-      return;
-    }
-
-    const buckets = new Map<
-      string,
-      Array<Pick<Project, "environmentId" | "id" | "cwd" | "repositoryIdentity">>
-    >();
-    for (const project of bucket) {
-      const relativePath = deriveRepositoryRelativeProjectPath(project);
-      const value =
-        relativePath === null
-          ? normalizeProjectPathForComparison(project.cwd)
-          : formatProjectGroupDiscriminator(relativePath);
-      const key = `${baseKey}::${value}`;
-      const existing = buckets.get(key);
-      if (existing) {
-        existing.push(project);
-      } else {
-        buckets.set(key, [project]);
-      }
-    }
-
-    for (const [key, projectsForKey] of buckets) {
-      for (const project of projectsForKey) {
-        result.set(physicalKeyByProject.get(project)!, key);
-      }
-    }
-  };
-
-  for (const [baseKey, bucket] of baseBuckets) {
-    assignBucket(baseKey, bucket);
+    result.set(physicalKey, deriveLogicalProjectKeyFromSettings(project, settings));
   }
 
   return result;
