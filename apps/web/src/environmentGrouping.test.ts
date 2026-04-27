@@ -11,6 +11,7 @@ import {
   type EnvironmentState,
 } from "./store";
 import {
+  buildLogicalProjectKeyMap,
   deriveLogicalProjectKey,
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKey,
@@ -446,6 +447,125 @@ describe("environment grouping", () => {
           },
         }),
       ).toBe(derivePhysicalProjectKey(project));
+    });
+  });
+
+  describe("buildLogicalProjectKeyMap", () => {
+    it("groups matching projects across environments without merging distinct projects in one environment", () => {
+      const localRoot = makeProject({
+        id: sharedProjectPrimaryId,
+        environmentId: primaryEnvId,
+        name: "shared-repo",
+        cwd: "/workspace/repo",
+        repositoryIdentity: {
+          canonicalKey: SHARED_REPO_CANONICAL_KEY,
+          rootPath: "/workspace/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "https://github.com/example/shared-repo.git",
+          },
+        },
+      });
+      const localWeb = makeProject({
+        id: localOnlyProjectId,
+        environmentId: primaryEnvId,
+        name: "web",
+        cwd: "/workspace/repo/apps/web",
+        repositoryIdentity: {
+          canonicalKey: SHARED_REPO_CANONICAL_KEY,
+          rootPath: "/workspace/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "https://github.com/example/shared-repo.git",
+          },
+        },
+      });
+      const remoteRoot = makeProject({
+        id: sharedProjectRemoteId,
+        environmentId: remoteEnvId,
+        name: "shared-repo",
+        cwd: "/srv/checkout",
+        repositoryIdentity: {
+          canonicalKey: SHARED_REPO_CANONICAL_KEY,
+          rootPath: "/srv/checkout",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "https://github.com/example/shared-repo.git",
+          },
+        },
+      });
+      const remoteWeb = makeProject({
+        id: remoteOnlyProjectId,
+        environmentId: remoteEnvId,
+        name: "web",
+        cwd: "/srv/checkout/apps/web",
+        repositoryIdentity: {
+          canonicalKey: SHARED_REPO_CANONICAL_KEY,
+          rootPath: "/srv/checkout",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "https://github.com/example/shared-repo.git",
+          },
+        },
+      });
+
+      const keys = buildLogicalProjectKeyMap(
+        [localRoot, localWeb, remoteRoot, remoteWeb],
+        DEFAULT_GROUPING_SETTINGS,
+      );
+
+      expect(keys.get(derivePhysicalProjectKey(localRoot))).toBe(
+        keys.get(derivePhysicalProjectKey(remoteRoot)),
+      );
+      expect(keys.get(derivePhysicalProjectKey(localWeb))).toBe(
+        keys.get(derivePhysicalProjectKey(remoteWeb)),
+      );
+      expect(keys.get(derivePhysicalProjectKey(localRoot))).not.toBe(
+        keys.get(derivePhysicalProjectKey(localWeb)),
+      );
+    });
+
+    it("keeps duplicate clones in the same environment separate when repo-relative paths match", () => {
+      const firstClone = makeProject({
+        id: sharedProjectPrimaryId,
+        environmentId: primaryEnvId,
+        name: "first",
+        cwd: "/workspace/first/repo",
+        repositoryIdentity: {
+          canonicalKey: SHARED_REPO_CANONICAL_KEY,
+          rootPath: "/workspace/first/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "https://github.com/example/shared-repo.git",
+          },
+        },
+      });
+      const secondClone = makeProject({
+        id: localOnlyProjectId,
+        environmentId: primaryEnvId,
+        name: "second",
+        cwd: "/workspace/second/repo",
+        repositoryIdentity: {
+          canonicalKey: SHARED_REPO_CANONICAL_KEY,
+          rootPath: "/workspace/second/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "https://github.com/example/shared-repo.git",
+          },
+        },
+      });
+
+      const keys = buildLogicalProjectKeyMap([firstClone, secondClone], DEFAULT_GROUPING_SETTINGS);
+
+      expect(keys.get(derivePhysicalProjectKey(firstClone))).not.toBe(
+        keys.get(derivePhysicalProjectKey(secondClone)),
+      );
     });
   });
 

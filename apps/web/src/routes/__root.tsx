@@ -29,7 +29,9 @@ import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { readLocalApi } from "../localApi";
 import { useSettings } from "../hooks/useSettings";
 import {
+  buildLogicalProjectKeyMap,
   deriveLogicalProjectKeyFromSettings,
+  derivePhysicalProjectKey,
   derivePhysicalProjectKeyFromPath,
 } from "../logicalProject";
 import {
@@ -40,7 +42,7 @@ import {
   useServerConfigUpdatedSubscription,
   useServerWelcomeSubscription,
 } from "../rpc/serverState";
-import { useStore } from "../store";
+import { selectProjectsAcrossEnvironments, useStore } from "../store";
 import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import {
@@ -242,9 +244,12 @@ function EventRouter() {
         useStore.getState().environmentStateById[payload.environment.environmentId];
       const bootstrapProject =
         bootstrapEnvironmentState?.projectById[payload.bootstrapProjectId] ?? null;
+      const projects = selectProjectsAcrossEnvironments(useStore.getState());
+      const logicalKeyByPhysicalKey = buildLogicalProjectKeyMap(projects, projectGroupingSettings);
       const bootstrapProjectKey =
         (bootstrapProject
-          ? deriveLogicalProjectKeyFromSettings(bootstrapProject, projectGroupingSettings)
+          ? (logicalKeyByPhysicalKey.get(derivePhysicalProjectKey(bootstrapProject)) ??
+            deriveLogicalProjectKeyFromSettings(bootstrapProject, projectGroupingSettings))
           : null) ??
         (serverConfig?.cwd
           ? derivePhysicalProjectKeyFromPath(payload.environment.environmentId, serverConfig.cwd)

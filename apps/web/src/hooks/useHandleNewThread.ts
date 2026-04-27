@@ -10,7 +10,12 @@ import {
 } from "../composerDraftStore";
 import { newDraftId, newThreadId } from "../lib/utils";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
-import { deriveLogicalProjectKeyFromSettings, getProjectOrderKey } from "../logicalProject";
+import {
+  buildLogicalProjectKeyMap,
+  deriveLogicalProjectKeyFromSettings,
+  derivePhysicalProjectKey,
+  getProjectOrderKey,
+} from "../logicalProject";
 import { selectProjectsAcrossEnvironments, useStore } from "../store";
 import { createThreadSelectorByRef } from "../storeSelectors";
 import { resolveThreadRouteTarget } from "../threadRoutes";
@@ -23,6 +28,10 @@ function useNewThreadState() {
     sidebarProjectGroupingMode: settings.sidebarProjectGroupingMode,
     sidebarProjectGroupingOverrides: settings.sidebarProjectGroupingOverrides,
   }));
+  const logicalKeyByPhysicalKey = useMemo(
+    () => buildLogicalProjectKeyMap(projects, projectGroupingSettings),
+    [projectGroupingSettings, projects],
+  );
   const router = useRouter();
   const getCurrentRouteTarget = useCallback(() => {
     const currentRouteParams = router.state.matches[router.state.matches.length - 1]?.params ?? {};
@@ -53,7 +62,8 @@ function useNewThreadState() {
           candidate.environmentId === projectRef.environmentId,
       );
       const logicalProjectKey = project
-        ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
+        ? (logicalKeyByPhysicalKey.get(derivePhysicalProjectKey(project)) ??
+          deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings))
         : scopedProjectKey(projectRef);
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
@@ -134,7 +144,7 @@ function useNewThreadState() {
         });
       })();
     },
-    [getCurrentRouteTarget, projectGroupingSettings, router, projects],
+    [getCurrentRouteTarget, logicalKeyByPhysicalKey, projectGroupingSettings, router, projects],
   );
 }
 

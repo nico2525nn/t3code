@@ -1,6 +1,7 @@
 import { scopeProjectRef } from "@t3tools/client-runtime";
 import type { EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
 import {
+  buildLogicalProjectKeyMap,
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKey,
   deriveProjectGroupLabel,
@@ -29,14 +30,7 @@ export function buildPhysicalToLogicalProjectKeyMap(input: {
   projects: ReadonlyArray<Project>;
   settings: ProjectGroupingSettings;
 }): Map<string, string> {
-  const mapping = new Map<string, string>();
-  for (const project of input.projects) {
-    mapping.set(
-      derivePhysicalProjectKey(project),
-      deriveLogicalProjectKeyFromSettings(project, input.settings),
-    );
-  }
-  return mapping;
+  return buildLogicalProjectKeyMap(input.projects, input.settings);
 }
 
 export function buildSidebarProjectSnapshots(input: {
@@ -45,9 +39,12 @@ export function buildSidebarProjectSnapshots(input: {
   primaryEnvironmentId: EnvironmentId | null;
   resolveEnvironmentLabel: (environmentId: EnvironmentId) => string | null;
 }): SidebarProjectSnapshot[] {
+  const logicalKeyByPhysicalKey = buildLogicalProjectKeyMap(input.projects, input.settings);
   const groupedMembers = new Map<string, SidebarProjectGroupMember[]>();
   for (const project of input.projects) {
-    const logicalKey = deriveLogicalProjectKeyFromSettings(project, input.settings);
+    const logicalKey =
+      logicalKeyByPhysicalKey.get(derivePhysicalProjectKey(project)) ??
+      deriveLogicalProjectKeyFromSettings(project, input.settings);
     const member: SidebarProjectGroupMember = {
       ...project,
       physicalProjectKey: derivePhysicalProjectKey(project),
@@ -64,7 +61,9 @@ export function buildSidebarProjectSnapshots(input: {
   const result: SidebarProjectSnapshot[] = [];
   const seen = new Set<string>();
   for (const project of input.projects) {
-    const logicalKey = deriveLogicalProjectKeyFromSettings(project, input.settings);
+    const logicalKey =
+      logicalKeyByPhysicalKey.get(derivePhysicalProjectKey(project)) ??
+      deriveLogicalProjectKeyFromSettings(project, input.settings);
     if (seen.has(logicalKey)) {
       continue;
     }
