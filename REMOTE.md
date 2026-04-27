@@ -35,6 +35,20 @@ When no user default is saved, the app chooses the best reachable endpoint for p
 
 If the copied link points directly at `http://192.168.x.y:3773`, open it from a client that can reach that LAN address. If it points at `https://app.t3.codes/pair?...`, the hosted web app will save the environment and connect directly to the backend URL in the link.
 
+### Tailscale Endpoints
+
+When the desktop app can detect Tailscale, it adds Tailnet endpoints to the reachable endpoint list.
+
+Depending on your Tailscale setup, this may include:
+
+- the machine's `100.x.y.z` Tailnet IP
+- a MagicDNS name
+- an HTTPS MagicDNS endpoint when Tailscale HTTPS is available for the machine
+
+The Tailscale support is an endpoint provider add-on. The core remote model still works without Tailscale: LAN HTTP endpoints, custom HTTPS endpoints, future tunnels, and SSH-launched environments all use the same saved environment and pairing flow.
+
+For `https://app.t3.codes`, prefer an HTTPS Tailnet or other HTTPS endpoint. A plain `http://100.x.y.z:3773` endpoint can still work from a desktop client or another browser page served over HTTP, but it will not work from the hosted HTTPS app because of browser mixed-content rules.
+
 ### Option 2: Headless Server (CLI)
 
 Use this when you want to run the server without a GUI, for example on a remote machine over SSH.

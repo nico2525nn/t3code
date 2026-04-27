@@ -136,6 +136,21 @@ When no user default is saved, endpoint selection should prefer:
 
 This keeps endpoint discovery centralized without making any one provider, such as Tailscale or a future tunnel service, part of the core environment model.
 
+### Endpoint providers
+
+Endpoint providers are add-ons that contribute advertised endpoints for the current environment.
+
+The provider boundary is intentionally outside the core environment model:
+
+- core owns `ExecutionEnvironment`, saved environments, pairing, and connection lifecycle
+- providers discover or synthesize endpoints
+- providers return normalized `AdvertisedEndpoint` records
+- the UI and pairing logic select from those records without knowing provider-specific commands
+
+The first provider is Tailscale. It can discover Tailnet IP and MagicDNS addresses from the local machine and publish them as additional endpoint candidates. Future providers, such as a hosted tunnel service, should plug into the same shape rather than adding a separate remote environment path.
+
+Provider-specific confidence should remain a hint. A Tailscale endpoint still needs a successful browser or desktop connection before the client treats it as connected.
+
 ### Hosted pairing request
 
 A hosted pairing request is a bootstrap URL for the static web app, not a transport.
@@ -219,6 +234,8 @@ This is especially useful when:
 - inbound ports are unavailable
 - mobile must reach a desktop-hosted environment
 - a machine should be reachable without exposing raw LAN or public ports
+
+Tailscale-backed access sits here architecturally even though the current implementation is endpoint discovery rather than a T3-managed tunnel. It contributes private-network endpoints and lets the existing HTTP/WebSocket client path do the actual connection.
 
 ### 3. Desktop-managed SSH access
 
