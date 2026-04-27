@@ -906,7 +906,7 @@ function createPrimaryEnvironmentConnection(): EnvironmentConnection {
 }
 
 function maybeCreatePrimaryEnvironmentConnection(): EnvironmentConnection | null {
-  return getPrimaryKnownEnvironment() ? createPrimaryEnvironmentConnection() : null;
+  return getPrimaryKnownEnvironment()?.environmentId ? createPrimaryEnvironmentConnection() : null;
 }
 
 async function ensureSavedEnvironmentConnection(

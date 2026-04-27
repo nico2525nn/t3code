@@ -15,22 +15,14 @@ const mockCreateWsRpcClient = vi.fn();
 const mockWaitForSavedEnvironmentRegistryHydration = vi.fn();
 const mockListSavedEnvironmentRecords = vi.fn();
 const mockSavedEnvironmentRegistrySubscribe = vi.fn();
+const mockGetPrimaryKnownEnvironment = vi.hoisted(() => vi.fn());
 
 function MockWsTransport() {
   return undefined;
 }
 
 vi.mock("../primary", () => ({
-  getPrimaryKnownEnvironment: vi.fn(() => ({
-    id: "env-1",
-    label: "Primary environment",
-    source: "window-origin",
-    target: {
-      httpBaseUrl: "http://127.0.0.1:3000/",
-      wsBaseUrl: "ws://127.0.0.1:3000/",
-    },
-    environmentId: EnvironmentId.make("env-1"),
-  })),
+  getPrimaryKnownEnvironment: mockGetPrimaryKnownEnvironment,
 }));
 
 vi.mock("./catalog", () => ({
@@ -144,6 +136,16 @@ describe("retainThreadDetailSubscription", () => {
     vi.useFakeTimers();
     vi.resetModules();
     vi.clearAllMocks();
+    mockGetPrimaryKnownEnvironment.mockReturnValue({
+      id: "env-1",
+      label: "Primary environment",
+      source: "window-origin",
+      target: {
+        httpBaseUrl: "http://127.0.0.1:3000/",
+        wsBaseUrl: "ws://127.0.0.1:3000/",
+      },
+      environmentId: EnvironmentId.make("env-1"),
+    });
 
     mockThreadUnsubscribe.mockImplementation(() => undefined);
     mockSubscribeThread.mockImplementation(() => mockThreadUnsubscribe);
@@ -198,6 +200,31 @@ describe("retainThreadDetailSubscription", () => {
 
     await vi.advanceTimersByTimeAsync(28 * 60 * 1000);
     expect(mockThreadUnsubscribe).toHaveBeenCalledTimes(1);
+
+    stop();
+    await resetEnvironmentServiceForTests();
+  });
+
+  it("does not start the primary connection until the known environment has an id", async () => {
+    mockGetPrimaryKnownEnvironment.mockReturnValue({
+      id: "env-1",
+      label: "Primary environment",
+      source: "window-origin",
+      target: {
+        httpBaseUrl: "http://127.0.0.1:3000/",
+        wsBaseUrl: "ws://127.0.0.1:3000/",
+      },
+    });
+    const {
+      listEnvironmentConnections,
+      resetEnvironmentServiceForTests,
+      startEnvironmentConnectionService,
+    } = await import("./service");
+
+    const stop = startEnvironmentConnectionService(new QueryClient());
+
+    expect(mockCreateEnvironmentConnection).not.toHaveBeenCalled();
+    expect(listEnvironmentConnections()).toEqual([]);
 
     stop();
     await resetEnvironmentServiceForTests();

@@ -9,9 +9,9 @@ import {
 import { DateTime } from "effect";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
-import { buildHostedPairingUrl } from "../../hostedPairing";
 import { cn } from "../../lib/utils";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
+import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
 import {
   SettingsPageContainer,
   SettingsRow,
@@ -242,19 +242,6 @@ function removeDesktopClientSession(
   sessionId: ServerClientSessionRecord["sessionId"],
 ) {
   return current.filter((clientSession) => clientSession.sessionId !== sessionId);
-}
-
-function resolveDesktopPairingUrl(endpointUrl: string, credential: string): string {
-  const url = new URL(endpointUrl);
-  url.pathname = "/pair";
-  return setPairingTokenOnUrl(url, credential).toString();
-}
-
-function resolveHostedPairingUrl(endpointUrl: string, credential: string): string {
-  return buildHostedPairingUrl({
-    host: endpointUrl,
-    token: credential,
-  });
 }
 
 function resolveCurrentOriginPairingUrl(credential: string): string {
