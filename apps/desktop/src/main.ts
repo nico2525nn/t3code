@@ -79,6 +79,7 @@ import {
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch.ts";
 import { resolveDesktopAppBranding } from "./appBranding.ts";
 import { bindFirstRevealTrigger, type RevealSubscription } from "./windowReveal.ts";
+import { resolveTailscaleAdvertisedEndpoints } from "./tailscaleEndpointProvider.ts";
 
 syncShellEnvironment();
 
@@ -313,18 +314,23 @@ function getDesktopServerExposureState(): DesktopServerExposureState {
   };
 }
 
-function getDesktopAdvertisedEndpoints() {
+async function getDesktopAdvertisedEndpoints() {
   const exposure = resolveDesktopServerExposure({
     mode: desktopServerExposureMode,
     port: backendPort,
     networkInterfaces: OS.networkInterfaces(),
     ...(backendAdvertisedHost ? { advertisedHostOverride: backendAdvertisedHost } : {}),
   });
-  return resolveDesktopCoreAdvertisedEndpoints({
+  const coreEndpoints = resolveDesktopCoreAdvertisedEndpoints({
     port: backendPort,
     exposure,
     customHttpsEndpointUrls: resolveCustomHttpsEndpointUrls(),
   });
+  const tailscaleEndpoints = await resolveTailscaleAdvertisedEndpoints({
+    port: backendPort,
+    networkInterfaces: OS.networkInterfaces(),
+  });
+  return [...coreEndpoints, ...tailscaleEndpoints];
 }
 
 function getDesktopSecretStorage() {
