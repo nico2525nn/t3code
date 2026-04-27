@@ -176,28 +176,10 @@ export function buildLogicalProjectKeyMap(
   const assignBucket = (
     baseKey: string,
     bucket: ReadonlyArray<Pick<Project, "environmentId" | "id" | "cwd" | "repositoryIdentity">>,
-    discriminatorIndex: number,
   ) => {
     if (!hasDuplicateEnvironment(bucket)) {
       for (const project of bucket) {
         result.set(physicalKeyByProject.get(project)!, baseKey);
-      }
-      return;
-    }
-
-    const discriminatorFns = [
-      (project: Pick<Project, "cwd" | "repositoryIdentity">) => {
-        const relativePath = deriveRepositoryRelativeProjectPath(project);
-        return relativePath === null ? null : formatProjectGroupDiscriminator(relativePath);
-      },
-      (project: Pick<Project, "cwd">) => normalizeProjectPathForComparison(project.cwd),
-      (project: Pick<Project, "environmentId" | "id" | "cwd" | "repositoryIdentity">) =>
-        physicalKeyByProject.get(project) ?? derivePhysicalProjectKey(project),
-    ] as const;
-    const discriminator = discriminatorFns[discriminatorIndex];
-    if (!discriminator) {
-      for (const project of bucket) {
-        result.set(physicalKeyByProject.get(project)!, physicalKeyByProject.get(project)!);
       }
       return;
     }
@@ -207,7 +189,11 @@ export function buildLogicalProjectKeyMap(
       Array<Pick<Project, "environmentId" | "id" | "cwd" | "repositoryIdentity">>
     >();
     for (const project of bucket) {
-      const value = discriminator(project) ?? normalizeProjectPathForComparison(project.cwd);
+      const relativePath = deriveRepositoryRelativeProjectPath(project);
+      const value =
+        relativePath === null
+          ? normalizeProjectPathForComparison(project.cwd)
+          : formatProjectGroupDiscriminator(relativePath);
       const key = `${baseKey}::${value}`;
       const existing = buckets.get(key);
       if (existing) {
@@ -218,12 +204,14 @@ export function buildLogicalProjectKeyMap(
     }
 
     for (const [key, projectsForKey] of buckets) {
-      assignBucket(key, projectsForKey, discriminatorIndex + 1);
+      for (const project of projectsForKey) {
+        result.set(physicalKeyByProject.get(project)!, key);
+      }
     }
   };
 
   for (const [baseKey, bucket] of baseBuckets) {
-    assignBucket(baseKey, bucket, 0);
+    assignBucket(baseKey, bucket);
   }
 
   return result;

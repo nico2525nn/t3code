@@ -529,7 +529,7 @@ describe("environment grouping", () => {
       );
     });
 
-    it("keeps duplicate clones in the same environment separate when repo-relative paths match", () => {
+    it("groups duplicate clones in the same environment when repo-relative paths match", () => {
       const firstClone = makeProject({
         id: sharedProjectPrimaryId,
         environmentId: primaryEnvId,
@@ -563,7 +563,7 @@ describe("environment grouping", () => {
 
       const keys = buildLogicalProjectKeyMap([firstClone, secondClone], DEFAULT_GROUPING_SETTINGS);
 
-      expect(keys.get(derivePhysicalProjectKey(firstClone))).not.toBe(
+      expect(keys.get(derivePhysicalProjectKey(firstClone))).toBe(
         keys.get(derivePhysicalProjectKey(secondClone)),
       );
     });
