@@ -25,6 +25,7 @@
         "@t3tools/client-runtime": "workspace:*",
         "@t3tools/contracts": "workspace:*",
         "@t3tools/shared": "workspace:*",
+        "@t3tools/ssh": "workspace:*",
         "@t3tools/tailscale": "workspace:*",
         "@types/node": "catalog:",
         "effect-acp": "workspace:*",
@@ -188,6 +189,21 @@
     },
     "packages/shared": {
       "name": "@t3tools/shared",
+      "version": "0.0.0-alpha.1",
+      "dependencies": {
+        "@t3tools/contracts": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/language-service": "catalog:",
+        "@effect/vitest": "catalog:",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/ssh": {
+      "name": "@t3tools/ssh",
       "version": "0.0.0-alpha.1",
       "dependencies": {
         "@t3tools/contracts": "workspace:*",
@@ -757,6 +773,8 @@
     "@t3tools/scripts": ["@t3tools/scripts@workspace:scripts"],
 
     "@t3tools/shared": ["@t3tools/shared@workspace:packages/shared"],
+
+    "@t3tools/ssh": ["@t3tools/ssh@workspace:packages/ssh"],
 
     "@t3tools/tailscale": ["@t3tools/tailscale@workspace:packages/tailscale"],
 
