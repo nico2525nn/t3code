@@ -94,6 +94,9 @@ export const Route = createRootRouteWithContext<{
       if (location.pathname === "/pair") {
         throw error;
       }
+      if (!isHostedStaticApp(new URL(window.location.href))) {
+        throw error;
+      }
 
       await waitForSavedEnvironmentRegistryHydration();
       return {
