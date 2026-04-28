@@ -20,8 +20,10 @@ function describeSshTarget(request: DesktopSshPasswordPromptRequest): string {
 export function SshPasswordPromptDialog() {
   const [queue, setQueue] = useState<readonly DesktopSshPasswordPromptRequest[]>([]);
   const [password, setPassword] = useState("");
+  const [isResponding, setIsResponding] = useState(false);
   const currentRequest = queue[0] ?? null;
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const isRespondingRef = useRef(false);
 
   useEffect(() => {
     const bridge = window.desktopBridge;
@@ -50,17 +52,24 @@ export function SshPasswordPromptDialog() {
   }, [currentRequest]);
 
   const respond = async (nextPassword: string | null) => {
-    if (!currentRequest) {
+    if (!currentRequest || isRespondingRef.current) {
       return;
     }
 
     const requestId = currentRequest.requestId;
-    setQueue((currentQueue) => currentQueue.slice(1));
-    setPassword("");
+    isRespondingRef.current = true;
+    setIsResponding(true);
     try {
       await window.desktopBridge?.resolveSshPasswordPrompt(requestId, nextPassword);
     } catch (error) {
       console.error("Failed to resolve SSH password prompt.", error);
+    } finally {
+      setQueue((currentQueue) =>
+        currentQueue[0]?.requestId === requestId ? currentQueue.slice(1) : currentQueue,
+      );
+      setPassword("");
+      isRespondingRef.current = false;
+      setIsResponding(false);
     }
   };
 
@@ -76,38 +85,51 @@ export function SshPasswordPromptDialog() {
       }}
     >
       <DialogPopup className="max-w-md" showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle>SSH Password Required</DialogTitle>
-          <DialogDescription>
-            T3 needs your SSH password to connect to{" "}
-            {target ? <code>{target}</code> : "the remote host"}. The password is passed to the
-            local SSH process for this connection attempt and is not saved by T3 Code.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogPanel className="space-y-3" scrollFade={false}>
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-foreground">{currentRequest?.prompt}</p>
-            <Input
-              ref={inputRef}
-              autoComplete="current-password"
-              name="ssh-password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Use SSH keys to avoid repeated password prompts on new SSH sessions.
-          </p>
-        </DialogPanel>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => void respond(null)}>
-            Cancel
-          </Button>
-          <Button onClick={() => void respond(password)} type="button">
-            Continue
-          </Button>
-        </DialogFooter>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void respond(password);
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>SSH Password Required</DialogTitle>
+            <DialogDescription>
+              T3 needs your SSH password to connect to{" "}
+              {target ? <code>{target}</code> : "the remote host"}. The password is passed to the
+              local SSH process for this connection attempt and is not saved by T3 Code.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-3" scrollFade={false}>
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-foreground">{currentRequest?.prompt}</p>
+              <Input
+                ref={inputRef}
+                autoComplete="current-password"
+                disabled={isResponding}
+                name="ssh-password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Use SSH keys to avoid repeated password prompts on new SSH sessions.
+            </p>
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              disabled={isResponding}
+              type="button"
+              variant="outline"
+              onClick={() => void respond(null)}
+            >
+              Cancel
+            </Button>
+            <Button disabled={isResponding} type="submit">
+              Continue
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogPopup>
     </Dialog>
   );

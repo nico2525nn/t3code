@@ -105,6 +105,27 @@ describe("desktopSettings", () => {
     });
   });
 
+  it("preserves the configured Tailscale Serve port when no new port is requested", () => {
+    expect(
+      setDesktopTailscaleServePreference(
+        {
+          serverExposureMode: "local-only",
+          tailscaleServeEnabled: false,
+          tailscaleServePort: 8443,
+          updateChannel: "latest",
+          updateChannelConfiguredByUser: false,
+        },
+        { enabled: true },
+      ),
+    ).toEqual({
+      serverExposureMode: "local-only",
+      tailscaleServeEnabled: true,
+      tailscaleServePort: 8443,
+      updateChannel: "latest",
+      updateChannelConfiguredByUser: false,
+    });
+  });
+
   it("persists the requested nightly update channel", () => {
     expect(
       setDesktopUpdateChannelPreference(

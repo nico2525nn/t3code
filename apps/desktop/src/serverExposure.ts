@@ -49,6 +49,10 @@ const normalizeOptionalHost = (value: string | undefined): string | undefined =>
 const isUsableLanIpv4Address = (address: string): boolean =>
   !address.startsWith("127.") && !address.startsWith("169.254.");
 
+function isHttpsEndpointUrl(value: string): boolean {
+  return new URL(value).protocol === "https:";
+}
+
 export function resolveLanAdvertisedHost(
   networkInterfaces: NodeJS.Dict<NetworkInterfaceInfo[]>,
   explicitHost: string | undefined,
@@ -162,7 +166,9 @@ export function resolveDesktopCoreAdvertisedEndpoints(
         label: "Custom HTTPS",
         httpBaseUrl: customEndpointUrl,
         reachability: "public",
-        hostedHttpsCompatibility: "compatible",
+        ...(isHttpsEndpointUrl(customEndpointUrl)
+          ? ({ hostedHttpsCompatibility: "compatible" } as const)
+          : {}),
         status: "unknown",
         description: "User-configured HTTPS endpoint for this desktop backend.",
       }),

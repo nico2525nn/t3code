@@ -1,17 +1,5 @@
-import {
-  ChevronDownIcon,
-  PlusIcon,
-  QrCodeIcon,
-  RefreshCwIcon,
-} from "lucide-react";
-import {
-  type ReactNode,
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { ChevronDownIcon, PlusIcon, QrCodeIcon, RefreshCwIcon } from "lucide-react";
+import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   type AuthClientSession,
   type AuthPairingLink,
@@ -25,14 +13,8 @@ import { DateTime } from "effect";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
-import {
-  formatElapsedDurationLabel,
-  formatExpiresInLabel,
-} from "../../timestampFormat";
-import {
-  resolveDesktopPairingUrl,
-  resolveHostedPairingUrl,
-} from "./pairingUrls";
+import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
+import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
 import {
   SettingsPageContainer,
   SettingsRow,
@@ -132,9 +114,7 @@ function ConnectionStatusDot({
           )}
         />
       ) : null}
-      <span
-        className={cn("relative inline-flex size-2 rounded-full", dotClassName)}
-      />
+      <span className={cn("relative inline-flex size-2 rounded-full", dotClassName)} />
     </>
   );
 
@@ -160,10 +140,7 @@ function ConnectionStatusDot({
   return (
     <Tooltip>
       <TooltipTrigger render={dot} />
-      <TooltipPopup
-        side="top"
-        className="max-w-80 whitespace-pre-wrap leading-tight"
-      >
+      <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap leading-tight">
         {tooltipText}
       </TooltipPopup>
     </Tooltip>
@@ -179,9 +156,7 @@ function getSavedBackendStatusTooltip(
 
   if (connectionState === "connected") {
     const connectedAt = runtime?.connectedAt ?? record.lastConnectedAt;
-    return connectedAt
-      ? `Connected for ${formatElapsedDurationLabel(connectedAt, nowMs)}`
-      : null;
+    return connectedAt ? `Connected for ${formatElapsedDurationLabel(connectedAt, nowMs)}` : null;
   }
 
   if (connectionState === "connecting") {
@@ -197,12 +172,8 @@ function getSavedBackendStatusTooltip(
     : "Not connected yet.";
 }
 
-function formatDesktopSshTarget(
-  target: NonNullable<SavedEnvironmentRecord["desktopSsh"]>,
-): string {
-  const authority = target.username
-    ? `${target.username}@${target.hostname}`
-    : target.hostname;
+function formatDesktopSshTarget(target: NonNullable<SavedEnvironmentRecord["desktopSsh"]>): string {
+  const authority = target.username ? `${target.username}@${target.hostname}` : target.hostname;
   return target.port ? `${authority}:${target.port}` : authority;
 }
 
@@ -252,10 +223,7 @@ function parseManualDesktopSshTarget(input: {
     throw new Error("SSH host or alias is required.");
   }
 
-  if (
-    port !== null &&
-    (!Number.isInteger(port) || port <= 0 || port > 65_535)
-  ) {
+  if (port !== null && (!Number.isInteger(port) || port <= 0 || port > 65_535)) {
     throw new Error("SSH port must be between 1 and 65535.");
   }
 
@@ -268,26 +236,19 @@ function parseManualDesktopSshTarget(input: {
 }
 
 /** Direct row in the card – same pattern as the Provider / ACP-agent list rows. */
-const ITEM_ROW_CLASSNAME =
-  "border-t border-border/60 px-4 py-4 first:border-t-0 sm:px-5";
-const ENDPOINT_ROW_CLASSNAME =
-  "border-t border-border/60 px-4 py-2.5 first:border-t-0 sm:px-5";
+const ITEM_ROW_CLASSNAME = "border-t border-border/60 px-4 py-4 first:border-t-0 sm:px-5";
+const ENDPOINT_ROW_CLASSNAME = "border-t border-border/60 px-4 py-2.5 first:border-t-0 sm:px-5";
 
 const ITEM_ROW_INNER_CLASSNAME =
   "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between";
 
-function sortDesktopPairingLinks(
-  links: ReadonlyArray<ServerPairingLinkRecord>,
-) {
+function sortDesktopPairingLinks(links: ReadonlyArray<ServerPairingLinkRecord>) {
   return [...links].toSorted(
-    (left, right) =>
-      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
   );
 }
 
-function sortDesktopClientSessions(
-  sessions: ReadonlyArray<ServerClientSessionRecord>,
-) {
+function sortDesktopClientSessions(sessions: ReadonlyArray<ServerClientSessionRecord>) {
   return [...sessions].toSorted((left, right) => {
     if (left.current !== right.current) {
       return left.current ? -1 : 1;
@@ -295,15 +256,11 @@ function sortDesktopClientSessions(
     if (left.connected !== right.connected) {
       return left.connected ? -1 : 1;
     }
-    return (
-      new Date(right.issuedAt).getTime() - new Date(left.issuedAt).getTime()
-    );
+    return new Date(right.issuedAt).getTime() - new Date(left.issuedAt).getTime();
   });
 }
 
-function toDesktopPairingLinkRecord(
-  pairingLink: AuthPairingLink,
-): ServerPairingLinkRecord {
+function toDesktopPairingLinkRecord(pairingLink: AuthPairingLink): ServerPairingLinkRecord {
   return {
     ...pairingLink,
     createdAt: DateTime.formatIso(pairingLink.createdAt),
@@ -311,9 +268,7 @@ function toDesktopPairingLinkRecord(
   };
 }
 
-function toDesktopClientSessionRecord(
-  clientSession: AuthClientSession,
-): ServerClientSessionRecord {
+function toDesktopClientSessionRecord(clientSession: AuthClientSession): ServerClientSessionRecord {
   return {
     ...clientSession,
     issuedAt: DateTime.formatIso(clientSession.issuedAt),
@@ -329,9 +284,7 @@ function upsertDesktopPairingLink(
   current: ReadonlyArray<ServerPairingLinkRecord>,
   next: ServerPairingLinkRecord,
 ) {
-  const existingIndex = current.findIndex(
-    (pairingLink) => pairingLink.id === next.id,
-  );
+  const existingIndex = current.findIndex((pairingLink) => pairingLink.id === next.id);
   if (existingIndex === -1) {
     return sortDesktopPairingLinks([...current, next]);
   }
@@ -340,10 +293,7 @@ function upsertDesktopPairingLink(
   return sortDesktopPairingLinks(updated);
 }
 
-function removeDesktopPairingLink(
-  current: ReadonlyArray<ServerPairingLinkRecord>,
-  id: string,
-) {
+function removeDesktopPairingLink(current: ReadonlyArray<ServerPairingLinkRecord>, id: string) {
   return current.filter((pairingLink) => pairingLink.id !== id);
 }
 
@@ -366,22 +316,17 @@ function removeDesktopClientSession(
   current: ReadonlyArray<ServerClientSessionRecord>,
   sessionId: ServerClientSessionRecord["sessionId"],
 ) {
-  return current.filter(
-    (clientSession) => clientSession.sessionId !== sessionId,
-  );
+  return current.filter((clientSession) => clientSession.sessionId !== sessionId);
 }
 
 function selectPairingEndpoint(
   endpoints: ReadonlyArray<AdvertisedEndpoint>,
   defaultEndpointKey?: string | null,
 ): AdvertisedEndpoint | null {
-  const availableEndpoints = endpoints.filter(
-    (endpoint) => endpoint.status !== "unavailable",
-  );
+  const availableEndpoints = endpoints.filter((endpoint) => endpoint.status !== "unavailable");
   if (defaultEndpointKey) {
     const selectedEndpoint = availableEndpoints.find(
-      (endpoint) =>
-        endpointDefaultPreferenceKey(endpoint) === defaultEndpointKey,
+      (endpoint) => endpointDefaultPreferenceKey(endpoint) === defaultEndpointKey,
     );
     if (selectedEndpoint) {
       return selectedEndpoint;
@@ -389,12 +334,8 @@ function selectPairingEndpoint(
   }
   return (
     availableEndpoints.find((endpoint) => endpoint.isDefault) ??
-    availableEndpoints.find(
-      (endpoint) => endpoint.reachability !== "loopback",
-    ) ??
-    availableEndpoints.find(
-      (endpoint) => endpoint.compatibility.hostedHttpsApp === "compatible",
-    ) ??
+    availableEndpoints.find((endpoint) => endpoint.reachability !== "loopback") ??
+    availableEndpoints.find((endpoint) => endpoint.compatibility.hostedHttpsApp === "compatible") ??
     null
   );
 }
@@ -491,26 +432,19 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
   );
   const endpointPairingUrl = useMemo(() => {
     const endpoint = selectPairingEndpoint(endpoints, defaultEndpointKey);
-    return endpoint
-      ? resolveAdvertisedEndpointPairingUrl(endpoint, pairingLink.credential)
-      : null;
+    return endpoint ? resolveAdvertisedEndpointPairingUrl(endpoint, pairingLink.credential) : null;
   }, [defaultEndpointKey, endpoints, pairingLink.credential]);
   const endpointCopyOptions = useMemo(
     () =>
       endpoints
         .filter((endpoint) => endpoint.status !== "unavailable")
         .map((endpoint) => {
-          const url = resolveAdvertisedEndpointPairingUrl(
-            endpoint,
-            pairingLink.credential,
-          );
+          const url = resolveAdvertisedEndpointPairingUrl(endpoint, pairingLink.credential);
           return {
             key: endpointDefaultPreferenceKey(endpoint),
             label: endpoint.label,
             url,
-            detail: isHostedAppPairingUrl(url)
-              ? "Hosted app link"
-              : "Backend pairing URL",
+            detail: isHostedAppPairingUrl(url) ? "Hosted app link" : "Backend pairing URL",
           };
         }),
     [endpoints, pairingLink.credential],
@@ -518,8 +452,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
   const shareablePairingUrl =
     endpointPairingUrl ??
     (endpointUrl != null && endpointUrl !== ""
-      ? (hostedPairingUrl ??
-        resolveDesktopPairingUrl(endpointUrl, pairingLink.credential))
+      ? (hostedPairingUrl ?? resolveDesktopPairingUrl(endpointUrl, pairingLink.credential))
       : isLoopbackHostname(window.location.hostname)
         ? null
         : currentOriginPairingUrl);
@@ -555,9 +488,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
               ? "Could not copy pairing URL"
               : "Could not copy pairing code"
             : "Clipboard copy unavailable",
-          description: canCopyToClipboard
-            ? error.message
-            : "Showing the full value instead.",
+          description: canCopyToClipboard ? error.message : "Showing the full value instead.",
         }),
       );
     },
@@ -597,9 +528,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
               tooltipText={`Link created at ${formatAccessTimestamp(pairingLink.createdAt)}`}
               dotClassName="bg-amber-400"
             />
-            <h3 className="text-sm font-medium text-foreground">
-              {primaryLabel}
-            </h3>
+            <h3 className="text-sm font-medium text-foreground">{primaryLabel}</h3>
             <Popover>
               {shareablePairingUrl ? (
                 <>
@@ -617,12 +546,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
                   >
                     <QrCodeIcon aria-hidden className="size-3" />
                   </PopoverTrigger>
-                  <PopoverPopup
-                    side="top"
-                    align="start"
-                    tooltipStyle
-                    className="w-max"
-                  >
+                  <PopoverPopup side="top" align="start" tooltipStyle className="w-max">
                     <QRCodeSvg
                       value={shareablePairingUrl}
                       size={88}
@@ -636,23 +560,16 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
             </Popover>
           </div>
           <p className="text-xs text-muted-foreground" title={expiresAbsolute}>
-            {[
-              roleLabel,
-              formatExpiresInLabel(pairingLink.expiresAt, nowMs),
-            ].join(" · ")}
+            {[roleLabel, formatExpiresInLabel(pairingLink.expiresAt, nowMs)].join(" · ")}
           </p>
           {shareablePairingUrl === null ? (
             <p className="text-[11px] text-muted-foreground/70">
-              Copy the token and pair from another client using this
-              backend&apos;s reachable host.
+              Copy the token and pair from another client using this backend&apos;s reachable host.
             </p>
           ) : null}
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
-          <Dialog
-            open={isRevealDialogOpen}
-            onOpenChange={setIsRevealDialogOpen}
-          >
+          <Dialog open={isRevealDialogOpen} onOpenChange={setIsRevealDialogOpen}>
             {canCopyToClipboard ? (
               <>
                 <Button size="xs" variant="outline" onClick={handleCopyCode}>
@@ -661,11 +578,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
                 {shareablePairingUrl ? (
                   endpointCopyOptions.length > 1 ? (
                     <Group aria-label="Copy pairing URL">
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={handleCopyDefaultLink}
-                      >
+                      <Button size="xs" variant="outline" onClick={handleCopyDefaultLink}>
                         {copyLinkLabel}
                       </Button>
                       <GroupSeparator />
@@ -685,14 +598,10 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
                           {endpointCopyOptions.map((option) => (
                             <MenuItem
                               key={option.key}
-                              onClick={() =>
-                                copyPairingValue(option.url, "link")
-                              }
+                              onClick={() => copyPairingValue(option.url, "link")}
                             >
                               <span className="min-w-0 flex-1">
-                                <span className="block truncate">
-                                  {option.label}
-                                </span>
+                                <span className="block truncate">{option.label}</span>
                                 <span className="block truncate text-[11px] text-muted-foreground">
                                   {option.detail}
                                 </span>
@@ -703,11 +612,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
                       </Menu>
                     </Group>
                   ) : (
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      onClick={handleCopyDefaultLink}
-                    >
+                    <Button size="xs" variant="outline" onClick={handleCopyDefaultLink}>
                       {copyLinkLabel}
                     </Button>
                   )
@@ -757,10 +662,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
                 ) : null}
               </DialogPanel>
               <DialogFooter variant="bare">
-                <Button
-                  variant="outline"
-                  onClick={() => setIsRevealDialogOpen(false)}
-                >
+                <Button variant="outline" onClick={() => setIsRevealDialogOpen(false)}>
                   Done
                 </Button>
                 {canCopyToClipboard ? (
@@ -809,8 +711,7 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
   const roleLabel = clientSession.role === "owner" ? "Owner" : "Client";
   const deviceInfoBits = [
     clientSession.client.deviceType !== "unknown"
-      ? clientSession.client.deviceType[0]?.toUpperCase() +
-        clientSession.client.deviceType.slice(1)
+      ? clientSession.client.deviceType[0]?.toUpperCase() + clientSession.client.deviceType.slice(1)
       : null,
     clientSession.client.os ?? null,
     clientSession.client.browser ?? null,
@@ -818,9 +719,7 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
   ].filter((value): value is string => value !== null);
   const primaryLabel =
     clientSession.client.label ??
-    ([clientSession.client.os, clientSession.client.browser]
-      .filter(Boolean)
-      .join(" · ") ||
+    ([clientSession.client.os, clientSession.client.browser].filter(Boolean).join(" · ") ||
       clientSession.subject);
 
   return (
@@ -833,9 +732,7 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
               dotClassName={isLive ? "bg-success" : "bg-muted-foreground/30"}
               pingClassName={isLive ? "bg-success/60 duration-2000" : null}
             />
-            <h3 className="text-sm font-medium text-foreground">
-              {primaryLabel}
-            </h3>
+            <h3 className="text-sm font-medium text-foreground">{primaryLabel}</h3>
             {clientSession.current ? (
               <span className="text-[10px] text-muted-foreground/80 rounded-md border border-border/50 bg-muted/50 px-1 py-0.5">
                 This device
@@ -854,9 +751,7 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
               disabled={revokingClientSessionId === clientSession.sessionId}
               onClick={() => void onRevokeSession(clientSession.sessionId)}
             >
-              {revokingClientSessionId === clientSession.sessionId
-                ? "Revoking…"
-                : "Revoke"}
+              {revokingClientSessionId === clientSession.sessionId ? "Revoking…" : "Revoke"}
             </Button>
           ) : null}
         </div>
@@ -871,112 +766,103 @@ type AuthorizedClientsHeaderActionProps = {
   onRevokeOtherClients: () => void;
 };
 
-const AuthorizedClientsHeaderAction = memo(
-  function AuthorizedClientsHeaderAction({
-    clientSessions,
-    isRevokingOtherClients,
-    onRevokeOtherClients,
-  }: AuthorizedClientsHeaderActionProps) {
-    const [dialogOpen, setDialogOpen] = useState(false);
-    const [pairingLabel, setPairingLabel] = useState("");
-    const [isCreatingPairingLink, setIsCreatingPairingLink] = useState(false);
+const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderAction({
+  clientSessions,
+  isRevokingOtherClients,
+  onRevokeOtherClients,
+}: AuthorizedClientsHeaderActionProps) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [pairingLabel, setPairingLabel] = useState("");
+  const [isCreatingPairingLink, setIsCreatingPairingLink] = useState(false);
 
-    const handleCreatePairingLink = useCallback(async () => {
-      setIsCreatingPairingLink(true);
-      try {
-        await createServerPairingCredential(pairingLabel);
-        setPairingLabel("");
-        setDialogOpen(false);
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to create pairing URL.";
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not create pairing URL",
-            description: message,
-          }),
-        );
-      } finally {
-        setIsCreatingPairingLink(false);
-      }
-    }, [pairingLabel]);
+  const handleCreatePairingLink = useCallback(async () => {
+    setIsCreatingPairingLink(true);
+    try {
+      await createServerPairingCredential(pairingLabel);
+      setPairingLabel("");
+      setDialogOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create pairing URL.";
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not create pairing URL",
+          description: message,
+        }),
+      );
+    } finally {
+      setIsCreatingPairingLink(false);
+    }
+  }, [pairingLabel]);
 
-    return (
-      <div className="flex items-center gap-2">
-        <Button
-          size="xs"
-          variant="destructive-outline"
-          disabled={
-            isRevokingOtherClients ||
-            clientSessions.every((clientSession) => clientSession.current)
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        size="xs"
+        variant="destructive-outline"
+        disabled={
+          isRevokingOtherClients || clientSessions.every((clientSession) => clientSession.current)
+        }
+        onClick={() => void onRevokeOtherClients()}
+      >
+        {isRevokingOtherClients ? "Revoking…" : "Revoke others"}
+      </Button>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) {
+            setPairingLabel("");
           }
-          onClick={() => void onRevokeOtherClients()}
-        >
-          {isRevokingOtherClients ? "Revoking…" : "Revoke others"}
-        </Button>
-        <Dialog
-          open={dialogOpen}
-          onOpenChange={(open) => {
-            setDialogOpen(open);
-            if (!open) {
-              setPairingLabel("");
-            }
-          }}
-        >
-          <DialogTrigger
-            render={
-              <Button size="xs" variant="default">
-                <PlusIcon className="size-3" />
-                Create link
-              </Button>
-            }
-          />
-          <DialogPopup className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Create pairing link</DialogTitle>
-              <DialogDescription>
-                Generate a one-time link that another device can use to pair
-                with this backend as an authorized client.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogPanel>
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-foreground">
-                  Client label (optional)
-                </span>
-                <Input
-                  value={pairingLabel}
-                  onChange={(event) => setPairingLabel(event.target.value)}
-                  placeholder="e.g. Living room iPad"
-                  disabled={isCreatingPairingLink}
-                  autoFocus
-                />
-              </label>
-            </DialogPanel>
-            <DialogFooter variant="bare">
-              <Button
-                variant="outline"
+        }}
+      >
+        <DialogTrigger
+          render={
+            <Button size="xs" variant="default">
+              <PlusIcon className="size-3" />
+              Create link
+            </Button>
+          }
+        />
+        <DialogPopup className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Create pairing link</DialogTitle>
+            <DialogDescription>
+              Generate a one-time link that another device can use to pair with this backend as an
+              authorized client.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-foreground">
+                Client label (optional)
+              </span>
+              <Input
+                value={pairingLabel}
+                onChange={(event) => setPairingLabel(event.target.value)}
+                placeholder="e.g. Living room iPad"
                 disabled={isCreatingPairingLink}
-                onClick={() => setDialogOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                disabled={isCreatingPairingLink}
-                onClick={() => void handleCreatePairingLink()}
-              >
-                {isCreatingPairingLink ? "Creating…" : "Create link"}
-              </Button>
-            </DialogFooter>
-          </DialogPopup>
-        </Dialog>
-      </div>
-    );
-  },
-);
+                autoFocus
+              />
+            </label>
+          </DialogPanel>
+          <DialogFooter variant="bare">
+            <Button
+              variant="outline"
+              disabled={isCreatingPairingLink}
+              onClick={() => setDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button disabled={isCreatingPairingLink} onClick={() => void handleCreatePairingLink()}>
+              {isCreatingPairingLink ? "Creating…" : "Create link"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </div>
+  );
+});
 
 type PairingClientsListProps = {
   endpointUrl: string | null | undefined;
@@ -988,9 +874,7 @@ type PairingClientsListProps = {
   revokingPairingLinkId: string | null;
   revokingClientSessionId: string | null;
   onRevokePairingLink: (id: string) => void;
-  onRevokeClientSession: (
-    sessionId: ServerClientSessionRecord["sessionId"],
-  ) => void;
+  onRevokeClientSession: (sessionId: ServerClientSessionRecord["sessionId"]) => void;
 };
 
 const PairingClientsList = memo(function PairingClientsList({
@@ -1028,13 +912,9 @@ const PairingClientsList = memo(function PairingClientsList({
         />
       ))}
 
-      {pairingLinks.length === 0 &&
-      clientSessions.length === 0 &&
-      !isLoading ? (
+      {pairingLinks.length === 0 && clientSessions.length === 0 && !isLoading ? (
         <div className={ITEM_ROW_CLASSNAME}>
-          <p className="text-xs text-muted-foreground/60">
-            No pairing links or client sessions.
-          </p>
+          <p className="text-xs text-muted-foreground/60">No pairing links or client sessions.</p>
         </div>
       ) : null}
     </>
@@ -1059,8 +939,7 @@ const AdvertisedEndpointListRow = memo(function AdvertisedEndpointListRow({
   isUpdatingTailscaleServe,
 }: AdvertisedEndpointListRowProps) {
   const isAvailable = endpoint.status === "available";
-  const needsTailscaleSetup =
-    isTailscaleHttpsEndpoint(endpoint) && endpoint.status !== "available";
+  const needsTailscaleSetup = isTailscaleHttpsEndpoint(endpoint) && endpoint.status !== "available";
   const canDisableTailscaleServe =
     isTailscaleHttpsEndpoint(endpoint) && endpoint.status === "available";
   const shouldShowEndpointUrl = !needsTailscaleSetup;
@@ -1112,11 +991,7 @@ const AdvertisedEndpointListRow = memo(function AdvertisedEndpointListRow({
             </Button>
           ) : null}
           {!needsTailscaleSetup && !isDefault ? (
-            <Button
-              size="xs"
-              variant="outline"
-              onClick={() => onSetDefault(endpoint)}
-            >
+            <Button size="xs" variant="outline" onClick={() => onSetDefault(endpoint)}>
               Set as default
             </Button>
           ) : null}
@@ -1167,9 +1042,7 @@ function NetworkAccessDescription({
           {summary}
         </button>
       ) : (
-        <span className="inline-flex min-w-0 max-w-full items-baseline gap-2">
-          {summary}
-        </span>
+        <span className="inline-flex min-w-0 max-w-full items-baseline gap-2">{summary}</span>
       )}
     </span>
   );
@@ -1191,12 +1064,8 @@ function SavedBackendListRow({
   onRemove,
 }: SavedBackendListRowProps) {
   const nowMs = useRelativeTimeTick(1_000);
-  const record = useSavedEnvironmentRegistryStore(
-    (state) => state.byId[environmentId] ?? null,
-  );
-  const runtime = useSavedEnvironmentRuntimeStore(
-    (state) => state.byId[environmentId] ?? null,
-  );
+  const record = useSavedEnvironmentRegistryStore((state) => state.byId[environmentId] ?? null);
+  const runtime = useSavedEnvironmentRuntimeStore((state) => state.byId[environmentId] ?? null);
 
   if (!record) {
     return null;
@@ -1211,17 +1080,11 @@ function SavedBackendListRow({
         : connectionState === "error"
           ? "bg-destructive"
           : "bg-muted-foreground/40";
-  const roleLabel = runtime?.role
-    ? runtime.role === "owner"
-      ? "Owner"
-      : "Client"
-    : null;
+  const roleLabel = runtime?.role ? (runtime.role === "owner" ? "Owner" : "Client") : null;
   const descriptorLabel = runtime?.descriptor?.label ?? null;
   const statusTooltip = getSavedBackendStatusTooltip(runtime, record, nowMs);
   const metadataBits = [
-    record.desktopSsh
-      ? `SSH ${formatDesktopSshTarget(record.desktopSsh)}`
-      : null,
+    record.desktopSsh ? `SSH ${formatDesktopSshTarget(record.desktopSsh)}` : null,
     roleLabel,
     record.lastConnectedAt
       ? `Last connected ${formatAccessTimestamp(record.lastConnectedAt)}`
@@ -1237,24 +1100,16 @@ function SavedBackendListRow({
               tooltipText={statusTooltip}
               dotClassName={stateDotClassName}
               pingClassName={
-                connectionState === "connecting"
-                  ? "bg-warning/60 duration-2000"
-                  : null
+                connectionState === "connecting" ? "bg-warning/60 duration-2000" : null
               }
             />
-            <h3 className="text-sm font-medium text-foreground">
-              {record.label}
-            </h3>
+            <h3 className="text-sm font-medium text-foreground">{record.label}</h3>
           </div>
           {metadataBits.length > 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {metadataBits.join(" · ")}
-            </p>
+            <p className="text-xs text-muted-foreground">{metadataBits.join(" · ")}</p>
           ) : null}
           {descriptorLabel && descriptorLabel !== record.label ? (
-            <p className="text-xs text-muted-foreground">
-              Server label: {descriptorLabel}
-            </p>
+            <p className="text-xs text-muted-foreground">Server label: {descriptorLabel}</p>
           ) : null}
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
@@ -1264,9 +1119,7 @@ function SavedBackendListRow({
             disabled={reconnectingEnvironmentId === environmentId}
             onClick={() => void onReconnect(environmentId)}
           >
-            {reconnectingEnvironmentId === environmentId
-              ? "Reconnecting…"
-              : "Reconnect"}
+            {reconnectingEnvironmentId === environmentId ? "Reconnecting…" : "Reconnect"}
           </Button>
           <Button
             size="xs"
@@ -1296,29 +1149,18 @@ const DesktopSshHostRow = memo(function DesktopSshHostRow({
   onConnect,
 }: DesktopSshHostRowProps) {
   const address = formatDesktopSshTarget(target);
-  const secondaryBits = [
-    target.source === "ssh-config" ? "SSH config" : "Known hosts",
-    address,
-  ];
+  const secondaryBits = [target.source === "ssh-config" ? "SSH config" : "Known hosts", address];
   const buttonLabel =
-    connectingHostAlias === target.alias
-      ? "Connecting…"
-      : savedRecord
-        ? "Reconnect"
-        : "Connect";
+    connectingHostAlias === target.alias ? "Connecting…" : savedRecord ? "Reconnect" : "Connect";
 
   return (
     <div className={ITEM_ROW_CLASSNAME}>
       <div className={ITEM_ROW_INNER_CLASSNAME}>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex min-h-5 items-center gap-1.5">
-            <h3 className="text-sm font-medium text-foreground">
-              {target.alias}
-            </h3>
+            <h3 className="text-sm font-medium text-foreground">{target.alias}</h3>
           </div>
-          <p className="text-xs text-muted-foreground">
-            {secondaryBits.join(" · ")}
-          </p>
+          <p className="text-xs text-muted-foreground">{secondaryBits.join(" · ")}</p>
           {savedRecord ? (
             <p className="text-xs text-muted-foreground">
               Saved as {savedRecord.label}
@@ -1348,19 +1190,13 @@ const DesktopSshHostRow = memo(function DesktopSshHostRow({
 
 export function ConnectionsSettings() {
   const desktopBridge = window.desktopBridge;
-  const [currentSessionRole, setCurrentSessionRole] = useState<
-    "owner" | "client" | null
-  >(desktopBridge ? "owner" : null);
-  const [currentAuthPolicy, setCurrentAuthPolicy] = useState<
-    | "desktop-managed-local"
-    | "loopback-browser"
-    | "remote-reachable"
-    | "unsafe-no-auth"
-    | null
-  >(desktopBridge ? null : null);
-  const savedEnvironmentsById = useSavedEnvironmentRegistryStore(
-    (state) => state.byId,
+  const [currentSessionRole, setCurrentSessionRole] = useState<"owner" | "client" | null>(
+    desktopBridge ? "owner" : null,
   );
+  const [currentAuthPolicy, setCurrentAuthPolicy] = useState<
+    "desktop-managed-local" | "loopback-browser" | "remote-reachable" | "unsafe-no-auth" | null
+  >(desktopBridge ? null : null);
+  const savedEnvironmentsById = useSavedEnvironmentRegistryStore((state) => state.byId);
   const savedEnvironmentIds = useMemo(
     () =>
       Object.values(savedEnvironmentsById)
@@ -1370,60 +1206,52 @@ export function ConnectionsSettings() {
   );
   const savedDesktopSshEnvironmentsByAlias = useMemo(
     () =>
-      Object.values(savedEnvironmentsById).reduce<
-        Record<string, SavedEnvironmentRecord>
-      >((accumulator, record) => {
-        if (record.desktopSsh?.alias) {
-          accumulator[record.desktopSsh.alias] = record;
-        }
-        return accumulator;
-      }, {}),
+      Object.values(savedEnvironmentsById).reduce<Record<string, SavedEnvironmentRecord>>(
+        (accumulator, record) => {
+          if (record.desktopSsh?.alias) {
+            accumulator[record.desktopSsh.alias] = record;
+          }
+          return accumulator;
+        },
+        {},
+      ),
     [savedEnvironmentsById],
   );
   const [discoveredSshHosts, setDiscoveredSshHosts] = useState<
     ReadonlyArray<DesktopDiscoveredSshHost>
   >([]);
-  const [hasLoadedDiscoveredSshHosts, setHasLoadedDiscoveredSshHosts] =
-    useState(false);
-  const [isLoadingDiscoveredSshHosts, setIsLoadingDiscoveredSshHosts] =
-    useState(false);
-  const [discoveredSshHostsError, setDiscoveredSshHostsError] = useState<
-    string | null
-  >(null);
-  const [connectingSshHostAlias, setConnectingSshHostAlias] = useState<
-    string | null
-  >(null);
+  const [hasLoadedDiscoveredSshHosts, setHasLoadedDiscoveredSshHosts] = useState(false);
+  const [isLoadingDiscoveredSshHosts, setIsLoadingDiscoveredSshHosts] = useState(false);
+  const [discoveredSshHostsError, setDiscoveredSshHostsError] = useState<string | null>(null);
+  const [connectingSshHostAlias, setConnectingSshHostAlias] = useState<string | null>(null);
 
   const [desktopServerExposureState, setDesktopServerExposureState] =
     useState<DesktopServerExposureState | null>(null);
   const [desktopAdvertisedEndpoints, setDesktopAdvertisedEndpoints] = useState<
     ReadonlyArray<AdvertisedEndpoint>
   >([]);
-  const [desktopServerExposureError, setDesktopServerExposureError] = useState<
-    string | null
-  >(null);
+  const [desktopServerExposureError, setDesktopServerExposureError] = useState<string | null>(null);
   const [desktopPairingLinks, setDesktopPairingLinks] = useState<
     ReadonlyArray<ServerPairingLinkRecord>
   >([]);
   const [desktopClientSessions, setDesktopClientSessions] = useState<
     ReadonlyArray<ServerClientSessionRecord>
   >([]);
-  const [desktopAccessManagementError, setDesktopAccessManagementError] =
-    useState<string | null>(null);
-  const [
-    isLoadingDesktopAccessManagement,
-    setIsLoadingDesktopAccessManagement,
-  ] = useState(false);
-  const [revokingDesktopPairingLinkId, setRevokingDesktopPairingLinkId] =
-    useState<string | null>(null);
-  const [revokingDesktopClientSessionId, setRevokingDesktopClientSessionId] =
-    useState<string | null>(null);
-  const [isRevokingOtherDesktopClients, setIsRevokingOtherDesktopClients] =
-    useState(false);
+  const [desktopAccessManagementError, setDesktopAccessManagementError] = useState<string | null>(
+    null,
+  );
+  const [isLoadingDesktopAccessManagement, setIsLoadingDesktopAccessManagement] = useState(false);
+  const [revokingDesktopPairingLinkId, setRevokingDesktopPairingLinkId] = useState<string | null>(
+    null,
+  );
+  const [revokingDesktopClientSessionId, setRevokingDesktopClientSessionId] = useState<
+    string | null
+  >(null);
+  const [isRevokingOtherDesktopClients, setIsRevokingOtherDesktopClients] = useState(false);
   const [addBackendDialogOpen, setAddBackendDialogOpen] = useState(false);
-  const [savedBackendMode, setSavedBackendMode] = useState<
-    "pairing-url" | "host-code" | "ssh"
-  >("pairing-url");
+  const [savedBackendMode, setSavedBackendMode] = useState<"pairing-url" | "host-code" | "ssh">(
+    "pairing-url",
+  );
   const [savedBackendLabel, setSavedBackendLabel] = useState("");
   const [savedBackendPairingUrl, setSavedBackendPairingUrl] = useState("");
   const [savedBackendHost, setSavedBackendHost] = useState("");
@@ -1431,37 +1259,24 @@ export function ConnectionsSettings() {
   const [savedBackendSshHost, setSavedBackendSshHost] = useState("");
   const [savedBackendSshUsername, setSavedBackendSshUsername] = useState("");
   const [savedBackendSshPort, setSavedBackendSshPort] = useState("");
-  const [savedBackendError, setSavedBackendError] = useState<string | null>(
-    null,
-  );
+  const [savedBackendError, setSavedBackendError] = useState<string | null>(null);
   const [isAddingSavedBackend, setIsAddingSavedBackend] = useState(false);
   const [reconnectingSavedEnvironmentId, setReconnectingSavedEnvironmentId] =
     useState<EnvironmentId | null>(null);
   const [removingSavedEnvironmentId, setRemovingSavedEnvironmentId] =
     useState<EnvironmentId | null>(null);
-  const [isUpdatingDesktopServerExposure, setIsUpdatingDesktopServerExposure] =
-    useState(false);
-  const [isUpdatingTailscaleServe, setIsUpdatingTailscaleServe] =
-    useState(false);
+  const [isUpdatingDesktopServerExposure, setIsUpdatingDesktopServerExposure] = useState(false);
+  const [isUpdatingTailscaleServe, setIsUpdatingTailscaleServe] = useState(false);
   const [pendingTailscaleServeEndpoint, setPendingTailscaleServeEndpoint] =
     useState<AdvertisedEndpoint | null>(null);
-  const [disableTailscaleServeDialogOpen, setDisableTailscaleServeDialogOpen] =
-    useState(false);
-  const [
-    pendingDisableTailscaleServeEndpoint,
-    setPendingDisableTailscaleServeEndpoint,
-  ] = useState<AdvertisedEndpoint | null>(null);
+  const [disableTailscaleServeDialogOpen, setDisableTailscaleServeDialogOpen] = useState(false);
   const [tailscaleServePortInput, setTailscaleServePortInput] = useState(
     String(DEFAULT_TAILSCALE_SERVE_PORT),
   );
-  const [
-    pendingDesktopServerExposureMode,
-    setPendingDesktopServerExposureMode,
-  ] = useState<DesktopServerExposureState["mode"] | null>(null);
-  const [
-    isAdvertisedEndpointListExpanded,
-    setIsAdvertisedEndpointListExpanded,
-  ] = useState(false);
+  const [pendingDesktopServerExposureMode, setPendingDesktopServerExposureMode] = useState<
+    DesktopServerExposureState["mode"] | null
+  >(null);
+  const [isAdvertisedEndpointListExpanded, setIsAdvertisedEndpointListExpanded] = useState(false);
   const defaultAdvertisedEndpointKey = useUiStateStore(
     (state) => state.defaultAdvertisedEndpointKey,
   );
@@ -1482,8 +1297,7 @@ export function ConnectionsSettings() {
 
   const pendingTailscaleServeBaseUrl = useMemo(() => {
     if (!pendingTailscaleServeEndpoint) return null;
-    if (!isTailscaleServePortValid)
-      return pendingTailscaleServeEndpoint.httpBaseUrl;
+    if (!isTailscaleServePortValid) return pendingTailscaleServeEndpoint.httpBaseUrl;
     if (parsedTailscaleServePort === DEFAULT_TAILSCALE_SERVE_PORT) {
       return pendingTailscaleServeEndpoint.httpBaseUrl;
     }
@@ -1494,11 +1308,7 @@ export function ConnectionsSettings() {
     } catch {
       return pendingTailscaleServeEndpoint.httpBaseUrl;
     }
-  }, [
-    isTailscaleServePortValid,
-    parsedTailscaleServePort,
-    pendingTailscaleServeEndpoint,
-  ]);
+  }, [isTailscaleServePortValid, parsedTailscaleServePort, pendingTailscaleServeEndpoint]);
 
   const handleDesktopServerExposureChange = useCallback(
     async (checked: boolean) => {
@@ -1514,9 +1324,7 @@ export function ConnectionsSettings() {
         setIsUpdatingDesktopServerExposure(false);
       } catch (error) {
         const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to update network exposure.";
+          error instanceof Error ? error.message : "Failed to update network exposure.";
         setPendingDesktopServerExposureMode(null);
         setDesktopServerExposureError(message);
         toastManager.add(
@@ -1552,9 +1360,7 @@ export function ConnectionsSettings() {
       setPendingTailscaleServeEndpoint(null);
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to configure Tailscale HTTPS.";
+        error instanceof Error ? error.message : "Failed to configure Tailscale HTTPS.";
       setDesktopServerExposureError(message);
       toastManager.add(
         stackedThreadToast({
@@ -1571,10 +1377,7 @@ export function ConnectionsSettings() {
   const handleStartTailscaleServeSetup = useCallback(
     (endpoint: AdvertisedEndpoint) => {
       setTailscaleServePortInput(
-        String(
-          desktopServerExposureState?.tailscaleServePort ??
-            DEFAULT_TAILSCALE_SERVE_PORT,
-        ),
+        String(desktopServerExposureState?.tailscaleServePort ?? DEFAULT_TAILSCALE_SERVE_PORT),
       );
       setPendingTailscaleServeEndpoint(endpoint);
     },
@@ -1588,17 +1391,12 @@ export function ConnectionsSettings() {
     try {
       const nextState = await desktopBridge.setTailscaleServeEnabled({
         enabled: false,
-        port:
-          desktopServerExposureState?.tailscaleServePort ??
-          DEFAULT_TAILSCALE_SERVE_PORT,
+        port: desktopServerExposureState?.tailscaleServePort ?? DEFAULT_TAILSCALE_SERVE_PORT,
       });
       setDesktopServerExposureState(nextState);
       setDisableTailscaleServeDialogOpen(false);
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to disable Tailscale HTTPS.";
+      const message = error instanceof Error ? error.message : "Failed to disable Tailscale HTTPS.";
       setDesktopServerExposureError(message);
       toastManager.add(
         stackedThreadToast({
@@ -1612,13 +1410,9 @@ export function ConnectionsSettings() {
     }
   }, [desktopBridge, desktopServerExposureState?.tailscaleServePort]);
 
-  const handleStartTailscaleServeDisable = useCallback(
-    (endpoint: AdvertisedEndpoint) => {
-      setPendingDisableTailscaleServeEndpoint(endpoint);
-      setDisableTailscaleServeDialogOpen(true);
-    },
-    [],
-  );
+  const handleStartTailscaleServeDisable = useCallback((_endpoint: AdvertisedEndpoint) => {
+    setDisableTailscaleServeDialogOpen(true);
+  }, []);
 
   const handleRevokeDesktopPairingLink = useCallback(async (id: string) => {
     setRevokingDesktopPairingLinkId(id);
@@ -1626,10 +1420,7 @@ export function ConnectionsSettings() {
     try {
       await revokeServerPairingLink(id);
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to revoke pairing link.";
+      const message = error instanceof Error ? error.message : "Failed to revoke pairing link.";
       setDesktopAccessManagementError(message);
       toastManager.add(
         stackedThreadToast({
@@ -1650,10 +1441,7 @@ export function ConnectionsSettings() {
       try {
         await revokeServerClientSession(sessionId);
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to revoke client access.";
+        const message = error instanceof Error ? error.message : "Failed to revoke client access.";
         setDesktopAccessManagementError(message);
         toastManager.add(
           stackedThreadToast({
@@ -1676,18 +1464,11 @@ export function ConnectionsSettings() {
       const revokedCount = await revokeOtherServerClientSessions();
       toastManager.add({
         type: "success",
-        title:
-          revokedCount === 1
-            ? "Revoked 1 other client"
-            : `Revoked ${revokedCount} clients`,
-        description:
-          "Other paired clients will need a new pairing link before reconnecting.",
+        title: revokedCount === 1 ? "Revoked 1 other client" : `Revoked ${revokedCount} clients`,
+        description: "Other paired clients will need a new pairing link before reconnecting.",
       });
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to revoke other clients.";
+      const message = error instanceof Error ? error.message : "Failed to revoke other clients.";
       setDesktopAccessManagementError(message);
       toastManager.add(
         stackedThreadToast({
@@ -1729,10 +1510,7 @@ export function ConnectionsSettings() {
           description: `${record.label} is ready over an SSH-managed tunnel.`,
         });
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to connect SSH host.";
+        const message = error instanceof Error ? error.message : "Failed to connect SSH host.";
 
         setSavedBackendError(message);
         toastManager.add({
@@ -1772,8 +1550,7 @@ export function ConnectionsSettings() {
         description: `${record.label} is now saved and will reconnect on app startup.`,
       });
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to add backend.";
+      const message = error instanceof Error ? error.message : "Failed to add backend.";
       setSavedBackendError(message);
       toastManager.add(
         stackedThreadToast({
@@ -1796,55 +1573,45 @@ export function ConnectionsSettings() {
     savedBackendSshUsername,
   ]);
 
-  const handleReconnectSavedBackend = useCallback(
-    async (environmentId: EnvironmentId) => {
-      setReconnectingSavedEnvironmentId(environmentId);
-      setSavedBackendError(null);
-      try {
-        await reconnectSavedEnvironment(environmentId);
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to reconnect backend.";
-        setSavedBackendError(message);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not reconnect backend",
-            description: message,
-          }),
-        );
-      } finally {
-        setReconnectingSavedEnvironmentId(null);
-      }
-    },
-    [],
-  );
+  const handleReconnectSavedBackend = useCallback(async (environmentId: EnvironmentId) => {
+    setReconnectingSavedEnvironmentId(environmentId);
+    setSavedBackendError(null);
+    try {
+      await reconnectSavedEnvironment(environmentId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to reconnect backend.";
+      setSavedBackendError(message);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not reconnect backend",
+          description: message,
+        }),
+      );
+    } finally {
+      setReconnectingSavedEnvironmentId(null);
+    }
+  }, []);
 
-  const handleRemoveSavedBackend = useCallback(
-    async (environmentId: EnvironmentId) => {
-      setRemovingSavedEnvironmentId(environmentId);
-      setSavedBackendError(null);
-      try {
-        await removeSavedEnvironment(environmentId);
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Failed to remove backend.";
-        setSavedBackendError(message);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not remove backend",
-            description: message,
-          }),
-        );
-      } finally {
-        setRemovingSavedEnvironmentId(null);
-      }
-    },
-    [],
-  );
+  const handleRemoveSavedBackend = useCallback(async (environmentId: EnvironmentId) => {
+    setRemovingSavedEnvironmentId(environmentId);
+    setSavedBackendError(null);
+    try {
+      await removeSavedEnvironment(environmentId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to remove backend.";
+      setSavedBackendError(message);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not remove backend",
+          description: message,
+        }),
+      );
+    } finally {
+      setRemovingSavedEnvironmentId(null);
+    }
+  }, []);
 
   const loadDiscoveredSshHosts = useCallback(async () => {
     if (!desktopBridge) {
@@ -1861,10 +1628,7 @@ export function ConnectionsSettings() {
       setDiscoveredSshHosts(hosts);
       setHasLoadedDiscoveredSshHosts(true);
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to discover SSH hosts.";
+      const message = error instanceof Error ? error.message : "Failed to discover SSH hosts.";
       setDiscoveredSshHostsError(message);
       setHasLoadedDiscoveredSshHosts(true);
     } finally {
@@ -1898,10 +1662,7 @@ export function ConnectionsSettings() {
           description: `${record.label} is ready over an SSH-managed tunnel.`,
         });
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to connect SSH host.";
+        const message = error instanceof Error ? error.message : "Failed to connect SSH host.";
         if (savedBackendMode === "ssh") {
           setSavedBackendError(message);
         } else {
@@ -1946,9 +1707,7 @@ export function ConnectionsSettings() {
     void fetchSessionState()
       .then((session) => {
         if (cancelled) return;
-        setCurrentSessionRole(
-          session.authenticated ? (session.role ?? null) : null,
-        );
+        setCurrentSessionRole(session.authenticated ? (session.role ?? null) : null);
         setCurrentAuthPolicy(session.auth.policy);
       })
       .catch(() => {
@@ -1981,27 +1740,22 @@ export function ConnectionsSettings() {
             case "snapshot":
               setDesktopPairingLinks(
                 sortDesktopPairingLinks(
-                  event.payload.pairingLinks.map(
-                    (pairingLink: AuthPairingLink) =>
-                      toDesktopPairingLinkRecord(pairingLink),
+                  event.payload.pairingLinks.map((pairingLink: AuthPairingLink) =>
+                    toDesktopPairingLinkRecord(pairingLink),
                   ),
                 ),
               );
               setDesktopClientSessions(
                 sortDesktopClientSessions(
-                  event.payload.clientSessions.map(
-                    (clientSession: AuthClientSession) =>
-                      toDesktopClientSessionRecord(clientSession),
+                  event.payload.clientSessions.map((clientSession: AuthClientSession) =>
+                    toDesktopClientSessionRecord(clientSession),
                   ),
                 ),
               );
               break;
             case "pairingLinkUpserted":
               setDesktopPairingLinks((current) =>
-                upsertDesktopPairingLink(
-                  current,
-                  toDesktopPairingLinkRecord(event.payload),
-                ),
+                upsertDesktopPairingLink(current, toDesktopPairingLinkRecord(event.payload)),
               );
               break;
             case "pairingLinkRemoved":
@@ -2011,10 +1765,7 @@ export function ConnectionsSettings() {
               break;
             case "clientUpserted":
               setDesktopClientSessions((current) =>
-                upsertDesktopClientSession(
-                  current,
-                  toDesktopClientSessionRecord(event.payload),
-                ),
+                upsertDesktopClientSession(current, toDesktopClientSessionRecord(event.payload)),
               );
               break;
             case "clientRemoved":
@@ -2045,9 +1796,7 @@ export function ConnectionsSettings() {
         .catch((error: unknown) => {
           if (cancelled) return;
           const message =
-            error instanceof Error
-              ? error.message
-              : "Failed to load network exposure state.";
+            error instanceof Error ? error.message : "Failed to load network exposure state.";
           setDesktopServerExposureError(message);
         });
       void desktopBridge
@@ -2059,9 +1808,7 @@ export function ConnectionsSettings() {
         .catch((error: unknown) => {
           if (cancelled) return;
           const message =
-            error instanceof Error
-              ? error.message
-              : "Failed to load reachable endpoints.";
+            error instanceof Error ? error.message : "Failed to load reachable endpoints.";
           setDesktopServerExposureError(message);
         });
     } else {
@@ -2087,10 +1834,7 @@ export function ConnectionsSettings() {
     setDesktopServerExposureError(null);
   }, [canManageLocalBackend]);
   const visibleDesktopPairingLinks = useMemo(
-    () =>
-      desktopPairingLinks.filter(
-        (pairingLink) => pairingLink.role === "client",
-      ),
+    () => desktopPairingLinks.filter((pairingLink) => pairingLink.role === "client"),
     [desktopPairingLinks],
   );
   const tailscaleHttpsEndpoint = useMemo(
@@ -2100,9 +1844,7 @@ export function ConnectionsSettings() {
   const visibleDesktopNetworkAdvertisedEndpoints = useMemo(
     () =>
       isLocalBackendNetworkAccessible
-        ? desktopAdvertisedEndpoints.filter(
-            (endpoint) => !isTailscaleHttpsEndpoint(endpoint),
-          )
+        ? desktopAdvertisedEndpoints.filter((endpoint) => !isTailscaleHttpsEndpoint(endpoint))
         : [],
     [desktopAdvertisedEndpoints, isLocalBackendNetworkAccessible],
   );
@@ -2114,14 +1856,10 @@ export function ConnectionsSettings() {
     [tailscaleHttpsEndpoint, visibleDesktopNetworkAdvertisedEndpoints],
   );
   const isLocalBackendRemotelyReachable =
-    isLocalBackendNetworkAccessible ||
-    tailscaleHttpsEndpoint?.status === "available";
+    isLocalBackendNetworkAccessible || tailscaleHttpsEndpoint?.status === "available";
   const defaultDesktopNetworkAdvertisedEndpoint = useMemo(
     () =>
-      selectPairingEndpoint(
-        visibleDesktopNetworkAdvertisedEndpoints,
-        defaultAdvertisedEndpointKey,
-      ),
+      selectPairingEndpoint(visibleDesktopNetworkAdvertisedEndpoints, defaultAdvertisedEndpointKey),
     [defaultAdvertisedEndpointKey, visibleDesktopNetworkAdvertisedEndpoints],
   );
   const defaultDesktopAdvertisedEndpoint = useMemo(
@@ -2131,11 +1869,7 @@ export function ConnectionsSettings() {
         tailscaleHttpsEndpoint ? [tailscaleHttpsEndpoint] : [],
         defaultAdvertisedEndpointKey,
       ),
-    [
-      defaultAdvertisedEndpointKey,
-      defaultDesktopNetworkAdvertisedEndpoint,
-      tailscaleHttpsEndpoint,
-    ],
+    [defaultAdvertisedEndpointKey, defaultDesktopNetworkAdvertisedEndpoint, tailscaleHttpsEndpoint],
   );
   const defaultDesktopAdvertisedEndpointKey = defaultDesktopAdvertisedEndpoint
     ? endpointDefaultPreferenceKey(defaultDesktopAdvertisedEndpoint)
@@ -2165,9 +1899,7 @@ export function ConnectionsSettings() {
                         )}
                         expanded={isAdvertisedEndpointListExpanded}
                         onToggleExpanded={() =>
-                          setIsAdvertisedEndpointListExpanded(
-                            (expanded) => !expanded,
-                          )
+                          setIsAdvertisedEndpointListExpanded((expanded) => !expanded)
                         }
                         fallback={
                           desktopServerExposureState?.endpointUrl
@@ -2185,9 +1917,7 @@ export function ConnectionsSettings() {
                   }
                   status={
                     desktopServerExposureError ? (
-                      <span className="block text-destructive">
-                        {desktopServerExposureError}
-                      </span>
+                      <span className="block text-destructive">{desktopServerExposureError}</span>
                     ) : null
                   }
                   control={
@@ -2199,14 +1929,8 @@ export function ConnectionsSettings() {
                       }}
                     >
                       <Switch
-                        checked={
-                          desktopServerExposureState?.mode ===
-                          "network-accessible"
-                        }
-                        disabled={
-                          !desktopServerExposureState ||
-                          isUpdatingDesktopServerExposure
-                        }
+                        checked={desktopServerExposureState?.mode === "network-accessible"}
+                        disabled={!desktopServerExposureState || isUpdatingDesktopServerExposure}
                         onCheckedChange={(checked) => {
                           setPendingDesktopServerExposureMode(
                             checked ? "network-accessible" : "local-only",
@@ -2217,14 +1941,12 @@ export function ConnectionsSettings() {
                       <AlertDialogPopup>
                         <AlertDialogHeader>
                           <AlertDialogTitle>
-                            {pendingDesktopServerExposureMode ===
-                            "network-accessible"
+                            {pendingDesktopServerExposureMode === "network-accessible"
                               ? "Enable network access?"
                               : "Disable network access?"}
                           </AlertDialogTitle>
                           <AlertDialogDescription>
-                            {pendingDesktopServerExposureMode ===
-                            "network-accessible"
+                            {pendingDesktopServerExposureMode === "network-accessible"
                               ? "T3 Code will restart to expose this environment over the network."
                               : "T3 Code will restart and limit this environment back to this machine."}
                           </AlertDialogDescription>
@@ -2258,8 +1980,7 @@ export function ConnectionsSettings() {
                                 <Spinner className="size-3.5" />
                                 Restarting…
                               </>
-                            ) : pendingDesktopServerExposureMode ===
-                              "network-accessible" ? (
+                            ) : pendingDesktopServerExposureMode === "network-accessible" ? (
                               "Restart and enable"
                             ) : (
                               "Restart and disable"
@@ -2272,20 +1993,15 @@ export function ConnectionsSettings() {
                 />
                 {isAdvertisedEndpointListExpanded
                   ? visibleDesktopNetworkAdvertisedEndpoints.map((endpoint) => {
-                      const endpointKey =
-                        endpointDefaultPreferenceKey(endpoint);
+                      const endpointKey = endpointDefaultPreferenceKey(endpoint);
                       return (
                         <AdvertisedEndpointListRow
                           key={endpoint.id}
                           endpoint={endpoint}
-                          isDefault={
-                            endpointKey === defaultDesktopAdvertisedEndpointKey
-                          }
+                          isDefault={endpointKey === defaultDesktopAdvertisedEndpointKey}
                           onSetDefault={handleSetDefaultAdvertisedEndpoint}
                           onSetupTailscaleServe={handleStartTailscaleServeSetup}
-                          onDisableTailscaleServe={
-                            handleStartTailscaleServeDisable
-                          }
+                          onDisableTailscaleServe={handleStartTailscaleServeDisable}
                           isUpdatingTailscaleServe={isUpdatingTailscaleServe}
                         />
                       );
@@ -2307,14 +2023,10 @@ export function ConnectionsSettings() {
                         disabled={isUpdatingTailscaleServe}
                         onCheckedChange={(checked) => {
                           if (checked) {
-                            handleStartTailscaleServeSetup(
-                              tailscaleHttpsEndpoint,
-                            );
+                            handleStartTailscaleServeSetup(tailscaleHttpsEndpoint);
                             return;
                           }
-                          handleStartTailscaleServeDisable(
-                            tailscaleHttpsEndpoint,
-                          );
+                          handleStartTailscaleServeDisable(tailscaleHttpsEndpoint);
                         }}
                         aria-label="Enable Tailscale HTTPS"
                       />
@@ -2327,39 +2039,24 @@ export function ConnectionsSettings() {
                     if (isUpdatingTailscaleServe) return;
                     setDisableTailscaleServeDialogOpen(open);
                   }}
-                  onOpenChangeComplete={(open) => {
-                    if (!open) {
-                      setPendingDisableTailscaleServeEndpoint(null);
-                    }
-                  }}
                 >
                   <AlertDialogPopup>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        Disable Tailscale HTTPS?
-                      </AlertDialogTitle>
+                      <AlertDialogTitle>Disable Tailscale HTTPS?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        T3 Code will restart the local backend without Tailscale
-                        Serve.
+                        T3 Code will restart the local backend without Tailscale Serve.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogClose
                         disabled={isUpdatingTailscaleServe}
-                        render={
-                          <Button
-                            variant="outline"
-                            disabled={isUpdatingTailscaleServe}
-                          />
-                        }
+                        render={<Button variant="outline" disabled={isUpdatingTailscaleServe} />}
                       >
                         Cancel
                       </AlertDialogClose>
                       <Button
                         variant="destructive"
-                        onClick={() =>
-                          void handleConfirmTailscaleServeDisable()
-                        }
+                        onClick={() => void handleConfirmTailscaleServeDisable()}
                         disabled={isUpdatingTailscaleServe}
                       >
                         {isUpdatingTailscaleServe ? (
@@ -2385,16 +2082,13 @@ export function ConnectionsSettings() {
                     <DialogHeader>
                       <DialogTitle>Set up Tailscale HTTPS?</DialogTitle>
                       <DialogDescription>
-                        T3 Code will restart the local backend with Tailscale
-                        Serve enabled and ask Tailscale to proxy HTTPS traffic
-                        to this backend.
+                        T3 Code will restart the local backend with Tailscale Serve enabled and ask
+                        Tailscale to proxy HTTPS traffic to this backend.
                       </DialogDescription>
                     </DialogHeader>
                     <DialogPanel className="space-y-4">
                       <label className="block">
-                        <span className="text-sm font-medium text-foreground">
-                          HTTPS port
-                        </span>
+                        <span className="text-sm font-medium text-foreground">HTTPS port</span>
                         <Input
                           className="mt-2"
                           type="number"
@@ -2403,9 +2097,7 @@ export function ConnectionsSettings() {
                           max={65_535}
                           step={1}
                           value={tailscaleServePortInput}
-                          onChange={(event) =>
-                            setTailscaleServePortInput(event.target.value)
-                          }
+                          onChange={(event) => setTailscaleServePortInput(event.target.value)}
                           disabled={isUpdatingTailscaleServe}
                         />
                       </label>
@@ -2415,35 +2107,25 @@ export function ConnectionsSettings() {
                         </p>
                       ) : null}
                       <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2">
-                        <p className="text-xs font-medium text-muted-foreground">
-                          HTTPS endpoint
-                        </p>
+                        <p className="text-xs font-medium text-muted-foreground">HTTPS endpoint</p>
                         <p
                           className="mt-1 truncate text-sm text-foreground"
                           title={pendingTailscaleServeBaseUrl ?? undefined}
                         >
-                          {pendingTailscaleServeBaseUrl ??
-                            "Pending MagicDNS endpoint"}
+                          {pendingTailscaleServeBaseUrl ?? "Pending MagicDNS endpoint"}
                         </p>
                       </div>
                     </DialogPanel>
                     <DialogFooter>
                       <DialogClose
                         disabled={isUpdatingTailscaleServe}
-                        render={
-                          <Button
-                            variant="outline"
-                            disabled={isUpdatingTailscaleServe}
-                          />
-                        }
+                        render={<Button variant="outline" disabled={isUpdatingTailscaleServe} />}
                       >
                         Cancel
                       </DialogClose>
                       <Button
                         onClick={() => void handleConfirmTailscaleServeSetup()}
-                        disabled={
-                          isUpdatingTailscaleServe || !isTailscaleServePortValid
-                        }
+                        disabled={isUpdatingTailscaleServe || !isTailscaleServePortValid}
                       >
                         {isUpdatingTailscaleServe ? (
                           <>
@@ -2480,8 +2162,8 @@ export function ConnectionsSettings() {
                       }
                     />
                     <TooltipPopup side="top">
-                      Network exposure changes restart the backend and must be
-                      controlled where the server process is launched.
+                      Network exposure changes restart the backend and must be controlled where the
+                      server process is launched.
                     </TooltipPopup>
                   </Tooltip>
                 }
@@ -2502,9 +2184,7 @@ export function ConnectionsSettings() {
             >
               {desktopAccessManagementError ? (
                 <div className={ITEM_ROW_CLASSNAME}>
-                  <p className="text-xs text-destructive">
-                    {desktopAccessManagementError}
-                  </p>
+                  <p className="text-xs text-destructive">{desktopAccessManagementError}</p>
                 </div>
               ) : null}
               <PairingClientsList
@@ -2554,9 +2234,7 @@ export function ConnectionsSettings() {
             <DialogPopup className="max-h-[80dvh] sm:max-w-3xl">
               <DialogHeader>
                 <DialogTitle>Add Environment</DialogTitle>
-                <DialogDescription>
-                  Pair another environment to this client.
-                </DialogDescription>
+                <DialogDescription>Pair another environment to this client.</DialogDescription>
                 <div className="flex gap-1 rounded-lg border border-border/60 bg-muted/50 p-1">
                   <button
                     type="button"
@@ -2605,8 +2283,7 @@ export function ConnectionsSettings() {
                 <div className="space-y-4">
                   {savedBackendMode === "pairing-url" ? (
                     <p className="text-xs text-muted-foreground">
-                      Enter the full pairing URL from the environment you want
-                      to connect to.
+                      Enter the full pairing URL from the environment you want to connect to.
                     </p>
                   ) : savedBackendMode === "host-code" ? (
                     <p className="text-xs text-muted-foreground">
@@ -2614,9 +2291,8 @@ export function ConnectionsSettings() {
                     </p>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      Connect over SSH using an existing alias from{" "}
-                      <code>~/.ssh/config</code> or enter a host directly. T3
-                      uses your current SSH agent and config.
+                      Connect over SSH using an existing alias from <code>~/.ssh/config</code> or
+                      enter a host directly. T3 uses your current SSH agent and config.
                     </p>
                   )}
                   {savedBackendMode === "pairing-url" ? (
@@ -2627,9 +2303,7 @@ export function ConnectionsSettings() {
                         </span>
                         <Input
                           value={savedBackendLabel}
-                          onChange={(event) =>
-                            setSavedBackendLabel(event.target.value)
-                          }
+                          onChange={(event) => setSavedBackendLabel(event.target.value)}
                           placeholder="My backend (optional)"
                           disabled={isAddingSavedBackend}
                           spellCheck={false}
@@ -2641,9 +2315,7 @@ export function ConnectionsSettings() {
                         </span>
                         <Input
                           value={savedBackendPairingUrl}
-                          onChange={(event) =>
-                            setSavedBackendPairingUrl(event.target.value)
-                          }
+                          onChange={(event) => setSavedBackendPairingUrl(event.target.value)}
                           placeholder="https://backend.example.com/pair#token=..."
                           disabled={isAddingSavedBackend}
                           spellCheck={false}
@@ -2661,9 +2333,7 @@ export function ConnectionsSettings() {
                         </span>
                         <Input
                           value={savedBackendLabel}
-                          onChange={(event) =>
-                            setSavedBackendLabel(event.target.value)
-                          }
+                          onChange={(event) => setSavedBackendLabel(event.target.value)}
                           placeholder="My backend (optional)"
                           disabled={isAddingSavedBackend}
                           spellCheck={false}
@@ -2675,9 +2345,7 @@ export function ConnectionsSettings() {
                         </span>
                         <Input
                           value={savedBackendHost}
-                          onChange={(event) =>
-                            setSavedBackendHost(event.target.value)
-                          }
+                          onChange={(event) => setSavedBackendHost(event.target.value)}
                           placeholder="https://backend.example.com"
                           disabled={isAddingSavedBackend}
                           spellCheck={false}
@@ -2689,9 +2357,7 @@ export function ConnectionsSettings() {
                         </span>
                         <Input
                           value={savedBackendPairingCode}
-                          onChange={(event) =>
-                            setSavedBackendPairingCode(event.target.value)
-                          }
+                          onChange={(event) => setSavedBackendPairingCode(event.target.value)}
                           placeholder="Pairing code"
                           disabled={isAddingSavedBackend}
                           spellCheck={false}
@@ -2702,12 +2368,9 @@ export function ConnectionsSettings() {
                     <div className="space-y-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <h3 className="text-sm font-medium text-foreground">
-                            Discovered hosts
-                          </h3>
+                          <h3 className="text-sm font-medium text-foreground">Discovered hosts</h3>
                           <p className="text-xs text-muted-foreground">
-                            From <code>~/.ssh/config</code> and{" "}
-                            <code>known_hosts</code>.
+                            From <code>~/.ssh/config</code> and <code>known_hosts</code>.
                           </p>
                         </div>
                         <Button
@@ -2725,9 +2388,7 @@ export function ConnectionsSettings() {
                         </Button>
                       </div>
                       {discoveredSshHostsError ? (
-                        <p className="text-xs text-destructive">
-                          {discoveredSshHostsError}
-                        </p>
+                        <p className="text-xs text-destructive">{discoveredSshHostsError}</p>
                       ) : null}
                       <ScrollArea scrollFade className="max-h-64">
                         <div>
@@ -2735,15 +2396,9 @@ export function ConnectionsSettings() {
                             <DesktopSshHostRow
                               key={`${target.alias}:${target.hostname}:${target.port ?? ""}`}
                               target={target}
-                              savedRecord={
-                                savedDesktopSshEnvironmentsByAlias[
-                                  target.alias
-                                ] ?? null
-                              }
+                              savedRecord={savedDesktopSshEnvironmentsByAlias[target.alias] ?? null}
                               connectingHostAlias={connectingSshHostAlias}
-                              onConnect={(nextTarget) =>
-                                void handleConnectSshHost(nextTarget)
-                              }
+                              onConnect={(nextTarget) => void handleConnectSshHost(nextTarget)}
                             />
                           ))}
                           {hasLoadedDiscoveredSshHosts &&
@@ -2751,8 +2406,7 @@ export function ConnectionsSettings() {
                           discoveredSshHosts.length === 0 ? (
                             <div className={ITEM_ROW_CLASSNAME}>
                               <p className="text-xs text-muted-foreground">
-                                No SSH hosts were discovered from{" "}
-                                <code>~/.ssh/config</code> or{" "}
+                                No SSH hosts were discovered from <code>~/.ssh/config</code> or{" "}
                                 <code>known_hosts</code>.
                               </p>
                             </div>
@@ -2760,17 +2414,14 @@ export function ConnectionsSettings() {
                         </div>
                       </ScrollArea>
                       {savedBackendError ? (
-                        <p className="text-xs text-destructive">
-                          {savedBackendError}
-                        </p>
+                        <p className="text-xs text-destructive">{savedBackendError}</p>
                       ) : null}
                       <div className="border-t border-border/60 pt-4">
                         <h3 className="mb-1 text-sm font-medium text-foreground">
                           Enter a host manually
                         </h3>
                         <p className="mb-3 text-xs text-muted-foreground">
-                          Use an alias or enter host, username, and port
-                          directly.
+                          Use an alias or enter host, username, and port directly.
                         </p>
                         <div className="space-y-3">
                           <label className="block">
@@ -2779,9 +2430,7 @@ export function ConnectionsSettings() {
                             </span>
                             <Input
                               value={savedBackendLabel}
-                              onChange={(event) =>
-                                setSavedBackendLabel(event.target.value)
-                              }
+                              onChange={(event) => setSavedBackendLabel(event.target.value)}
                               placeholder="My backend (optional)"
                               disabled={isAddingSavedBackend}
                               spellCheck={false}
@@ -2793,9 +2442,7 @@ export function ConnectionsSettings() {
                             </span>
                             <Input
                               value={savedBackendSshHost}
-                              onChange={(event) =>
-                                setSavedBackendSshHost(event.target.value)
-                              }
+                              onChange={(event) => setSavedBackendSshHost(event.target.value)}
                               placeholder="devbox or devbox.example.com"
                               disabled={isAddingSavedBackend}
                               spellCheck={false}
@@ -2808,9 +2455,7 @@ export function ConnectionsSettings() {
                               </span>
                               <Input
                                 value={savedBackendSshUsername}
-                                onChange={(event) =>
-                                  setSavedBackendSshUsername(event.target.value)
-                                }
+                                onChange={(event) => setSavedBackendSshUsername(event.target.value)}
                                 placeholder="julius"
                                 disabled={isAddingSavedBackend}
                                 spellCheck={false}
@@ -2822,9 +2467,7 @@ export function ConnectionsSettings() {
                               </span>
                               <Input
                                 value={savedBackendSshPort}
-                                onChange={(event) =>
-                                  setSavedBackendSshPort(event.target.value)
-                                }
+                                onChange={(event) => setSavedBackendSshPort(event.target.value)}
                                 placeholder="22"
                                 inputMode="numeric"
                                 disabled={isAddingSavedBackend}
@@ -2833,9 +2476,9 @@ export function ConnectionsSettings() {
                             </label>
                           </div>
                           <span className="block text-[11px] text-muted-foreground">
-                            Uses your existing SSH keys, agent, and config.
-                            Password and keyboard-interactive prompts open
-                            through your system SSH dialog when needed.
+                            Uses your existing SSH keys, agent, and config. Password and
+                            keyboard-interactive prompts open through your system SSH dialog when
+                            needed.
                           </span>
                           <Button
                             variant="outline"
@@ -2844,18 +2487,14 @@ export function ConnectionsSettings() {
                             onClick={() => void handleAddSavedBackend()}
                           >
                             <PlusIcon className="size-3.5" />
-                            {isAddingSavedBackend
-                              ? "Connecting…"
-                              : "Connect SSH host"}
+                            {isAddingSavedBackend ? "Connecting…" : "Connect SSH host"}
                           </Button>
                         </div>
                       </div>
                     </div>
                   )}
                   {savedBackendMode !== "ssh" && savedBackendError ? (
-                    <p className="text-xs text-destructive">
-                      {savedBackendError}
-                    </p>
+                    <p className="text-xs text-destructive">{savedBackendError}</p>
                   ) : null}
                   {savedBackendMode !== "ssh" ? (
                     <Button
@@ -2888,8 +2527,8 @@ export function ConnectionsSettings() {
         {savedEnvironmentIds.length === 0 ? (
           <div className={ITEM_ROW_CLASSNAME}>
             <p className="text-xs text-muted-foreground">
-              No remote environments yet. Click &ldquo;Add environment&rdquo; to
-              pair another environment.
+              No remote environments yet. Click &ldquo;Add environment&rdquo; to pair another
+              environment.
             </p>
           </div>
         ) : null}

@@ -166,6 +166,7 @@ export function HostedPairingRouteSurface() {
   const [status, setStatus] = useState<"pairing" | "paired" | "error">("pairing");
   const [message, setMessage] = useState("Connecting to this backend.");
   const submitAttemptedRef = useRef(false);
+  const tokenSubmittedRef = useRef(false);
 
   const submitHostedPairingRequest = useCallback(async () => {
     const request = hostedPairingRequestRef.current;
@@ -176,8 +177,15 @@ export function HostedPairingRouteSurface() {
       return;
     }
 
+    if (tokenSubmittedRef.current) {
+      setStatus("error");
+      setMessage("This one-time pairing token was already submitted. Request a new pairing link.");
+      return;
+    }
+
     setStatus("pairing");
     setMessage("Connecting to this backend.");
+    tokenSubmittedRef.current = true;
 
     try {
       const record = await addSavedEnvironment({
@@ -189,7 +197,9 @@ export function HostedPairingRouteSurface() {
       setMessage(`${record.label} is saved in this browser.`);
     } catch (error) {
       setStatus("error");
-      setMessage(errorMessageFromUnknown(error));
+      setMessage(
+        `${errorMessageFromUnknown(error)} Request a new pairing link before trying again.`,
+      );
     }
   }, []);
 
@@ -240,13 +250,15 @@ export function HostedPairingRouteSurface() {
         ) : null}
 
         <div className="mt-6 flex flex-wrap gap-2">
-          <Button
-            disabled={status === "pairing"}
-            size="sm"
-            onClick={() => void submitHostedPairingRequest()}
-          >
-            {status === "pairing" ? "Pairing..." : "Try again"}
-          </Button>
+          {status === "pairing" ? (
+            <Button disabled size="sm">
+              Pairing...
+            </Button>
+          ) : !tokenSubmittedRef.current ? (
+            <Button size="sm" onClick={() => void submitHostedPairingRequest()}>
+              Try again
+            </Button>
+          ) : null}
           {status === "paired" ? (
             <Button size="sm" variant="outline" onClick={() => (window.location.href = "/")}>
               Open app

@@ -45,7 +45,10 @@ export function setDesktopTailscaleServePreference(
   settings: DesktopSettings,
   input: { readonly enabled: boolean; readonly port?: number },
 ): DesktopSettings {
-  const port = normalizeTailscaleServePort(input.port);
+  const port =
+    input.port === undefined
+      ? settings.tailscaleServePort
+      : normalizeTailscaleServePort(input.port);
   return settings.tailscaleServeEnabled === input.enabled && settings.tailscaleServePort === port
     ? settings
     : {

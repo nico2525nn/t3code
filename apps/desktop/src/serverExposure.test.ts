@@ -101,7 +101,10 @@ describe("resolveDesktopCoreAdvertisedEndpoints", () => {
       resolveDesktopCoreAdvertisedEndpoints({
         port: 3773,
         exposure,
-        customHttpsEndpointUrls: ["https://desktop.example.ts.net"],
+        customHttpsEndpointUrls: [
+          "https://desktop.example.ts.net",
+          "http://desktop.example.test:3773",
+        ],
       }),
     ).toEqual([
       {
@@ -159,6 +162,26 @@ describe("resolveDesktopCoreAdvertisedEndpoints", () => {
         reachability: "public",
         compatibility: {
           hostedHttpsApp: "compatible",
+          desktopApp: "compatible",
+        },
+        source: "user",
+        status: "unknown",
+        description: "User-configured HTTPS endpoint for this desktop backend.",
+      },
+      {
+        id: "manual:http://desktop.example.test:3773",
+        label: "Custom HTTPS",
+        provider: {
+          id: "manual",
+          label: "Manual",
+          kind: "manual",
+          isAddon: false,
+        },
+        httpBaseUrl: "http://desktop.example.test:3773/",
+        wsBaseUrl: "ws://desktop.example.test:3773/",
+        reachability: "public",
+        compatibility: {
+          hostedHttpsApp: "mixed-content-blocked",
           desktopApp: "compatible",
         },
         source: "user",
