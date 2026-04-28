@@ -15,27 +15,28 @@ import type {
   DesktopSshPasswordPromptRequest,
   ExecutionEnvironmentDescriptor,
 } from "@t3tools/contracts";
+import { isSshAuthFailure, type SshPasswordRequest } from "@t3tools/ssh/auth";
 import {
-  DEFAULT_REMOTE_PORT,
   baseSshArgs,
   buildSshHostSpec,
-  collectSshConfigAliasesFromFile,
-  discoverSshHosts,
   getLastNonEmptyOutputLine,
-  isSshAuthFailure,
-  normalizeSshErrorMessage,
-  parseKnownHostsHostnames,
   parseSshResolveOutput,
   remoteStateKey,
   resolveRemoteT3CliPackageSpec,
-  resolveSshConfigIncludePattern,
   targetConnectionKey,
-} from "@t3tools/ssh";
+} from "@t3tools/ssh/command";
+import {
+  collectSshConfigAliasesFromFile,
+  discoverSshHosts,
+  parseKnownHostsHostnames,
+  resolveSshConfigIncludePattern,
+} from "@t3tools/ssh/config";
+import { DEFAULT_REMOTE_PORT, normalizeSshErrorMessage } from "@t3tools/ssh/tunnel";
 import { Effect } from "effect";
 
 import { waitForHttpReady } from "./backendReadiness.ts";
 
-export { resolveRemoteT3CliPackageSpec };
+export { resolveRemoteT3CliPackageSpec } from "@t3tools/ssh/command";
 
 const REMOTE_PORT_SCAN_WINDOW = 200;
 const SSH_ASKPASS_DIR_NAME = "t3code-ssh-askpass";
@@ -84,15 +85,8 @@ interface SshAuthOptions {
   readonly interactiveAuth?: boolean;
 }
 
-interface DesktopSshPasswordRequest {
-  readonly destination: string;
-  readonly username: string | null;
-  readonly prompt: string;
-  readonly attempt: number;
-}
-
 interface DesktopSshEnvironmentManagerOptions {
-  readonly passwordProvider?: (request: DesktopSshPasswordRequest) => Promise<string | null>;
+  readonly passwordProvider?: (request: SshPasswordRequest) => Promise<string | null>;
   readonly resolveCliPackageSpec?: () => string;
 }
 
@@ -1042,9 +1036,7 @@ export class DesktopSshEnvironmentBridge {
     await this.manager.dispose();
   }
 
-  private async requestPasswordFromRenderer(
-    input: DesktopSshPasswordRequest,
-  ): Promise<string | null> {
+  private async requestPasswordFromRenderer(input: SshPasswordRequest): Promise<string | null> {
     const window = this.options.getMainWindow();
     if (!window || window.isDestroyed()) {
       throw new Error("T3 Code window is not available for SSH authentication.");
