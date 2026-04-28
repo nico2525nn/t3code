@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const net = require("node:net");
-const filePath = process.argv[2];
+const filePath = process.argv[2] ?? "";
 const defaultPort = Number.parseInt(process.argv[3] ?? "", 10);
 const scanWindow = Number.parseInt(process.argv[4] ?? "", 10);
 const raw = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8").trim() : "";

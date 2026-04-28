@@ -5,9 +5,10 @@ import * as Path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { __test, discoverDesktopSshHosts } from "./sshEnvironment.ts";
+import { __test, DesktopSshEnvironmentManager, discoverDesktopSshHosts } from "./sshEnvironment.ts";
 
 const tempDirectories: string[] = [];
+type TunnelEntry = Parameters<typeof __test.stopTunnel>[0];
 
 afterEach(() => {
   for (const directory of tempDirectories.splice(0)) {
@@ -255,8 +256,15 @@ describe("sshEnvironment", () => {
         ),
       ),
     ).toBe(true);
+    expect(__test.isSshAuthFailure(new Error("Permission denied (publickey)."))).toBe(true);
     expect(__test.isSshAuthFailure(new Error("Connection timed out"))).toBe(false);
     expect(__test.isSshAuthFailure(new Error("mkdir: Permission denied"))).toBe(false);
+  });
+
+  it("allows the remote port picker to run without a state file path", () => {
+    expect(__test.readSshScriptTemplate("remote-pick-port.cjs")).toContain(
+      'const filePath = process.argv[2] ?? "";',
+    );
   });
 
   it("settles tunnel shutdown if the child exits before the exit listener attaches", async () => {
@@ -306,5 +314,61 @@ describe("sshEnvironment", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("waits for pending tunnel creation before disposing completed tunnels", async () => {
+    class ControlledChildProcess extends EventEmitter {
+      exitCode: number | null = null;
+      signalCode: NodeJS.Signals | null = null;
+      readonly killSignals: Array<NodeJS.Signals | undefined> = [];
+
+      kill(signal?: NodeJS.Signals | number): boolean {
+        this.killSignals.push(typeof signal === "string" ? signal : undefined);
+        this.signalCode = "SIGTERM";
+        this.emit("exit", null, this.signalCode);
+        return true;
+      }
+    }
+
+    let resolvePending!: (entry: TunnelEntry) => void;
+    const child = new ControlledChildProcess();
+    const entry: TunnelEntry = {
+      key: "devbox",
+      target: {
+        alias: "devbox",
+        hostname: "devbox.example.com",
+        username: "julius",
+        port: 22,
+      },
+      remotePort: 3773,
+      localPort: 3774,
+      httpBaseUrl: "http://127.0.0.1:3774/",
+      wsBaseUrl: "ws://127.0.0.1:3774/",
+      process: child as never,
+    };
+    const manager = new DesktopSshEnvironmentManager();
+    const internals = manager as unknown as {
+      pendingTunnelEntries: Map<string, Promise<TunnelEntry>>;
+      tunnels: Map<string, TunnelEntry>;
+    };
+    const pending = new Promise<TunnelEntry>((resolve) => {
+      resolvePending = resolve;
+    }).then((completedEntry) => {
+      internals.tunnels.set(completedEntry.key, completedEntry);
+      return completedEntry;
+    });
+    internals.pendingTunnelEntries.set(entry.key, pending);
+
+    const disposePromise = manager.dispose();
+    await Promise.resolve();
+
+    expect(child.killSignals).toEqual([]);
+
+    resolvePending(entry);
+    await disposePromise;
+
+    expect(child.killSignals).toEqual(["SIGTERM"]);
+    expect(internals.tunnels.size).toBe(0);
+    expect(internals.pendingTunnelEntries.size).toBe(0);
   });
 });

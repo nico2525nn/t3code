@@ -472,7 +472,7 @@ function isSshAuthFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
   return (
-    /permission denied \((?:publickey|password|keyboard-interactive|hostbased|gssapi-with-mic)[^)]+\)/u.test(
+    /permission denied \((?:publickey|password|keyboard-interactive|hostbased|gssapi-with-mic)[^)]*\)/u.test(
       normalized,
     ) ||
     /authentication failed/u.test(normalized) ||
@@ -1019,13 +1019,12 @@ export class DesktopSshEnvironmentManager {
             .then(() => resolve())
             .catch((error: unknown) => reject(error));
         });
-        this.tunnels.set(key, tunnelEntry);
         try {
           await tunnelReady;
+          this.tunnels.set(key, tunnelEntry);
           return tunnelEntry;
         } catch (error) {
           await stopTunnel(tunnelEntry).catch(() => undefined);
-          this.deleteTunnelIfCurrent(tunnelEntry);
           throw error;
         }
       });
@@ -1039,6 +1038,8 @@ export class DesktopSshEnvironmentManager {
   }
 
   async dispose(): Promise<void> {
+    const pending = [...this.pendingTunnelEntries.values()];
+    await Promise.allSettled(pending);
     const entries = [...this.tunnels.values()];
     this.tunnels.clear();
     this.pendingTunnelEntries.clear();
@@ -1372,6 +1373,7 @@ export const __test = {
   normalizeKnownHostsHostname,
   parseKnownHostsHostnames,
   parseSshResolveOutput,
+  readSshScriptTemplate,
   resolveSshConfigIncludePattern,
   stopTunnel,
 };
