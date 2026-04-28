@@ -104,6 +104,7 @@ describe("resolveDesktopCoreAdvertisedEndpoints", () => {
         customHttpsEndpointUrls: [
           "https://desktop.example.ts.net",
           "http://desktop.example.test:3773",
+          "not-a-url",
         ],
       }),
     ).toEqual([

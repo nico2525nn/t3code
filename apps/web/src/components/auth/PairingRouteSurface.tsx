@@ -196,9 +196,10 @@ export function HostedPairingRouteSurface() {
       setStatus("paired");
       setMessage(`${record.label} is saved in this browser.`);
     } catch (error) {
+      tokenSubmittedRef.current = false;
       setStatus("error");
       setMessage(
-        `${errorMessageFromUnknown(error)} Request a new pairing link before trying again.`,
+        `${errorMessageFromUnknown(error)} If the backend accepted this one-time token, request a new pairing link before retrying.`,
       );
     }
   }, []);

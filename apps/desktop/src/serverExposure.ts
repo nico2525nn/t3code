@@ -50,7 +50,11 @@ const isUsableLanIpv4Address = (address: string): boolean =>
   !address.startsWith("127.") && !address.startsWith("169.254.");
 
 function isHttpsEndpointUrl(value: string): boolean {
-  return new URL(value).protocol === "https:";
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 export function resolveLanAdvertisedHost(
@@ -160,19 +164,23 @@ export function resolveDesktopCoreAdvertisedEndpoints(
   }
 
   for (const customEndpointUrl of input.customHttpsEndpointUrls ?? []) {
-    endpoints.push(
-      createManualEndpoint({
-        id: `manual:${customEndpointUrl}`,
-        label: "Custom HTTPS",
-        httpBaseUrl: customEndpointUrl,
-        reachability: "public",
-        ...(isHttpsEndpointUrl(customEndpointUrl)
-          ? ({ hostedHttpsCompatibility: "compatible" } as const)
-          : {}),
-        status: "unknown",
-        description: "User-configured HTTPS endpoint for this desktop backend.",
-      }),
-    );
+    try {
+      endpoints.push(
+        createManualEndpoint({
+          id: `manual:${customEndpointUrl}`,
+          label: "Custom HTTPS",
+          httpBaseUrl: customEndpointUrl,
+          reachability: "public",
+          ...(isHttpsEndpointUrl(customEndpointUrl)
+            ? ({ hostedHttpsCompatibility: "compatible" } as const)
+            : {}),
+          status: "unknown",
+          description: "User-configured HTTPS endpoint for this desktop backend.",
+        }),
+      );
+    } catch {
+      // Ignore malformed user-configured endpoints without dropping valid endpoints.
+    }
   }
 
   return endpoints;
