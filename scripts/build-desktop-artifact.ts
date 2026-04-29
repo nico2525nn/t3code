@@ -63,6 +63,17 @@ const PLATFORM_CONFIG: Record<typeof BuildPlatform.Type, PlatformConfig> = {
   },
 };
 
+const MAC_APP_BUNDLE_ID = "com.t3tools.t3code";
+
+export const MAC_HELPER_BUNDLE_IDS = {
+  helperBundleId: `${MAC_APP_BUNDLE_ID}.helper`,
+  helperEHBundleId: `${MAC_APP_BUNDLE_ID}.helper.eh`,
+  helperGPUBundleId: `${MAC_APP_BUNDLE_ID}.helper.gpu`,
+  helperNPBundleId: `${MAC_APP_BUNDLE_ID}.helper.np`,
+  helperPluginBundleId: `${MAC_APP_BUNDLE_ID}.helper.plugin`,
+  helperRendererBundleId: `${MAC_APP_BUNDLE_ID}.helper.renderer`,
+} as const;
+
 interface BuildCliInput {
   readonly platform: Option.Option<typeof BuildPlatform.Type>;
   readonly target: Option.Option<string>;
@@ -558,7 +569,7 @@ export function resolveDesktopProductName(version: string): string {
     : (desktopPackageJson.productName ?? "T3 Code");
 }
 
-const createBuildConfig = Effect.fn("createBuildConfig")(function* (
+export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   platform: typeof BuildPlatform.Type,
   target: string,
   version: string,
@@ -567,7 +578,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   mockUpdateServerPort: number | undefined,
 ) {
   const buildConfig: Record<string, unknown> = {
-    appId: "com.t3tools.t3code",
+    appId: MAC_APP_BUNDLE_ID,
     productName: resolveDesktopProductName(version),
     artifactName: "T3-Code-${version}-${arch}.${ext}",
     directories: {
@@ -592,6 +603,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
       category: "public.app-category.developer-tools",
+      ...MAC_HELPER_BUNDLE_IDS,
     };
   }
 
