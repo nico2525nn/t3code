@@ -205,6 +205,50 @@ layer("GitHubCliLive", (it) => {
     }),
   );
 
+  it.effect("creates pull requests with the title passed as a single argv value", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockResolvedValueOnce({
+        stdout: "https://github.com/pingdotgg/codething-mvp/pull/42\n",
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+
+      yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        yield* gh.createPullRequest({
+          cwd: "/repo",
+          baseBranch: "main",
+          headSelector: "dev",
+          title: "Stabilize map selection, pricing badges, and camera handling",
+          bodyFile:
+            "C:\\Users\\leo20\\AppData\\Local\\Temp\\t3code-pr-body-38228-73481782-d57c-4b4d-ab5e-9906dc728b2b.md",
+        });
+      });
+
+      expect(mockedRunProcess).toHaveBeenCalledWith(
+        "gh",
+        [
+          "pr",
+          "create",
+          "--base",
+          "main",
+          "--head",
+          "dev",
+          "--title",
+          "Stabilize map selection, pricing badges, and camera handling",
+          "--body-file",
+          "C:\\Users\\leo20\\AppData\\Local\\Temp\\t3code-pr-body-38228-73481782-d57c-4b4d-ab5e-9906dc728b2b.md",
+        ],
+        expect.objectContaining({
+          cwd: "/repo",
+          shell: false,
+        }),
+      );
+    }),
+  );
+
   it.effect("surfaces a friendly error when the pull request is not found", () =>
     Effect.gen(function* () {
       mockedRunProcess.mockRejectedValueOnce(
