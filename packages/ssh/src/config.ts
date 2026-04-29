@@ -1,14 +1,10 @@
-import * as FS from "node:fs";
-import * as OS from "node:os";
-import * as Path from "node:path";
-
 import type { DesktopDiscoveredSshHost } from "@t3tools/contracts";
 
-import { Effect } from "effect";
+import { Effect, FileSystem, Path, PlatformError } from "effect";
 
 import { SshHostDiscoveryError } from "./errors.ts";
 
-const NO_HOSTS = [] as const;
+const NO_HOSTS: ReadonlyArray<string> = [] as const;
 
 function stripInlineComment(line: string): string {
   const hashIndex = line.indexOf("#");
@@ -23,20 +19,21 @@ function splitDirectiveArgs(value: string): ReadonlyArray<string> {
     .filter((entry) => entry.length > 0);
 }
 
-function expandHomePath(input: string, homeDir: string = OS.homedir()): string {
+function expandHomePath(input: string, homeDir: string): string {
   return input.replace(/^~(?=$|\/|\\)/u, homeDir);
 }
 
-export function resolveSshConfigIncludePattern(
+export const resolveSshConfigIncludePattern = Effect.fnUntraced(function* (
   includePattern: string,
   _directory: string,
-  homeDir: string = OS.homedir(),
-): string {
+  homeDir: string,
+) {
+  const path = yield* Path.Path;
   const expandedPattern = expandHomePath(includePattern, homeDir);
-  return Path.isAbsolute(expandedPattern)
+  return path.isAbsolute(expandedPattern)
     ? expandedPattern
-    : Path.resolve(Path.join(homeDir, ".ssh"), expandedPattern);
-}
+    : path.resolve(path.join(homeDir, ".ssh"), expandedPattern);
+});
 
 function hasSshPattern(value: string): boolean {
   return value.includes("*") || value.includes("?") || value.startsWith("!");
@@ -53,39 +50,54 @@ function globToRegExp(pattern: string): RegExp {
   );
 }
 
-function expandGlob(pattern: string): ReadonlyArray<string> {
+const expandGlob = Effect.fnUntraced(function* (pattern: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   if (!pattern.includes("*") && !pattern.includes("?")) {
-    return FS.existsSync(pattern) ? [pattern] : NO_HOSTS;
+    return (yield* fs.exists(pattern)) ? [pattern] : NO_HOSTS;
   }
 
-  const directory = Path.dirname(pattern);
-  const basePattern = Path.basename(pattern);
-  if (!FS.existsSync(directory)) {
+  const directory = path.dirname(pattern);
+  const basePattern = path.basename(pattern);
+  if (!(yield* fs.exists(directory))) {
     return NO_HOSTS;
   }
 
   const matcher = globToRegExp(basePattern);
-  return FS.readdirSync(directory)
-    .filter((entry) => matcher.test(entry))
-    .map((entry) => Path.join(directory, entry))
-    .filter((entry) => FS.existsSync(entry))
-    .toSorted((left, right) => left.localeCompare(right));
-}
+  const entries = yield* fs.readDirectory(directory);
+  const matchedPaths: string[] = [];
+  for (const entry of entries) {
+    if (!matcher.test(entry)) {
+      continue;
+    }
+    const entryPath = path.join(directory, entry);
+    if (yield* fs.exists(entryPath)) {
+      matchedPaths.push(entryPath);
+    }
+  }
+  return matchedPaths.toSorted((left, right) => left.localeCompare(right));
+});
 
-export function collectSshConfigAliasesFromFile(
+export const collectSshConfigAliasesFromFile = Effect.fnUntraced(function* (
   filePath: string,
   visited = new Set<string>(),
-  homeDir: string = OS.homedir(),
-): ReadonlyArray<string> {
-  const resolvedPath = Path.resolve(filePath);
-  if (visited.has(resolvedPath) || !FS.existsSync(resolvedPath)) {
+  homeDir: string,
+): Effect.fn.Return<
+  ReadonlyArray<string>,
+  PlatformError.PlatformError,
+  FileSystem.FileSystem | Path.Path
+> {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const resolvedPath = path.resolve(filePath);
+  if (visited.has(resolvedPath) || !(yield* fs.exists(resolvedPath))) {
     return NO_HOSTS;
   }
   visited.add(resolvedPath);
 
   const aliases = new Set<string>();
-  const directory = Path.dirname(resolvedPath);
-  const raw = FS.readFileSync(resolvedPath, "utf8");
+  const directory = path.dirname(resolvedPath);
+  const raw = yield* fs.readFileString(resolvedPath);
 
   for (const line of raw.split(/\r?\n/u)) {
     const stripped = stripInlineComment(line);
@@ -97,9 +109,19 @@ export function collectSshConfigAliasesFromFile(
     const normalizedDirective = directive.toLowerCase();
     if (normalizedDirective === "include") {
       for (const includePattern of rawArgs) {
-        const resolvedPattern = resolveSshConfigIncludePattern(includePattern, directory, homeDir);
-        for (const includedPath of expandGlob(resolvedPattern)) {
-          for (const alias of collectSshConfigAliasesFromFile(includedPath, visited, homeDir)) {
+        const resolvedPattern = yield* resolveSshConfigIncludePattern(
+          includePattern,
+          directory,
+          homeDir,
+        );
+        const includedPaths = yield* expandGlob(resolvedPattern);
+        for (const includedPath of includedPaths) {
+          const includedAliases = yield* collectSshConfigAliasesFromFile(
+            includedPath,
+            visited,
+            homeDir,
+          );
+          for (const alias of includedAliases) {
             aliases.add(alias);
           }
         }
@@ -120,7 +142,7 @@ export function collectSshConfigAliasesFromFile(
   }
 
   return [...aliases].toSorted((left, right) => left.localeCompare(right));
-}
+});
 
 function normalizeKnownHostsHostname(rawHost: string): string {
   const bracketMatch = /^\[([^\]]+)\]:(\d+)$/u.exec(rawHost);
@@ -166,59 +188,63 @@ export function parseKnownHostsHostnames(raw: string): ReadonlyArray<string> {
   return [...hostnames].toSorted((left, right) => left.localeCompare(right));
 }
 
-function readKnownHostsHostnames(filePath: string): ReadonlyArray<string> {
-  if (!FS.existsSync(filePath)) {
+const readKnownHostsHostnames = Effect.fnUntraced(function* (filePath: string) {
+  const fs = yield* FileSystem.FileSystem;
+  if (!(yield* fs.exists(filePath))) {
     return NO_HOSTS;
   }
+  return parseKnownHostsHostnames(yield* fs.readFileString(filePath));
+});
 
-  return parseKnownHostsHostnames(FS.readFileSync(filePath, "utf8"));
-}
+export const discoverSshHosts = Effect.fnUntraced(
+  function* (input: { readonly homeDir?: string }) {
+    const path = yield* Path.Path;
+    const homeDir = input?.homeDir ?? process.env.HOME ?? process.env.USERPROFILE ?? "";
+    if (homeDir.trim().length === 0) {
+      return [];
+    }
 
-export const discoverSshHosts = (input?: {
-  readonly homeDir?: string;
-}): Effect.Effect<readonly DesktopDiscoveredSshHost[], SshHostDiscoveryError> =>
-  Effect.try({
-    try: () => {
-      const homeDir = input?.homeDir ?? OS.homedir();
-      const sshDirectory = Path.join(homeDir, ".ssh");
-      const configAliases = collectSshConfigAliasesFromFile(
-        Path.join(sshDirectory, "config"),
-        new Set<string>(),
-        homeDir,
-      );
-      const knownHosts = readKnownHostsHostnames(Path.join(sshDirectory, "known_hosts"));
-      const discovered = new Map<string, DesktopDiscoveredSshHost>();
+    const sshDirectory = path.join(homeDir, ".ssh");
+    const configAliases = yield* collectSshConfigAliasesFromFile(
+      path.join(sshDirectory, "config"),
+      new Set<string>(),
+      homeDir,
+    );
+    const knownHosts = yield* readKnownHostsHostnames(path.join(sshDirectory, "known_hosts"));
+    const discovered = new Map<string, DesktopDiscoveredSshHost>();
 
-      for (const alias of configAliases) {
-        discovered.set(alias, {
-          alias,
-          hostname: alias,
-          username: null,
-          port: null,
-          source: "ssh-config",
-        });
+    for (const alias of configAliases) {
+      discovered.set(alias, {
+        alias,
+        hostname: alias,
+        username: null,
+        port: null,
+        source: "ssh-config",
+      });
+    }
+
+    for (const hostname of knownHosts) {
+      if (discovered.has(hostname)) {
+        continue;
       }
+      discovered.set(hostname, {
+        alias: hostname,
+        hostname,
+        username: null,
+        port: null,
+        source: "known-hosts",
+      });
+    }
 
-      for (const hostname of knownHosts) {
-        if (discovered.has(hostname)) {
-          continue;
-        }
-        discovered.set(hostname, {
-          alias: hostname,
-          hostname,
-          username: null,
-          port: null,
-          source: "known-hosts",
-        });
-      }
-
-      return [...discovered.values()].toSorted((left, right) =>
-        left.alias.localeCompare(right.alias),
-      );
-    },
-    catch: (cause) =>
+    return [...discovered.values()].toSorted((left, right) =>
+      left.alias.localeCompare(right.alias),
+    );
+  },
+  Effect.mapError(
+    (cause) =>
       new SshHostDiscoveryError({
         message: "Failed to discover SSH hosts.",
         cause,
       }),
-  });
+  ),
+);

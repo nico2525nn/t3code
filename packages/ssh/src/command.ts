@@ -1,8 +1,26 @@
 import * as Crypto from "node:crypto";
 
 import type { DesktopSshEnvironmentTarget, DesktopUpdateChannel } from "@t3tools/contracts";
+import { Effect, FileSystem, Path, Scope, Stream } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+
+import { buildSshChildEnvironment, type SshAuthOptions } from "./auth.ts";
+import { SshCommandError, SshInvalidTargetError } from "./errors.ts";
 
 const PUBLISHABLE_T3_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
+
+const encoder = new TextEncoder();
+
+export interface SshCommandResult {
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+export interface RunSshCommandOptions extends SshAuthOptions {
+  readonly preHostArgs?: ReadonlyArray<string>;
+  readonly remoteCommandArgs?: ReadonlyArray<string>;
+  readonly stdin?: string;
+}
 
 export function parseSshResolveOutput(alias: string, stdout: string): DesktopSshEnvironmentTarget {
   const values = new Map<string, string>();
@@ -47,6 +65,17 @@ export function buildSshHostSpec(target: DesktopSshEnvironmentTarget): string {
   return target.username ? `${target.username}@${destination}` : destination;
 }
 
+export const buildSshHostSpecEffect = (
+  target: DesktopSshEnvironmentTarget,
+): Effect.Effect<string, SshInvalidTargetError> =>
+  Effect.try({
+    try: () => buildSshHostSpec(target),
+    catch: (cause) =>
+      new SshInvalidTargetError({
+        message: cause instanceof Error ? cause.message : "SSH target is invalid.",
+      }),
+  });
+
 export function baseSshArgs(
   target: DesktopSshEnvironmentTarget,
   input?: { readonly batchMode?: "yes" | "no" },
@@ -69,6 +98,170 @@ export function getLastNonEmptyOutputLine(stdout: string): string | null {
       .findLast((entry) => entry.length > 0) ?? null
   );
 }
+
+export const collectProcessOutput = <E>(
+  stream: Stream.Stream<Uint8Array, E>,
+): Effect.Effect<string, E> =>
+  stream.pipe(
+    Stream.decodeText(),
+    Stream.runFold(
+      () => "",
+      (acc, chunk) => acc + chunk,
+    ),
+  );
+
+function normalizeSshErrorMessage(stderr: string, fallbackMessage: string): string {
+  const cleaned = stderr.trim();
+  return cleaned.length > 0 ? cleaned : fallbackMessage;
+}
+
+function stdinStream(input: string | undefined) {
+  return input === undefined ? Stream.empty : Stream.make(encoder.encode(input));
+}
+
+const runSshCommandInScope = Effect.fn("ssh/command.runSshCommand.inScope")(function* (
+  target: DesktopSshEnvironmentTarget,
+  input: RunSshCommandOptions,
+  commandScope: Scope.Scope,
+): Effect.fn.Return<
+  SshCommandResult,
+  SshCommandError | SshInvalidTargetError,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+> {
+  const hostSpec = yield* buildSshHostSpecEffect(target);
+  const environment = yield* buildSshChildEnvironment({
+    ...(input.interactiveAuth === undefined ? {} : { interactiveAuth: input.interactiveAuth }),
+    ...(input.authSecret === undefined ? {} : { authSecret: input.authSecret }),
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new SshCommandError({
+          command: ["ssh"],
+          exitCode: null,
+          stderr: "",
+          message: "Failed to prepare SSH authentication helpers.",
+          cause,
+        }),
+    ),
+  );
+  const args = [
+    ...baseSshArgs(target, {
+      batchMode: input.batchMode ?? (input.interactiveAuth ? "no" : "yes"),
+    }),
+    ...(input.preHostArgs ?? []),
+    hostSpec,
+    ...(input.remoteCommandArgs ?? []),
+  ];
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const child = yield* spawner
+    .spawn(
+      ChildProcess.make("ssh", args, {
+        env: environment,
+        shell: process.platform === "win32",
+        stdin: {
+          stream: stdinStream(input.stdin),
+          endOnDone: true,
+        },
+      }),
+    )
+    .pipe(
+      Effect.provideService(Scope.Scope, commandScope),
+      Effect.mapError(
+        (cause) =>
+          new SshCommandError({
+            command: ["ssh", ...args],
+            exitCode: null,
+            stderr: "",
+            message:
+              cause instanceof Error
+                ? cause.message
+                : `Failed to spawn SSH command for ${hostSpec}.`,
+            cause,
+          }),
+      ),
+    );
+
+  const [stdout, stderr, exitCode] = yield* Effect.all(
+    [
+      collectProcessOutput(child.stdout),
+      collectProcessOutput(child.stderr),
+      child.exitCode.pipe(Effect.map(Number)),
+    ],
+    { concurrency: "unbounded" },
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new SshCommandError({
+          command: ["ssh", ...args],
+          exitCode: null,
+          stderr: "",
+          message:
+            cause instanceof Error ? cause.message : `Failed to run SSH command for ${hostSpec}.`,
+          cause,
+        }),
+    ),
+  );
+
+  if (exitCode !== 0) {
+    return yield* new SshCommandError({
+      command: ["ssh", ...args],
+      exitCode,
+      stderr,
+      message: normalizeSshErrorMessage(
+        stderr,
+        `SSH command failed for ${hostSpec} (exit ${exitCode}).`,
+      ),
+    });
+  }
+
+  return { stdout, stderr };
+});
+
+export const runSshCommand = Effect.fn("ssh/command.runSshCommand")(function* (
+  target: DesktopSshEnvironmentTarget,
+  input: RunSshCommandOptions = {},
+): Effect.fn.Return<
+  SshCommandResult,
+  SshCommandError | SshInvalidTargetError,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+> {
+  return yield* Effect.scopedWith((commandScope) =>
+    runSshCommandInScope(target, input, commandScope),
+  );
+});
+
+export const resolveSshTarget = Effect.fn("ssh/command.resolveSshTarget")(function* (
+  alias: string,
+): Effect.fn.Return<
+  DesktopSshEnvironmentTarget,
+  SshCommandError | SshInvalidTargetError,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+> {
+  const trimmedAlias = alias.trim();
+  if (trimmedAlias.length === 0) {
+    return yield* new SshInvalidTargetError({ message: "SSH host alias is required." });
+  }
+
+  return yield* runSshCommand(
+    {
+      alias: trimmedAlias,
+      hostname: trimmedAlias,
+      username: null,
+      port: null,
+    },
+    { preHostArgs: ["-G"] },
+  ).pipe(
+    Effect.map((result) => parseSshResolveOutput(trimmedAlias, result.stdout)),
+    Effect.catch(() =>
+      Effect.succeed({
+        alias: trimmedAlias,
+        hostname: trimmedAlias,
+        username: null,
+        port: null,
+      }),
+    ),
+  );
+});
 
 export function resolveRemoteT3CliPackageSpec(input: {
   readonly appVersion: string;
