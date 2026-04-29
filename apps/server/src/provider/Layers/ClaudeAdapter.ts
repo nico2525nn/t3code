@@ -34,6 +34,7 @@ import {
   type ProviderRuntimeTurnStatus,
   type ProviderSendTurnInput,
   type ProviderSession,
+  type ModelSelection,
   type ThreadTokenUsageSnapshot,
   type ProviderUserInputAnswers,
   type RuntimeContentStreamKind,
@@ -305,6 +306,34 @@ function maxClaudeContextWindowFromModelUsage(
   }
 
   return maxContextWindow;
+}
+
+function parseClaudeContextWindowOption(value: string | undefined): number | undefined {
+  switch (value) {
+    case "200k":
+      return 200_000;
+    case "1m":
+      return 1_000_000;
+    default:
+      return undefined;
+  }
+}
+
+function resolveClaudeSelectedContextWindow(
+  modelSelection: ModelSelection | undefined,
+): number | undefined {
+  if (!modelSelection?.model) {
+    return undefined;
+  }
+  const caps = getClaudeModelCapabilities(modelSelection.model);
+  const contextWindowDescriptor = getProviderOptionDescriptors({
+    caps,
+    selections: modelSelection.options,
+  }).find((descriptor) => descriptor.id === "contextWindow" && descriptor.type === "select");
+
+  return parseClaudeContextWindowOption(
+    contextWindowDescriptor?.type === "select" ? contextWindowDescriptor.currentValue : undefined,
+  );
 }
 
 function normalizeClaudeTokenUsage(
@@ -1408,23 +1437,20 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     result?: SDKResultMessage,
   ) {
     const resultContextWindow = maxClaudeContextWindowFromModelUsage(result?.modelUsage);
-    if (resultContextWindow !== undefined) {
+    if (resultContextWindow !== undefined && context.lastKnownContextWindow === undefined) {
       context.lastKnownContextWindow = resultContextWindow;
     }
+    const maxTokens = context.lastKnownContextWindow ?? resultContextWindow;
 
     // The SDK result.usage contains *accumulated* totals across all API calls
     // (input_tokens, cache_read_input_tokens, etc. summed over every request).
     // This does NOT represent the current context window size.
     // Instead, use the last known context-window-accurate usage from task_progress
     // events and treat the accumulated total as totalProcessedTokens.
-    const accumulatedSnapshot = normalizeClaudeTokenUsage(
-      result?.usage,
-      resultContextWindow ?? context.lastKnownContextWindow,
-    );
+    const accumulatedSnapshot = normalizeClaudeTokenUsage(result?.usage, maxTokens);
     const accumulatedTotalProcessedTokens =
       accumulatedSnapshot?.totalProcessedTokens ?? accumulatedSnapshot?.usedTokens;
     const lastGoodUsage = context.lastKnownTokenUsage;
-    const maxTokens = resultContextWindow ?? context.lastKnownContextWindow;
     const usageSnapshot: ThreadTokenUsageSnapshot | undefined = lastGoodUsage
       ? {
           ...lastGoodUsage,
@@ -2838,6 +2864,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const extraArgs = parseCliArgs(claudeSettings.launchArgs).flags;
       const modelSelection =
         input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
+      const selectedContextWindow = resolveClaudeSelectedContextWindow(modelSelection);
       const caps = getClaudeModelCapabilities(modelSelection?.model);
       const descriptors = getProviderOptionDescriptors({ caps });
       const apiModelId = modelSelection ? resolveClaudeApiModelId(modelSelection) : undefined;
@@ -2964,7 +2991,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         turns: [],
         inFlightTools,
         turnState: undefined,
-        lastKnownContextWindow: undefined,
+        lastKnownContextWindow: selectedContextWindow,
         lastKnownTokenUsage: undefined,
         lastAssistantUuid: resumeState?.resumeSessionAt,
         lastThreadStartedId: undefined,
@@ -3049,6 +3076,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       input.modelSelection !== undefined && input.modelSelection.instanceId === boundInstanceId
         ? input.modelSelection
         : undefined;
+    const selectedContextWindow = resolveClaudeSelectedContextWindow(modelSelection);
 
     if (context.turnState) {
       // Auto-close a stale synthetic turn (from background agent responses
@@ -3069,6 +3097,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...context.session,
         model: modelSelection.model,
       };
+      context.lastKnownContextWindow = selectedContextWindow;
     }
 
     // Apply interaction mode by switching the SDK's permission mode.

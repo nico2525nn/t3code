@@ -1710,6 +1710,133 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("uses the selected 200k Claude context window for progress snapshots", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 6).pipe(
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("claudeAgent"),
+          "claude-opus-4-6",
+          [{ id: "contextWindow", value: "200k" }],
+        ),
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "task-usage-selected-window",
+        description: "Thinking through the patch",
+        usage: {
+          total_tokens: 535000,
+        },
+        session_id: "sdk-session-task-usage-selected-window",
+        uuid: "task-usage-selected-window",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const usageEvent = runtimeEvents.find((event) => event.type === "thread.token-usage.updated");
+      assert.equal(usageEvent?.type, "thread.token-usage.updated");
+      if (usageEvent?.type === "thread.token-usage.updated") {
+        assert.deepEqual(usageEvent.payload, {
+          usage: {
+            usedTokens: 200000,
+            lastUsedTokens: 200000,
+            totalProcessedTokens: 535000,
+            maxTokens: 200000,
+          },
+        });
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect(
+    "keeps the selected 200k Claude context window when result model usage is larger",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+
+        const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 7).pipe(
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        const modelSelection = createModelSelection(
+          ProviderInstanceId.make("claudeAgent"),
+          "claude-opus-4-6",
+          [{ id: "contextWindow", value: "200k" }],
+        );
+
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          modelSelection,
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId: THREAD_ID,
+          input: "hello",
+          attachments: [],
+          modelSelection,
+        });
+
+        harness.query.emit({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          duration_ms: 1234,
+          duration_api_ms: 1200,
+          num_turns: 1,
+          result: "done",
+          stop_reason: "end_turn",
+          session_id: "sdk-session-result-usage-selected-window",
+          usage: {
+            total_tokens: 535000,
+          },
+          modelUsage: {
+            "claude-opus-4-6[1m]": {
+              contextWindow: 1000000,
+              maxOutputTokens: 64000,
+            },
+          },
+        } as unknown as SDKMessage);
+        harness.query.finish();
+
+        const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+        const usageEvent = runtimeEvents.find(
+          (event) => event.type === "thread.token-usage.updated",
+        );
+        assert.equal(usageEvent?.type, "thread.token-usage.updated");
+        if (usageEvent?.type === "thread.token-usage.updated") {
+          assert.deepEqual(usageEvent.payload, {
+            usage: {
+              usedTokens: 200000,
+              lastUsedTokens: 200000,
+              totalProcessedTokens: 535000,
+              maxTokens: 200000,
+            },
+          });
+        }
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
   it.effect(
     "preserves oversized Claude result totals after task progress snapshots are recorded",
     () => {
