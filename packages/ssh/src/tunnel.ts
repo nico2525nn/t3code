@@ -3,6 +3,7 @@ import type {
   DesktopSshEnvironmentTarget,
 } from "@t3tools/contracts";
 import { type NetError, NetService } from "@t3tools/shared/Net";
+import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import {
   Deferred,
   Context,
@@ -117,8 +118,8 @@ const RemoteHttpError = Schema.Struct({
   error: Schema.optional(Schema.String),
 });
 
-const decodeRemoteLaunchResult = Schema.decodeEffect(Schema.fromJsonString(RemoteLaunchResult));
-const decodeRemotePairingResult = Schema.decodeEffect(Schema.fromJsonString(RemotePairingResult));
+const decodeRemoteLaunchResult = Schema.decodeEffect(fromLenientJson(RemoteLaunchResult));
+const decodeRemotePairingResult = Schema.decodeEffect(fromLenientJson(RemotePairingResult));
 const decodeRemoteHttpError = Schema.decodeEffect(Schema.fromJsonString(RemoteHttpError));
 
 export function normalizeSshErrorMessage(stderr: string, fallbackMessage: string): string {
@@ -282,14 +283,13 @@ export const launchOrReuseRemoteServer = Effect.fn("ssh/tunnel.launchOrReuseRemo
       ...(input?.batchMode === undefined ? {} : { batchMode: input.batchMode }),
       ...(input?.interactiveAuth === undefined ? {} : { interactiveAuth: input.interactiveAuth }),
     });
-    const line = getLastNonEmptyOutputLine(result.stdout);
-    if (!line) {
+    if (!getLastNonEmptyOutputLine(result.stdout)) {
       return yield* new SshLaunchError({
         message: "SSH launch did not return a remote port.",
         stdout: result.stdout,
       });
     }
-    const parsed = yield* decodeRemoteLaunchResult(line).pipe(
+    const parsed = yield* decodeRemoteLaunchResult(result.stdout).pipe(
       Effect.mapError(
         (cause) =>
           new SshLaunchError({
@@ -325,14 +325,13 @@ export const issueRemotePairingToken = Effect.fn("ssh/tunnel.issueRemotePairingT
     ...(input?.batchMode === undefined ? {} : { batchMode: input.batchMode }),
     ...(input?.interactiveAuth === undefined ? {} : { interactiveAuth: input.interactiveAuth }),
   });
-  const line = getLastNonEmptyOutputLine(result.stdout);
-  if (!line) {
+  if (!getLastNonEmptyOutputLine(result.stdout)) {
     return yield* new SshPairingError({
       message: "SSH pairing did not return a credential.",
       stdout: result.stdout,
     });
   }
-  const parsed = yield* decodeRemotePairingResult(line).pipe(
+  const parsed = yield* decodeRemotePairingResult(result.stdout).pipe(
     Effect.mapError(
       (cause) =>
         new SshPairingError({

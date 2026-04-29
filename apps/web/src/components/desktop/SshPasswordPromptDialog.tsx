@@ -1,5 +1,5 @@
 import type { DesktopSshPasswordPromptRequest } from "@t3tools/contracts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { Button } from "../ui/button";
 import {
@@ -24,6 +24,7 @@ export function SshPasswordPromptDialog() {
   const currentRequest = queue[0] ?? null;
   const inputRef = useRef<HTMLInputElement | null>(null);
   const isRespondingRef = useRef(false);
+  const formId = useId();
 
   useEffect(() => {
     const bridge = window.desktopBridge;
@@ -85,21 +86,23 @@ export function SshPasswordPromptDialog() {
       }}
     >
       <DialogPopup className="max-w-md" showCloseButton={false}>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void respond(password);
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>SSH Password Required</DialogTitle>
-            <DialogDescription>
-              T3 needs your SSH password to connect to{" "}
-              {target ? <code>{target}</code> : "the remote host"}. The password is passed to the
-              local SSH process for this connection attempt and is not saved by T3 Code.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogPanel className="space-y-3" scrollFade={false}>
+        <DialogHeader>
+          <DialogTitle>SSH Password Required</DialogTitle>
+          <DialogDescription>
+            T3 needs your SSH password to connect to{" "}
+            {target ? <code>{target}</code> : "the remote host"}. The password is passed to the
+            local SSH process for this connection attempt and is not saved by T3 Code.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-3" scrollFade={false}>
+          <form
+            className="space-y-3"
+            id={formId}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void respond(password);
+            }}
+          >
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">{currentRequest?.prompt}</p>
               <Input
@@ -115,21 +118,21 @@ export function SshPasswordPromptDialog() {
             <p className="text-sm text-muted-foreground">
               Use SSH keys to avoid repeated password prompts on new SSH sessions.
             </p>
-          </DialogPanel>
-          <DialogFooter>
-            <Button
-              disabled={isResponding}
-              type="button"
-              variant="outline"
-              onClick={() => void respond(null)}
-            >
-              Cancel
-            </Button>
-            <Button disabled={isResponding} type="submit">
-              Continue
-            </Button>
-          </DialogFooter>
-        </form>
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <Button
+            disabled={isResponding}
+            type="button"
+            variant="outline"
+            onClick={() => void respond(null)}
+          >
+            Cancel
+          </Button>
+          <Button disabled={isResponding} form={formId} type="submit">
+            Continue
+          </Button>
+        </DialogFooter>
       </DialogPopup>
     </Dialog>
   );

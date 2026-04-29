@@ -1,5 +1,21 @@
-import { ChevronDownIcon, PlusIcon, QrCodeIcon, RefreshCwIcon } from "lucide-react";
-import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ChevronDownIcon,
+  ChevronsLeftRightEllipsisIcon,
+  PlusIcon,
+  QrCodeIcon,
+  RefreshCwIcon,
+  TerminalIcon,
+} from "lucide-react";
+import {
+  type ReactNode,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   type AuthClientSession,
   type AuthPairingLink,
@@ -53,7 +69,8 @@ import { Button } from "../ui/button";
 import { Group, GroupSeparator } from "../ui/group";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Textarea } from "../ui/textarea";
-import { setPairingTokenOnUrl } from "../../pairingUrl";
+import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "../../pairingUrl";
+import { readHostedPairingRequest } from "../../hostedPairing";
 import {
   createServerPairingCredential,
   fetchSessionState,
@@ -147,6 +164,35 @@ function ConnectionStatusDot({
   );
 }
 
+function AnimatedHeight({ children }: { readonly children: ReactNode }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const element = contentRef.current;
+    if (!element) return;
+
+    const updateHeight = () => {
+      const nextHeight = element.getBoundingClientRect().height;
+      setHeight((currentHeight) => (currentHeight === nextHeight ? currentHeight : nextHeight));
+    };
+
+    updateHeight();
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(element);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  return (
+    <div
+      className="overflow-hidden transition-[height] duration-200 ease-out motion-reduce:transition-none"
+      style={height === null ? undefined : { height }}
+    >
+      <div ref={contentRef}>{children}</div>
+    </div>
+  );
+}
+
 function getSavedBackendStatusTooltip(
   runtime: SavedEnvironmentRuntimeState | null,
   record: SavedEnvironmentRecord,
@@ -233,6 +279,66 @@ function parseManualDesktopSshTarget(input: {
     username,
     port,
   };
+}
+
+function parsePairingUrlFields(
+  input: string,
+): { readonly host: string; readonly pairingCode: string } | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  try {
+    const urlLikeInput =
+      /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//u.test(trimmed) || trimmed.startsWith("//")
+        ? trimmed
+        : `https://${trimmed}`;
+    const url = new URL(urlLikeInput, window.location.origin);
+    const hostedPairingRequest = readHostedPairingRequest(url);
+    if (hostedPairingRequest) {
+      return {
+        host: hostedPairingRequest.host,
+        pairingCode: hostedPairingRequest.token,
+      };
+    }
+
+    const pairingCode = getPairingTokenFromUrl(url);
+    if (!pairingCode) return null;
+    return {
+      host: url.origin,
+      pairingCode,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseRemotePairingFields(input: { readonly host: string; readonly pairingCode: string }): {
+  readonly host: string;
+  readonly pairingCode: string;
+} {
+  const parsedPairingUrl = parsePairingUrlFields(input.host);
+  if (parsedPairingUrl) return parsedPairingUrl;
+
+  const host = input.host.trim();
+  const pairingCode = input.pairingCode.trim();
+  if (!host) {
+    throw new Error("Enter a backend host.");
+  }
+  if (!pairingCode) {
+    throw new Error("Enter a pairing code.");
+  }
+  return { host, pairingCode };
+}
+
+function formatDesktopSshConnectionError(error: unknown): string {
+  const fallback = "Failed to connect SSH host.";
+  const rawMessage = error instanceof Error ? error.message : fallback;
+  const withoutIpcPrefix = rawMessage.replace(
+    /^Error invoking remote method 'desktop:ensure-ssh-environment':\s*/u,
+    "",
+  );
+  const withoutTaggedErrorPrefix = withoutIpcPrefix.replace(/^Ssh[A-Za-z]+Error:\s*/u, "");
+  return withoutTaggedErrorPrefix.trim() || fallback;
 }
 
 /** Direct row in the card – same pattern as the Provider / ACP-agent list rows. */
@@ -1137,38 +1243,25 @@ function SavedBackendListRow({
 
 interface DesktopSshHostRowProps {
   target: DesktopDiscoveredSshHost;
-  savedRecord: SavedEnvironmentRecord | null;
   connectingHostAlias: string | null;
   onConnect: (target: DesktopDiscoveredSshHost) => void;
 }
 
 const DesktopSshHostRow = memo(function DesktopSshHostRow({
   target,
-  savedRecord,
   connectingHostAlias,
   onConnect,
 }: DesktopSshHostRowProps) {
   const address = formatDesktopSshTarget(target);
-  const secondaryBits = [target.source === "ssh-config" ? "SSH config" : "Known hosts", address];
-  const buttonLabel =
-    connectingHostAlias === target.alias ? "Connecting…" : savedRecord ? "Reconnect" : "Connect";
+  const showAddress = address !== target.alias;
+  const buttonLabel = connectingHostAlias === target.alias ? "Adding…" : "Add environment";
 
   return (
-    <div className={ITEM_ROW_CLASSNAME}>
+    <div className="border-t border-border/60 px-4 py-3 first:border-t-0 sm:px-5">
       <div className={ITEM_ROW_INNER_CLASSNAME}>
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex min-h-5 items-center gap-1.5">
-            <h3 className="text-sm font-medium text-foreground">{target.alias}</h3>
-          </div>
-          <p className="text-xs text-muted-foreground">{secondaryBits.join(" · ")}</p>
-          {savedRecord ? (
-            <p className="text-xs text-muted-foreground">
-              Saved as {savedRecord.label}
-              {savedRecord.lastConnectedAt
-                ? ` · Last connected ${formatAccessTimestamp(savedRecord.lastConnectedAt)}`
-                : ""}
-            </p>
-          ) : null}
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-sm font-medium text-foreground">{target.alias}</h3>
+          {showAddress ? <p className="truncate text-xs text-muted-foreground">{address}</p> : null}
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
           <Button
@@ -1217,6 +1310,16 @@ export function ConnectionsSettings() {
       ),
     [savedEnvironmentsById],
   );
+  const savedDesktopSshEnvironmentKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const record of Object.values(savedEnvironmentsById)) {
+      const target = record.desktopSsh;
+      if (!target) continue;
+      keys.add(target.alias);
+      keys.add(formatDesktopSshTarget(target));
+    }
+    return keys;
+  }, [savedEnvironmentsById]);
   const [discoveredSshHosts, setDiscoveredSshHosts] = useState<
     ReadonlyArray<DesktopDiscoveredSshHost>
   >([]);
@@ -1249,11 +1352,7 @@ export function ConnectionsSettings() {
   >(null);
   const [isRevokingOtherDesktopClients, setIsRevokingOtherDesktopClients] = useState(false);
   const [addBackendDialogOpen, setAddBackendDialogOpen] = useState(false);
-  const [savedBackendMode, setSavedBackendMode] = useState<"pairing-url" | "host-code" | "ssh">(
-    "pairing-url",
-  );
-  const [savedBackendLabel, setSavedBackendLabel] = useState("");
-  const [savedBackendPairingUrl, setSavedBackendPairingUrl] = useState("");
+  const [savedBackendMode, setSavedBackendMode] = useState<"remote" | "ssh">("remote");
   const [savedBackendHost, setSavedBackendHost] = useState("");
   const [savedBackendPairingCode, setSavedBackendPairingCode] = useState("");
   const [savedBackendSshHost, setSavedBackendSshHost] = useState("");
@@ -1261,6 +1360,17 @@ export function ConnectionsSettings() {
   const [savedBackendSshPort, setSavedBackendSshPort] = useState("");
   const [savedBackendError, setSavedBackendError] = useState<string | null>(null);
   const [isAddingSavedBackend, setIsAddingSavedBackend] = useState(false);
+  const unsavedDiscoveredSshHosts = useMemo(
+    () =>
+      discoveredSshHosts.filter((target) => {
+        const address = formatDesktopSshTarget(target);
+        return (
+          !savedDesktopSshEnvironmentKeys.has(target.alias) &&
+          !savedDesktopSshEnvironmentKeys.has(address)
+        );
+      }),
+    [discoveredSshHosts, savedDesktopSshEnvironmentKeys],
+  );
   const [reconnectingSavedEnvironmentId, setReconnectingSavedEnvironmentId] =
     useState<EnvironmentId | null>(null);
   const [removingSavedEnvironmentId, setRemovingSavedEnvironmentId] =
@@ -1492,11 +1602,7 @@ export function ConnectionsSettings() {
           username: savedBackendSshUsername,
           port: savedBackendSshPort,
         });
-        const record = await connectDesktopSshEnvironment(target, {
-          label: savedBackendLabel,
-        });
-        setSavedBackendLabel("");
-        setSavedBackendPairingUrl("");
+        const record = await connectDesktopSshEnvironment(target, { label: "" });
         setSavedBackendHost("");
         setSavedBackendPairingCode("");
         setSavedBackendSshHost("");
@@ -1510,14 +1616,8 @@ export function ConnectionsSettings() {
           description: `${record.label} is ready over an SSH-managed tunnel.`,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to connect SSH host.";
-
+        const message = formatDesktopSshConnectionError(error);
         setSavedBackendError(message);
-        toastManager.add({
-          type: "error",
-          title: "Could not connect SSH host",
-          description: message,
-        });
       } finally {
         setIsAddingSavedBackend(false);
       }
@@ -1527,17 +1627,14 @@ export function ConnectionsSettings() {
     setIsAddingSavedBackend(true);
     setSavedBackendError(null);
     try {
-      const record = await addSavedEnvironment({
-        label: savedBackendLabel,
-        ...(savedBackendMode === "pairing-url"
-          ? { pairingUrl: savedBackendPairingUrl }
-          : {
-              host: savedBackendHost,
-              pairingCode: savedBackendPairingCode,
-            }),
+      const remotePairingInput = parseRemotePairingFields({
+        host: savedBackendHost,
+        pairingCode: savedBackendPairingCode,
       });
-      setSavedBackendLabel("");
-      setSavedBackendPairingUrl("");
+      const record = await addSavedEnvironment({
+        label: "",
+        ...remotePairingInput,
+      });
       setSavedBackendHost("");
       setSavedBackendPairingCode("");
       setSavedBackendSshHost("");
@@ -1564,10 +1661,8 @@ export function ConnectionsSettings() {
     }
   }, [
     savedBackendHost,
-    savedBackendLabel,
     savedBackendMode,
     savedBackendPairingCode,
-    savedBackendPairingUrl,
     savedBackendSshHost,
     savedBackendSshPort,
     savedBackendSshUsername,
@@ -1649,7 +1744,6 @@ export function ConnectionsSettings() {
           target,
           label === undefined ? undefined : { label },
         );
-        setSavedBackendLabel("");
         setSavedBackendSshHost("");
         setSavedBackendSshUsername("");
         setSavedBackendSshPort("");
@@ -1662,17 +1756,12 @@ export function ConnectionsSettings() {
           description: `${record.label} is ready over an SSH-managed tunnel.`,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to connect SSH host.";
+        const message = formatDesktopSshConnectionError(error);
         if (savedBackendMode === "ssh") {
           setSavedBackendError(message);
         } else {
           setDiscoveredSshHostsError(message);
         }
-        toastManager.add({
-          type: "error",
-          title: "Could not connect SSH host",
-          description: message,
-        });
       } finally {
         setConnectingSshHostAlias(null);
       }
@@ -1879,6 +1968,199 @@ export function ConnectionsSettings() {
       setDefaultAdvertisedEndpointKey(endpointDefaultPreferenceKey(endpoint));
     },
     [setDefaultAdvertisedEndpointKey],
+  );
+  const handleSavedBackendHostChange = useCallback((value: string) => {
+    const parsedPairingUrl = parsePairingUrlFields(value);
+    if (parsedPairingUrl) {
+      setSavedBackendHost(parsedPairingUrl.host);
+      setSavedBackendPairingCode(parsedPairingUrl.pairingCode);
+      return;
+    }
+    setSavedBackendHost(value);
+  }, []);
+
+  const renderConnectionModeCard = (input: {
+    readonly mode: "remote" | "ssh";
+    readonly title: string;
+    readonly description: string;
+    readonly icon?: ReactNode;
+  }) => {
+    const selected = savedBackendMode === input.mode;
+    return (
+      <button
+        type="button"
+        aria-pressed={selected}
+        className={cn(
+          "group flex min-h-24 items-start gap-3 rounded-lg border p-4 text-left",
+          selected ? "border-primary/50 bg-primary/5" : "border-border/60 hover:bg-muted/40",
+        )}
+        disabled={isAddingSavedBackend}
+        onClick={() => {
+          setSavedBackendMode(input.mode);
+        }}
+      >
+        {input.icon ? (
+          <span
+            className={cn(
+              "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border",
+              selected
+                ? "border-primary/30 bg-primary/10 text-primary"
+                : "border-border/70 bg-background text-muted-foreground group-hover:text-foreground",
+            )}
+          >
+            {input.icon}
+          </span>
+        ) : null}
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-foreground">{input.title}</span>
+          <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+            {input.description}
+          </span>
+        </span>
+      </button>
+    );
+  };
+
+  const renderRemoteFields = () => (
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-foreground">Host</span>
+          <Input
+            value={savedBackendHost}
+            onChange={(event) => handleSavedBackendHostChange(event.target.value)}
+            placeholder="backend.example.com"
+            disabled={isAddingSavedBackend}
+            spellCheck={false}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-foreground">Pairing code</span>
+          <Input
+            value={savedBackendPairingCode}
+            onChange={(event) => setSavedBackendPairingCode(event.target.value)}
+            placeholder="PAIRCODE"
+            disabled={isAddingSavedBackend}
+            spellCheck={false}
+          />
+        </label>
+      </div>
+      <div>
+        <span className="mt-1 block text-[11px] text-muted-foreground">
+          Paste a full pairing URL here to fill both fields automatically.
+        </span>
+      </div>
+    </div>
+  );
+  const renderRemoteModeBody = () => (
+    <div className="space-y-4">
+      {renderRemoteFields()}
+      {savedBackendError ? <p className="text-xs text-destructive">{savedBackendError}</p> : null}
+      <Button
+        variant="outline"
+        className="w-full"
+        disabled={isAddingSavedBackend}
+        onClick={() => void handleAddSavedBackend()}
+      >
+        <PlusIcon className="size-3.5" />
+        {isAddingSavedBackend ? "Adding…" : "Add environment"}
+      </Button>
+    </div>
+  );
+  const renderSshFields = () => (
+    <div className="space-y-4">
+      <div className="space-y-3">
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-foreground">
+            SSH host or alias
+          </span>
+          <Input
+            value={savedBackendSshHost}
+            onChange={(event) => setSavedBackendSshHost(event.target.value)}
+            placeholder="Search hosts or type devbox"
+            disabled={isAddingSavedBackend}
+            spellCheck={false}
+          />
+        </label>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_7rem]">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-foreground">Username</span>
+            <Input
+              value={savedBackendSshUsername}
+              onChange={(event) => setSavedBackendSshUsername(event.target.value)}
+              placeholder="julius"
+              disabled={isAddingSavedBackend}
+              spellCheck={false}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-foreground">Port</span>
+            <Input
+              value={savedBackendSshPort}
+              onChange={(event) => setSavedBackendSshPort(event.target.value)}
+              placeholder="22"
+              inputMode="numeric"
+              disabled={isAddingSavedBackend}
+              spellCheck={false}
+            />
+          </label>
+        </div>
+        {savedBackendError || discoveredSshHostsError ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            {savedBackendError ?? discoveredSshHostsError}
+          </div>
+        ) : null}
+        <Button
+          variant="outline"
+          className="w-full"
+          disabled={isAddingSavedBackend}
+          onClick={() => void handleAddSavedBackend()}
+        >
+          <PlusIcon className="size-3.5" />
+          {isAddingSavedBackend ? "Adding…" : "Add environment"}
+        </Button>
+      </div>
+      <div className="overflow-hidden rounded-lg border border-border/60">
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/30 px-3 py-2">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-foreground">Suggested hosts</p>
+            <p className="text-[11px] text-muted-foreground">From SSH config and known hosts</p>
+          </div>
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={isLoadingDiscoveredSshHosts}
+            onClick={() => void loadDiscoveredSshHosts()}
+          >
+            {isLoadingDiscoveredSshHosts ? (
+              <RefreshCwIcon className="size-3 animate-spin" />
+            ) : (
+              <RefreshCwIcon className="size-3" />
+            )}
+            Refresh
+          </Button>
+        </div>
+        <ScrollArea scrollFade className="max-h-56">
+          <div>
+            {unsavedDiscoveredSshHosts.map((target) => (
+              <DesktopSshHostRow
+                key={`${target.alias}:${target.hostname}:${target.port ?? ""}`}
+                target={target}
+                connectingHostAlias={connectingSshHostAlias}
+                onConnect={(nextTarget) => void handleConnectSshHost(nextTarget)}
+              />
+            ))}
+            {hasLoadedDiscoveredSshHosts &&
+            !isLoadingDiscoveredSshHosts &&
+            unsavedDiscoveredSshHosts.length === 0 ? (
+              <div className={ITEM_ROW_CLASSNAME}>
+                <p className="text-xs text-muted-foreground">No new SSH hosts were discovered.</p>
+              </div>
+            ) : null}
+          </div>
+        </ScrollArea>
+      </div>
+    </div>
   );
   return (
     <SettingsPageContainer>
@@ -2235,278 +2517,28 @@ export function ConnectionsSettings() {
               <DialogHeader>
                 <DialogTitle>Add Environment</DialogTitle>
                 <DialogDescription>Pair another environment to this client.</DialogDescription>
-                <div className="flex gap-1 rounded-lg border border-border/60 bg-muted/50 p-1">
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                      savedBackendMode === "pairing-url"
-                        ? "bg-background text-foreground shadow-xs"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                    disabled={isAddingSavedBackend}
-                    onClick={() => setSavedBackendMode("pairing-url")}
-                  >
-                    Pairing URL
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                      savedBackendMode === "host-code"
-                        ? "bg-background text-foreground shadow-xs"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                    disabled={isAddingSavedBackend}
-                    onClick={() => setSavedBackendMode("host-code")}
-                  >
-                    Host + code
-                  </button>
-                  {desktopBridge ? (
-                    <button
-                      type="button"
-                      className={cn(
-                        "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                        savedBackendMode === "ssh"
-                          ? "bg-background text-foreground shadow-xs"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                      disabled={isAddingSavedBackend}
-                      onClick={() => setSavedBackendMode("ssh")}
-                    >
-                      SSH
-                    </button>
-                  ) : null}
-                </div>
               </DialogHeader>
               <DialogPanel>
                 <div className="space-y-4">
-                  {savedBackendMode === "pairing-url" ? (
-                    <p className="text-xs text-muted-foreground">
-                      Enter the full pairing URL from the environment you want to connect to.
-                    </p>
-                  ) : savedBackendMode === "host-code" ? (
-                    <p className="text-xs text-muted-foreground">
-                      Enter the backend host and pairing code separately.
-                    </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Connect over SSH using an existing alias from <code>~/.ssh/config</code> or
-                      enter a host directly. T3 uses your current SSH agent and config.
-                    </p>
-                  )}
-                  {savedBackendMode === "pairing-url" ? (
-                    <div className="space-y-3">
-                      <label className="block">
-                        <span className="mb-1.5 block text-xs font-medium text-foreground">
-                          Label
-                        </span>
-                        <Input
-                          value={savedBackendLabel}
-                          onChange={(event) => setSavedBackendLabel(event.target.value)}
-                          placeholder="My backend (optional)"
-                          disabled={isAddingSavedBackend}
-                          spellCheck={false}
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1.5 block text-xs font-medium text-foreground">
-                          Pairing URL
-                        </span>
-                        <Input
-                          value={savedBackendPairingUrl}
-                          onChange={(event) => setSavedBackendPairingUrl(event.target.value)}
-                          placeholder="https://backend.example.com/pair#token=..."
-                          disabled={isAddingSavedBackend}
-                          spellCheck={false}
-                        />
-                        <span className="mt-1 block text-[11px] text-muted-foreground">
-                          The full URL including the pairing token.
-                        </span>
-                      </label>
-                    </div>
-                  ) : savedBackendMode === "host-code" ? (
-                    <div className="space-y-3">
-                      <label className="block">
-                        <span className="mb-1.5 block text-xs font-medium text-foreground">
-                          Label
-                        </span>
-                        <Input
-                          value={savedBackendLabel}
-                          onChange={(event) => setSavedBackendLabel(event.target.value)}
-                          placeholder="My backend (optional)"
-                          disabled={isAddingSavedBackend}
-                          spellCheck={false}
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1.5 block text-xs font-medium text-foreground">
-                          Host
-                        </span>
-                        <Input
-                          value={savedBackendHost}
-                          onChange={(event) => setSavedBackendHost(event.target.value)}
-                          placeholder="https://backend.example.com"
-                          disabled={isAddingSavedBackend}
-                          spellCheck={false}
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1.5 block text-xs font-medium text-foreground">
-                          Pairing code
-                        </span>
-                        <Input
-                          value={savedBackendPairingCode}
-                          onChange={(event) => setSavedBackendPairingCode(event.target.value)}
-                          placeholder="Pairing code"
-                          disabled={isAddingSavedBackend}
-                          spellCheck={false}
-                        />
-                      </label>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="text-sm font-medium text-foreground">Discovered hosts</h3>
-                          <p className="text-xs text-muted-foreground">
-                            From <code>~/.ssh/config</code> and <code>known_hosts</code>.
-                          </p>
-                        </div>
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          disabled={isLoadingDiscoveredSshHosts}
-                          onClick={() => void loadDiscoveredSshHosts()}
-                        >
-                          {isLoadingDiscoveredSshHosts ? (
-                            <RefreshCwIcon className="size-3 animate-spin" />
-                          ) : (
-                            <RefreshCwIcon className="size-3" />
-                          )}
-                          Refresh
-                        </Button>
-                      </div>
-                      {discoveredSshHostsError ? (
-                        <p className="text-xs text-destructive">{discoveredSshHostsError}</p>
-                      ) : null}
-                      <ScrollArea scrollFade className="max-h-64">
-                        <div>
-                          {discoveredSshHosts.map((target) => (
-                            <DesktopSshHostRow
-                              key={`${target.alias}:${target.hostname}:${target.port ?? ""}`}
-                              target={target}
-                              savedRecord={savedDesktopSshEnvironmentsByAlias[target.alias] ?? null}
-                              connectingHostAlias={connectingSshHostAlias}
-                              onConnect={(nextTarget) => void handleConnectSshHost(nextTarget)}
-                            />
-                          ))}
-                          {hasLoadedDiscoveredSshHosts &&
-                          !isLoadingDiscoveredSshHosts &&
-                          discoveredSshHosts.length === 0 ? (
-                            <div className={ITEM_ROW_CLASSNAME}>
-                              <p className="text-xs text-muted-foreground">
-                                No SSH hosts were discovered from <code>~/.ssh/config</code> or{" "}
-                                <code>known_hosts</code>.
-                              </p>
-                            </div>
-                          ) : null}
-                        </div>
-                      </ScrollArea>
-                      {savedBackendError ? (
-                        <p className="text-xs text-destructive">{savedBackendError}</p>
-                      ) : null}
-                      <div className="border-t border-border/60 pt-4">
-                        <h3 className="mb-1 text-sm font-medium text-foreground">
-                          Enter a host manually
-                        </h3>
-                        <p className="mb-3 text-xs text-muted-foreground">
-                          Use an alias or enter host, username, and port directly.
-                        </p>
-                        <div className="space-y-3">
-                          <label className="block">
-                            <span className="mb-1.5 block text-xs font-medium text-foreground">
-                              Label
-                            </span>
-                            <Input
-                              value={savedBackendLabel}
-                              onChange={(event) => setSavedBackendLabel(event.target.value)}
-                              placeholder="My backend (optional)"
-                              disabled={isAddingSavedBackend}
-                              spellCheck={false}
-                            />
-                          </label>
-                          <label className="block">
-                            <span className="mb-1.5 block text-xs font-medium text-foreground">
-                              SSH host or alias
-                            </span>
-                            <Input
-                              value={savedBackendSshHost}
-                              onChange={(event) => setSavedBackendSshHost(event.target.value)}
-                              placeholder="devbox or devbox.example.com"
-                              disabled={isAddingSavedBackend}
-                              spellCheck={false}
-                            />
-                          </label>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <label className="block">
-                              <span className="mb-1.5 block text-xs font-medium text-foreground">
-                                Username
-                              </span>
-                              <Input
-                                value={savedBackendSshUsername}
-                                onChange={(event) => setSavedBackendSshUsername(event.target.value)}
-                                placeholder="julius"
-                                disabled={isAddingSavedBackend}
-                                spellCheck={false}
-                              />
-                            </label>
-                            <label className="block">
-                              <span className="mb-1.5 block text-xs font-medium text-foreground">
-                                Port
-                              </span>
-                              <Input
-                                value={savedBackendSshPort}
-                                onChange={(event) => setSavedBackendSshPort(event.target.value)}
-                                placeholder="22"
-                                inputMode="numeric"
-                                disabled={isAddingSavedBackend}
-                                spellCheck={false}
-                              />
-                            </label>
-                          </div>
-                          <span className="block text-[11px] text-muted-foreground">
-                            Uses your existing SSH keys, agent, and config. Password and
-                            keyboard-interactive prompts open through your system SSH dialog when
-                            needed.
-                          </span>
-                          <Button
-                            variant="outline"
-                            className="w-full"
-                            disabled={isAddingSavedBackend}
-                            onClick={() => void handleAddSavedBackend()}
-                          >
-                            <PlusIcon className="size-3.5" />
-                            {isAddingSavedBackend ? "Connecting…" : "Connect SSH host"}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {savedBackendMode !== "ssh" && savedBackendError ? (
-                    <p className="text-xs text-destructive">{savedBackendError}</p>
-                  ) : null}
-                  {savedBackendMode !== "ssh" ? (
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      disabled={isAddingSavedBackend}
-                      onClick={() => void handleAddSavedBackend()}
-                    >
-                      <PlusIcon className="size-3.5" />
-                      {isAddingSavedBackend ? "Adding…" : "Add Backend"}
-                    </Button>
-                  ) : null}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {renderConnectionModeCard({
+                      mode: "remote",
+                      title: "Remote link",
+                      description: "Enter a backend host and pairing code.",
+                      icon: <ChevronsLeftRightEllipsisIcon aria-hidden className="size-4" />,
+                    })}
+                    {desktopBridge
+                      ? renderConnectionModeCard({
+                          mode: "ssh",
+                          title: "SSH",
+                          description: "Use local SSH config, agent, and tunnels for the backend.",
+                          icon: <TerminalIcon aria-hidden className="size-4" />,
+                        })
+                      : null}
+                  </div>
+                  <AnimatedHeight>
+                    {savedBackendMode === "ssh" ? renderSshFields() : renderRemoteModeBody()}
+                  </AnimatedHeight>
                 </div>
               </DialogPanel>
             </DialogPopup>
