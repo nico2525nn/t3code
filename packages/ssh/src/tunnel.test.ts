@@ -1,14 +1,19 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { NetService } from "@t3tools/shared/Net";
 import { Effect, Layer, Sink, Stream } from "effect";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
+import { SshPasswordPrompt } from "./auth.ts";
 import {
   buildRemoteLaunchScript,
   buildRemotePairingScript,
+  buildRemoteStopScript,
   buildRemoteT3RunnerScript,
   issueRemotePairingToken,
   REMOTE_PICK_PORT_SCRIPT,
+  SshEnvironmentManager,
 } from "./tunnel.ts";
 
 const makeSuccessfulProcess = (stdout: string) => {
@@ -28,14 +33,68 @@ const makeSuccessfulProcess = (stdout: string) => {
   });
 };
 
+const makeRunningProcess = (onKill: () => void) => {
+  let finish: ((exitCode: ChildProcessSpawner.ExitCode) => void) | null = null;
+  return ChildProcessSpawner.makeHandle({
+    pid: ChildProcessSpawner.ProcessId(123),
+    stdout: Stream.empty,
+    stderr: Stream.empty,
+    all: Stream.empty,
+    exitCode: Effect.callback<ChildProcessSpawner.ExitCode>((resume) => {
+      finish = (exitCode) => resume(Effect.succeed(exitCode));
+      return Effect.sync(() => {
+        finish = null;
+      });
+    }),
+    isRunning: Effect.succeed(true),
+    kill: () =>
+      Effect.sync(() => {
+        onKill();
+        finish?.(ChildProcessSpawner.ExitCode(143));
+      }),
+    stdin: Sink.drain,
+    getInputFd: () => Sink.drain,
+    getOutputFd: () => Stream.empty,
+    unref: Effect.succeed(Effect.void),
+  });
+};
+
+const testHttpClient = HttpClient.make((request) =>
+  Effect.succeed(HttpClientResponse.fromWeb(request, new Response("", { status: 200 }))),
+);
+
+const testNetService = NetService.of({
+  canListenOnHost: () => Effect.succeed(true),
+  isPortAvailableOnLoopback: () => Effect.succeed(true),
+  reserveLoopbackPort: () => Effect.succeed(41_773),
+  findAvailablePort: (preferred) => Effect.succeed(preferred),
+});
+
+function commandArgs(command: ChildProcess.Command): ReadonlyArray<string> {
+  return command._tag === "StandardCommand" ? command.args : [];
+}
+
 describe("ssh tunnel scripts", () => {
   it("builds the remote t3 runner with npx and npm fallbacks", () => {
     const script = buildRemoteT3RunnerScript();
 
+    assert.include(script, "T3_NODE_SCRIPT_PATH=''");
     assert.include(script, 'exec t3 "$@"');
     assert.include(script, 'exec npx --yes t3@latest "$@"');
     assert.include(script, 'exec npm exec --yes t3@latest -- "$@"');
     assert.include(script, "could not install t3@latest");
+  });
+
+  it("builds the remote t3 runner with a node script override", () => {
+    const script = buildRemoteT3RunnerScript({
+      nodeScriptPath: "/Users/julius/Development/Work/codething-mvp/apps/server/dist/bin.mjs",
+    });
+
+    assert.include(
+      script,
+      "T3_NODE_SCRIPT_PATH='/Users/julius/Development/Work/codething-mvp/apps/server/dist/bin.mjs'",
+    );
+    assert.include(script, 'exec node "$T3_NODE_SCRIPT_PATH" "$@"');
   });
 
   it("uses the remote t3 runner for launch and pairing scripts", () => {
@@ -50,6 +109,8 @@ describe("ssh tunnel scripts", () => {
       buildRemoteLaunchScript(),
       '[ -n "$REMOTE_PID" ] && [ -n "$REMOTE_PORT" ] && kill -0 "$REMOTE_PID" 2>/dev/null',
     );
+    assert.include(buildRemoteLaunchScript(), "RUNNER_CHANGED=1");
+    assert.include(buildRemoteLaunchScript(), 'kill "$REMOTE_PID" 2>/dev/null || true');
     assert.include(buildRemoteLaunchScript(), '"$RUNNER_FILE" serve --host 127.0.0.1');
     assert.include(buildRemoteLaunchScript({ packageSpec: "t3@nightly" }), "t3@nightly");
     assert.include(
@@ -57,6 +118,8 @@ describe("ssh tunnel scripts", () => {
       '"$RUNNER_FILE" auth pairing create --base-dir "$SERVER_HOME" --json',
     );
     assert.include(buildRemotePairingScript(target, { packageSpec: "t3@nightly" }), "t3@nightly");
+    assert.include(buildRemoteStopScript(target), 'kill "$REMOTE_PID" 2>/dev/null || true');
+    assert.include(buildRemoteStopScript(target), 'rm -f "$PID_FILE" "$PORT_FILE"');
   });
 
   it("allows the remote port picker to run without a state file path", () => {
@@ -88,5 +151,60 @@ describe("ssh tunnel scripts", () => {
       const credential = yield* issueRemotePairingToken(target);
       assert.equal(credential, "LCL4R2TPHDKQ");
     }).pipe(Effect.provide(processLayer));
+  });
+
+  it.effect("closes the tunnel scope and starts fresh after disconnect", () => {
+    const spawnedCommands: Array<ReadonlyArray<string>> = [];
+    let tunnelKillCount = 0;
+    let stopCommandCount = 0;
+    const spawner = ChildProcessSpawner.make((command) =>
+      Effect.sync(() => {
+        const args = commandArgs(command);
+        spawnedCommands.push(args);
+        if (args.includes("-N")) {
+          return makeRunningProcess(() => {
+            tunnelKillCount += 1;
+          });
+        }
+        if (args.includes("sh") && args.includes("--")) {
+          return makeSuccessfulProcess('{"remotePort":3773}\n');
+        }
+        if (args.includes("sh")) {
+          stopCommandCount += 1;
+          return makeSuccessfulProcess('{"stopped":true}\n');
+        }
+        return makeSuccessfulProcess("\n");
+      }),
+    );
+    const layer = Layer.mergeAll(
+      NodeServices.layer,
+      Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Layer.succeed(HttpClient.HttpClient, testHttpClient),
+      Layer.succeed(NetService, testNetService),
+      SshPasswordPrompt.disabledLayer,
+      SshEnvironmentManager.layer(),
+    );
+    const target = {
+      alias: "devbox",
+      hostname: "devbox.example.com",
+      username: "julius",
+      port: 2222,
+    } as const;
+
+    return Effect.gen(function* () {
+      const manager = yield* SshEnvironmentManager;
+
+      const first = yield* manager.ensureEnvironment(target);
+      assert.equal(first.httpBaseUrl, "http://127.0.0.1:41773/");
+
+      yield* manager.disconnectEnvironment(target);
+      assert.equal(tunnelKillCount, 1);
+      assert.equal(stopCommandCount, 1);
+
+      yield* manager.ensureEnvironment(target);
+
+      assert.equal(spawnedCommands.filter((args) => args.includes("-N")).length, 2);
+      assert.equal(tunnelKillCount, 1);
+    }).pipe(Effect.provide(layer), Effect.scoped);
   });
 });

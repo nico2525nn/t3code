@@ -29,6 +29,7 @@ interface SavedEnvironmentRegistryStore extends SavedEnvironmentRegistryState {
   readonly upsert: (record: SavedEnvironmentRecord) => void;
   readonly remove: (environmentId: EnvironmentId) => void;
   readonly markConnected: (environmentId: EnvironmentId, connectedAt: string) => void;
+  readonly rename: (environmentId: EnvironmentId, label: string) => void;
   readonly reset: () => void;
 }
 
@@ -145,6 +146,23 @@ export const useSavedEnvironmentRegistryStore = create<SavedEnvironmentRegistryS
         [environmentId]: {
           ...existing,
           lastConnectedAt: connectedAt,
+        },
+      };
+      persistSavedEnvironmentRegistryState(byId);
+      return { byId };
+    }),
+  rename: (environmentId, label) =>
+    set((state) => {
+      const existing = state.byId[environmentId];
+      const nextLabel = label.trim();
+      if (!existing || nextLabel.length === 0 || existing.label === nextLabel) {
+        return state;
+      }
+      const byId = {
+        ...state.byId,
+        [environmentId]: {
+          ...existing,
+          label: nextLabel,
         },
       };
       persistSavedEnvironmentRegistryState(byId);

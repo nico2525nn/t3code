@@ -1,12 +1,41 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect } from "effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { Duration, Effect, Fiber, Layer, Result, Sink, Stream } from "effect";
+import { TestClock } from "effect/testing";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
   baseSshArgs,
   getLastNonEmptyOutputLine,
   parseSshResolveOutput,
   resolveRemoteT3CliPackageSpec,
+  runSshCommand,
 } from "./command.ts";
+
+const makeNeverFinishingProcess = () => {
+  let finish: ((exitCode: ChildProcessSpawner.ExitCode) => void) | null = null;
+  return ChildProcessSpawner.makeHandle({
+    pid: ChildProcessSpawner.ProcessId(123),
+    stdout: Stream.empty,
+    stderr: Stream.empty,
+    all: Stream.empty,
+    exitCode: Effect.callback<ChildProcessSpawner.ExitCode>((resume) => {
+      finish = (exitCode) => resume(Effect.succeed(exitCode));
+      return Effect.sync(() => {
+        finish = null;
+      });
+    }),
+    isRunning: Effect.succeed(true),
+    kill: () =>
+      Effect.sync(() => {
+        finish?.(ChildProcessSpawner.ExitCode(143));
+      }),
+    stdin: Sink.drain,
+    getInputFd: () => Sink.drain,
+    getOutputFd: () => Stream.empty,
+    unref: Effect.succeed(Effect.void),
+  });
+};
 
 describe("ssh command", () => {
   it.effect("parses resolved ssh config output into a target", () =>
@@ -88,4 +117,35 @@ describe("ssh command", () => {
       );
     }),
   );
+
+  it.effect("fails commands that never finish", () => {
+    const spawner = ChildProcessSpawner.make(() => Effect.succeed(makeNeverFinishingProcess()));
+    const spawnerLayer = Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner);
+    const processLayer = Layer.mergeAll(NodeServices.layer, spawnerLayer, TestClock.layer());
+
+    return Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(
+        Effect.result(
+          runSshCommand(
+            {
+              alias: "devbox",
+              hostname: "devbox.example.com",
+              username: "julius",
+              port: 2222,
+            },
+            { timeoutMs: 1 },
+          ),
+        ),
+      );
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.millis(1));
+
+      const result = yield* Fiber.join(fiber);
+
+      assert.isTrue(Result.isFailure(result));
+      if (Result.isFailure(result)) {
+        assert.include(result.failure.message, "SSH command timed out after 1ms.");
+      }
+    }).pipe(Effect.provide(processLayer));
+  });
 });

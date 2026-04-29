@@ -1,5 +1,5 @@
 import { EnvironmentId } from "@t3tools/contracts";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let mockSavedRecords: Array<Record<string, unknown>> = [];
 
@@ -32,6 +32,11 @@ const mockMarkConnected = vi.fn((environmentId: EnvironmentId, connectedAt: stri
     record.environmentId === environmentId ? { ...record, lastConnectedAt: connectedAt } : record,
   );
 });
+const mockRename = vi.fn((environmentId: EnvironmentId, label: string) => {
+  mockSavedRecords = mockSavedRecords.map((record) =>
+    record.environmentId === environmentId ? { ...record, label } : record,
+  );
+});
 const mockUpsert = vi.fn((record: Record<string, unknown>) => {
   mockSavedRecords = [
     ...mockSavedRecords.filter((entry) => entry.environmentId !== record.environmentId),
@@ -40,6 +45,7 @@ const mockUpsert = vi.fn((record: Record<string, unknown>) => {
 });
 const mockListSavedEnvironmentRecords = vi.fn(() => mockSavedRecords);
 const mockEnsureSshEnvironment = vi.fn();
+const mockDisconnectSshEnvironment = vi.fn();
 const mockFetchSshEnvironmentDescriptor = vi.fn();
 const mockToPersistedSavedEnvironmentRecord = vi.fn((record) => record);
 const mockCreateEnvironmentConnection = vi.fn();
@@ -83,6 +89,7 @@ vi.mock("./catalog", () => ({
       upsert: mockUpsert,
       remove: mockRemove,
       markConnected: mockMarkConnected,
+      rename: mockRename,
     }),
     setState: mockRegistrySetState,
     subscribe: vi.fn(() => () => {}),
@@ -118,6 +125,10 @@ vi.mock("../../rpc/wsTransport", () => ({
 }));
 
 describe("addSavedEnvironment", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -125,6 +136,7 @@ describe("addSavedEnvironment", () => {
     vi.stubGlobal("window", {
       desktopBridge: {
         ensureSshEnvironment: mockEnsureSshEnvironment,
+        disconnectSshEnvironment: mockDisconnectSshEnvironment,
         fetchSshEnvironmentDescriptor: mockFetchSshEnvironmentDescriptor,
         bootstrapSshBearerSession: mockBootstrapSshBearerSession,
         fetchSshSessionState: mockFetchSshSessionState,
@@ -207,6 +219,7 @@ describe("addSavedEnvironment", () => {
       wsBaseUrl: "ws://127.0.0.1:3774/",
       pairingToken: "ssh-pairing-code",
     });
+    mockDisconnectSshEnvironment.mockResolvedValue(undefined);
   });
 
   it("rolls back persisted metadata when bearer token persistence fails", async () => {
@@ -256,6 +269,41 @@ describe("addSavedEnvironment", () => {
     expect(mockSetSavedEnvironmentRegistry).toHaveBeenCalledWith([
       expect.objectContaining({
         environmentId: EnvironmentId.make("environment-existing"),
+      }),
+    ]);
+
+    await resetEnvironmentServiceForTests();
+  });
+
+  it("persists the server label after saved environment metadata refresh", async () => {
+    mockWriteSavedEnvironmentBearerToken.mockResolvedValue(true);
+    mockClientGetConfig.mockResolvedValue({
+      environment: {
+        environmentId: EnvironmentId.make("environment-1"),
+        label: "Julius's Mac mini",
+      },
+    });
+
+    const { addSavedEnvironment, resetEnvironmentServiceForTests } = await import("./service");
+
+    await expect(
+      addSavedEnvironment({
+        label: "100.65.180.100",
+        host: "remote.example.com",
+        pairingCode: "123456",
+      }),
+    ).resolves.toMatchObject({
+      environmentId: EnvironmentId.make("environment-1"),
+    });
+
+    expect(mockRename).toHaveBeenCalledWith(
+      EnvironmentId.make("environment-1"),
+      "Julius's Mac mini",
+    );
+    expect(mockSavedRecords).toEqual([
+      expect.objectContaining({
+        environmentId: EnvironmentId.make("environment-1"),
+        label: "Julius's Mac mini",
       }),
     ]);
 
@@ -549,6 +597,199 @@ describe("addSavedEnvironment", () => {
     expect(mockBootstrapRemoteBearerSession).not.toHaveBeenCalled();
     expect(mockUpsert.mock.invocationCallOrder[0]).toBeLessThan(
       mockCreateEnvironmentConnection.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+
+    await resetEnvironmentServiceForTests();
+  });
+
+  it("disconnects the desktop ssh process before removing a saved ssh environment", async () => {
+    mockSavedRecords = [
+      {
+        environmentId: EnvironmentId.make("environment-1"),
+        label: "Remote environment",
+        httpBaseUrl: "http://127.0.0.1:3774/",
+        wsBaseUrl: "ws://127.0.0.1:3774/",
+        createdAt: "2026-04-14T00:00:00.000Z",
+        lastConnectedAt: null,
+        desktopSsh: {
+          alias: "devbox",
+          hostname: "devbox.example.com",
+          username: "julius",
+          port: 22,
+        },
+      },
+    ];
+
+    const { removeSavedEnvironment, resetEnvironmentServiceForTests } = await import("./service");
+
+    await removeSavedEnvironment(EnvironmentId.make("environment-1"));
+
+    expect(mockDisconnectSshEnvironment).toHaveBeenCalledWith({
+      alias: "devbox",
+      hostname: "devbox.example.com",
+      username: "julius",
+      port: 22,
+    });
+    expect(mockRemove).toHaveBeenCalledWith(EnvironmentId.make("environment-1"));
+    expect(mockRemoveSavedEnvironmentBearerToken).toHaveBeenCalledWith(
+      EnvironmentId.make("environment-1"),
+    );
+    expect(mockDisconnectSshEnvironment.mock.invocationCallOrder[0]).toBeLessThan(
+      mockRemove.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+
+    await resetEnvironmentServiceForTests();
+  });
+
+  it("disconnects a saved ssh environment without removing its saved record", async () => {
+    mockSavedRecords = [
+      {
+        environmentId: EnvironmentId.make("environment-1"),
+        label: "Remote environment",
+        httpBaseUrl: "http://127.0.0.1:3774/",
+        wsBaseUrl: "ws://127.0.0.1:3774/",
+        createdAt: "2026-04-14T00:00:00.000Z",
+        lastConnectedAt: null,
+        desktopSsh: {
+          alias: "devbox",
+          hostname: "devbox.example.com",
+          username: "julius",
+          port: 22,
+        },
+      },
+    ];
+
+    const { disconnectSavedEnvironment, resetEnvironmentServiceForTests } =
+      await import("./service");
+
+    await disconnectSavedEnvironment(EnvironmentId.make("environment-1"));
+
+    expect(mockDisconnectSshEnvironment).toHaveBeenCalledWith({
+      alias: "devbox",
+      hostname: "devbox.example.com",
+      username: "julius",
+      port: 22,
+    });
+    expect(mockRemove).not.toHaveBeenCalled();
+    expect(mockRemoveSavedEnvironmentBearerToken).toHaveBeenCalledWith(
+      EnvironmentId.make("environment-1"),
+    );
+
+    await resetEnvironmentServiceForTests();
+  });
+
+  it("keeps remote environment credentials when disconnecting a non-ssh saved environment", async () => {
+    mockSavedRecords = [
+      {
+        environmentId: EnvironmentId.make("environment-1"),
+        label: "Remote environment",
+        httpBaseUrl: "https://remote.example.com/",
+        wsBaseUrl: "wss://remote.example.com/",
+        createdAt: "2026-04-14T00:00:00.000Z",
+        lastConnectedAt: null,
+      },
+    ];
+
+    const { disconnectSavedEnvironment, resetEnvironmentServiceForTests } =
+      await import("./service");
+
+    await disconnectSavedEnvironment(EnvironmentId.make("environment-1"));
+
+    expect(mockDisconnectSshEnvironment).not.toHaveBeenCalled();
+    expect(mockRemove).not.toHaveBeenCalled();
+    expect(mockRemoveSavedEnvironmentBearerToken).not.toHaveBeenCalled();
+
+    await resetEnvironmentServiceForTests();
+  });
+
+  it("reissues ssh pairing credentials when connecting after a manual ssh disconnect", async () => {
+    mockSavedRecords = [
+      {
+        environmentId: EnvironmentId.make("environment-1"),
+        label: "Remote environment",
+        httpBaseUrl: "http://127.0.0.1:3774/",
+        wsBaseUrl: "ws://127.0.0.1:3774/",
+        createdAt: "2026-04-14T00:00:00.000Z",
+        lastConnectedAt: null,
+        desktopSsh: {
+          alias: "devbox",
+          hostname: "devbox.example.com",
+          username: "julius",
+          port: 22,
+        },
+      },
+    ];
+    mockReadSavedEnvironmentBearerToken.mockResolvedValue(null);
+    mockWriteSavedEnvironmentBearerToken.mockResolvedValue(true);
+
+    const { reconnectSavedEnvironment, resetEnvironmentServiceForTests } =
+      await import("./service");
+
+    await reconnectSavedEnvironment(EnvironmentId.make("environment-1"));
+
+    expect(mockEnsureSshEnvironment).toHaveBeenCalledWith(
+      {
+        alias: "devbox",
+        hostname: "devbox.example.com",
+        username: "julius",
+        port: 22,
+      },
+      { issuePairingToken: true },
+    );
+    expect(mockBootstrapSshBearerSession).toHaveBeenCalledWith(
+      "http://127.0.0.1:3774/",
+      "ssh-pairing-code",
+    );
+    expect(mockWriteSavedEnvironmentBearerToken).toHaveBeenCalledWith(
+      EnvironmentId.make("environment-1"),
+      "ssh-bearer-token",
+    );
+
+    await resetEnvironmentServiceForTests();
+  });
+
+  it("times out a saved ssh reconnect when desktop bootstrap never settles", async () => {
+    vi.useFakeTimers();
+    mockSavedRecords = [
+      {
+        environmentId: EnvironmentId.make("environment-1"),
+        label: "Remote environment",
+        httpBaseUrl: "http://127.0.0.1:3774/",
+        wsBaseUrl: "ws://127.0.0.1:3774/",
+        createdAt: "2026-04-14T00:00:00.000Z",
+        lastConnectedAt: null,
+        desktopSsh: {
+          alias: "devbox",
+          hostname: "devbox.example.com",
+          username: "julius",
+          port: 22,
+        },
+      },
+    ];
+    mockReadSavedEnvironmentBearerToken.mockResolvedValue(null);
+    mockEnsureSshEnvironment.mockReturnValue(new Promise(() => undefined));
+
+    const { reconnectSavedEnvironment, resetEnvironmentServiceForTests } =
+      await import("./service");
+
+    const reconnectPromise = reconnectSavedEnvironment(EnvironmentId.make("environment-1"));
+    const reconnectAssertion = expect(reconnectPromise).rejects.toThrow(
+      "Timed out starting SSH environment for devbox.",
+    );
+    await vi.advanceTimersByTimeAsync(70_000);
+    await reconnectAssertion;
+    expect(mockPatchRuntime).toHaveBeenCalledWith(
+      EnvironmentId.make("environment-1"),
+      expect.objectContaining({
+        connectionState: "connecting",
+      }),
+    );
+    expect(mockPatchRuntime).toHaveBeenCalledWith(
+      EnvironmentId.make("environment-1"),
+      expect.objectContaining({
+        connectionState: "error",
+        lastError: "Timed out starting SSH environment for devbox.",
+      }),
     );
 
     await resetEnvironmentServiceForTests();

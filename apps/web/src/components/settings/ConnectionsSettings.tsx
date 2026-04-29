@@ -89,6 +89,7 @@ import {
   useSavedEnvironmentRuntimeStore,
   addSavedEnvironment,
   connectDesktopSshEnvironment,
+  disconnectSavedEnvironment,
   getPrimaryEnvironmentConnection,
   reconnectSavedEnvironment,
   removeSavedEnvironment,
@@ -171,16 +172,33 @@ function AnimatedHeight({ children }: { readonly children: ReactNode }) {
   useLayoutEffect(() => {
     const element = contentRef.current;
     if (!element) return;
+    let firstFrameId: number | null = null;
+    let secondFrameId: number | null = null;
 
     const updateHeight = () => {
-      const nextHeight = element.getBoundingClientRect().height;
+      const nextHeight = Math.ceil(element.scrollHeight || element.getBoundingClientRect().height);
       setHeight((currentHeight) => (currentHeight === nextHeight ? currentHeight : nextHeight));
     };
+    const updateHeightAfterPaint = () => {
+      updateHeight();
+      firstFrameId = window.requestAnimationFrame(() => {
+        updateHeight();
+        secondFrameId = window.requestAnimationFrame(updateHeight);
+      });
+    };
 
-    updateHeight();
-    const resizeObserver = new ResizeObserver(updateHeight);
+    updateHeightAfterPaint();
+    const resizeObserver = new ResizeObserver(updateHeightAfterPaint);
     resizeObserver.observe(element);
-    return () => resizeObserver.disconnect();
+    return () => {
+      resizeObserver.disconnect();
+      if (firstFrameId !== null) {
+        window.cancelAnimationFrame(firstFrameId);
+      }
+      if (secondFrameId !== null) {
+        window.cancelAnimationFrame(secondFrameId);
+      }
+    };
   }, []);
 
   return (
@@ -1157,16 +1175,20 @@ function NetworkAccessDescription({
 type SavedBackendListRowProps = {
   environmentId: EnvironmentId;
   reconnectingEnvironmentId: EnvironmentId | null;
+  disconnectingEnvironmentId: EnvironmentId | null;
   removingEnvironmentId: EnvironmentId | null;
-  onReconnect: (environmentId: EnvironmentId) => void;
+  onConnect: (environmentId: EnvironmentId) => void;
+  onDisconnect: (environmentId: EnvironmentId) => void;
   onRemove: (environmentId: EnvironmentId) => void;
 };
 
 function SavedBackendListRow({
   environmentId,
   reconnectingEnvironmentId,
+  disconnectingEnvironmentId,
   removingEnvironmentId,
-  onReconnect,
+  onConnect,
+  onDisconnect,
   onRemove,
 }: SavedBackendListRowProps) {
   const nowMs = useRelativeTimeTick(1_000);
@@ -1178,6 +1200,10 @@ function SavedBackendListRow({
   }
 
   const connectionState = runtime?.connectionState ?? "disconnected";
+  const isConnected = connectionState === "connected";
+  const isConnecting =
+    connectionState === "connecting" || reconnectingEnvironmentId === environmentId;
+  const isDisconnecting = disconnectingEnvironmentId === environmentId;
   const stateDotClassName =
     connectionState === "connected"
       ? "bg-success"
@@ -1188,6 +1214,7 @@ function SavedBackendListRow({
           : "bg-muted-foreground/40";
   const roleLabel = runtime?.role ? (runtime.role === "owner" ? "Owner" : "Client") : null;
   const descriptorLabel = runtime?.descriptor?.label ?? null;
+  const displayLabel = descriptorLabel ?? record.label;
   const statusTooltip = getSavedBackendStatusTooltip(runtime, record, nowMs);
   const metadataBits = [
     record.desktopSsh ? `SSH ${formatDesktopSshTarget(record.desktopSsh)}` : null,
@@ -1209,23 +1236,28 @@ function SavedBackendListRow({
                 connectionState === "connecting" ? "bg-warning/60 duration-2000" : null
               }
             />
-            <h3 className="text-sm font-medium text-foreground">{record.label}</h3>
+            <h3 className="text-sm font-medium text-foreground">{displayLabel}</h3>
           </div>
           {metadataBits.length > 0 ? (
             <p className="text-xs text-muted-foreground">{metadataBits.join(" · ")}</p>
-          ) : null}
-          {descriptorLabel && descriptorLabel !== record.label ? (
-            <p className="text-xs text-muted-foreground">Server label: {descriptorLabel}</p>
           ) : null}
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
           <Button
             size="xs"
             variant="outline"
-            disabled={reconnectingEnvironmentId === environmentId}
-            onClick={() => void onReconnect(environmentId)}
+            disabled={isConnected ? isDisconnecting : isConnecting}
+            onClick={() =>
+              void (isConnected ? onDisconnect(environmentId) : onConnect(environmentId))
+            }
           >
-            {reconnectingEnvironmentId === environmentId ? "Reconnecting…" : "Reconnect"}
+            {isConnected
+              ? isDisconnecting
+                ? "Disconnecting…"
+                : "Disconnect"
+              : isConnecting
+                ? "Connecting…"
+                : "Connect"}
           </Button>
           <Button
             size="xs"
@@ -1372,6 +1404,8 @@ export function ConnectionsSettings() {
     [discoveredSshHosts, savedDesktopSshEnvironmentKeys],
   );
   const [reconnectingSavedEnvironmentId, setReconnectingSavedEnvironmentId] =
+    useState<EnvironmentId | null>(null);
+  const [disconnectingSavedEnvironmentId, setDisconnectingSavedEnvironmentId] =
     useState<EnvironmentId | null>(null);
   const [removingSavedEnvironmentId, setRemovingSavedEnvironmentId] =
     useState<EnvironmentId | null>(null);
@@ -1668,23 +1702,43 @@ export function ConnectionsSettings() {
     savedBackendSshUsername,
   ]);
 
-  const handleReconnectSavedBackend = useCallback(async (environmentId: EnvironmentId) => {
+  const handleConnectSavedBackend = useCallback(async (environmentId: EnvironmentId) => {
     setReconnectingSavedEnvironmentId(environmentId);
     setSavedBackendError(null);
     try {
       await reconnectSavedEnvironment(environmentId);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to reconnect backend.";
+      const message = error instanceof Error ? error.message : "Failed to connect backend.";
       setSavedBackendError(message);
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Could not reconnect backend",
+          title: "Could not connect backend",
           description: message,
         }),
       );
     } finally {
       setReconnectingSavedEnvironmentId(null);
+    }
+  }, []);
+
+  const handleDisconnectSavedBackend = useCallback(async (environmentId: EnvironmentId) => {
+    setDisconnectingSavedEnvironmentId(environmentId);
+    setSavedBackendError(null);
+    try {
+      await disconnectSavedEnvironment(environmentId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to disconnect backend.";
+      setSavedBackendError(message);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not disconnect backend",
+          description: message,
+        }),
+      );
+    } finally {
+      setDisconnectingSavedEnvironmentId(null);
     }
   }, []);
 
@@ -2550,8 +2604,10 @@ export function ConnectionsSettings() {
             key={environmentId}
             environmentId={environmentId}
             reconnectingEnvironmentId={reconnectingSavedEnvironmentId}
+            disconnectingEnvironmentId={disconnectingSavedEnvironmentId}
             removingEnvironmentId={removingSavedEnvironmentId}
-            onReconnect={handleReconnectSavedBackend}
+            onConnect={handleConnectSavedBackend}
+            onDisconnect={handleDisconnectSavedBackend}
             onRemove={handleRemoveSavedBackend}
           />
         ))}

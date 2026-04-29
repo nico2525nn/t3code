@@ -38,6 +38,7 @@ vi.mock("./catalog", () => ({
       upsert: vi.fn(),
       remove: vi.fn(),
       markConnected: vi.fn(),
+      rename: vi.fn(),
     }),
   },
   useSavedEnvironmentRuntimeStore: {

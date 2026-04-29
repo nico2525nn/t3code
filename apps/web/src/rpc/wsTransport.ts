@@ -52,6 +52,7 @@ export class WsTransport {
   private readonly lifecycleHandlers: WsProtocolLifecycleHandlers | undefined;
   private disposed = false;
   private hasReportedTransportDisconnect = false;
+  private intentionalCloseDepth = 0;
   private reconnectChain: Promise<void> = Promise.resolve();
   private session: TransportSession;
 
@@ -209,14 +210,25 @@ export class WsTransport {
   }
 
   private closeSession(session: TransportSession) {
+    this.intentionalCloseDepth += 1;
     return session.runtime.runPromise(Scope.close(session.clientScope, Exit.void)).finally(() => {
+      this.intentionalCloseDepth -= 1;
       session.runtime.dispose();
     });
   }
 
   private createSession(): TransportSession {
     const runtime = ManagedRuntime.make(
-      Layer.mergeAll(createWsRpcProtocolLayer(this.url, this.lifecycleHandlers), ClientTracingLive),
+      Layer.mergeAll(
+        createWsRpcProtocolLayer(this.url, {
+          ...this.lifecycleHandlers,
+          isCloseIntentional: () =>
+            this.disposed ||
+            this.intentionalCloseDepth > 0 ||
+            this.lifecycleHandlers?.isCloseIntentional?.() === true,
+        }),
+        ClientTracingLive,
+      ),
     );
     const clientScope = runtime.runSync(Scope.make());
     return {

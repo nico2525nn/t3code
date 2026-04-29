@@ -667,6 +667,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ORCHESTRATION_WS_METHODS.subscribeShell,
             Effect.gen(function* () {
               const snapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+                Effect.tapError((cause) =>
+                  Effect.logError("orchestration shell snapshot load failed", { cause }),
+                ),
                 Effect.mapError(
                   (cause) =>
                     new OrchestrationGetSnapshotError({

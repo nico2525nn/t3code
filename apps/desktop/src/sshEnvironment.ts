@@ -19,13 +19,18 @@ import {
 } from "@t3tools/ssh/auth";
 import { discoverSshHosts } from "@t3tools/ssh/config";
 import { SshPasswordPromptError } from "@t3tools/ssh/errors";
-import { fetchLoopbackSshJson, SshEnvironmentManager } from "@t3tools/ssh/tunnel";
+import {
+  fetchLoopbackSshJson,
+  SshEnvironmentManager,
+  type RemoteT3RunnerOptions,
+} from "@t3tools/ssh/tunnel";
 import { Effect, Exit, Layer, ManagedRuntime, Scope } from "effect";
 
 export { resolveRemoteT3CliPackageSpec } from "@t3tools/ssh/command";
 
 const DISCOVER_SSH_HOSTS_CHANNEL = "desktop:discover-ssh-hosts";
 const ENSURE_SSH_ENVIRONMENT_CHANNEL = "desktop:ensure-ssh-environment";
+const DISCONNECT_SSH_ENVIRONMENT_CHANNEL = "desktop:disconnect-ssh-environment";
 const FETCH_SSH_ENVIRONMENT_DESCRIPTOR_CHANNEL = "desktop:fetch-ssh-environment-descriptor";
 const BOOTSTRAP_SSH_BEARER_SESSION_CHANNEL = "desktop:bootstrap-ssh-bearer-session";
 const FETCH_SSH_SESSION_STATE_CHANNEL = "desktop:fetch-ssh-session-state";
@@ -37,6 +42,7 @@ const DEFAULT_SSH_PASSWORD_PROMPT_TIMEOUT_MS = 3 * 60 * 1000;
 interface DesktopSshEnvironmentManagerOptions {
   readonly passwordProvider?: (request: SshPasswordRequest) => Promise<string | null>;
   readonly resolveCliPackageSpec?: () => string;
+  readonly resolveCliRunner?: () => RemoteT3RunnerOptions;
 }
 
 const sshRuntime = ManagedRuntime.make(
@@ -55,11 +61,14 @@ function createDesktopSshRuntime(
       NetService.layer,
       Layer.succeed(Scope.Scope, scope),
       Layer.succeed(SshPasswordPrompt, SshPasswordPrompt.of(passwordPrompt)),
-      SshEnvironmentManager.layer(
-        options.resolveCliPackageSpec === undefined
+      SshEnvironmentManager.layer({
+        ...(options.resolveCliPackageSpec === undefined
           ? {}
-          : { resolveCliPackageSpec: options.resolveCliPackageSpec },
-      ),
+          : { resolveCliPackageSpec: options.resolveCliPackageSpec }),
+        ...(options.resolveCliRunner === undefined
+          ? {}
+          : { resolveCliRunner: options.resolveCliRunner }),
+      }),
     ),
   );
 }
@@ -108,6 +117,14 @@ export class DesktopSshEnvironmentManager {
     return await this.runtime.runPromise(
       Effect.service(SshEnvironmentManager).pipe(
         Effect.flatMap((manager) => manager.ensureEnvironment(target, options)),
+      ),
+    );
+  }
+
+  async disconnectEnvironment(target: DesktopSshEnvironmentTarget): Promise<void> {
+    await this.runtime.runPromise(
+      Effect.service(SshEnvironmentManager).pipe(
+        Effect.flatMap((manager) => manager.disconnectEnvironment(target)),
       ),
     );
   }
@@ -174,7 +191,8 @@ export interface DesktopSshBridgeIpcMain {
 
 export interface DesktopSshEnvironmentBridgeOptions {
   readonly getMainWindow: () => DesktopSshBridgeWindow | null;
-  readonly resolveCliPackageSpec: () => string;
+  readonly resolveCliPackageSpec?: () => string;
+  readonly resolveCliRunner?: () => RemoteT3RunnerOptions;
   readonly passwordPromptTimeoutMs?: number;
 }
 
@@ -200,7 +218,12 @@ export class DesktopSshEnvironmentBridge {
       options.passwordPromptTimeoutMs ?? DEFAULT_SSH_PASSWORD_PROMPT_TIMEOUT_MS;
     this.manager = new DesktopSshEnvironmentManager({
       passwordProvider: (request) => this.requestPasswordFromRenderer(request),
-      resolveCliPackageSpec: options.resolveCliPackageSpec,
+      ...(options.resolveCliPackageSpec === undefined
+        ? {}
+        : { resolveCliPackageSpec: options.resolveCliPackageSpec }),
+      ...(options.resolveCliRunner === undefined
+        ? {}
+        : { resolveCliRunner: options.resolveCliRunner }),
     });
   }
 
@@ -224,6 +247,16 @@ export class DesktopSshEnvironmentBridge {
       return await this.manager.ensureEnvironment(target, {
         issuePairingToken,
       });
+    });
+
+    ipcMain.removeHandler(DISCONNECT_SSH_ENVIRONMENT_CHANNEL);
+    ipcMain.handle(DISCONNECT_SSH_ENVIRONMENT_CHANNEL, async (_event, rawTarget) => {
+      const target = getSafeDesktopSshTarget(rawTarget);
+      if (!target) {
+        throw new Error("Invalid desktop SSH target.");
+      }
+
+      await this.manager.disconnectEnvironment(target);
     });
 
     ipcMain.removeHandler(FETCH_SSH_ENVIRONMENT_DESCRIPTOR_CHANNEL);
@@ -290,7 +323,7 @@ export class DesktopSshEnvironmentBridge {
 
         const pending = this.pendingPrompts.get(rawRequestId);
         if (!pending) {
-          throw new Error("SSH password prompt is no longer pending.");
+          throw new Error("SSH password prompt expired. Try connecting again.");
         }
 
         clearTimeout(pending.timeout);
@@ -324,6 +357,7 @@ export class DesktopSshEnvironmentBridge {
       destination: input.destination,
       username: input.username,
       prompt: input.prompt,
+      expiresAt: new Date(Date.now() + this.passwordPromptTimeoutMs).toISOString(),
     };
 
     return await new Promise<string | null>((resolve, reject) => {

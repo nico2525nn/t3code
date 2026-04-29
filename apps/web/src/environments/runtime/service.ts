@@ -114,6 +114,7 @@ const THREAD_DETAIL_SUBSCRIPTION_IDLE_EVICTION_MS = 15 * 60 * 1000;
 const MAX_CACHED_THREAD_DETAIL_SUBSCRIPTIONS = 32;
 const NOOP = () => undefined;
 const SSH_HTTP_STATUS_RE = /^\[ssh_http:(\d+)\]\s/u;
+const SAVED_ENVIRONMENT_CONNECT_TIMEOUT_MS = 70_000;
 
 function compareAppliedProjectionVersion(
   left: { readonly sequence: number; readonly updatedAt: string | null },
@@ -596,7 +597,10 @@ async function resolveDesktopSshEnvironmentBootstrap(
     throw new Error("SSH launch is only available in the desktop app.");
   }
 
-  return await desktopBridge.ensureSshEnvironment(target, options);
+  return await withDesktopSshBootstrapTimeout(
+    target,
+    desktopBridge.ensureSshEnvironment(target, options),
+  );
 }
 
 function getDesktopSshBridge() {
@@ -736,6 +740,36 @@ function setRuntimeError(environmentId: EnvironmentId, error: unknown) {
     connectionState: "error",
     ...getRuntimeErrorFields(error),
   });
+}
+
+function getDesktopSshTargetDisplayName(target: DesktopSshEnvironmentTarget): string {
+  return target.alias.trim() || target.hostname.trim() || "SSH host";
+}
+
+function createDesktopSshBootstrapTimeoutError(target: DesktopSshEnvironmentTarget): Error {
+  return new Error(
+    `Timed out starting SSH environment for ${getDesktopSshTargetDisplayName(target)}.`,
+  );
+}
+
+async function withDesktopSshBootstrapTimeout<T>(
+  target: DesktopSshEnvironmentTarget,
+  operation: Promise<T>,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(createDesktopSshBootstrapTimeoutError(target));
+    }, SAVED_ENVIRONMENT_CONNECT_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 function coalesceOrchestrationUiEvents(
@@ -1003,8 +1037,13 @@ function createPrimaryEnvironmentClient(
       `Unable to resolve websocket URL for ${knownEnvironment?.label ?? "primary environment"}.`,
     );
   }
+  const connectionLabel = knownEnvironment?.label ?? null;
 
-  return createWsRpcClient(new WsTransport(wsBaseUrl));
+  return createWsRpcClient(
+    new WsTransport(wsBaseUrl, {
+      getConnectionLabel: () => connectionLabel,
+    }),
+  );
 }
 
 function createSavedEnvironmentClient(
@@ -1033,6 +1072,7 @@ function createSavedEnvironmentClient(
             });
       },
       {
+        getConnectionLabel: () => getSavedEnvironmentRecord(environmentId)?.label ?? null,
         onAttempt: () => {
           setRuntimeConnecting(environmentId);
         },
@@ -1082,6 +1122,9 @@ async function refreshSavedEnvironmentMetadata(
     serverConfig,
     role: sessionState.authenticated ? (sessionState.role ?? roleHint ?? null) : null,
   });
+  useSavedEnvironmentRegistryStore
+    .getState()
+    .rename(record.environmentId, serverConfig.environment.label);
 }
 
 function registerConnection(connection: EnvironmentConnection): EnvironmentConnection {
@@ -1326,13 +1369,18 @@ export function getPrimaryEnvironmentConnection(): EnvironmentConnection {
 }
 
 export async function disconnectSavedEnvironment(environmentId: EnvironmentId): Promise<void> {
+  const record = getSavedEnvironmentRecord(environmentId);
   const connection = environmentConnections.get(environmentId);
-  if (connection?.kind !== "saved") {
-    return;
-  }
 
-  useSavedEnvironmentRuntimeStore.getState().clear(environmentId);
-  await removeConnection(environmentId).catch(() => false);
+  if (connection?.kind === "saved") {
+    await removeConnection(environmentId).catch(() => false);
+  }
+  setRuntimeDisconnected(environmentId);
+
+  if (record?.desktopSsh && typeof window !== "undefined") {
+    await window.desktopBridge?.disconnectSshEnvironment(record.desktopSsh);
+    await removeSavedEnvironmentBearerToken(environmentId);
+  }
 }
 
 export async function reconnectSavedEnvironment(environmentId: EnvironmentId): Promise<void> {
@@ -1343,8 +1391,14 @@ export async function reconnectSavedEnvironment(environmentId: EnvironmentId): P
 
   const connection = environmentConnections.get(environmentId);
   if (!connection) {
-    await ensureSavedEnvironmentConnection(record);
-    return;
+    setRuntimeConnecting(environmentId);
+    try {
+      await ensureSavedEnvironmentConnection(record);
+      return;
+    } catch (error) {
+      setRuntimeError(environmentId, error);
+      throw error;
+    }
   }
 
   setRuntimeConnecting(environmentId);
@@ -1376,9 +1430,10 @@ export async function reconnectSavedEnvironment(environmentId: EnvironmentId): P
 }
 
 export async function removeSavedEnvironment(environmentId: EnvironmentId): Promise<void> {
-  useSavedEnvironmentRegistryStore.getState().remove(environmentId);
-  await removeSavedEnvironmentBearerToken(environmentId);
   await disconnectSavedEnvironment(environmentId);
+  useSavedEnvironmentRegistryStore.getState().remove(environmentId);
+  useSavedEnvironmentRuntimeStore.getState().clear(environmentId);
+  await removeSavedEnvironmentBearerToken(environmentId);
 }
 
 export async function addSavedEnvironment(input: {

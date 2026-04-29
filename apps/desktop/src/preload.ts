@@ -24,6 +24,7 @@ const SET_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:set-saved-environment-secr
 const REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:remove-saved-environment-secret";
 const DISCOVER_SSH_HOSTS_CHANNEL = "desktop:discover-ssh-hosts";
 const ENSURE_SSH_ENVIRONMENT_CHANNEL = "desktop:ensure-ssh-environment";
+const DISCONNECT_SSH_ENVIRONMENT_CHANNEL = "desktop:disconnect-ssh-environment";
 const FETCH_SSH_ENVIRONMENT_DESCRIPTOR_CHANNEL = "desktop:fetch-ssh-environment-descriptor";
 const BOOTSTRAP_SSH_BEARER_SESSION_CHANNEL = "desktop:bootstrap-ssh-bearer-session";
 const FETCH_SSH_SESSION_STATE_CHANNEL = "desktop:fetch-ssh-session-state";
@@ -64,6 +65,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   discoverSshHosts: () => ipcRenderer.invoke(DISCOVER_SSH_HOSTS_CHANNEL),
   ensureSshEnvironment: (target, options) =>
     ipcRenderer.invoke(ENSURE_SSH_ENVIRONMENT_CHANNEL, target, options),
+  disconnectSshEnvironment: (target) =>
+    ipcRenderer.invoke(DISCONNECT_SSH_ENVIRONMENT_CHANNEL, target),
   fetchSshEnvironmentDescriptor: (httpBaseUrl) =>
     ipcRenderer.invoke(FETCH_SSH_ENVIRONMENT_DESCRIPTOR_CHANNEL, httpBaseUrl),
   bootstrapSshBearerSession: (httpBaseUrl, credential) =>

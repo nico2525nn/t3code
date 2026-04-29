@@ -306,6 +306,7 @@ const createDesktopBridgeStub = (overrides?: {
       wsBaseUrl: "ws://127.0.0.1:3774/",
       pairingToken: "ssh-pairing-token",
     })),
+    disconnectSshEnvironment: vi.fn().mockResolvedValue(undefined),
     fetchSshEnvironmentDescriptor: vi.fn().mockResolvedValue({
       environmentId: "environment-ssh",
       label: "SSH environment",

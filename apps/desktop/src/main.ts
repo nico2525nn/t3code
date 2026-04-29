@@ -36,6 +36,7 @@ import { autoUpdater } from "electron-updater";
 import type { ContextMenuItem } from "@t3tools/contracts";
 import { RotatingFileSink } from "@t3tools/shared/logging";
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
+import type { RemoteT3RunnerOptions } from "@t3tools/ssh/tunnel";
 import { DEFAULT_DESKTOP_BACKEND_PORT, resolveDesktopBackendPort } from "./backendPort.ts";
 import {
   type DesktopSettings,
@@ -119,6 +120,12 @@ const SAVED_ENVIRONMENT_REGISTRY_PATH = Path.join(STATE_DIR, "saved-environments
 const DESKTOP_SCHEME = "t3";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+// Dev-only SSH launcher override. Set this to an absolute path on the SSH host
+// for a built server entry, for example:
+// "/Users/julius/Development/Work/codething-mvp/apps/server/dist/bin.mjs"
+const DEV_REMOTE_T3_SERVER_ENTRY_PATH =
+  process.env.T3CODE_DEV_REMOTE_T3_SERVER_ENTRY_PATH?.trim() ??
+  "/Users/julius/Developer/t3code/apps/server/dist/bin.mjs";
 const desktopAppBranding: DesktopAppBranding = resolveDesktopAppBranding({
   isDevelopment,
   appVersion: app.getVersion(),
@@ -365,7 +372,10 @@ function resolveCustomHttpsEndpointUrls(): readonly string[] {
 
 async function applyDesktopServerExposureMode(
   mode: DesktopServerExposureMode,
-  options?: { readonly persist?: boolean; readonly rejectIfUnavailable?: boolean },
+  options?: {
+    readonly persist?: boolean;
+    readonly rejectIfUnavailable?: boolean;
+  },
 ): Promise<DesktopServerExposureState> {
   const advertisedHostOverride = resolveAdvertisedHostOverride();
   const requestedMode = mode;
@@ -685,12 +695,18 @@ let updateState: DesktopUpdateState = initialUpdateState();
 
 const desktopSshEnvironmentBridge = new DesktopSshEnvironmentBridge({
   getMainWindow: () => mainWindow,
-  resolveCliPackageSpec: () =>
-    resolveRemoteT3CliPackageSpec({
-      appVersion: app.getVersion(),
-      updateChannel: desktopSettings.updateChannel,
-      isDevelopment,
-    }),
+  resolveCliRunner: (): RemoteT3RunnerOptions => {
+    if (isDevelopment && DEV_REMOTE_T3_SERVER_ENTRY_PATH.length > 0) {
+      return { nodeScriptPath: DEV_REMOTE_T3_SERVER_ENTRY_PATH };
+    }
+    return {
+      packageSpec: resolveRemoteT3CliPackageSpec({
+        appVersion: app.getVersion(),
+        updateChannel: desktopSettings.updateChannel,
+        isDevelopment,
+      }),
+    };
+  },
 });
 
 function resolveUpdaterErrorContext(): DesktopUpdateErrorContext {
@@ -1244,7 +1260,10 @@ async function checkForUpdates(reason: string): Promise<boolean> {
   }
 }
 
-async function downloadAvailableUpdate(): Promise<{ accepted: boolean; completed: boolean }> {
+async function downloadAvailableUpdate(): Promise<{
+  accepted: boolean;
+  completed: boolean;
+}> {
   if (!updaterConfigured || updateDownloadInFlight || updateState.status !== "available") {
     return { accepted: false, completed: false };
   }
@@ -1266,7 +1285,10 @@ async function downloadAvailableUpdate(): Promise<{ accepted: boolean; completed
   }
 }
 
-async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed: boolean }> {
+async function installDownloadedUpdate(): Promise<{
+  accepted: boolean;
+  completed: boolean;
+}> {
   if (isQuitting || !updaterConfigured || updateState.status !== "downloaded") {
     return { accepted: false, completed: false };
   }
@@ -1742,7 +1764,10 @@ function registerIpcHandlers(): void {
     if (typeof rawInput !== "object" || rawInput === null) {
       throw new Error("Invalid Tailscale Serve input.");
     }
-    const input = rawInput as { readonly enabled?: unknown; readonly port?: unknown };
+    const input = rawInput as {
+      readonly enabled?: unknown;
+      readonly port?: unknown;
+    };
     if (typeof input.enabled !== "boolean") {
       throw new Error("Invalid Tailscale Serve input.");
     }
@@ -2049,7 +2074,10 @@ function createWindow(): BrowserWindow {
     const externalUrl = getSafeExternalUrl(params.linkURL);
     if (externalUrl) {
       menuTemplate.push(
-        { label: "Copy Link", click: () => clipboard.writeText(params.linkURL) },
+        {
+          label: "Copy Link",
+          click: () => clipboard.writeText(params.linkURL),
+        },
         { type: "separator" },
       );
     }

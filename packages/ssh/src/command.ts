@@ -1,13 +1,14 @@
 import * as Crypto from "node:crypto";
 
 import type { DesktopSshEnvironmentTarget, DesktopUpdateChannel } from "@t3tools/contracts";
-import { Effect, FileSystem, Path, Scope, Stream } from "effect";
+import { Duration, Effect, FileSystem, Option, Path, Scope, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { buildSshChildEnvironment, type SshAuthOptions } from "./auth.ts";
 import { SshCommandError, SshInvalidTargetError } from "./errors.ts";
 
 const PUBLISHABLE_T3_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
+const DEFAULT_SSH_COMMAND_TIMEOUT_MS = 60_000;
 
 const encoder = new TextEncoder();
 
@@ -20,6 +21,7 @@ export interface RunSshCommandOptions extends SshAuthOptions {
   readonly preHostArgs?: ReadonlyArray<string>;
   readonly remoteCommandArgs?: ReadonlyArray<string>;
   readonly stdin?: string;
+  readonly timeoutMs?: number;
 }
 
 export function parseSshResolveOutput(alias: string, stdout: string): DesktopSshEnvironmentTarget {
@@ -227,6 +229,22 @@ export const runSshCommand = Effect.fn("ssh/command.runSshCommand")(function* (
 > {
   return yield* Effect.scopedWith((commandScope) =>
     runSshCommandInScope(target, input, commandScope),
+  ).pipe(
+    Effect.timeoutOption(Duration.millis(input.timeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS)),
+    Effect.flatMap((result) =>
+      Option.match(result, {
+        onSome: Effect.succeed,
+        onNone: () =>
+          Effect.fail(
+            new SshCommandError({
+              command: ["ssh"],
+              exitCode: null,
+              stderr: "",
+              message: `SSH command timed out after ${input.timeoutMs ?? DEFAULT_SSH_COMMAND_TIMEOUT_MS}ms.`,
+            }),
+          ),
+      }),
+    ),
   );
 });
 

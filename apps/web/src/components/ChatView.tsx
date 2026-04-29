@@ -102,7 +102,7 @@ import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, WifiOffIcon } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -178,6 +178,8 @@ import {
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
 import { RightPanelSheet } from "./RightPanelSheet";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
+import { Button } from "./ui/button";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -185,6 +187,10 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+type EnvironmentUnavailableState = {
+  readonly label: string;
+  readonly connectionState: "connecting" | "disconnected" | "error";
+};
 
 type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
 
@@ -853,6 +859,37 @@ export default function ChatView(props: ChatViewProps) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const savedEnvironmentRegistry = useSavedEnvironmentRegistryStore((s) => s.byId);
   const savedEnvironmentRuntimeById = useSavedEnvironmentRuntimeStore((s) => s.byId);
+  const activeSavedEnvironmentRecord =
+    activeThread && activeThread.environmentId !== primaryEnvironmentId
+      ? (savedEnvironmentRegistry[activeThread.environmentId] ?? null)
+      : null;
+  const activeSavedEnvironmentRuntime = activeSavedEnvironmentRecord
+    ? (savedEnvironmentRuntimeById[activeSavedEnvironmentRecord.environmentId] ?? null)
+    : null;
+  const activeSavedEnvironmentConnectionState = activeSavedEnvironmentRecord
+    ? (activeSavedEnvironmentRuntime?.connectionState ?? "disconnected")
+    : "connected";
+  const activeEnvironmentUnavailable =
+    activeSavedEnvironmentRecord !== null && activeSavedEnvironmentConnectionState !== "connected";
+  const activeEnvironmentUnavailableLabel = activeSavedEnvironmentRecord
+    ? resolveEnvironmentOptionLabel({
+        isPrimary: false,
+        environmentId: activeSavedEnvironmentRecord.environmentId,
+        runtimeLabel: activeSavedEnvironmentRuntime?.descriptor?.label ?? null,
+        savedLabel: activeSavedEnvironmentRecord.label,
+      })
+    : null;
+  const activeEnvironmentUnavailableState: EnvironmentUnavailableState | null =
+    activeEnvironmentUnavailable && activeEnvironmentUnavailableLabel
+      ? {
+          label: activeEnvironmentUnavailableLabel,
+          connectionState:
+            activeSavedEnvironmentConnectionState === "connecting" ||
+            activeSavedEnvironmentConnectionState === "error"
+              ? activeSavedEnvironmentConnectionState
+              : "disconnected",
+        }
+      : null;
   const projectGroupingSettings = useSettings((settings) => ({
     sidebarProjectGroupingMode: settings.sidebarProjectGroupingMode,
     sidebarProjectGroupingOverrides: settings.sidebarProjectGroupingOverrides,
@@ -2333,6 +2370,13 @@ export default function ChatView(props: ChatViewProps) {
       const localApi = readLocalApi();
       if (!api || !localApi || !activeThread || isRevertingCheckpoint) return;
 
+      if (activeEnvironmentUnavailable && activeEnvironmentUnavailableLabel) {
+        setThreadError(
+          activeThread.id,
+          `Reconnect ${activeEnvironmentUnavailableLabel} before reverting checkpoints.`,
+        );
+        return;
+      }
       if (phase === "running" || isSendBusy || isConnecting) {
         setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
         return;
@@ -2368,6 +2412,8 @@ export default function ChatView(props: ChatViewProps) {
     },
     [
       activeThread,
+      activeEnvironmentUnavailable,
+      activeEnvironmentUnavailableLabel,
       environmentId,
       isConnecting,
       isRevertingCheckpoint,
@@ -2380,7 +2426,15 @@ export default function ChatView(props: ChatViewProps) {
   const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     const api = readEnvironmentApi(environmentId);
-    if (!api || !activeThread || isSendBusy || isConnecting || sendInFlightRef.current) return;
+    if (
+      !api ||
+      !activeThread ||
+      isSendBusy ||
+      isConnecting ||
+      activeEnvironmentUnavailable ||
+      sendInFlightRef.current
+    )
+      return;
     if (activePendingProgress) {
       onAdvanceActivePendingUserInput();
       return;
@@ -3331,6 +3385,36 @@ export default function ChatView(props: ChatViewProps) {
 
           {/* Input bar */}
           <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
+            {activeEnvironmentUnavailableState ? (
+              <Alert
+                variant={
+                  activeEnvironmentUnavailableState.connectionState === "error"
+                    ? "error"
+                    : "warning"
+                }
+                className="mx-auto mb-2 max-w-208"
+              >
+                <WifiOffIcon />
+                <AlertTitle>
+                  {activeEnvironmentUnavailableState.label} is{" "}
+                  {activeEnvironmentUnavailableState.connectionState === "connecting"
+                    ? "connecting"
+                    : "disconnected"}
+                </AlertTitle>
+                <AlertDescription>
+                  Reconnect this environment before sending messages or running actions.
+                </AlertDescription>
+                <AlertAction>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() => void navigate({ to: "/settings/connections" })}
+                  >
+                    Connections
+                  </Button>
+                </AlertAction>
+              </Alert>
+            ) : null}
             <ChatComposer
               ref={composerRef}
               composerDraftTarget={composerDraftTarget}
@@ -3347,6 +3431,7 @@ export default function ChatView(props: ChatViewProps) {
               isConnecting={isConnecting}
               isSendBusy={isSendBusy}
               isPreparingWorktree={isPreparingWorktree}
+              environmentUnavailable={activeEnvironmentUnavailableState}
               activePendingApproval={activePendingApproval}
               pendingApprovals={pendingApprovals}
               pendingUserInputs={pendingUserInputs}

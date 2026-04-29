@@ -51,8 +51,14 @@ const REMOTE_PORT_SCAN_WINDOW = 200;
 const SSH_READY_TIMEOUT_MS = 20_000;
 const TUNNEL_SHUTDOWN_TIMEOUT_MS = 2_000;
 
+export interface RemoteT3RunnerOptions {
+  readonly packageSpec?: string;
+  readonly nodeScriptPath?: string | null;
+}
+
 export interface SshEnvironmentManagerOptions {
   readonly resolveCliPackageSpec?: () => string;
+  readonly resolveCliRunner?: () => RemoteT3RunnerOptions;
 }
 
 interface SshTunnelEntry {
@@ -63,6 +69,7 @@ interface SshTunnelEntry {
   readonly httpBaseUrl: string;
   readonly wsBaseUrl: string;
   readonly process: ChildProcessSpawner.ChildProcessHandle;
+  readonly scope: Scope.Scope;
 }
 
 type SshEnvironmentEffectContext =
@@ -81,6 +88,15 @@ type SshEnvironmentEffectError =
   | SshReadinessError
   | SshPasswordPromptError
   | NetError;
+
+function makeSshTunnelCancelledError(target: DesktopSshEnvironmentTarget): SshCommandError {
+  return new SshCommandError({
+    command: ["ssh"],
+    exitCode: null,
+    stderr: "",
+    message: `SSH environment connection was cancelled for ${target.alias || target.hostname}.`,
+  });
+}
 
 interface SshAuthOperationInput<T> {
   readonly key: string;
@@ -104,6 +120,9 @@ export interface SshEnvironmentManagerShape {
     SshEnvironmentEffectError,
     SshEnvironmentEffectContext
   >;
+  readonly disconnectEnvironment: (
+    target: DesktopSshEnvironmentTarget,
+  ) => Effect.Effect<void, SshEnvironmentEffectError, SshEnvironmentEffectContext>;
 }
 
 const RemoteLaunchResult = Schema.Struct({
@@ -129,6 +148,10 @@ export function normalizeSshErrorMessage(stderr: string, fallbackMessage: string
 
 function stripTrailingNewlines(value: string): string {
   return value.replace(/\n+$/u, "");
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function applyScriptPlaceholders(
@@ -177,6 +200,10 @@ function tryPort(port) {
 
 export const REMOTE_RUNNER_SCRIPT = `#!/bin/sh
 set -eu
+T3_NODE_SCRIPT_PATH=@@T3_NODE_SCRIPT_PATH@@
+if [ -n "$T3_NODE_SCRIPT_PATH" ]; then
+  exec node "$T3_NODE_SCRIPT_PATH" "$@"
+fi
 if command -v t3 >/dev/null 2>&1; then
   exec t3 "$@"
 fi
@@ -198,10 +225,20 @@ PORT_FILE="$STATE_DIR/port"
 PID_FILE="$STATE_DIR/pid"
 LOG_FILE="$STATE_DIR/server.log"
 RUNNER_FILE="$STATE_DIR/run-t3.sh"
+RUNNER_NEXT="$STATE_DIR/run-t3.next.$$"
 mkdir -p "$STATE_DIR" "$SERVER_HOME"
-cat >"$RUNNER_FILE" <<'SH'
+cleanup_runner_next() {
+  rm -f "$RUNNER_NEXT"
+}
+trap cleanup_runner_next EXIT
+cat >"$RUNNER_NEXT" <<'SH'
 @@T3_RUNNER_SCRIPT@@
 SH
+RUNNER_CHANGED=0
+if [ ! -f "$RUNNER_FILE" ] || ! cmp -s "$RUNNER_NEXT" "$RUNNER_FILE"; then
+  RUNNER_CHANGED=1
+fi
+mv "$RUNNER_NEXT" "$RUNNER_FILE"
 chmod 700 "$RUNNER_FILE"
 pick_port() {
   node - "$PORT_FILE" "@@T3_DEFAULT_REMOTE_PORT@@" "@@T3_REMOTE_PORT_SCAN_WINDOW@@" <<'NODE'
@@ -211,8 +248,16 @@ NODE
 REMOTE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
 REMOTE_PORT="$(cat "$PORT_FILE" 2>/dev/null || true)"
 if [ -n "$REMOTE_PID" ] && [ -n "$REMOTE_PORT" ] && kill -0 "$REMOTE_PID" 2>/dev/null; then
-  :
+  if [ "$RUNNER_CHANGED" -eq 1 ]; then
+    kill "$REMOTE_PID" 2>/dev/null || true
+    REMOTE_PID=""
+    REMOTE_PORT=""
+  fi
 else
+  REMOTE_PID=""
+  REMOTE_PORT=""
+fi
+if [ -z "$REMOTE_PID" ] || [ -z "$REMOTE_PORT" ]; then
   REMOTE_PORT="$(pick_port)" || true
   if [ -z "$REMOTE_PORT" ]; then
     printf 'Failed to find an available port on the remote host. Ensure node is available on PATH.\\n' >&2
@@ -238,16 +283,30 @@ chmod 700 "$RUNNER_FILE"
 "$RUNNER_FILE" auth pairing create --base-dir "$SERVER_HOME" --json
 `;
 
-export function buildRemoteT3RunnerScript(input?: { readonly packageSpec?: string }): string {
+export const REMOTE_STOP_SCRIPT = `set -eu
+STATE_DIR="$HOME/.t3/ssh-launch/@@T3_STATE_KEY@@"
+PID_FILE="$STATE_DIR/pid"
+PORT_FILE="$STATE_DIR/port"
+REMOTE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
+if [ -n "$REMOTE_PID" ] && kill -0 "$REMOTE_PID" 2>/dev/null; then
+  kill "$REMOTE_PID" 2>/dev/null || true
+fi
+rm -f "$PID_FILE" "$PORT_FILE"
+printf '{"stopped":true}\\n'
+`;
+
+export function buildRemoteT3RunnerScript(input?: RemoteT3RunnerOptions): string {
   const packageSpec = input?.packageSpec?.trim() || "t3@latest";
+  const nodeScriptPath = input?.nodeScriptPath?.trim() || "";
   return stripTrailingNewlines(
     applyScriptPlaceholders(REMOTE_RUNNER_SCRIPT, {
       T3_PACKAGE_SPEC: packageSpec,
+      T3_NODE_SCRIPT_PATH: shellSingleQuote(nodeScriptPath),
     }),
   );
 }
 
-export function buildRemoteLaunchScript(input?: { readonly packageSpec?: string }): string {
+export function buildRemoteLaunchScript(input?: RemoteT3RunnerOptions): string {
   return applyScriptPlaceholders(REMOTE_LAUNCH_SCRIPT, {
     T3_RUNNER_SCRIPT: stripTrailingNewlines(buildRemoteT3RunnerScript(input)),
     T3_PICK_PORT_SCRIPT: stripTrailingNewlines(REMOTE_PICK_PORT_SCRIPT),
@@ -258,7 +317,7 @@ export function buildRemoteLaunchScript(input?: { readonly packageSpec?: string 
 
 export function buildRemotePairingScript(
   target: DesktopSshEnvironmentTarget,
-  input?: { readonly packageSpec?: string },
+  input?: RemoteT3RunnerOptions,
 ): string {
   return applyScriptPlaceholders(REMOTE_PAIRING_SCRIPT, {
     T3_STATE_KEY: remoteStateKey(target),
@@ -266,11 +325,17 @@ export function buildRemotePairingScript(
   });
 }
 
+export function buildRemoteStopScript(target: DesktopSshEnvironmentTarget): string {
+  return applyScriptPlaceholders(REMOTE_STOP_SCRIPT, {
+    T3_STATE_KEY: remoteStateKey(target),
+  });
+}
+
 export const launchOrReuseRemoteServer = Effect.fn("ssh/tunnel.launchOrReuseRemoteServer")(
   function* (
     target: DesktopSshEnvironmentTarget,
     input?: SshAuthOptions,
-    runner?: { readonly packageSpec?: string },
+    runner?: RemoteT3RunnerOptions,
   ): Effect.fn.Return<
     number,
     SshCommandError | SshInvalidTargetError | SshLaunchError,
@@ -312,7 +377,7 @@ export const launchOrReuseRemoteServer = Effect.fn("ssh/tunnel.launchOrReuseRemo
 export const issueRemotePairingToken = Effect.fn("ssh/tunnel.issueRemotePairingToken")(function* (
   target: DesktopSshEnvironmentTarget,
   input?: SshAuthOptions,
-  runner?: { readonly packageSpec?: string },
+  runner?: RemoteT3RunnerOptions,
 ): Effect.fn.Return<
   string,
   SshCommandError | SshInvalidTargetError | SshPairingError,
@@ -348,6 +413,23 @@ export const issueRemotePairingToken = Effect.fn("ssh/tunnel.issueRemotePairingT
     });
   }
   return parsed.credential;
+});
+
+export const stopRemoteServer = Effect.fn("ssh/tunnel.stopRemoteServer")(function* (
+  target: DesktopSshEnvironmentTarget,
+  input?: SshAuthOptions,
+): Effect.fn.Return<
+  void,
+  SshCommandError | SshInvalidTargetError,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+> {
+  yield* runSshCommand(target, {
+    remoteCommandArgs: ["sh", "-s"],
+    stdin: buildRemoteStopScript(target),
+    ...(input?.authSecret === undefined ? {} : { authSecret: input.authSecret }),
+    ...(input?.batchMode === undefined ? {} : { batchMode: input.batchMode }),
+    ...(input?.interactiveAuth === undefined ? {} : { interactiveAuth: input.interactiveAuth }),
+  });
 });
 
 export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(function* (input: {
@@ -533,6 +615,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
     hostSpec,
   ];
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const scope = yield* Scope.Scope;
   const child = yield* spawner
     .spawn(
       ChildProcess.make("ssh", args, {
@@ -563,6 +646,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
     httpBaseUrl: input.httpBaseUrl,
     wsBaseUrl: input.wsBaseUrl,
     process: child,
+    scope,
   };
   const exitFailure = Effect.all(
     [collectProcessOutput(child.stderr), child.exitCode.pipe(Effect.map(Number))],
@@ -619,7 +703,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
 const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.make")(function* (
   options: SshEnvironmentManagerOptions = {},
 ): Effect.fn.Return<SshEnvironmentManagerShape, never, Scope.Scope> {
-  const tunnelScope = yield* Scope.Scope;
+  const managerScope = yield* Scope.Scope;
   const tunnels = new Map<string, SshTunnelEntry>();
   const pendingTunnelEntries = new Map<
     string,
@@ -627,11 +711,21 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
   >();
   const authSecrets = new Map<string, string>();
 
-  const deleteTunnelIfCurrent = (entry: SshTunnelEntry): void => {
-    if (tunnels.get(entry.key) === entry) {
-      tunnels.delete(entry.key);
-    }
-  };
+  const closeTunnelEntry = Effect.fn("ssh/tunnel.closeTunnelEntry")(function* (
+    entry: SshTunnelEntry,
+  ) {
+    yield* Scope.close(entry.scope, Exit.void).pipe(Effect.ignore);
+  });
+
+  yield* Scope.addFinalizer(
+    managerScope,
+    Effect.sync(() => [...tunnels.values()]).pipe(
+      Effect.flatMap((entries) =>
+        Effect.forEach(entries, closeTunnelEntry, { concurrency: "unbounded" }),
+      ),
+      Effect.ignore,
+    ),
+  );
 
   const promptForPassword = Effect.fn("ssh/tunnel.promptForPassword")(function* (
     target: DesktopSshEnvironmentTarget,
@@ -725,21 +819,18 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
   const createTunnelEntry = Effect.fn("ssh/tunnel.ensureTunnelEntry.create")(function* (input: {
     readonly key: string;
     readonly resolvedTarget: DesktopSshEnvironmentTarget;
-    readonly packageSpec?: string;
+    readonly runner?: RemoteT3RunnerOptions;
   }): Effect.fn.Return<SshTunnelEntry, SshEnvironmentEffectError, SshEnvironmentEffectContext> {
     const remotePort = yield* runWithSshAuth({
       key: input.key,
       target: input.resolvedTarget,
       operation: (authOptions) =>
-        launchOrReuseRemoteServer(
-          input.resolvedTarget,
-          authOptions,
-          input.packageSpec === undefined ? undefined : { packageSpec: input.packageSpec },
-        ),
+        launchOrReuseRemoteServer(input.resolvedTarget, authOptions, input.runner),
     });
     const localPort = yield* reserveLocalTunnelPort();
     const httpBaseUrl = `http://127.0.0.1:${localPort}/`;
     const wsBaseUrl = `ws://127.0.0.1:${localPort}/`;
+    const entryScope = yield* Scope.make("sequential");
     const tunnelEntry = yield* runWithSshAuth({
       key: input.key,
       target: input.resolvedTarget,
@@ -752,16 +843,59 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
           httpBaseUrl,
           wsBaseUrl,
           authOptions,
-        }).pipe(Effect.provideService(Scope.Scope, tunnelScope)),
-    });
+        }).pipe(Effect.provideService(Scope.Scope, entryScope)),
+    }).pipe(
+      Effect.onExit((exit) =>
+        Exit.isSuccess(exit) ? Effect.void : Scope.close(entryScope, Exit.void).pipe(Effect.ignore),
+      ),
+    );
     tunnels.set(input.key, tunnelEntry);
+    const spawnerService = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const fileSystemService = yield* FileSystem.FileSystem;
+    const pathService = yield* Path.Path;
+    yield* Scope.addFinalizer(
+      entryScope,
+      Effect.gen(function* () {
+        if (tunnels.get(tunnelEntry.key) !== tunnelEntry) {
+          return;
+        }
+        tunnels.delete(tunnelEntry.key);
+        const authSecret = authSecrets.get(tunnelEntry.key) ?? null;
+        yield* Effect.all(
+          [
+            tunnelEntry.process.kill({
+              killSignal: "SIGTERM",
+              forceKillAfter: TUNNEL_SHUTDOWN_TIMEOUT_MS,
+            }),
+            stopRemoteServer(
+              tunnelEntry.target,
+              authSecret === null
+                ? {
+                    batchMode: "yes",
+                    interactiveAuth: false,
+                  }
+                : {
+                    authSecret,
+                    batchMode: "no",
+                    interactiveAuth: true,
+                  },
+            ).pipe(
+              Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawnerService),
+              Effect.provideService(FileSystem.FileSystem, fileSystemService),
+              Effect.provideService(Path.Path, pathService),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        ).pipe(Effect.ignore);
+      }).pipe(Effect.ignore),
+    );
     return tunnelEntry;
   });
 
   const ensureTunnelEntry = Effect.fn("ssh/tunnel.ensureTunnelEntry")(function* (
     key: string,
     resolvedTarget: DesktopSshEnvironmentTarget,
-    packageSpec?: string,
+    runner?: RemoteT3RunnerOptions,
   ): Effect.fn.Return<SshTunnelEntry, SshEnvironmentEffectError, SshEnvironmentEffectContext> {
     let entry = tunnels.get(key) ?? null;
 
@@ -772,13 +906,7 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
       if (Exit.isSuccess(readinessExit)) {
         return entry;
       }
-      yield* entry.process
-        .kill({
-          killSignal: "SIGTERM",
-          forceKillAfter: TUNNEL_SHUTDOWN_TIMEOUT_MS,
-        })
-        .pipe(Effect.ignore);
-      deleteTunnelIfCurrent(entry);
+      yield* closeTunnelEntry(entry);
       entry = null;
     }
 
@@ -793,7 +921,7 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
     return yield* createTunnelEntry({
       key,
       resolvedTarget,
-      ...(packageSpec === undefined ? {} : { packageSpec }),
+      ...(runner === undefined ? {} : { runner }),
     }).pipe(
       Effect.onExit((exit) =>
         Effect.sync(() => {
@@ -821,18 +949,15 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
     };
     const key = targetConnectionKey(resolvedTarget);
     const packageSpec = options.resolveCliPackageSpec?.();
-    const entry = yield* ensureTunnelEntry(key, resolvedTarget, packageSpec);
+    const runner =
+      options.resolveCliRunner?.() ?? (packageSpec === undefined ? undefined : { packageSpec });
+    const entry = yield* ensureTunnelEntry(key, resolvedTarget, runner);
 
     const pairingToken = requestOptions?.issuePairingToken
       ? yield* runWithSshAuth({
           key,
           target: entry.target,
-          operation: (authOptions) =>
-            issueRemotePairingToken(
-              entry.target,
-              authOptions,
-              packageSpec === undefined ? undefined : { packageSpec },
-            ),
+          operation: (authOptions) => issueRemotePairingToken(entry.target, authOptions, runner),
         })
       : null;
 
@@ -844,7 +969,37 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
     };
   });
 
-  return SshEnvironmentManager.of({ ensureEnvironment });
+  const disconnectEnvironment = Effect.fn("ssh/tunnel.disconnectEnvironment")(function* (
+    target: DesktopSshEnvironmentTarget,
+  ): Effect.fn.Return<void, SshEnvironmentEffectError, SshEnvironmentEffectContext> {
+    const baseResolved = yield* resolveSshTarget(target.alias || target.hostname);
+    const resolvedTarget: DesktopSshEnvironmentTarget = {
+      ...baseResolved,
+      ...(target.username !== null ? { username: target.username } : {}),
+      ...(target.port !== null ? { port: target.port } : {}),
+    };
+    const key = targetConnectionKey(resolvedTarget);
+    const entry = tunnels.get(key) ?? null;
+    if (entry !== null) {
+      yield* closeTunnelEntry(entry);
+    }
+    const pending = pendingTunnelEntries.get(key);
+    if (pending) {
+      pendingTunnelEntries.delete(key);
+      yield* Deferred.fail(pending, makeSshTunnelCancelledError(resolvedTarget)).pipe(
+        Effect.ignore,
+      );
+    }
+    if (entry === null) {
+      yield* runWithSshAuth({
+        key,
+        target: resolvedTarget,
+        operation: (authOptions) => stopRemoteServer(resolvedTarget, authOptions),
+      });
+    }
+  });
+
+  return SshEnvironmentManager.of({ ensureEnvironment, disconnectEnvironment });
 });
 
 export class SshEnvironmentManager extends Context.Service<

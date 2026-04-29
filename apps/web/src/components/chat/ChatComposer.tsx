@@ -285,6 +285,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   promptHasText: boolean;
   isSendBusy: boolean;
   isConnecting: boolean;
+  isEnvironmentUnavailable: boolean;
   hasSendableContent: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
@@ -304,6 +305,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         promptHasText={props.promptHasText}
         isSendBusy={props.isSendBusy}
         isConnecting={props.isConnecting}
+        isEnvironmentUnavailable={props.isEnvironmentUnavailable}
         isPreparingWorktree={props.isPreparingWorktree}
         hasSendableContent={props.hasSendableContent}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
@@ -375,6 +377,10 @@ export interface ChatComposerProps {
   isConnecting: boolean;
   isSendBusy: boolean;
   isPreparingWorktree: boolean;
+  environmentUnavailable: {
+    readonly label: string;
+    readonly connectionState: "connecting" | "disconnected" | "error";
+  } | null;
 
   // Pending approvals / inputs
   activePendingApproval: PendingApproval | null;
@@ -482,6 +488,7 @@ export const ChatComposer = memo(
       isConnecting,
       isSendBusy,
       isPreparingWorktree,
+      environmentUnavailable,
       activePendingApproval,
       pendingApprovals,
       pendingUserInputs,
@@ -1711,6 +1718,7 @@ export const ChatComposer = memo(
             className={cn(
               "rounded-[20px] border bg-card transition-colors duration-200 has-focus-visible:border-ring/45",
               isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border",
+              environmentUnavailable ? "opacity-75" : null,
               composerProviderState.composerSurfaceClassName,
             )}
           >
@@ -1860,11 +1868,19 @@ export const ChatComposer = memo(
                       ? "Type your own answer, or leave this blank to use the selected option"
                       : showPlanFollowUpPrompt && activeProposedPlan
                         ? "Add feedback to refine the plan, or leave this blank to implement it"
-                        : phase === "disconnected"
-                          ? "Ask for follow-up changes or attach images"
-                          : "Ask anything, @tag files/folders, or use / to show available commands"
+                        : environmentUnavailable
+                          ? `${environmentUnavailable.label} is ${
+                              environmentUnavailable.connectionState === "connecting"
+                                ? "connecting"
+                                : "disconnected"
+                            }`
+                          : phase === "disconnected"
+                            ? "Ask for follow-up changes or attach images"
+                            : "Ask anything, @tag files/folders, or use / to show available commands"
                 }
-                disabled={isConnecting || isComposerApprovalState}
+                disabled={
+                  isConnecting || isComposerApprovalState || environmentUnavailable !== null
+                }
               />
             </div>
 
@@ -1969,6 +1985,7 @@ export const ChatComposer = memo(
                     promptHasText={prompt.trim().length > 0}
                     isSendBusy={isSendBusy}
                     isConnecting={isConnecting}
+                    isEnvironmentUnavailable={environmentUnavailable !== null}
                     isPreparingWorktree={isPreparingWorktree}
                     hasSendableContent={composerSendState.hasSendableContent}
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
