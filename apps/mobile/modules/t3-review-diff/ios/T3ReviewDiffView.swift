@@ -689,8 +689,10 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
       setNeedsDisplayForVisibleBounds()
     }
   }
+  private var _suppressTokensByRowIdDidSet = false
   var tokensByRowId: [String: [ReviewDiffNativeToken]] = [:] {
     didSet {
+      guard !_suppressTokensByRowIdDidSet else { return }
       tokenAttributedStringsByRowId.removeAll()
       clampHorizontalOffsets()
       setNeedsDisplayForVisibleBounds()
@@ -698,10 +700,12 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
   }
 
   func mergeTokensByRowId(_ tokensPatch: [String: [ReviewDiffNativeToken]]) {
+    _suppressTokensByRowIdDidSet = true
     tokensPatch.forEach { rowId, tokens in
       tokensByRowId[rowId] = tokens
       tokenAttributedStringsByRowId.removeValue(forKey: rowId)
     }
+    _suppressTokensByRowIdDidSet = false
     clampHorizontalOffsets()
     setNeedsDisplayForVisibleBounds()
   }
