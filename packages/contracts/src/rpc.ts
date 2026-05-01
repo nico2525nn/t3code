@@ -92,16 +92,18 @@ export const WS_METHODS = {
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
 
-  // Git methods
-  gitPull: "git.pull",
-  gitRefreshStatus: "git.refreshStatus",
+  // VCS methods
+  vcsPull: "vcs.pull",
+  vcsRefreshStatus: "vcs.refreshStatus",
+  vcsListBranches: "vcs.listBranches",
+  vcsCreateWorktree: "vcs.createWorktree",
+  vcsRemoveWorktree: "vcs.removeWorktree",
+  vcsCreateBranch: "vcs.createBranch",
+  vcsCheckout: "vcs.checkout",
+  vcsInit: "vcs.init",
+
+  // Git workflow methods
   gitRunStackedAction: "git.runStackedAction",
-  gitListBranches: "git.listBranches",
-  gitCreateWorktree: "git.createWorktree",
-  gitRemoveWorktree: "git.removeWorktree",
-  gitCreateBranch: "git.createBranch",
-  gitCheckout: "git.checkout",
-  gitInit: "git.init",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
 
@@ -121,7 +123,7 @@ export const WS_METHODS = {
   serverUpdateSettings: "server.updateSettings",
 
   // Streaming subscriptions
-  subscribeGitStatus: "subscribeGitStatus",
+  subscribeVcsStatus: "subscribeVcsStatus",
   subscribeTerminalEvents: "subscribeTerminalEvents",
   subscribeServerConfig: "subscribeServerConfig",
   subscribeServerLifecycle: "subscribeServerLifecycle",
@@ -188,20 +190,20 @@ export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   error: FilesystemBrowseError,
 });
 
-export const WsSubscribeGitStatusRpc = Rpc.make(WS_METHODS.subscribeGitStatus, {
+export const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
   payload: GitStatusInput,
   success: GitStatusStreamEvent,
   error: GitManagerServiceError,
   stream: true,
 });
 
-export const WsGitPullRpc = Rpc.make(WS_METHODS.gitPull, {
+export const WsVcsPullRpc = Rpc.make(WS_METHODS.vcsPull, {
   payload: GitPullInput,
   success: GitPullResult,
   error: GitCommandError,
 });
 
-export const WsGitRefreshStatusRpc = Rpc.make(WS_METHODS.gitRefreshStatus, {
+export const WsVcsRefreshStatusRpc = Rpc.make(WS_METHODS.vcsRefreshStatus, {
   payload: GitStatusInput,
   success: GitStatusResult,
   error: GitManagerServiceError,
@@ -226,36 +228,36 @@ export const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePu
   error: GitManagerServiceError,
 });
 
-export const WsGitListBranchesRpc = Rpc.make(WS_METHODS.gitListBranches, {
+export const WsVcsListBranchesRpc = Rpc.make(WS_METHODS.vcsListBranches, {
   payload: GitListBranchesInput,
   success: GitListBranchesResult,
   error: GitCommandError,
 });
 
-export const WsGitCreateWorktreeRpc = Rpc.make(WS_METHODS.gitCreateWorktree, {
+export const WsVcsCreateWorktreeRpc = Rpc.make(WS_METHODS.vcsCreateWorktree, {
   payload: GitCreateWorktreeInput,
   success: GitCreateWorktreeResult,
   error: GitCommandError,
 });
 
-export const WsGitRemoveWorktreeRpc = Rpc.make(WS_METHODS.gitRemoveWorktree, {
+export const WsVcsRemoveWorktreeRpc = Rpc.make(WS_METHODS.vcsRemoveWorktree, {
   payload: GitRemoveWorktreeInput,
   error: GitCommandError,
 });
 
-export const WsGitCreateBranchRpc = Rpc.make(WS_METHODS.gitCreateBranch, {
+export const WsVcsCreateBranchRpc = Rpc.make(WS_METHODS.vcsCreateBranch, {
   payload: GitCreateBranchInput,
   success: GitCreateBranchResult,
   error: GitCommandError,
 });
 
-export const WsGitCheckoutRpc = Rpc.make(WS_METHODS.gitCheckout, {
+export const WsVcsCheckoutRpc = Rpc.make(WS_METHODS.vcsCheckout, {
   payload: GitCheckoutInput,
   success: GitCheckoutResult,
   error: GitCommandError,
 });
 
-export const WsGitInitRpc = Rpc.make(WS_METHODS.gitInit, {
+export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
   payload: GitInitInput,
   error: GitCommandError,
 });
@@ -374,18 +376,18 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
-  WsSubscribeGitStatusRpc,
-  WsGitPullRpc,
-  WsGitRefreshStatusRpc,
+  WsSubscribeVcsStatusRpc,
+  WsVcsPullRpc,
+  WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
-  WsGitListBranchesRpc,
-  WsGitCreateWorktreeRpc,
-  WsGitRemoveWorktreeRpc,
-  WsGitCreateBranchRpc,
-  WsGitCheckoutRpc,
-  WsGitInitRpc,
+  WsVcsListBranchesRpc,
+  WsVcsCreateWorktreeRpc,
+  WsVcsRemoveWorktreeRpc,
+  WsVcsCreateBranchRpc,
+  WsVcsCheckoutRpc,
+  WsVcsInitRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalResizeRpc,

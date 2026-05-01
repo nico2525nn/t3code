@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 
 import {
   Cache,
+  DateTime,
   Duration,
   Effect,
   Exit,
@@ -11,7 +12,6 @@ import {
   Option,
   Path,
   Ref,
-  Result,
 } from "effect";
 import {
   GitActionProgressEvent,
@@ -38,17 +38,14 @@ import {
   type GitManagerShape,
   type GitRunStackedActionOptions,
 } from "../Services/GitManager.ts";
-import { GitHubCli, type GitHubPullRequestSummary } from "../Services/GitHubCli.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
 import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScriptRunner.ts";
 import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
-import {
-  decodeGitHubPullRequestListJson,
-  formatGitHubJsonDecodeError,
-} from "../githubPullRequests.ts";
 import { GitVcsDriver, type GitStatusDetails } from "../../vcs/GitVcsDriver.ts";
+import { SourceControlProviderRegistry } from "../../sourceControl/SourceControlProviderRegistry.ts";
+import type { ChangeRequest } from "@t3tools/contracts";
 
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;
@@ -87,9 +84,9 @@ interface ResolvedPullRequest {
 }
 
 interface PullRequestHeadRemoteInfo {
-  isCrossRepository?: boolean;
-  headRepositoryNameWithOwner?: string | null;
-  headRepositoryOwnerLogin?: string | null;
+  isCrossRepository?: boolean | undefined;
+  headRepositoryNameWithOwner?: string | null | undefined;
+  headRepositoryOwnerLogin?: string | null | undefined;
 }
 
 interface BranchHeadContext {
@@ -255,7 +252,7 @@ function matchesBranchHeadContext(
   return true;
 }
 
-function toPullRequestInfo(summary: GitHubPullRequestSummary): PullRequestInfo {
+function toPullRequestInfo(summary: ChangeRequest): PullRequestInfo {
   return {
     number: summary.number,
     title: summary.title,
@@ -263,7 +260,7 @@ function toPullRequestInfo(summary: GitHubPullRequestSummary): PullRequestInfo {
     baseRefName: summary.baseRefName,
     headRefName: summary.headRefName,
     state: summary.state ?? "open",
-    updatedAt: null,
+    updatedAt: summary.updatedAt,
     ...(summary.isCrossRepository !== undefined
       ? { isCrossRepository: summary.isCrossRepository }
       : {}),
@@ -274,6 +271,14 @@ function toPullRequestInfo(summary: GitHubPullRequestSummary): PullRequestInfo {
       ? { headRepositoryOwnerLogin: summary.headRepositoryOwnerLogin }
       : {}),
   };
+}
+
+function parseDateTimeMillis(value: string | null): number {
+  if (!value) {
+    return 0;
+  }
+  const parsed = DateTime.make(value);
+  return Option.isSome(parsed) ? DateTime.toEpochMillis(parsed.value) : 0;
 }
 
 function gitManagerError(operation: string, detail: string, cause?: unknown): GitManagerError {
@@ -474,9 +479,9 @@ function shouldPreferSshRemote(url: string | null): boolean {
 }
 
 function toPullRequestHeadRemoteInfo(pr: {
-  isCrossRepository?: boolean;
-  headRepositoryNameWithOwner?: string | null;
-  headRepositoryOwnerLogin?: string | null;
+  isCrossRepository?: boolean | undefined;
+  headRepositoryNameWithOwner?: string | null | undefined;
+  headRepositoryOwnerLogin?: string | null | undefined;
 }): PullRequestHeadRemoteInfo {
   return {
     ...(pr.isCrossRepository !== undefined ? { isCrossRepository: pr.isCrossRepository } : {}),
@@ -491,9 +496,11 @@ function toPullRequestHeadRemoteInfo(pr: {
 
 export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const gitCore = yield* GitVcsDriver;
-  const gitHubCli = yield* GitHubCli;
+  const sourceControlProviders = yield* SourceControlProviderRegistry;
   const textGeneration = yield* TextGeneration;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
+
+  const sourceControlProvider = (cwd: string) => sourceControlProviders.resolve({ cwd });
   const serverSettingsService = yield* ServerSettingsService;
 
   const createProgressEmitter = (
@@ -530,7 +537,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         return;
       }
 
-      const cloneUrls = yield* gitHubCli.getRepositoryCloneUrls({
+      const cloneUrls = yield* (yield* sourceControlProvider(cwd)).getRepositoryCloneUrls({
         cwd,
         repository: repositoryNameWithOwner,
       });
@@ -585,7 +592,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         return;
       }
 
-      const cloneUrls = yield* gitHubCli.getRepositoryCloneUrls({
+      const cloneUrls = yield* (yield* sourceControlProvider(cwd)).getRepositoryCloneUrls({
         cwd,
         repository: repositoryNameWithOwner,
       });
@@ -832,9 +839,10 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     >,
   ) {
     for (const headSelector of headContext.headSelectors) {
-      const pullRequests = yield* gitHubCli.listOpenPullRequests({
+      const pullRequests = yield* (yield* sourceControlProvider(cwd)).listChangeRequests({
         cwd,
         headSelector,
+        state: "open",
         limit: 1,
       });
       const normalizedPullRequests = pullRequests.map(toPullRequestInfo);
@@ -866,46 +874,14 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     const parsedByNumber = new Map<number, PullRequestInfo>();
 
     for (const headSelector of headContext.headSelectors) {
-      const stdout = yield* gitHubCli
-        .execute({
-          cwd,
-          args: [
-            "pr",
-            "list",
-            "--head",
-            headSelector,
-            "--state",
-            "all",
-            "--limit",
-            "20",
-            "--json",
-            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
-          ],
-        })
-        .pipe(Effect.map((result) => result.stdout));
+      const pullRequests = yield* (yield* sourceControlProvider(cwd)).listChangeRequests({
+        cwd,
+        headSelector,
+        state: "all",
+        limit: 20,
+      });
 
-      const raw = stdout.trim();
-      if (raw.length === 0) {
-        continue;
-      }
-
-      const pullRequests = yield* Effect.sync(() => decodeGitHubPullRequestListJson(raw)).pipe(
-        Effect.flatMap((decoded) => {
-          if (!Result.isSuccess(decoded)) {
-            return Effect.fail(
-              gitManagerError(
-                "findLatestPr",
-                `GitHub CLI returned invalid PR list JSON: ${formatGitHubJsonDecodeError(decoded.failure)}`,
-                decoded.failure,
-              ),
-            );
-          }
-
-          return Effect.succeed(decoded.success);
-        }),
-      );
-
-      for (const pr of pullRequests) {
+      for (const pr of pullRequests.map(toPullRequestInfo)) {
         if (!matchesBranchHeadContext(pr, headContext)) {
           continue;
         }
@@ -914,8 +890,8 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     }
 
     const parsed = Array.from(parsedByNumber.values()).toSorted((a, b) => {
-      const left = a.updatedAt ? Date.parse(a.updatedAt) : 0;
-      const right = b.updatedAt ? Date.parse(b.updatedAt) : 0;
+      const left = parseDateTimeMillis(a.updatedAt);
+      const right = parseDateTimeMillis(b.updatedAt);
       return right - left;
     });
 
@@ -1034,11 +1010,11 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       }
     }
 
-    const defaultFromGh = yield* gitHubCli
+    const defaultFromProvider = yield* (yield* sourceControlProvider(cwd))
       .getDefaultBranch({ cwd })
       .pipe(Effect.catch(() => Effect.succeed(null)));
-    if (defaultFromGh) {
-      return defaultFromGh;
+    if (defaultFromProvider) {
+      return defaultFromProvider;
     }
 
     return "main";
@@ -1271,12 +1247,12 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     yield* emit({
       kind: "phase_started",
       phase: "pr",
-      label: "Creating GitHub pull request...",
+      label: "Creating pull request...",
     });
-    yield* gitHubCli
-      .createPullRequest({
+    yield* (yield* sourceControlProvider(cwd))
+      .createChangeRequest({
         cwd,
-        baseBranch,
+        baseRefName: baseBranch,
         headSelector: headContext.preferredHeadSelector,
         title: generated.title,
         bodyFile,
@@ -1334,8 +1310,8 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   const resolvePullRequest: GitManagerShape["resolvePullRequest"] = Effect.fn("resolvePullRequest")(
     function* (input) {
-      const pullRequest = yield* gitHubCli
-        .getPullRequest({
+      const pullRequest = yield* (yield* sourceControlProvider(input.cwd))
+        .getChangeRequest({
           cwd: input.cwd,
           reference: normalizePullRequestReference(input.reference),
         })
@@ -1369,14 +1345,14 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     return yield* Effect.gen(function* () {
       const normalizedReference = normalizePullRequestReference(input.reference);
       const rootWorktreePath = canonicalizeExistingPath(input.cwd);
-      const pullRequestSummary = yield* gitHubCli.getPullRequest({
+      const pullRequestSummary = yield* (yield* sourceControlProvider(input.cwd)).getChangeRequest({
         cwd: input.cwd,
         reference: normalizedReference,
       });
       const pullRequest = toResolvedPullRequest(pullRequestSummary);
 
       if (input.mode === "local") {
-        yield* gitHubCli.checkoutPullRequest({
+        yield* (yield* sourceControlProvider(input.cwd)).checkoutChangeRequest({
           cwd: input.cwd,
           reference: normalizedReference,
           force: true,

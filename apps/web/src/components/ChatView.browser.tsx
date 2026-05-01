@@ -206,6 +206,7 @@ function createMockEnvironmentApi(input: {
     filesystem: {
       browse: input.browse,
     },
+    vcs: {} as EnvironmentApi["vcs"],
     git: {} as EnvironmentApi["git"],
     orchestration: {
       dispatchCommand: input.dispatchCommand,
@@ -951,7 +952,7 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
-  if (tag === WS_METHODS.gitListBranches) {
+  if (tag === WS_METHODS.vcsListBranches) {
     return {
       isRepo: true,
       hasOriginRemote: true,
@@ -2425,7 +2426,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      expect(wsRequests.some((request) => request._tag === WS_METHODS.gitCreateWorktree)).toBe(
+      expect(wsRequests.some((request) => request._tag === WS_METHODS.vcsCreateWorktree)).toBe(
         false,
       );
       expect(
@@ -2572,7 +2573,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       },
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitListBranches) {
+        if (body._tag === WS_METHODS.vcsListBranches) {
           return {
             isRepo: true,
             hasOriginRemote: true,
@@ -2665,7 +2666,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       },
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitListBranches) {
+        if (body._tag === WS_METHODS.vcsListBranches) {
           return {
             isRepo: true,
             hasOriginRemote: true,
@@ -2761,7 +2762,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       viewport: DEFAULT_VIEWPORT,
       snapshot: snapshotWithTwoThreads,
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitListBranches) {
+        if (body._tag === WS_METHODS.vcsListBranches) {
           return {
             isRepo: true,
             hasOriginRemote: true,
@@ -3021,7 +3022,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       snapshot: createDraftOnlySnapshot(),
       initialPath: `/draft/${activeDraftId}`,
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitListBranches) {
+        if (body._tag === WS_METHODS.vcsListBranches) {
           return {
             isRepo: true,
             hasOriginRemote: true,
@@ -3146,7 +3147,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       snapshot: createDraftOnlySnapshot(),
       initialPath: `/draft/${draftId}`,
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitListBranches) {
+        if (body._tag === WS_METHODS.vcsListBranches) {
           return {
             isRepo: true,
             hasOriginRemote: true,

@@ -23,6 +23,7 @@ import {
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
+import * as SourceControlProviderRegistry from "../../sourceControl/SourceControlProviderRegistry.ts";
 import { makeGitManager } from "./GitManager.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -651,7 +652,7 @@ function makeManager(input?: {
   );
 
   const managerLayer = Layer.mergeAll(
-    Layer.succeed(GitHubCli, gitHubCli),
+    SourceControlProviderRegistry.layer.pipe(Layer.provide(Layer.succeed(GitHubCli, gitHubCli))),
     Layer.succeed(TextGeneration, textGeneration),
     Layer.succeed(
       ProjectSetupScriptRunner,
@@ -3126,7 +3127,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect.objectContaining({
           kind: "phase_started",
           phase: "pr",
-          label: "Creating GitHub pull request...",
+          label: "Creating pull request...",
         }),
       ]);
     }),

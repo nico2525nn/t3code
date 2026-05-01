@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { SourceControlProviderError } from "./sourceControl.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
@@ -370,6 +371,7 @@ export const GitManagerServiceError = Schema.Union([
   GitManagerError,
   GitCommandError,
   GitHubCliError,
+  SourceControlProviderError,
   TextGenerationError,
 ]);
 export type GitManagerServiceError = typeof GitManagerServiceError.Type;

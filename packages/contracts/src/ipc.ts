@@ -235,7 +235,7 @@ export interface LocalApi {
  *
  * These operations must always be routed with explicit environment context.
  * They represent remote stateful capabilities such as orchestration, terminal,
- * project, and git operations. In multi-environment mode, each environment gets
+ * project, VCS, and provider operations. In multi-environment mode, each environment gets
  * its own instance of this surface, and callers should resolve it by
  * `environmentId` rather than reaching through the local desktop bridge.
  */
@@ -256,19 +256,45 @@ export interface EnvironmentApi {
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
   };
-  git: {
+  vcs: {
     listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
     createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
     removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
     createBranch: (input: GitCreateBranchInput) => Promise<GitCreateBranchResult>;
     checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResult>;
     init: (input: GitInitInput) => Promise<void>;
+    pull: (input: GitPullInput) => Promise<GitPullResult>;
+    refreshStatus: (input: GitStatusInput) => Promise<GitStatusResult>;
+    onStatus: (
+      input: GitStatusInput,
+      callback: (status: GitStatusResult) => void,
+      options?: {
+        onResubscribe?: () => void;
+      },
+    ) => () => void;
+  };
+  git: {
+    /** @deprecated Use `EnvironmentApi.vcs.listBranches` for local VCS branch/ref listing. */
+    listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
+    /** @deprecated Use `EnvironmentApi.vcs.createWorktree` for local VCS workspace creation. */
+    createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
+    /** @deprecated Use `EnvironmentApi.vcs.removeWorktree` for local VCS workspace removal. */
+    removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
+    /** @deprecated Use `EnvironmentApi.vcs.createBranch` for local VCS branch/ref creation. */
+    createBranch: (input: GitCreateBranchInput) => Promise<GitCreateBranchResult>;
+    /** @deprecated Use `EnvironmentApi.vcs.checkout` for local VCS checkout/switch operations. */
+    checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResult>;
+    /** @deprecated Use `EnvironmentApi.vcs.init` for local VCS repository initialization. */
+    init: (input: GitInitInput) => Promise<void>;
     resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Promise<GitPreparePullRequestThreadResult>;
+    /** @deprecated Use `EnvironmentApi.vcs.pull` for local VCS pull/sync operations. */
     pull: (input: GitPullInput) => Promise<GitPullResult>;
+    /** @deprecated Use `EnvironmentApi.vcs.refreshStatus` for local VCS status refreshes. */
     refreshStatus: (input: GitStatusInput) => Promise<GitStatusResult>;
+    /** @deprecated Use `EnvironmentApi.vcs.onStatus` for local VCS status subscriptions. */
     onStatus: (
       input: GitStatusInput,
       callback: (status: GitStatusResult) => void,
