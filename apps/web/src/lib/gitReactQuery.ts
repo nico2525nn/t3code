@@ -19,17 +19,17 @@ const GIT_BRANCHES_PAGE_SIZE = 100;
 
 export const gitQueryKeys = {
   all: ["git"] as const,
-  branches: (environmentId: EnvironmentId | null, cwd: string | null) =>
-    ["git", "branches", environmentId ?? null, cwd] as const,
+  refs: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "refs", environmentId ?? null, cwd] as const,
   branchSearch: (environmentId: EnvironmentId | null, cwd: string | null, query: string) =>
-    ["git", "branches", environmentId ?? null, cwd, "search", query] as const,
+    ["git", "refs", environmentId ?? null, cwd, "search", query] as const,
 };
 
 export const gitMutationKeys = {
   init: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "init", environmentId ?? null, cwd] as const,
-  checkout: (environmentId: EnvironmentId | null, cwd: string | null) =>
-    ["git", "mutation", "checkout", environmentId ?? null, cwd] as const,
+  switchRef: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "mutation", "switchRef", environmentId ?? null, cwd] as const,
   runStackedAction: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "run-stacked-action", environmentId ?? null, cwd] as const,
   pull: (environmentId: EnvironmentId | null, cwd: string | null) =>
@@ -45,7 +45,7 @@ export function invalidateGitQueries(
   const environmentId = input?.environmentId ?? null;
   const cwd = input?.cwd ?? null;
   if (cwd !== null) {
-    return queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(environmentId, cwd) });
+    return queryClient.invalidateQueries({ queryKey: gitQueryKeys.refs(environmentId, cwd) });
   }
 
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
@@ -60,7 +60,7 @@ function invalidateGitBranchQueries(
     return Promise.resolve();
   }
 
-  return queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(environmentId, cwd) });
+  return queryClient.invalidateQueries({ queryKey: gitQueryKeys.refs(environmentId, cwd) });
 }
 
 /**
@@ -78,10 +78,10 @@ export function gitBranchSearchInfiniteQueryOptions(input: {
     queryKey: gitQueryKeys.branchSearch(input.environmentId, input.cwd, normalizedQuery),
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
-      if (!input.cwd) throw new Error("Git branches are unavailable.");
-      if (!input.environmentId) throw new Error("Git branches are unavailable.");
+      if (!input.cwd) throw new Error("Git refs are unavailable.");
+      if (!input.environmentId) throw new Error("Git refs are unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
-      return api.vcs.listBranches({
+      return api.vcs.listRefs({
         cwd: input.cwd,
         ...(normalizedQuery.length > 0 ? { query: normalizedQuery } : {}),
         cursor: pageParam,
@@ -154,11 +154,11 @@ export function gitCheckoutMutationOptions(input: {
   queryClient: QueryClient;
 }) {
   return mutationOptions({
-    mutationKey: gitMutationKeys.checkout(input.environmentId, input.cwd),
-    mutationFn: async (branch: string) => {
-      if (!input.cwd || !input.environmentId) throw new Error("Git checkout is unavailable.");
+    mutationKey: gitMutationKeys.switchRef(input.environmentId, input.cwd),
+    mutationFn: async (refName: string) => {
+      if (!input.cwd || !input.environmentId) throw new Error("Git switchRef is unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
-      return api.vcs.checkout({ cwd: input.cwd, branch });
+      return api.vcs.switchRef({ cwd: input.cwd, refName });
     },
     onSettled: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);

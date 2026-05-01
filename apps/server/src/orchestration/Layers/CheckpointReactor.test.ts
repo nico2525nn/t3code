@@ -291,9 +291,9 @@ describe("CheckpointReactor", () => {
         }).pipe(
           Effect.as({
             isRepo: true,
-            hasOriginRemote: false,
-            isDefaultBranch: true,
-            branch: "main",
+            hasPrimaryRemote: false,
+            isDefaultRef: true,
+            refName: "main",
             hasWorkingTreeChanges: false,
             workingTree: { files: [], insertions: 0, deletions: 0 },
           }),

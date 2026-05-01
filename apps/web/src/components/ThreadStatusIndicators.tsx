@@ -1,5 +1,5 @@
 import { scopeProjectRef, scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
-import type { GitStatusResult } from "@t3tools/contracts";
+import type { VcsStatusResult } from "@t3tools/contracts";
 import { CloudIcon, GitPullRequestIcon, TerminalIcon } from "lucide-react";
 import { useMemo } from "react";
 import { usePrimaryEnvironmentId } from "../environments/primary";
@@ -28,7 +28,7 @@ export interface TerminalStatusIndicator {
   pulse: boolean;
 }
 
-export type ThreadPr = GitStatusResult["pr"];
+export type ThreadPr = VcsStatusResult["pr"];
 
 export function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   if (!pr) return null;
@@ -62,9 +62,9 @@ export function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
 
 export function resolveThreadPr(
   threadBranch: string | null,
-  gitStatus: GitStatusResult | null,
+  gitStatus: VcsStatusResult | null,
 ): ThreadPr | null {
-  if (threadBranch === null || gitStatus === null || gitStatus.branch !== threadBranch) {
+  if (threadBranch === null || gitStatus === null || gitStatus.refName !== threadBranch) {
     return null;
   }
 

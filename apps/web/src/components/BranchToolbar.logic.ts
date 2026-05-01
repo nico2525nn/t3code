@@ -1,4 +1,4 @@
-import type { EnvironmentId, GitBranch, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, VcsRef, ProjectId } from "@t3tools/contracts";
 import { Schema } from "effect";
 export {
   dedupeRemoteBranchesWithLocalMatches,
@@ -43,7 +43,7 @@ export function resolveEnvironmentOptionLabel(input: {
 }
 
 export function resolveEnvModeLabel(mode: EnvMode): string {
-  return mode === "worktree" ? "New worktree" : "Current checkout";
+  return mode === "worktree" ? "New worktree" : "Current switchRef";
 }
 
 export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null): string {
@@ -51,7 +51,7 @@ export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null):
 }
 
 export function resolveLockedWorkspaceLabel(activeWorktreePath: string | null): string {
-  return activeWorktreePath ? "Worktree" : "Local checkout";
+  return activeWorktreePath ? "Worktree" : "Local switchRef";
 }
 
 export function resolveEffectiveEnvMode(input: {
@@ -100,24 +100,24 @@ export function resolveBranchToolbarValue(input: {
 export function resolveBranchSelectionTarget(input: {
   activeProjectCwd: string;
   activeWorktreePath: string | null;
-  branch: Pick<GitBranch, "isDefault" | "worktreePath">;
+  refName: Pick<VcsRef, "isDefault" | "worktreePath">;
 }): {
   checkoutCwd: string;
   nextWorktreePath: string | null;
   reuseExistingWorktree: boolean;
 } {
-  const { activeProjectCwd, activeWorktreePath, branch } = input;
+  const { activeProjectCwd, activeWorktreePath, refName } = input;
 
-  if (branch.worktreePath) {
+  if (refName.worktreePath) {
     return {
-      checkoutCwd: branch.worktreePath,
-      nextWorktreePath: branch.worktreePath === activeProjectCwd ? null : branch.worktreePath,
+      checkoutCwd: refName.worktreePath,
+      nextWorktreePath: refName.worktreePath === activeProjectCwd ? null : refName.worktreePath,
       reuseExistingWorktree: true,
     };
   }
 
   const nextWorktreePath =
-    activeWorktreePath !== null && branch.isDefault ? null : activeWorktreePath;
+    activeWorktreePath !== null && refName.isDefault ? null : activeWorktreePath;
 
   return {
     checkoutCwd: nextWorktreePath ?? activeProjectCwd,

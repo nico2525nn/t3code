@@ -12,11 +12,11 @@ import {
 } from "effect";
 import type {
   GitManagerServiceError,
-  GitStatusInput,
-  GitStatusLocalResult,
-  GitStatusRemoteResult,
-  GitStatusResult,
-  GitStatusStreamEvent,
+  VcsStatusInput,
+  VcsStatusLocalResult,
+  VcsStatusRemoteResult,
+  VcsStatusResult,
+  VcsStatusStreamEvent,
 } from "@t3tools/contracts";
 import { Context } from "effect";
 import { mergeGitStatusParts } from "@t3tools/shared/git";
@@ -27,7 +27,7 @@ const VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
 
 interface VcsStatusChange {
   readonly cwd: string;
-  readonly event: GitStatusStreamEvent;
+  readonly event: VcsStatusStreamEvent;
 }
 
 interface CachedValue<T> {
@@ -36,8 +36,8 @@ interface CachedValue<T> {
 }
 
 interface CachedVcsStatus {
-  readonly local: CachedValue<GitStatusLocalResult> | null;
-  readonly remote: CachedValue<GitStatusRemoteResult | null> | null;
+  readonly local: CachedValue<VcsStatusLocalResult> | null;
+  readonly remote: CachedValue<VcsStatusRemoteResult | null> | null;
 }
 
 interface ActiveRemotePoller {
@@ -47,15 +47,15 @@ interface ActiveRemotePoller {
 
 export interface VcsStatusBroadcasterShape {
   readonly getStatus: (
-    input: GitStatusInput,
-  ) => Effect.Effect<GitStatusResult, GitManagerServiceError>;
+    input: VcsStatusInput,
+  ) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
   readonly refreshLocalStatus: (
     cwd: string,
-  ) => Effect.Effect<GitStatusLocalResult, GitManagerServiceError>;
-  readonly refreshStatus: (cwd: string) => Effect.Effect<GitStatusResult, GitManagerServiceError>;
+  ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
+  readonly refreshStatus: (cwd: string) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
   readonly streamStatus: (
-    input: GitStatusInput,
-  ) => Stream.Stream<GitStatusStreamEvent, GitManagerServiceError>;
+    input: VcsStatusInput,
+  ) => Stream.Stream<VcsStatusStreamEvent, GitManagerServiceError>;
 }
 
 export class VcsStatusBroadcaster extends Context.Service<
@@ -88,11 +88,11 @@ export const layer = Layer.effect(
     });
 
     const updateCachedLocalStatus = Effect.fn("VcsStatusBroadcaster.updateCachedLocalStatus")(
-      function* (cwd: string, local: GitStatusLocalResult, options?: { publish?: boolean }) {
+      function* (cwd: string, local: VcsStatusLocalResult, options?: { publish?: boolean }) {
         const nextLocal = {
           fingerprint: fingerprintStatusPart(local),
           value: local,
-        } satisfies CachedValue<GitStatusLocalResult>;
+        } satisfies CachedValue<VcsStatusLocalResult>;
         const shouldPublish = yield* Ref.modify(cacheRef, (cache) => {
           const previous = cache.get(cwd) ?? { local: null, remote: null };
           const nextCache = new Map(cache);
@@ -120,13 +120,13 @@ export const layer = Layer.effect(
     const updateCachedRemoteStatus = Effect.fn("VcsStatusBroadcaster.updateCachedRemoteStatus")(
       function* (
         cwd: string,
-        remote: GitStatusRemoteResult | null,
+        remote: VcsStatusRemoteResult | null,
         options?: { publish?: boolean },
       ) {
         const nextRemote = {
           fingerprint: fingerprintStatusPart(remote),
           value: remote,
-        } satisfies CachedValue<GitStatusRemoteResult | null>;
+        } satisfies CachedValue<VcsStatusRemoteResult | null>;
         const shouldPublish = yield* Ref.modify(cacheRef, (cache) => {
           const previous = cache.get(cwd) ?? { local: null, remote: null };
           const nextCache = new Map(cache);

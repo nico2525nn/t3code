@@ -952,7 +952,7 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
-  if (tag === WS_METHODS.vcsListBranches) {
+  if (tag === WS_METHODS.vcsListRefs) {
     return {
       isRepo: true,
       hasOriginRemote: true,
@@ -2299,7 +2299,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           Array.from(document.querySelectorAll("span")).find(
             (element) => element.textContent?.trim() === "Checkout Pull Request",
           ) as HTMLSpanElement | null,
-        "Unable to find checkout pull request option.",
+        "Unable to find switchRef pull request option.",
       );
       checkoutItem.click();
 
@@ -2573,7 +2573,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       },
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.vcsListBranches) {
+        if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
             hasOriginRemote: true,
@@ -2599,7 +2599,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      (await waitForButtonByText("Current checkout")).click();
+      (await waitForButtonByText("Current switchRef")).click();
       await page.getByText("New worktree", { exact: true }).click();
 
       await vi.waitFor(
@@ -2666,7 +2666,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       },
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.vcsListBranches) {
+        if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
             hasOriginRemote: true,
@@ -2698,7 +2698,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      (await waitForButtonByText("Current checkout")).click();
+      (await waitForButtonByText("Current switchRef")).click();
       await page.getByText("New worktree", { exact: true }).click();
       await page.getByText("From main", { exact: true }).click();
       await page.getByText("release/next", { exact: true }).click();
@@ -2762,7 +2762,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       viewport: DEFAULT_VIEWPORT,
       snapshot: snapshotWithTwoThreads,
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.vcsListBranches) {
+        if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
             hasOriginRemote: true,
@@ -2794,7 +2794,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      (await waitForButtonByText("Current checkout")).click();
+      (await waitForButtonByText("Current switchRef")).click();
       await page.getByText("New worktree", { exact: true }).click();
       await page.getByText("From main", { exact: true }).click();
       await page.getByText("release/next", { exact: true }).click();
@@ -2822,13 +2822,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          expect(findButtonByText("Current checkout")).toBeTruthy();
+          expect(findButtonByText("Current switchRef")).toBeTruthy();
           expect(findButtonByText("From release/next")).toBeNull();
         },
         { timeout: 8_000, interval: 16 },
       );
 
-      (await waitForButtonByText("Current checkout")).click();
+      (await waitForButtonByText("Current switchRef")).click();
       await page.getByText("New worktree", { exact: true }).click();
 
       await vi.waitFor(
@@ -3022,7 +3022,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       snapshot: createDraftOnlySnapshot(),
       initialPath: `/draft/${activeDraftId}`,
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.vcsListBranches) {
+        if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
             hasOriginRemote: true,
@@ -3147,7 +3147,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       snapshot: createDraftOnlySnapshot(),
       initialPath: `/draft/${draftId}`,
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.vcsListBranches) {
+        if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
             hasOriginRemote: true,

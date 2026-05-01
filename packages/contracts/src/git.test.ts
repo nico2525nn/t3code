@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 
 import {
-  GitCreateWorktreeInput,
+  VcsCreateWorktreeInput,
   GitPreparePullRequestThreadInput,
   GitRunStackedActionResult,
   GitRunStackedActionInput,
   GitResolvePullRequestResult,
 } from "./git.ts";
 
-const decodeCreateWorktreeInput = Schema.decodeUnknownSync(GitCreateWorktreeInput);
+const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
 const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
   GitPreparePullRequestThreadInput,
 );
@@ -17,16 +17,16 @@ const decodeRunStackedActionInput = Schema.decodeUnknownSync(GitRunStackedAction
 const decodeRunStackedActionResult = Schema.decodeUnknownSync(GitRunStackedActionResult);
 const decodeResolvePullRequestResult = Schema.decodeUnknownSync(GitResolvePullRequestResult);
 
-describe("GitCreateWorktreeInput", () => {
-  it("accepts omitted newBranch for existing-branch worktrees", () => {
+describe("VcsCreateWorktreeInput", () => {
+  it("accepts omitted newRefName for existing-refName worktrees", () => {
     const parsed = decodeCreateWorktreeInput({
       cwd: "/repo",
-      branch: "feature/existing",
+      refName: "feature/existing",
       path: "/tmp/worktree",
     });
 
-    expect(parsed.newBranch).toBeUndefined();
-    expect(parsed.branch).toBe("feature/existing");
+    expect(parsed.newRefName).toBeUndefined();
+    expect(parsed.refName).toBe("feature/existing");
   });
 });
 
@@ -78,7 +78,7 @@ describe("GitRunStackedActionResult", () => {
   it("decodes a server-authored completion toast", () => {
     const parsed = decodeRunStackedActionResult({
       action: "commit_push",
-      branch: {
+      refName: {
         status: "created",
         name: "feature/server-owned-toast",
       },
@@ -89,8 +89,8 @@ describe("GitRunStackedActionResult", () => {
       },
       push: {
         status: "pushed",
-        branch: "feature/server-owned-toast",
-        upstreamBranch: "origin/feature/server-owned-toast",
+        refName: "feature/server-owned-toast",
+        upstreamRef: "origin/feature/server-owned-toast",
       },
       pr: {
         status: "skipped_not_requested",

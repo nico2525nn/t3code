@@ -256,7 +256,7 @@ function resolveWsRpc(tag: string): unknown {
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
-  if (tag === WS_METHODS.vcsListBranches) {
+  if (tag === WS_METHODS.vcsListRefs) {
     return {
       isRepo: true,
       hasOriginRemote: true,
