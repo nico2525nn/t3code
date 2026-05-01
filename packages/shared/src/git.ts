@@ -225,6 +225,10 @@ function isGitLabHost(host: string): boolean {
   return host === "gitlab.com" || host.includes("gitlab");
 }
 
+function isAzureDevOpsHost(host: string): boolean {
+  return host === "dev.azure.com" || host.endsWith(".visualstudio.com");
+}
+
 export function detectGitHostingProviderFromRemoteUrl(
   remoteUrl: string,
 ): GitHostingProvider | null {
@@ -245,6 +249,14 @@ export function detectGitHostingProviderFromRemoteUrl(
     return {
       kind: "gitlab",
       name: host === "gitlab.com" ? "GitLab" : "GitLab Self-Hosted",
+      baseUrl: toBaseUrl(host),
+    };
+  }
+
+  if (isAzureDevOpsHost(host)) {
+    return {
+      kind: "azure-devops",
+      name: "Azure DevOps",
       baseUrl: toBaseUrl(host),
     };
   }

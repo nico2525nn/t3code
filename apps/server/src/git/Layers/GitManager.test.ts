@@ -23,6 +23,7 @@ import {
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
+import * as GitHubSourceControlProvider from "../../sourceControl/GitHubSourceControlProvider.ts";
 import * as SourceControlProviderRegistry from "../../sourceControl/SourceControlProviderRegistry.ts";
 import { makeGitManager } from "./GitManager.ts";
 import { ServerConfig } from "../../config.ts";
@@ -650,9 +651,19 @@ function makeManager(input?: {
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(ServerConfigLayer),
   );
+  const sourceControlRegistryLayer = Layer.effect(
+    SourceControlProviderRegistry.SourceControlProviderRegistry,
+    GitHubSourceControlProvider.make().pipe(
+      Effect.map((provider) =>
+        SourceControlProviderRegistry.SourceControlProviderRegistry.of({
+          resolve: () => Effect.succeed(provider),
+        }),
+      ),
+      Effect.provide(Layer.succeed(GitHubCli, gitHubCli)),
+    ),
+  );
 
   const managerLayer = Layer.mergeAll(
-    SourceControlProviderRegistry.layer.pipe(Layer.provide(Layer.succeed(GitHubCli, gitHubCli))),
     Layer.succeed(TextGeneration, textGeneration),
     Layer.succeed(
       ProjectSetupScriptRunner,
@@ -662,7 +673,7 @@ function makeManager(input?: {
     ),
     vcsDriverLayer,
     serverSettingsLayer,
-  ).pipe(Layer.provideMerge(NodeServices.layer));
+  ).pipe(Layer.provideMerge(sourceControlRegistryLayer), Layer.provideMerge(NodeServices.layer));
 
   return makeGitManager().pipe(
     Effect.provide(managerLayer),
