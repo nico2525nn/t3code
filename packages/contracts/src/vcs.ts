@@ -14,8 +14,8 @@ export type VcsFreshnessSource = typeof VcsFreshnessSource.Type;
 
 export const VcsFreshness = Schema.Struct({
   source: VcsFreshnessSource,
-  observedAt: TrimmedNonEmptyString,
-  expiresAt: Schema.optional(TrimmedNonEmptyString),
+  observedAt: Schema.DateTimeUtc,
+  expiresAt: Schema.Option(Schema.DateTimeUtc),
 });
 export type VcsFreshness = typeof VcsFreshness.Type;
 

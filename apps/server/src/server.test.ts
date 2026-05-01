@@ -29,6 +29,7 @@ import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
 import {
   Deferred,
+  DateTime,
   Duration,
   Effect,
   FileSystem,
@@ -49,6 +50,8 @@ import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
 import { vi } from "vitest";
+
+const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
 
 import type { ServerConfigShape } from "./config.ts";
 import { deriveServerPaths, ServerConfig } from "./config.ts";
@@ -395,7 +398,8 @@ const buildAppUnderTest = (options?: {
           truncated: false,
           freshness: {
             source: "live-local",
-            observedAt: new Date(0).toISOString(),
+            observedAt: TEST_EPOCH,
+            expiresAt: Option.none(),
           },
         }),
       filterIgnoredPaths: (_cwd, relativePaths) => Effect.succeed(relativePaths),
@@ -416,7 +420,8 @@ const buildAppUnderTest = (options?: {
                           metadataPath: null,
                           freshness: {
                             source: "live-local" as const,
-                            observedAt: new Date(0).toISOString(),
+                            observedAt: TEST_EPOCH,
+                            expiresAt: Option.none(),
                           },
                         }
                       : null,
@@ -444,7 +449,8 @@ const buildAppUnderTest = (options?: {
             metadataPath: null,
             freshness: {
               source: "live-local",
-              observedAt: new Date(0).toISOString(),
+              observedAt: TEST_EPOCH,
+              expiresAt: Option.none(),
             },
           },
           driver: defaultVcsDriver,
@@ -2154,7 +2160,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 truncated: false,
                 freshness: {
                   source: "live-local",
-                  observedAt: new Date(0).toISOString(),
+                  observedAt: TEST_EPOCH,
+                  expiresAt: Option.none(),
                 },
               }),
             filterIgnoredPaths: (_cwd, relativePaths) =>

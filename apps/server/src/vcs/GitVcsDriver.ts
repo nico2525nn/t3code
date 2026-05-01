@@ -1,4 +1,4 @@
-import { Context, DateTime, Effect, Layer } from "effect";
+import { Context, DateTime, Effect, Layer, Option } from "effect";
 
 import {
   GitCommandError,
@@ -204,7 +204,8 @@ const nowFreshness = Effect.fn("GitVcsDriver.nowFreshness")(function* () {
   const now = yield* DateTime.now;
   return {
     source: "live-local" as const,
-    observedAt: DateTime.formatIso(now),
+    observedAt: now,
+    expiresAt: Option.none(),
   };
 });
 
