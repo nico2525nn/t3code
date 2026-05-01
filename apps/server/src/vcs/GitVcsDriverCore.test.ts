@@ -1,9 +1,7 @@
-import path from "node:path";
-
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
-import { describe, expect } from "vitest";
+import { assert, it } from "@effect/vitest";
+import { Effect, FileSystem, Layer, Path, PlatformError, Scope } from "effect";
+import { describe } from "vitest";
 
 import { GitCommandError } from "@t3tools/contracts";
 import { ServerConfig } from "../config.ts";
@@ -26,12 +24,15 @@ const makeTmpDir = (
   });
 
 const writeTextFile = (
-  filePath: string,
+  cwd: string,
+  relativePath: string,
   contents: string,
-): Effect.Effect<void, PlatformError.PlatformError, FileSystem.FileSystem> =>
+): Effect.Effect<void, PlatformError.PlatformError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true });
+    const pathService = yield* Path.Path;
+    const filePath = pathService.join(cwd, relativePath);
+    yield* fileSystem.makeDirectory(pathService.dirname(filePath), { recursive: true });
     yield* fileSystem.writeFileString(filePath, contents);
   });
 
@@ -57,14 +58,14 @@ const initRepoWithCommit = (
 ): Effect.Effect<
   { readonly initialBranch: string },
   GitCommandError | PlatformError.PlatformError,
-  GitVcsDriver.GitVcsDriver | FileSystem.FileSystem
+  GitVcsDriver.GitVcsDriver | FileSystem.FileSystem | Path.Path
 > =>
   Effect.gen(function* () {
     const driver = yield* GitVcsDriver.GitVcsDriver;
     yield* driver.initRepo({ cwd });
     yield* git(cwd, ["config", "user.email", "test@test.com"]);
     yield* git(cwd, ["config", "user.name", "Test"]);
-    yield* writeTextFile(path.join(cwd, "README.md"), "# test\n");
+    yield* writeTextFile(cwd, "README.md", "# test\n");
     yield* git(cwd, ["add", "."]);
     yield* git(cwd, ["commit", "-m", "initial commit"]);
     const initialBranch = yield* git(cwd, ["branch", "--show-current"]);
@@ -78,10 +79,9 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         const cwd = yield* makeTmpDir();
         const driver = yield* GitVcsDriver.GitVcsDriver;
 
-        expect(yield* driver.listBranches({ cwd })).toMatchObject({
-          isRepo: false,
-          branches: [],
-        });
+        const branches = yield* driver.listBranches({ cwd });
+        assert.equal(branches.isRepo, false);
+        assert.deepStrictEqual(branches.branches, []);
       }),
     );
 
@@ -89,14 +89,17 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         const { initialBranch } = yield* initRepoWithCommit(cwd);
-        yield* writeTextFile(path.join(cwd, "feature.ts"), "export const value = 1;\n");
+        yield* writeTextFile(cwd, "feature.ts", "export const value = 1;\n");
 
         const status = yield* (yield* GitVcsDriver.GitVcsDriver).statusDetails(cwd);
 
-        expect(status.isRepo).toBe(true);
-        expect(status.branch).toBe(initialBranch);
-        expect(status.hasWorkingTreeChanges).toBe(true);
-        expect(status.workingTree.files.map((file) => file.path)).toContain("feature.ts");
+        assert.equal(status.isRepo, true);
+        assert.equal(status.branch, initialBranch);
+        assert.equal(status.hasWorkingTreeChanges, true);
+        assert.include(
+          status.workingTree.files.map((file) => file.path),
+          "feature.ts",
+        );
       }),
     );
   });
@@ -110,21 +113,20 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
 
         yield* driver.createBranch({ cwd, branch: "feature/original" });
         const checkout = yield* driver.checkoutBranch({ cwd, branch: "feature/original" });
-        expect(checkout.branch).toBe("feature/original");
+        assert.equal(checkout.branch, "feature/original");
 
         const renamed = yield* driver.renameBranch({
           cwd,
           oldBranch: "feature/original",
           newBranch: "feature/renamed",
         });
-        expect(renamed.branch).toBe("feature/renamed");
-        expect(yield* git(cwd, ["branch", "--show-current"])).toBe("feature/renamed");
+        assert.equal(renamed.branch, "feature/renamed");
+        assert.equal(yield* git(cwd, ["branch", "--show-current"]), "feature/renamed");
 
         const branches = yield* driver.listBranches({ cwd });
-        expect(branches.branches.find((branch) => branch.name === "feature/renamed")).toMatchObject(
-          {
-            current: true,
-          },
+        assert.equal(
+          branches.branches.find((branch) => branch.name === "feature/renamed")?.current,
+          true,
         );
       }),
     );
@@ -142,7 +144,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           newBranch: current,
         });
 
-        expect(result.branch).toBe(current);
+        assert.equal(result.branch, current);
       }),
     );
   });
@@ -152,7 +154,11 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         const { initialBranch } = yield* initRepoWithCommit(cwd);
-        const worktreePath = path.join(yield* makeTmpDir("git-worktrees-"), "feature-worktree");
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(
+          yield* makeTmpDir("git-worktrees-"),
+          "feature-worktree",
+        );
         const driver = yield* GitVcsDriver.GitVcsDriver;
 
         const created = yield* driver.createWorktree({
@@ -162,13 +168,13 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           newBranch: "feature/worktree",
         });
 
-        expect(created.worktree.path).toBe(worktreePath);
-        expect(created.worktree.branch).toBe("feature/worktree");
-        expect(yield* git(worktreePath, ["branch", "--show-current"])).toBe("feature/worktree");
+        assert.equal(created.worktree.path, worktreePath);
+        assert.equal(created.worktree.branch, "feature/worktree");
+        assert.equal(yield* git(worktreePath, ["branch", "--show-current"]), "feature/worktree");
 
         yield* driver.removeWorktree({ cwd, path: worktreePath });
         const fileSystem = yield* FileSystem.FileSystem;
-        expect(yield* fileSystem.exists(worktreePath)).toBe(false);
+        assert.equal(yield* fileSystem.exists(worktreePath), false);
       }),
     );
   });
@@ -180,20 +186,20 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         yield* initRepoWithCommit(cwd);
         const driver = yield* GitVcsDriver.GitVcsDriver;
 
-        yield* writeTextFile(path.join(cwd, "a.txt"), "a\n");
-        yield* writeTextFile(path.join(cwd, "b.txt"), "b\n");
+        yield* writeTextFile(cwd, "a.txt", "a\n");
+        yield* writeTextFile(cwd, "b.txt", "b\n");
 
         const context = yield* driver.prepareCommitContext(cwd, ["a.txt"]);
-        expect(context?.stagedSummary).toContain("a.txt");
-        expect(context?.stagedSummary).not.toContain("b.txt");
+        assert.include(context?.stagedSummary ?? "", "a.txt");
+        assert.notInclude(context?.stagedSummary ?? "", "b.txt");
 
         const commit = yield* driver.commit(cwd, "Add a", "");
-        expect(commit.commitSha).toMatch(/^[a-f0-9]{40}$/);
-        expect(yield* git(cwd, ["log", "-1", "--pretty=%s"])).toBe("Add a");
+        assert.match(commit.commitSha, /^[a-f0-9]{40}$/);
+        assert.equal(yield* git(cwd, ["log", "-1", "--pretty=%s"]), "Add a");
 
         const status = yield* git(cwd, ["status", "--porcelain"]);
-        expect(status).toContain("?? b.txt");
-        expect(status).not.toContain("a.txt");
+        assert.include(status, "?? b.txt");
+        assert.notInclude(status, "a.txt");
       }),
     );
   });
@@ -214,22 +220,23 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           cwd,
           branch: "feature/push",
         });
-        yield* writeTextFile(path.join(cwd, "feature.txt"), "feature\n");
+        yield* writeTextFile(cwd, "feature.txt", "feature\n");
         yield* (yield* GitVcsDriver.GitVcsDriver).prepareCommitContext(cwd);
         yield* (yield* GitVcsDriver.GitVcsDriver).commit(cwd, "Add feature", "");
 
         const pushed = yield* (yield* GitVcsDriver.GitVcsDriver).pushCurrentBranch(cwd, null);
-        expect(pushed).toMatchObject({
+        assert.deepInclude(pushed, {
           status: "pushed",
           branch: "feature/push",
           setUpstream: true,
         });
-        expect(yield* git(cwd, ["rev-parse", "--abbrev-ref", "@{upstream}"])).toBe(
+        assert.equal(
+          yield* git(cwd, ["rev-parse", "--abbrev-ref", "@{upstream}"]),
           "origin/feature/push",
         );
 
         const skipped = yield* (yield* GitVcsDriver.GitVcsDriver).pushCurrentBranch(cwd, null);
-        expect(skipped).toMatchObject({
+        assert.deepInclude(skipped, {
           status: "skipped_up_to_date",
           branch: "feature/push",
         });
