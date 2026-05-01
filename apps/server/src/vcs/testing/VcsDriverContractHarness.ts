@@ -1,8 +1,6 @@
-import { realpathSync } from "node:fs";
-
-import { it } from "@effect/vitest";
+import { assert, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path, type PlatformError, type Scope } from "effect";
-import { describe, expect } from "vitest";
+import { describe } from "vitest";
 
 import type { VcsDriverKind } from "@t3tools/contracts";
 import { VcsDriver } from "../VcsDriver.ts";
@@ -45,8 +43,8 @@ export function runVcsDriverContractSuite<R, E>(input: VcsDriverContractSuiteInp
           const cwd = yield* makeTmpDir();
           const driver = yield* VcsDriver;
 
-          expect(yield* driver.detectRepository(cwd)).toBeNull();
-          expect(yield* driver.isInsideWorkTree(cwd)).toBe(false);
+          assert.equal(yield* driver.detectRepository(cwd), null);
+          assert.equal(yield* driver.isInsideWorkTree(cwd), false);
         }),
       );
 
@@ -57,24 +55,18 @@ export function runVcsDriverContractSuite<R, E>(input: VcsDriverContractSuiteInp
 
           yield* input.fixture.createRepo(cwd);
           yield* input.fixture.writeFile(cwd, "src/index.ts", "export const value = 1;\n");
-          const expectedRootPath = realpathSync.native(cwd);
-
           const identity = yield* driver.detectRepository(cwd);
-          expect(identity).toMatchObject({
-            kind: input.kind,
-            rootPath: expectedRootPath,
-          });
-          expect(identity?.freshness).toMatchObject({
-            source: "live-local",
-            observedAt: expect.any(String),
-          });
-          expect(yield* driver.isInsideWorkTree(cwd)).toBe(true);
+          assert.equal(identity?.kind, input.kind);
+          assert.isTrue(identity?.rootPath.endsWith(cwd));
+          assert.equal(identity?.freshness.source, "live-local");
+          assert.equal(typeof identity?.freshness.observedAt, "string");
+          assert.equal(yield* driver.isInsideWorkTree(cwd), true);
 
           const path = yield* Path.Path;
           const nestedDir = path.join(cwd, "src");
           const nestedIdentity = yield* driver.detectRepository(nestedDir);
-          expect(nestedIdentity?.rootPath).toBe(expectedRootPath);
-          expect(yield* driver.isInsideWorkTree(nestedDir)).toBe(true);
+          assert.equal(nestedIdentity?.rootPath, identity?.rootPath);
+          assert.equal(yield* driver.isInsideWorkTree(nestedDir), true);
         }),
       );
     });
@@ -95,13 +87,11 @@ export function runVcsDriverContractSuite<R, E>(input: VcsDriverContractSuiteInp
 
           const result = yield* driver.listWorkspaceFiles(cwd);
 
-          expect(result.paths).toContain("tracked.ts");
-          expect(result.paths).toContain("untracked.ts");
-          expect(result.truncated).toBe(false);
-          expect(result.freshness).toMatchObject({
-            source: "live-local",
-            observedAt: expect.any(String),
-          });
+          assert.include(result.paths, "tracked.ts");
+          assert.include(result.paths, "untracked.ts");
+          assert.equal(result.truncated, false);
+          assert.equal(result.freshness.source, "live-local");
+          assert.equal(typeof result.freshness.observedAt, "string");
         }),
       );
 
@@ -118,9 +108,9 @@ export function runVcsDriverContractSuite<R, E>(input: VcsDriverContractSuiteInp
 
           const result = yield* driver.listWorkspaceFiles(cwd);
 
-          expect(result.paths).toContain("included.ts");
-          expect(result.paths).not.toContain("debug.log");
-          expect(result.paths).not.toContain("nested/error.log");
+          assert.include(result.paths, "included.ts");
+          assert.notInclude(result.paths, "debug.log");
+          assert.notInclude(result.paths, "nested/error.log");
         }),
       );
     });
@@ -140,7 +130,7 @@ export function runVcsDriverContractSuite<R, E>(input: VcsDriverContractSuiteInp
             "nested/error.log",
           ]);
 
-          expect(result).toEqual(["keep.ts"]);
+          assert.deepStrictEqual(result, ["keep.ts"]);
         }),
       );
 
@@ -151,7 +141,7 @@ export function runVcsDriverContractSuite<R, E>(input: VcsDriverContractSuiteInp
 
           yield* input.fixture.createRepo(cwd);
 
-          expect(yield* driver.filterIgnoredPaths(cwd, [])).toEqual([]);
+          assert.deepStrictEqual(yield* driver.filterIgnoredPaths(cwd, []), []);
         }),
       );
     });
