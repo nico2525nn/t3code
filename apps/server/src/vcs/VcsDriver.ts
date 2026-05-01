@@ -6,10 +6,9 @@ import type {
   VcsListWorkspaceFilesResult,
   VcsRepositoryIdentity,
 } from "@t3tools/contracts";
-import type { GitCoreShape } from "../git/Services/GitCore.ts";
 import type { VcsProcessInput, VcsProcessOutput } from "./VcsProcess.ts";
 
-export interface VcsDriverShape extends Omit<GitCoreShape, "execute"> {
+export interface VcsDriverShape {
   readonly capabilities: VcsDriverCapabilities;
   readonly execute: (
     input: Omit<VcsProcessInput, "command">,

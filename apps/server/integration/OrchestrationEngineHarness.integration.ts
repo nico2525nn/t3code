@@ -33,7 +33,6 @@ import { ProjectionCheckpointRepositoryLive } from "../src/persistence/Layers/Pr
 import { ProjectionPendingApprovalRepositoryLive } from "../src/persistence/Layers/ProjectionPendingApprovals.ts";
 import { ProviderSessionRuntimeRepositoryLive } from "../src/persistence/Layers/ProviderSessionRuntime.ts";
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
-import { VcsDriver, type VcsDriverShape } from "../src/vcs/VcsDriver.ts";
 import { ProjectionCheckpointRepository } from "../src/persistence/Services/ProjectionCheckpoints.ts";
 import { ProjectionPendingApprovalRepository } from "../src/persistence/Services/ProjectionPendingApprovals.ts";
 import { makeAdapterRegistryMock } from "../src/provider/testUtils/providerAdapterRegistryMock.ts";
@@ -292,7 +291,7 @@ export const makeOrchestrationIntegrationHarness = (
           Layer.provide(providerEventLoggersLayer),
         );
 
-    const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitVcsDriver.layer));
+    const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitVcsDriver.vcsLayer));
     const projectionSnapshotQueryLayer = OrchestrationProjectionSnapshotQueryLive;
     const runtimeServicesLayer = Layer.mergeAll(
       projectionSnapshotQueryLayer,
@@ -308,17 +307,17 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(serverSettingsLayer),
     );
-    const vcsDriverLayer = Layer.succeed(VcsDriver, {
-      renameBranch: (input: Parameters<VcsDriverShape["renameBranch"]>[0]) =>
+    const gitVcsDriverLayer = Layer.succeed(GitVcsDriver.GitVcsDriver, {
+      renameBranch: (input: Parameters<GitVcsDriver.GitVcsDriverShape["renameBranch"]>[0]) =>
         Effect.succeed({ branch: input.newBranch }),
-    } as unknown as VcsDriverShape);
+    } as unknown as GitVcsDriver.GitVcsDriverShape);
     const textGenerationLayer = Layer.succeed(TextGeneration, {
       generateBranchName: () => Effect.succeed({ branch: "update" }),
       generateThreadTitle: () => Effect.succeed({ title: "New thread" }),
     } as unknown as TextGenerationShape);
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
-      Layer.provideMerge(vcsDriverLayer),
+      Layer.provideMerge(gitVcsDriverLayer),
       Layer.provideMerge(textGenerationLayer),
       Layer.provideMerge(serverSettingsLayer),
     );
@@ -343,7 +342,7 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(
         WorkspaceEntriesLive.pipe(
           Layer.provide(WorkspacePathsLive),
-          Layer.provideMerge(GitVcsDriver.layer),
+          Layer.provideMerge(GitVcsDriver.vcsLayer),
           Layer.provide(NodeServices.layer),
         ),
       ),

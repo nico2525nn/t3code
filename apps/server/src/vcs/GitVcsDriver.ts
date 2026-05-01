@@ -1,9 +1,16 @@
-import { DateTime, Effect, Layer } from "effect";
+import { Context, DateTime, Effect, Layer } from "effect";
 
 import { VcsProcessExitError } from "@t3tools/contracts";
 import { makeGitCore } from "../git/Layers/GitCore.ts";
+import type { GitCoreShape } from "../git/Services/GitCore.ts";
 import { VcsDriver, type VcsDriverShape } from "./VcsDriver.ts";
 import { VcsProcess, type VcsProcessShape } from "./VcsProcess.ts";
+
+export interface GitVcsDriverShape extends GitCoreShape {}
+
+export class GitVcsDriver extends Context.Service<GitVcsDriver, GitVcsDriverShape>()(
+  "t3/vcs/GitVcsDriver",
+) {}
 
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const GIT_CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
@@ -92,9 +99,8 @@ const gitCommand = (
       : {}),
   });
 
-export const make = Effect.fn("makeGitVcsDriver")(function* () {
+export const makeVcsDriver = Effect.fn("makeGitVcsDriver")(function* () {
   const process = yield* VcsProcess;
-  const legacyGit = yield* makeGitCore();
   const capabilities = {
     kind: "git" as const,
     supportsWorktrees: true,
@@ -243,7 +249,6 @@ export const make = Effect.fn("makeGitVcsDriver")(function* () {
   );
 
   return VcsDriver.of({
-    ...legacyGit,
     capabilities,
     execute,
     detectRepository,
@@ -253,4 +258,10 @@ export const make = Effect.fn("makeGitVcsDriver")(function* () {
   });
 });
 
-export const layer = Layer.effect(VcsDriver, make());
+export const make = Effect.fn("makeGitVcsDriverService")(function* () {
+  const legacyGit = yield* makeGitCore();
+  return GitVcsDriver.of(legacyGit);
+});
+
+export const vcsLayer = Layer.effect(VcsDriver, makeVcsDriver());
+export const layer = Layer.effect(GitVcsDriver, make());

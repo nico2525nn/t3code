@@ -49,7 +49,7 @@ import {
   decodeGitHubPullRequestListJson,
   formatGitHubJsonDecodeError,
 } from "../githubPullRequests.ts";
-import { VcsDriver } from "../../vcs/VcsDriver.ts";
+import { GitVcsDriver } from "../../vcs/GitVcsDriver.ts";
 
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;
@@ -491,7 +491,7 @@ function toPullRequestHeadRemoteInfo(pr: {
 }
 
 export const makeGitManager = Effect.fn("makeGitManager")(function* () {
-  const gitCore = yield* VcsDriver;
+  const gitCore = yield* GitVcsDriver;
   const gitHubCli = yield* GitHubCli;
   const textGeneration = yield* TextGeneration;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;

@@ -28,7 +28,7 @@ import {
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { VcsDriver } from "../../vcs/VcsDriver.ts";
+import { GitVcsDriver } from "../../vcs/GitVcsDriver.ts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -168,7 +168,7 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
-  const git = yield* VcsDriver;
+  const git = yield* GitVcsDriver;
   const gitStatusBroadcaster = yield* GitStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
