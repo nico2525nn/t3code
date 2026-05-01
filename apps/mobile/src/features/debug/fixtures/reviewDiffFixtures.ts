@@ -1,4 +1,6 @@
-export type DebugReviewDiffFixtureId = "small" | "medium" | "large" | "current";
+import { DEBUG_REVIEW_XL_DIFF } from "./reviewDiffXlFixture";
+
+export type DebugReviewDiffFixtureId = "small" | "medium" | "large" | "xl" | "current" | "states";
 
 export interface DebugReviewDiffFixture {
   readonly id: DebugReviewDiffFixtureId;
@@ -8,7 +10,203 @@ export interface DebugReviewDiffFixture {
   readonly diff: string;
 }
 
+const DEBUG_REVIEW_STATES_DIFF = `diff --git a/apps/demo/src/main.ts b/apps/demo/src/main.ts
+index 78f5eaa12..c2874ad31 100644
+--- a/apps/demo/src/main.ts
++++ b/apps/demo/src/main.ts
+@@ -1,18 +1,24 @@
+ import { createServer } from "./server";
+ import { createLogger } from "./logger";
+ 
+-const retryLimit = 2;
+-const greeting = "Hi You, {name}! Welcome to our application.";
++const retryLimit = 4;
++const greeting = "Hello There, {name}! Welcome to the updated application.";
+ const logger = createLogger("demo");
+ 
+ export async function boot() {
+   const server = createServer({
+-    port: 3000,
+-    timeoutMs: 1200,
++    port: 3030,
++    timeoutMs: 2500,
+     retryLimit,
+   });
+ 
+-  logger.info("starting server");
++  logger.info("starting review fixture server");
++  logger.debug({ retryLimit }, "configured retry policy");
+   await server.start();
+-  logger.info(greeting.replace("{name}", "reviewer"));
++  logger.info(greeting.replace("{name}", "native reviewer"));
++
++  if (process.env.DEMO_FIXTURE_VERBOSE === "1") {
++    logger.debug("verbose review fixture mode enabled");
++  }
+ }
+ 
+ void boot();
+diff --git a/apps/demo/src/utils/format.ts b/apps/demo/src/utils/stringFormat.ts
+similarity index 100%
+rename from apps/demo/src/utils/format.ts
+rename to apps/demo/src/utils/stringFormat.ts
+diff --git a/apps/demo/src/oldClient.ts b/apps/demo/src/apiClient.ts
+similarity index 62%
+rename from apps/demo/src/oldClient.ts
+rename to apps/demo/src/apiClient.ts
+index 18518fca1..87e0e2bea 100644
+--- a/apps/demo/src/oldClient.ts
++++ b/apps/demo/src/apiClient.ts
+@@ -1,15 +1,22 @@
+-export interface ClientOptions {
+-  readonly baseUrl: string;
+-  readonly timeoutMs: number;
+-}
+-
+-export function request(path: string, options: ClientOptions) {
+-  return fetch(options.baseUrl + path, {
+-    signal: AbortSignal.timeout(options.timeoutMs),
+-  });
++export interface ApiClientOptions {
++  readonly baseUrl: string;
++  readonly token: string;
++  readonly timeoutMs: number;
++}
++
++export async function request(path: string, options: ApiClientOptions) {
++  const response = await fetch(options.baseUrl + "/v2" + path, {
++    headers: {
++      Authorization: "Bearer " + options.token,
++      "X-Client": "native-review-debug",
++    },
++    signal: AbortSignal.timeout(options.timeoutMs),
++  });
++
++  if (!response.ok) {
++    throw new Error("Request failed: " + response.status);
++  }
++
++  return response.json();
+ }
+-
+-export function requestJson(path: string, options: ClientOptions) {
+-  return request(path, options).then((response) => response.json());
+-}
+diff --git a/apps/demo/src/features/flags.ts b/apps/demo/src/features/flags.ts
+new file mode 100644
+index 000000000..755df9762
+--- /dev/null
++++ b/apps/demo/src/features/flags.ts
+@@ -0,0 +1,29 @@
++export type FeatureState = "enabled" | "disabled" | "preview";
++
++export interface FeatureFlag {
++  readonly key: string;
++  readonly label: string;
++  readonly state: FeatureState;
++}
++
++export const reviewFixtureFlags: ReadonlyArray<FeatureFlag> = [
++  {
++    key: "native-file-headers",
++    label: "Native file headers",
++    state: "preview",
++  },
++  {
++    key: "word-diff-highlights",
++    label: "Word diff highlights",
++    state: "enabled",
++  },
++  {
++    key: "deleted-file-markers",
++    label: "Deleted file markers",
++    state: "enabled",
++  },
++];
++
++export function isEnabled(flag: FeatureFlag): boolean {
++  return flag.state !== "disabled";
++}
+diff --git a/apps/demo/src/legacyReview.ts b/apps/demo/src/legacyReview.ts
+deleted file mode 100644
+index 9cf2f63dc..000000000
+--- a/apps/demo/src/legacyReview.ts
++++ /dev/null
+@@ -1,22 +0,0 @@
+-export const legacyReviewMode = true;
+-
+-export function createLegacyRows(lines: ReadonlyArray<string>) {
+-  return lines.map((line, index) => ({
+-    id: "legacy-" + index,
+-    lineNumber: index + 1,
+-    text: line,
+-  }));
+-}
+-
+-export function renderLegacyHeader(path: string) {
+-  return {
+-    title: path,
+-    subtitle: "legacy renderer",
+-    icon: "blue-dot",
+-  };
+-}
+-
+-export function shouldUseLegacyReview() {
+-  return legacyReviewMode;
+-}
+diff --git a/apps/demo/src/wordChanges.zig b/apps/demo/src/wordChanges.zig
+index 6bfcc7e37..af359829c 100644
+--- a/apps/demo/src/wordChanges.zig
++++ b/apps/demo/src/wordChanges.zig
+@@ -1,18 +1,23 @@
+ const std = @import("std");
+-const Allocator = std.heap.page_allocator;
++const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
+ const ArrayList = std.ArrayList;
+ 
+ pub fn main() !void {
++    var gpa = GeneralPurposeAllocator(.{}){};
++    defer _ = gpa.deinit();
++    const allocator = gpa.allocator();
++
+     const stdout_writer_instance = std.io.getStdOut().writer();
+-    try stdout_writer_instance.print("Hi You, {s}! Welcome to our application.", .{"Reviewer"});
++    try stdout_writer_instance.print("Hello There, {s}! Welcome to the updated application.", .{"Reviewer"});
+ 
+-    var list = ArrayList(i32).init(Allocator);
++    var list = ArrayList(i32).init(allocator);
+     defer list.deinit();
++    try list.append(42);
+ 
+-    const configuration_options = .{ .enable_logging = true, .max_buffer_size = 1024 };
++    const configuration_options = .{ .enable_logging = true, .max_buffer_size = 2048 };
+     _ = configuration_options;
+ }
+diff --git a/apps/demo/assets/review-logo.png b/apps/demo/assets/review-logo.png
+new file mode 100644
+index 000000000..4628f44da
+--- /dev/null
++++ b/apps/demo/assets/review-logo.png
+Binary files /dev/null and b/apps/demo/assets/review-logo.png differ
+diff --git a/apps/demo/scripts/review-fixture.sh b/apps/demo/scripts/review-fixture.sh
+old mode 100644
+new mode 100755`;
+
 export const debugReviewDiffFixtures: ReadonlyArray<DebugReviewDiffFixture> = [
+  {
+    id: "states",
+    label: "States",
+    filename: "review-states.diff",
+    lineCount: DEBUG_REVIEW_STATES_DIFF.split("\n").length,
+    diff: DEBUG_REVIEW_STATES_DIFF,
+  },
+  {
+    id: "xl",
+    label: "XL",
+    filename: "08e6d4cfbfe55af83fe5fb6b9e75364f42f1f22f.patch",
+    lineCount: DEBUG_REVIEW_XL_DIFF.split("\n").length,
+    diff: DEBUG_REVIEW_XL_DIFF,
+  },
   {
     id: "small",
     label: "Small",

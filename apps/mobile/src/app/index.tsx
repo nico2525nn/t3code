@@ -1,36 +1,23 @@
 import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
-import { Pressable, Text as RNText, View, useColorScheme } from "react-native";
+import { Text as RNText, View, useColorScheme } from "react-native";
 import { useThemeColor } from "../lib/useThemeColor";
 
 import { buildThreadRoutePath } from "../lib/routes";
-import { ConnectionStatusDot } from "../features/connection/ConnectionStatusDot";
 import { useRemoteCatalog } from "../state/use-remote-catalog";
 import { useRemoteEnvironmentState } from "../state/use-remote-environment-registry";
 import { HomeScreen } from "../features/home/HomeScreen";
-import { EnvironmentConnectionState } from "@t3tools/client-runtime";
-
-/* ─── Connection pill label ──────────────────────────────────────────── */
-
-const CONNECTION_LABEL: Record<EnvironmentConnectionState, string> = {
-  ready: "Connected",
-  connecting: "Connecting",
-  reconnecting: "Reconnecting",
-  disconnected: "Offline",
-  idle: "No backends",
-};
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
 export default function HomeRouteScreen() {
-  const { connectionState, hasRemoteActivity, projects, threads } = useRemoteCatalog();
+  const { projects, threads } = useRemoteCatalog();
   const { savedConnectionsById } = useRemoteEnvironmentState();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
 
   const isDark = useColorScheme() === "dark";
   const iconColor = String(useThemeColor("--color-icon"));
-  const secondaryFg = isDark ? "#a3a3a3" : "#525252";
 
   return (
     <>
@@ -42,52 +29,6 @@ export default function HomeRouteScreen() {
           headerShadowVisible: false,
           headerTintColor: iconColor,
           headerTitle: "",
-          headerRight: () => (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <Pressable
-                onPress={() => router.push("/debug/syntax-highlight")}
-                hitSlop={8}
-                style={{
-                  borderRadius: 999,
-                  backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                }}
-              >
-                <RNText
-                  style={{
-                    fontFamily: "DMSans_700Bold",
-                    fontSize: 12,
-                    color: secondaryFg,
-                  }}
-                >
-                  Debug
-                </RNText>
-              </Pressable>
-              <Pressable
-                onPress={() => router.push("/connections")}
-                hitSlop={8}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  paddingHorizontal: 4,
-                  paddingVertical: 4,
-                }}
-              >
-                <ConnectionStatusDot state={connectionState} pulse={hasRemoteActivity} size={7} />
-                <RNText
-                  style={{
-                    fontFamily: "DMSans_700Bold",
-                    fontSize: 12,
-                    color: secondaryFg,
-                  }}
-                >
-                  {CONNECTION_LABEL[connectionState]}
-                </RNText>
-              </Pressable>
-            </View>
-          ),
           headerSearchBarOptions: {
             placeholder: "Search threads",
             onChangeText: (event) => {
@@ -134,6 +75,19 @@ export default function HomeRouteScreen() {
             </View>
           </View>
         </Stack.Toolbar.View>
+      </Stack.Toolbar>
+
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Button
+          icon="ladybug"
+          onPress={() => router.push("/debug/native-review-diff")}
+          separateBackground
+        />
+        <Stack.Toolbar.Button
+          icon="network"
+          onPress={() => router.push("/connections")}
+          separateBackground
+        />
       </Stack.Toolbar>
 
       {/* Bottom toolbar: search + compose, visually split like iMessage */}
