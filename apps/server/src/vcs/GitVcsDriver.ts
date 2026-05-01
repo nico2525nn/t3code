@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { DateTime, Effect, Layer } from "effect";
 
 import { VcsProcessExitError } from "@t3tools/contracts";
 import { makeGitCore } from "../git/Layers/GitCore.ts";
@@ -14,12 +14,13 @@ const WORKSPACE_GIT_HARDENED_CONFIG_ARGS = [
   "core.untrackedCache=false",
 ] as const;
 
-function nowFreshness() {
+const nowFreshness = Effect.fn("GitVcsDriver.nowFreshness")(function* () {
+  const now = yield* DateTime.now;
   return {
     source: "live-local" as const,
-    observedAt: new Date().toISOString(),
+    observedAt: DateTime.formatIso(now),
   };
-}
+});
 
 function splitNullSeparatedPaths(input: string, truncated: boolean): string[] {
   const parts = input.split("\0");
@@ -147,7 +148,7 @@ export const make = Effect.fn("makeGitVcsDriver")(function* () {
         kind: "git" as const,
         rootPath: root.stdout.trim(),
         metadataPath: gitCommonDir?.stdout.trim() || null,
-        freshness: nowFreshness(),
+        freshness: yield* nowFreshness(),
       };
     },
   );
@@ -174,10 +175,13 @@ export const make = Effect.fn("makeGitVcsDriver")(function* () {
     ).pipe(
       Effect.flatMap((result) =>
         result.exitCode === 0
-          ? Effect.succeed({
-              paths: splitNullSeparatedPaths(result.stdout, result.stdoutTruncated),
-              truncated: result.stdoutTruncated,
-              freshness: nowFreshness(),
+          ? Effect.gen(function* () {
+              const freshness = yield* nowFreshness();
+              return {
+                paths: splitNullSeparatedPaths(result.stdout, result.stdoutTruncated),
+                truncated: result.stdoutTruncated,
+                freshness,
+              };
             })
           : Effect.fail(
               new VcsProcessExitError({

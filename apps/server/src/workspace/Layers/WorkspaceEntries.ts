@@ -2,7 +2,7 @@ import * as OS from "node:os";
 import fsPromises from "node:fs/promises";
 import type { Dirent } from "node:fs";
 
-import { Cache, Duration, Effect, Exit, Layer, Option, Path } from "effect";
+import { Cache, DateTime, Duration, Effect, Exit, Layer, Option, Path } from "effect";
 
 import { type FilesystemBrowseInput, type ProjectEntry } from "@t3tools/contracts";
 import { isExplicitRelativePath, isWindowsAbsolutePath } from "@t3tools/shared/path";
@@ -248,9 +248,10 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
         )
         .map(toSearchableWorkspaceEntry);
 
+      const now = yield* DateTime.now;
       const entries = [...directoryEntries, ...fileEntries];
       return {
-        scannedAt: Date.now(),
+        scannedAt: now.epochMilliseconds,
         entries: entries.slice(0, WORKSPACE_INDEX_MAX_ENTRIES),
         truncated: listedFiles.truncated || entries.length > WORKSPACE_INDEX_MAX_ENTRIES,
       };
@@ -368,8 +369,9 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
       }
     }
 
+    const now = yield* DateTime.now;
     return {
-      scannedAt: Date.now(),
+      scannedAt: now.epochMilliseconds,
       entries,
       truncated,
     };
