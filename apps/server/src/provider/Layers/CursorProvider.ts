@@ -46,8 +46,6 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
 });
 
 const CURSOR_ACP_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
-const CURSOR_ACP_MODEL_CAPABILITY_TIMEOUT = "4 seconds";
-const CURSOR_ACP_MODEL_DISCOVERY_CONCURRENCY = 4;
 const CURSOR_REFRESH_INTERVAL = "1 hour";
 const CURSOR_PARAMETERIZED_MODEL_PICKER_MIN_VERSION_DATE = 2026_04_08;
 export const CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES = {
@@ -102,6 +100,16 @@ interface CursorAcpDiscoveredModel {
   readonly slug: string;
   readonly name: string;
   readonly capabilities: ModelCapabilities;
+}
+
+interface CursorAcpAvailableModel {
+  readonly value?: unknown;
+  readonly name?: unknown;
+  readonly configOptions?: unknown;
+}
+
+interface CursorAcpListAvailableModelsResponse {
+  readonly models?: unknown;
 }
 
 function flattenSessionConfigSelectOptions(
@@ -392,6 +400,41 @@ export function buildCursorDiscoveredModelsFromConfigOptions(
   );
 }
 
+function buildCursorDiscoveredModelsFromAvailableModelsResponse(
+  response: unknown,
+): ReadonlyArray<ServerProviderModel> {
+  const models = (response as CursorAcpListAvailableModelsResponse | null | undefined)?.models;
+  if (!Array.isArray(models)) {
+    return [];
+  }
+
+  return buildCursorDiscoveredModels(
+    models.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return [];
+      }
+
+      const model = entry as CursorAcpAvailableModel;
+      const slug = typeof model.value === "string" ? model.value.trim() : "";
+      const name = typeof model.name === "string" ? model.name.trim() : "";
+      if (!slug || !name) {
+        return [];
+      }
+
+      const configOptions = Array.isArray(model.configOptions)
+        ? (model.configOptions as ReadonlyArray<EffectAcpSchema.SessionConfigOption>)
+        : [];
+      return [
+        {
+          slug,
+          name,
+          capabilities: buildCursorCapabilitiesFromConfigOptions(configOptions),
+        },
+      ];
+    }),
+  );
+}
+
 const makeCursorAcpProbeRuntime = (cursorSettings: CursorSettings) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -525,117 +568,34 @@ export function resolveCursorAcpConfigUpdates(
   return updates;
 }
 
-export const discoverCursorModelsViaAcp = (cursorSettings: CursorSettings) =>
+const discoverCursorModelsViaListAvailableModels = (cursorSettings: CursorSettings) =>
   withCursorAcpProbeRuntime(cursorSettings, (acp) =>
-    Effect.map(acp.start(), (started) =>
-      buildCursorDiscoveredModelsFromConfigOptions(started.sessionSetupResult.configOptions ?? []),
+    Effect.gen(function* () {
+      yield* acp.start();
+      const response = yield* acp.request("cursor/list_available_models", {});
+      return buildCursorDiscoveredModelsFromAvailableModelsResponse(response);
+    }),
+  );
+
+export const discoverCursorModelsViaAcp = (cursorSettings: CursorSettings) =>
+  discoverCursorModelsViaListAvailableModels(cursorSettings).pipe(
+    Effect.catchCause(() =>
+      withCursorAcpProbeRuntime(cursorSettings, (acp) =>
+        Effect.map(acp.start(), (started) =>
+          buildCursorDiscoveredModelsFromConfigOptions(
+            started.sessionSetupResult.configOptions ?? [],
+          ),
+        ),
+      ),
     ),
   );
 
 export const discoverCursorModelCapabilitiesViaAcp = (
   cursorSettings: CursorSettings,
-  existingModels: ReadonlyArray<ServerProviderModel>,
+  _existingModels: ReadonlyArray<ServerProviderModel>,
 ) =>
-  withCursorAcpProbeRuntime(cursorSettings, (acp) =>
-    Effect.gen(function* () {
-      const started = yield* acp.start();
-      const initialConfigOptions = started.sessionSetupResult.configOptions ?? [];
-      const modelOption = findCursorModelConfigOption(initialConfigOptions);
-      const modelChoices = flattenSessionConfigSelectOptions(modelOption);
-      if (!modelOption || modelChoices.length === 0) {
-        return [];
-      }
-
-      const currentModelValue =
-        modelOption.type === "select" ? modelOption.currentValue?.trim() || undefined : undefined;
-      const capabilitiesBySlug = new Map<string, ModelCapabilities>();
-      if (currentModelValue) {
-        capabilitiesBySlug.set(
-          currentModelValue,
-          buildCursorCapabilitiesFromConfigOptions(initialConfigOptions),
-        );
-      }
-
-      const targetModelSlugs = new Set(
-        existingModels
-          .filter((model) => !model.isCustom && !hasCursorModelCapabilities(model))
-          .map((model) => model.slug),
-      );
-      if (targetModelSlugs.size === 0) {
-        return buildCursorDiscoveredModels(
-          modelChoices.map((modelChoice) => ({
-            slug: modelChoice.value.trim(),
-            name: modelChoice.name.trim(),
-            capabilities: capabilitiesBySlug.get(modelChoice.value.trim()) ?? EMPTY_CAPABILITIES,
-          })),
-        );
-      }
-
-      const probedCapabilities = yield* Effect.forEach(
-        modelChoices,
-        (modelChoice) => {
-          const modelSlug = modelChoice.value.trim();
-          if (!modelSlug || !targetModelSlugs.has(modelSlug) || capabilitiesBySlug.has(modelSlug)) {
-            return Effect.void.pipe(
-              Effect.as<readonly [string, ModelCapabilities] | undefined>(undefined),
-            );
-          }
-
-          return withCursorAcpProbeRuntime(cursorSettings, (probeAcp) =>
-            Effect.gen(function* () {
-              const probeStarted = yield* probeAcp.start();
-              const probeConfigOptions = probeStarted.sessionSetupResult.configOptions ?? [];
-              const probeModelOption = findCursorModelConfigOption(probeConfigOptions);
-              const probeCurrentModelValue =
-                probeModelOption?.type === "select"
-                  ? probeModelOption.currentValue?.trim() || undefined
-                  : undefined;
-              yield* Effect.annotateCurrentSpan({
-                "cursor.acp.model.value": modelSlug,
-                "cursor.acp.model.currentValue": probeCurrentModelValue,
-                "cursor.acp.config_option_id": probeModelOption?.id ?? modelOption.id,
-              });
-              const nextConfigOptions =
-                probeCurrentModelValue === modelSlug
-                  ? probeConfigOptions
-                  : yield* probeAcp
-                      .setConfigOption(probeModelOption?.id ?? modelOption.id, modelSlug)
-                      .pipe(Effect.map((response) => response.configOptions ?? probeConfigOptions));
-              return [
-                modelSlug,
-                buildCursorCapabilitiesFromConfigOptions(nextConfigOptions),
-              ] as const;
-            }),
-          ).pipe(
-            Effect.timeout(CURSOR_ACP_MODEL_CAPABILITY_TIMEOUT),
-            Effect.retry({ times: 3 }),
-            Effect.withSpan("cursor-acp-model-capability-probe"),
-            Effect.catchCause((cause) =>
-              Effect.logWarning("Cursor ACP capability probe failed", {
-                modelSlug,
-                cause: Cause.pretty(cause),
-              }),
-            ),
-          );
-        },
-        { concurrency: CURSOR_ACP_MODEL_DISCOVERY_CONCURRENCY },
-      );
-
-      for (const entry of probedCapabilities) {
-        if (!entry) {
-          continue;
-        }
-        capabilitiesBySlug.set(entry[0], entry[1]);
-      }
-
-      return buildCursorDiscoveredModels(
-        modelChoices.map((modelChoice) => ({
-          slug: modelChoice.value.trim(),
-          name: modelChoice.name.trim(),
-          capabilities: capabilitiesBySlug.get(modelChoice.value.trim()) ?? EMPTY_CAPABILITIES,
-        })),
-      );
-    }).pipe(Effect.withSpan("cursor-acp-model-capability-discovery", {})),
+  discoverCursorModelsViaListAvailableModels(cursorSettings).pipe(
+    Effect.withSpan("cursor-acp-model-capability-discovery", {}),
   );
 
 export function getCursorFallbackModels(
