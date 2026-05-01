@@ -5,11 +5,11 @@ import { describe, expect } from "vitest";
 import { ProviderInstanceId } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 
-import type { ProviderInstance } from "../../provider/ProviderDriver.ts";
-import type { ProviderInstanceRegistryShape } from "../../provider/Services/ProviderInstanceRegistry.ts";
-import type { TextGenerationShape } from "../Services/TextGeneration.ts";
+import type { ProviderInstance } from "../provider/ProviderDriver.ts";
+import type { ProviderInstanceRegistryShape } from "../provider/Services/ProviderInstanceRegistry.ts";
+import type { TextGenerationShape } from "./TextGeneration.ts";
 
-import { makeTextGenerationFromRegistry } from "./TextGenerationLive.ts";
+import { makeTextGenerationFromRegistry } from "./TextGeneration.ts";
 
 const makeStubTextGeneration = (overrides: Partial<TextGenerationShape>): TextGenerationShape => ({
   generateCommitMessage: () =>

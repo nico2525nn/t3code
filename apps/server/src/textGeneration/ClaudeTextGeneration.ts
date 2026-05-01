@@ -14,20 +14,20 @@ import { type ClaudeSettings, type ModelSelection } from "@t3tools/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 
 import { TextGenerationError } from "@t3tools/contracts";
-import { type TextGenerationShape } from "../Services/TextGeneration.ts";
+import { type TextGenerationShape } from "./TextGeneration.ts";
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
-} from "../Prompts.ts";
+} from "./TextGenerationPrompts.ts";
 import {
   normalizeCliError,
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
   toJsonSchemaObject,
-} from "../Utils.ts";
+} from "./TextGenerationUtils.ts";
 import {
   getModelSelectionStringOptionValue,
   getProviderOptionDescriptors,
@@ -37,8 +37,8 @@ import {
   normalizeClaudeCliEffort,
   resolveClaudeApiModelId,
   resolveClaudeEffort,
-} from "../../provider/Layers/ClaudeProvider.ts";
-import { makeClaudeEnvironment } from "../../provider/Drivers/ClaudeHome.ts";
+} from "../provider/Layers/ClaudeProvider.ts";
+import { makeClaudeEnvironment } from "../provider/Drivers/ClaudeHome.ts";
 
 const CLAUDE_TIMEOUT_MS = 180_000;
 

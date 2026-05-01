@@ -6,13 +6,13 @@ import { TestClock } from "effect/testing";
 import { NetService } from "@t3tools/shared/Net";
 import { beforeEach, expect } from "vitest";
 
-import { ServerConfig } from "../../config.ts";
+import { ServerConfig } from "../config.ts";
 import {
   OpenCodeRuntime,
   OpenCodeRuntimeError,
   type OpenCodeRuntimeShape,
-} from "../../provider/opencodeRuntime.ts";
-import { type TextGenerationShape } from "../Services/TextGeneration.ts";
+} from "../provider/opencodeRuntime.ts";
+import { type TextGenerationShape } from "./TextGeneration.ts";
 import { makeOpenCodeTextGeneration } from "./OpenCodeTextGeneration.ts";
 
 const runtimeMock = {
@@ -158,7 +158,7 @@ const advanceIdleClock = Effect.gen(function* () {
   yield* Effect.yieldNow;
 });
 
-it.layer(OpenCodeTextGenerationTestLayer)("OpenCodeTextGenerationLive", (it) => {
+it.layer(OpenCodeTextGenerationTestLayer)("OpenCodeTextGeneration", (it) => {
   it.effect("reuses a warm server across back-to-back requests and closes it after idling", () =>
     withOpenCodeTextGeneration(DEFAULT_OPENCODE_SETTINGS, (textGeneration) =>
       Effect.gen(function* () {
@@ -306,7 +306,7 @@ it.layer(OpenCodeTextGenerationTestLayer)("OpenCodeTextGenerationLive", (it) => 
 });
 
 it.layer(OpenCodeTextGenerationExistingServerTestLayer)(
-  "OpenCodeTextGenerationLive with configured server URL",
+  "OpenCodeTextGeneration with configured server URL",
   (it) => {
     it.effect("reuses a configured OpenCode server URL without spawning or applying idle TTL", () =>
       withOpenCodeTextGeneration(EXISTING_SERVER_OPENCODE_SETTINGS, (textGeneration) =>
