@@ -38,7 +38,6 @@ import {
   type GitManagerShape,
   type GitRunStackedActionOptions,
 } from "../Services/GitManager.ts";
-import { GitCore } from "../Services/GitCore.ts";
 import type { GitStatusDetails } from "../Services/GitCore.ts";
 import { GitHubCli, type GitHubPullRequestSummary } from "../Services/GitHubCli.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
@@ -50,6 +49,7 @@ import {
   decodeGitHubPullRequestListJson,
   formatGitHubJsonDecodeError,
 } from "../githubPullRequests.ts";
+import { VcsDriver } from "../../vcs/Services/VcsDriver.ts";
 
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;
@@ -491,7 +491,7 @@ function toPullRequestHeadRemoteInfo(pr: {
 }
 
 export const makeGitManager = Effect.fn("makeGitManager")(function* () {
-  const gitCore = yield* GitCore;
+  const gitCore = yield* VcsDriver;
   const gitHubCli = yield* GitHubCli;
   const textGeneration = yield* TextGeneration;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;

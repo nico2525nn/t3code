@@ -8,24 +8,28 @@ import { describe, expect } from "vitest";
 import { checkpointRefForThreadTurn } from "../Utils.ts";
 import { CheckpointStoreLive } from "./CheckpointStore.ts";
 import { CheckpointStore } from "../Services/CheckpointStore.ts";
-import { GitCoreLive } from "../../git/Layers/GitCore.ts";
-import { GitCore } from "../../git/Services/GitCore.ts";
-import { GitCommandError } from "@t3tools/contracts";
+import { GitVcsDriverLive } from "../../vcs/Layers/GitVcsDriver.ts";
+import { VcsProcessLive } from "../../vcs/Layers/VcsProcess.ts";
+import { VcsProcess } from "../../vcs/Services/VcsProcess.ts";
+import type { VcsError } from "@t3tools/contracts";
 import { ServerConfig } from "../../config.ts";
 import { ThreadId } from "@t3tools/contracts";
 
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-checkpoint-store-test-",
 });
-const GitCoreTestLayer = GitCoreLive.pipe(
-  Layer.provide(ServerConfigLayer),
-  Layer.provide(NodeServices.layer),
-);
+const VcsProcessTestLayer = VcsProcessLive.pipe(Layer.provide(NodeServices.layer));
+const VcsDriverTestLayer = GitVcsDriverLive.pipe(Layer.provide(VcsProcessTestLayer));
 const CheckpointStoreTestLayer = CheckpointStoreLive.pipe(
-  Layer.provide(GitCoreTestLayer),
-  Layer.provide(NodeServices.layer),
+  Layer.provideMerge(VcsDriverTestLayer),
+  Layer.provideMerge(NodeServices.layer),
 );
-const TestLayer = Layer.mergeAll(NodeServices.layer, GitCoreTestLayer, CheckpointStoreTestLayer);
+const TestLayer = CheckpointStoreTestLayer.pipe(
+  Layer.provideMerge(VcsProcessTestLayer),
+  Layer.provideMerge(VcsDriverTestLayer),
+  Layer.provideMerge(ServerConfigLayer),
+  Layer.provideMerge(NodeServices.layer),
+);
 
 function makeTmpDir(
   prefix = "checkpoint-store-test-",
@@ -49,11 +53,12 @@ function writeTextFile(
 function git(
   cwd: string,
   args: ReadonlyArray<string>,
-): Effect.Effect<string, GitCommandError, GitCore> {
+): Effect.Effect<string, VcsError, VcsProcess> {
   return Effect.gen(function* () {
-    const gitCore = yield* GitCore;
-    const result = yield* gitCore.execute({
+    const process = yield* VcsProcess;
+    const result = yield* process.run({
       operation: "CheckpointStore.test.git",
+      command: "git",
       cwd,
       args,
       timeoutMs: 10_000,
@@ -64,14 +69,9 @@ function git(
 
 function initRepoWithCommit(
   cwd: string,
-): Effect.Effect<
-  void,
-  GitCommandError | PlatformError.PlatformError,
-  GitCore | FileSystem.FileSystem
-> {
+): Effect.Effect<void, VcsError | PlatformError.PlatformError, VcsProcess | FileSystem.FileSystem> {
   return Effect.gen(function* () {
-    const core = yield* GitCore;
-    yield* core.initRepo({ cwd });
+    yield* git(cwd, ["init"]);
     yield* git(cwd, ["config", "user.email", "test@test.com"]);
     yield* git(cwd, ["config", "user.name", "Test"]);
     yield* writeTextFile(path.join(cwd, "README.md"), "# test\n");

@@ -21,8 +21,9 @@ import {
   GitHubCli,
 } from "../Services/GitHubCli.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
-import { GitCoreLive } from "./GitCore.ts";
-import { GitCore } from "../Services/GitCore.ts";
+import { GitVcsDriverLive } from "../../vcs/Layers/GitVcsDriver.ts";
+import { VcsProcessLive } from "../../vcs/Layers/VcsProcess.ts";
+import { VcsDriver } from "../../vcs/Services/VcsDriver.ts";
 import { makeGitManager } from "./GitManager.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -211,16 +212,33 @@ function runGit(
 ): Effect.Effect<
   { readonly code: number; readonly stdout: string; readonly stderr: string },
   GitCommandError,
-  GitCore
+  VcsDriver
 > {
   return Effect.gen(function* () {
-    const gitCore = yield* GitCore;
-    return yield* gitCore.execute({
-      operation: "GitManager.test.runGit",
-      cwd,
-      args,
-      allowNonZeroExit,
-    });
+    const vcs = yield* VcsDriver;
+    const result = yield* vcs
+      .execute({
+        operation: "GitManager.test.runGit",
+        cwd,
+        args,
+        allowNonZeroExit,
+      })
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new GitCommandError({
+              operation: "GitManager.test.runGit",
+              command: `git ${args.join(" ")}`,
+              cwd,
+              detail: error.message,
+            }),
+        ),
+      );
+    return {
+      code: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
   });
 }
 
@@ -229,7 +247,7 @@ function initRepo(
 ): Effect.Effect<
   void,
   PlatformError.PlatformError | GitCommandError,
-  FileSystem.FileSystem | Scope.Scope | GitCore
+  FileSystem.FileSystem | Scope.Scope | VcsDriver
 > {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -245,7 +263,7 @@ function initRepo(
 function createBareRemote(): Effect.Effect<
   string,
   PlatformError.PlatformError | GitCommandError,
-  FileSystem.FileSystem | Scope.Scope | GitCore
+  FileSystem.FileSystem | Scope.Scope | VcsDriver
 > {
   return Effect.gen(function* () {
     const remoteDir = yield* makeTempDir("t3code-git-remote-");
@@ -259,7 +277,7 @@ function configureRemote(
   remoteName: string,
   remotePath: string,
   fetchNamespace: string,
-): Effect.Effect<void, GitCommandError, GitCore> {
+): Effect.Effect<void, GitCommandError, VcsDriver> {
   return Effect.gen(function* () {
     yield* runGit(cwd, ["config", `remote.${remoteName}.url`, remotePath]);
     yield* runGit(cwd, [
@@ -639,7 +657,8 @@ function makeManager(input?: {
 
   const serverSettingsLayer = ServerSettingsService.layerTest();
 
-  const gitCoreLayer = GitCoreLive.pipe(
+  const vcsDriverLayer = GitVcsDriverLive.pipe(
+    Layer.provideMerge(VcsProcessLive),
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(ServerConfigLayer),
   );
@@ -653,7 +672,7 @@ function makeManager(input?: {
         runForThread: () => Effect.succeed({ status: "no-script" as const }),
       },
     ),
-    gitCoreLayer,
+    vcsDriverLayer,
     serverSettingsLayer,
   ).pipe(Layer.provideMerge(NodeServices.layer));
 
@@ -665,8 +684,9 @@ function makeManager(input?: {
 
 const asThreadId = (threadId: string) => threadId as ThreadId;
 
-const GitManagerTestLayer = GitCoreLive.pipe(
+const GitManagerTestLayer = GitVcsDriverLive.pipe(
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-git-manager-test-" })),
+  Layer.provideMerge(VcsProcessLive),
   Layer.provideMerge(NodeServices.layer),
 );
 
