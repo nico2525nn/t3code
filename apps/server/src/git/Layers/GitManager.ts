@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 
 import {
-  Array as EffectArray,
+  Array as Arr,
   Cache,
   DateTime,
   Duration,
@@ -888,7 +888,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       }
     }
 
-    const parsed = EffectArray.sort(parsedByNumber.values(), pullRequestUpdatedAtDescOrder);
+    const parsed = Arr.sort(parsedByNumber.values(), pullRequestUpdatedAtDescOrder);
 
     const latestOpenPr = parsed.find((pr) => pr.state === "open");
     if (latestOpenPr) {
