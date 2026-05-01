@@ -76,8 +76,8 @@ import {
 import { deriveServerPaths, ServerConfig } from "../src/config.ts";
 import { WorkspaceEntriesLive } from "../src/workspace/Layers/WorkspaceEntries.ts";
 import { WorkspacePathsLive } from "../src/workspace/Layers/WorkspacePaths.ts";
-import { layer as GitVcsDriverLayer } from "../src/vcs/GitVcsDriver.ts";
-import { layer as VcsProcessLayer } from "../src/vcs/VcsProcess.ts";
+import * as GitVcsDriver from "../src/vcs/GitVcsDriver.ts";
+import * as VcsProcess from "../src/vcs/VcsProcess.ts";
 
 function runGit(cwd: string, args: ReadonlyArray<string>) {
   return execFileSync("git", args, {
@@ -292,7 +292,7 @@ export const makeOrchestrationIntegrationHarness = (
           Layer.provide(providerEventLoggersLayer),
         );
 
-    const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitVcsDriverLayer));
+    const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitVcsDriver.layer));
     const projectionSnapshotQueryLayer = OrchestrationProjectionSnapshotQueryLive;
     const runtimeServicesLayer = Layer.mergeAll(
       projectionSnapshotQueryLayer,
@@ -343,12 +343,12 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(
         WorkspaceEntriesLive.pipe(
           Layer.provide(WorkspacePathsLive),
-          Layer.provideMerge(GitVcsDriverLayer),
+          Layer.provideMerge(GitVcsDriver.layer),
           Layer.provide(NodeServices.layer),
         ),
       ),
       Layer.provideMerge(WorkspacePathsLive),
-      Layer.provideMerge(VcsProcessLayer),
+      Layer.provideMerge(VcsProcess.layer),
     );
     const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
       Layer.provideMerge(runtimeIngestionLayer),

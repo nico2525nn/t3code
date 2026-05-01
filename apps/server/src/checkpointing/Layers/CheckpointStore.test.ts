@@ -8,9 +8,9 @@ import { describe, expect } from "vitest";
 import { checkpointRefForThreadTurn } from "../Utils.ts";
 import { CheckpointStoreLive } from "./CheckpointStore.ts";
 import { CheckpointStore } from "../Services/CheckpointStore.ts";
-import { layer as GitVcsDriverLayer } from "../../vcs/GitVcsDriver.ts";
-import { layer as VcsProcessLayer } from "../../vcs/VcsProcess.ts";
-import { VcsProcess } from "../../vcs/VcsProcess.ts";
+import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
+import * as VcsProcess from "../../vcs/VcsProcess.ts";
+import { VcsProcess as VcsProcessService } from "../../vcs/VcsProcess.ts";
 import type { VcsError } from "@t3tools/contracts";
 import { ServerConfig } from "../../config.ts";
 import { ThreadId } from "@t3tools/contracts";
@@ -18,8 +18,8 @@ import { ThreadId } from "@t3tools/contracts";
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-checkpoint-store-test-",
 });
-const VcsProcessTestLayer = VcsProcessLayer.pipe(Layer.provide(NodeServices.layer));
-const VcsDriverTestLayer = GitVcsDriverLayer.pipe(Layer.provide(VcsProcessTestLayer));
+const VcsProcessTestLayer = VcsProcess.layer.pipe(Layer.provide(NodeServices.layer));
+const VcsDriverTestLayer = GitVcsDriver.layer.pipe(Layer.provide(VcsProcessTestLayer));
 const CheckpointStoreTestLayer = CheckpointStoreLive.pipe(
   Layer.provideMerge(VcsDriverTestLayer),
   Layer.provideMerge(NodeServices.layer),
@@ -53,9 +53,9 @@ function writeTextFile(
 function git(
   cwd: string,
   args: ReadonlyArray<string>,
-): Effect.Effect<string, VcsError, VcsProcess> {
+): Effect.Effect<string, VcsError, VcsProcessService> {
   return Effect.gen(function* () {
-    const process = yield* VcsProcess;
+    const process = yield* VcsProcessService;
     const result = yield* process.run({
       operation: "CheckpointStore.test.git",
       command: "git",
@@ -69,7 +69,11 @@ function git(
 
 function initRepoWithCommit(
   cwd: string,
-): Effect.Effect<void, VcsError | PlatformError.PlatformError, VcsProcess | FileSystem.FileSystem> {
+): Effect.Effect<
+  void,
+  VcsError | PlatformError.PlatformError,
+  VcsProcessService | FileSystem.FileSystem
+> {
   return Effect.gen(function* () {
     yield* git(cwd, ["init"]);
     yield* git(cwd, ["config", "user.email", "test@test.com"]);
