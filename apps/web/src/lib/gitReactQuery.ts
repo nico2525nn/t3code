@@ -63,6 +63,9 @@ function invalidateGitBranchQueries(
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(environmentId, cwd) });
 }
 
+/**
+ * @deprecated Use a VCS-named query helper once the UI naming migration lands.
+ */
 export function gitBranchSearchInfiniteQueryOptions(input: {
   environmentId: EnvironmentId | null;
   cwd: string | null;
@@ -78,7 +81,7 @@ export function gitBranchSearchInfiniteQueryOptions(input: {
       if (!input.cwd) throw new Error("Git branches are unavailable.");
       if (!input.environmentId) throw new Error("Git branches are unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
-      return api.git.listBranches({
+      return api.vcs.listBranches({
         cwd: input.cwd,
         ...(normalizedQuery.length > 0 ? { query: normalizedQuery } : {}),
         cursor: pageParam,
@@ -121,6 +124,9 @@ export function gitResolvePullRequestQueryOptions(input: {
   });
 }
 
+/**
+ * @deprecated Use a VCS-named mutation helper once the UI naming migration lands.
+ */
 export function gitInitMutationOptions(input: {
   environmentId: EnvironmentId | null;
   cwd: string | null;
@@ -131,7 +137,7 @@ export function gitInitMutationOptions(input: {
     mutationFn: async () => {
       if (!input.cwd || !input.environmentId) throw new Error("Git init is unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
-      return api.git.init({ cwd: input.cwd });
+      return api.vcs.init({ cwd: input.cwd });
     },
     onSettled: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
@@ -139,6 +145,9 @@ export function gitInitMutationOptions(input: {
   });
 }
 
+/**
+ * @deprecated Use a VCS-named mutation helper once the UI naming migration lands.
+ */
 export function gitCheckoutMutationOptions(input: {
   environmentId: EnvironmentId | null;
   cwd: string | null;
@@ -149,7 +158,7 @@ export function gitCheckoutMutationOptions(input: {
     mutationFn: async (branch: string) => {
       if (!input.cwd || !input.environmentId) throw new Error("Git checkout is unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
-      return api.git.checkout({ cwd: input.cwd, branch });
+      return api.vcs.checkout({ cwd: input.cwd, branch });
     },
     onSettled: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
@@ -198,6 +207,9 @@ export function gitRunStackedActionMutationOptions(input: {
   });
 }
 
+/**
+ * @deprecated Use a VCS-named mutation helper once the UI naming migration lands.
+ */
 export function gitPullMutationOptions(input: {
   environmentId: EnvironmentId | null;
   cwd: string | null;
@@ -208,7 +220,7 @@ export function gitPullMutationOptions(input: {
     mutationFn: async () => {
       if (!input.cwd || !input.environmentId) throw new Error("Git pull is unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
-      return api.git.pull({ cwd: input.cwd });
+      return api.vcs.pull({ cwd: input.cwd });
     },
     onSuccess: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
@@ -216,6 +228,9 @@ export function gitPullMutationOptions(input: {
   });
 }
 
+/**
+ * @deprecated Use a VCS-named mutation helper once the UI naming migration lands.
+ */
 export function gitCreateWorktreeMutationOptions(input: {
   environmentId: EnvironmentId | null;
   queryClient: QueryClient;
@@ -223,12 +238,12 @@ export function gitCreateWorktreeMutationOptions(input: {
   return mutationOptions({
     mutationKey: ["git", "mutation", "create-worktree", input.environmentId ?? null] as const,
     mutationFn: (
-      args: Parameters<ReturnType<typeof ensureEnvironmentApi>["git"]["createWorktree"]>[0],
+      args: Parameters<ReturnType<typeof ensureEnvironmentApi>["vcs"]["createWorktree"]>[0],
     ) => {
       if (!input.environmentId) {
         throw new Error("Worktree creation is unavailable.");
       }
-      return ensureEnvironmentApi(input.environmentId).git.createWorktree(args);
+      return ensureEnvironmentApi(input.environmentId).vcs.createWorktree(args);
     },
     onSuccess: async () => {
       await invalidateGitQueries(input.queryClient, { environmentId: input.environmentId });
@@ -236,6 +251,9 @@ export function gitCreateWorktreeMutationOptions(input: {
   });
 }
 
+/**
+ * @deprecated Use a VCS-named mutation helper once the UI naming migration lands.
+ */
 export function gitRemoveWorktreeMutationOptions(input: {
   environmentId: EnvironmentId | null;
   queryClient: QueryClient;
@@ -243,12 +261,12 @@ export function gitRemoveWorktreeMutationOptions(input: {
   return mutationOptions({
     mutationKey: ["git", "mutation", "remove-worktree", input.environmentId ?? null] as const,
     mutationFn: (
-      args: Parameters<ReturnType<typeof ensureEnvironmentApi>["git"]["removeWorktree"]>[0],
+      args: Parameters<ReturnType<typeof ensureEnvironmentApi>["vcs"]["removeWorktree"]>[0],
     ) => {
       if (!input.environmentId) {
         throw new Error("Worktree removal is unavailable.");
       }
-      return ensureEnvironmentApi(input.environmentId).git.removeWorktree(args);
+      return ensureEnvironmentApi(input.environmentId).vcs.removeWorktree(args);
     },
     onSuccess: async () => {
       await invalidateGitQueries(input.queryClient, { environmentId: input.environmentId });

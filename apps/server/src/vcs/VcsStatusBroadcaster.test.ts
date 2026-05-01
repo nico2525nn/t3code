@@ -8,9 +8,11 @@ import type {
 } from "@t3tools/contracts";
 import { describe } from "vitest";
 
-import { GitStatusBroadcaster } from "../Services/GitStatusBroadcaster.ts";
-import { GitStatusBroadcasterLive } from "./GitStatusBroadcaster.ts";
-import { type GitManagerShape, GitManager } from "../Services/GitManager.ts";
+import {
+  VcsStatusBroadcaster,
+  layer as VcsStatusBroadcasterLayer,
+} from "./VcsStatusBroadcaster.ts";
+import { GitWorkflowService, type GitWorkflowServiceShape } from "../git/GitWorkflowService.ts";
 
 const baseLocalStatus: GitStatusLocalResult = {
   isRepo: true,
@@ -46,38 +48,34 @@ function makeTestLayer(state: {
   localInvalidationCalls: number;
   remoteInvalidationCalls: number;
 }) {
-  const gitManager: GitManagerShape = {
-    localStatus: () =>
-      Effect.sync(() => {
-        state.localStatusCalls += 1;
-        return state.currentLocalStatus;
+  return VcsStatusBroadcasterLayer.pipe(
+    Layer.provide(
+      Layer.mock(GitWorkflowService)({
+        localStatus: () =>
+          Effect.sync(() => {
+            state.localStatusCalls += 1;
+            return state.currentLocalStatus;
+          }),
+        remoteStatus: () =>
+          Effect.sync(() => {
+            state.remoteStatusCalls += 1;
+            return state.currentRemoteStatus;
+          }),
+        invalidateLocalStatus: () =>
+          Effect.sync(() => {
+            state.localInvalidationCalls += 1;
+          }),
+        invalidateRemoteStatus: () =>
+          Effect.sync(() => {
+            state.remoteInvalidationCalls += 1;
+          }),
       }),
-    remoteStatus: () =>
-      Effect.sync(() => {
-        state.remoteStatusCalls += 1;
-        return state.currentRemoteStatus;
-      }),
-    status: () => Effect.die("status should not be called in this test"),
-    invalidateLocalStatus: () =>
-      Effect.sync(() => {
-        state.localInvalidationCalls += 1;
-      }),
-    invalidateRemoteStatus: () =>
-      Effect.sync(() => {
-        state.remoteInvalidationCalls += 1;
-      }),
-    invalidateStatus: () => Effect.die("invalidateStatus should not be called in this test"),
-    resolvePullRequest: () => Effect.die("resolvePullRequest should not be called in this test"),
-    preparePullRequestThread: () =>
-      Effect.die("preparePullRequestThread should not be called in this test"),
-    runStackedAction: () => Effect.die("runStackedAction should not be called in this test"),
-  };
-
-  return GitStatusBroadcasterLive.pipe(Layer.provide(Layer.succeed(GitManager, gitManager)));
+    ),
+  );
 }
 
-describe("GitStatusBroadcasterLive", () => {
-  it.effect("reuses the cached git status across repeated reads", () => {
+describe("VcsStatusBroadcaster", () => {
+  it.effect("reuses the cached VCS status across repeated reads", () => {
     const state = {
       currentLocalStatus: baseLocalStatus,
       currentRemoteStatus: baseRemoteStatus,
@@ -88,7 +86,7 @@ describe("GitStatusBroadcasterLive", () => {
     };
 
     return Effect.gen(function* () {
-      const broadcaster = yield* GitStatusBroadcaster;
+      const broadcaster = yield* VcsStatusBroadcaster;
 
       const first = yield* broadcaster.getStatus({ cwd: "/repo" });
       const second = yield* broadcaster.getStatus({ cwd: "/repo" });
@@ -113,7 +111,7 @@ describe("GitStatusBroadcasterLive", () => {
     };
 
     return Effect.gen(function* () {
-      const broadcaster = yield* GitStatusBroadcaster;
+      const broadcaster = yield* VcsStatusBroadcaster;
       const initial = yield* broadcaster.getStatus({ cwd: "/repo" });
 
       state.currentLocalStatus = {
@@ -154,7 +152,7 @@ describe("GitStatusBroadcasterLive", () => {
     };
 
     return Effect.gen(function* () {
-      const broadcaster = yield* GitStatusBroadcaster;
+      const broadcaster = yield* VcsStatusBroadcaster;
       const initial = yield* broadcaster.getStatus({ cwd: "/repo" });
 
       state.currentLocalStatus = {
@@ -190,7 +188,7 @@ describe("GitStatusBroadcasterLive", () => {
     };
 
     return Effect.gen(function* () {
-      const broadcaster = yield* GitStatusBroadcaster;
+      const broadcaster = yield* VcsStatusBroadcaster;
       const snapshotDeferred = yield* Deferred.make<GitStatusStreamEvent>();
       const remoteUpdatedDeferred = yield* Deferred.make<GitStatusStreamEvent>();
       yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo" }), (event) => {
@@ -230,9 +228,9 @@ describe("GitStatusBroadcasterLive", () => {
     };
     let remoteInterruptedDeferred: Deferred.Deferred<void, never> | null = null;
     let remoteStartedDeferred: Deferred.Deferred<void, never> | null = null;
-    const testLayer = GitStatusBroadcasterLive.pipe(
+    const testLayer = VcsStatusBroadcasterLayer.pipe(
       Layer.provide(
-        Layer.succeed(GitManager, {
+        Layer.mock(GitWorkflowService)({
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -254,7 +252,6 @@ describe("GitStatusBroadcasterLive", () => {
                   : Effect.void,
               ),
             ),
-          status: () => Effect.die("status should not be called in this test"),
           invalidateLocalStatus: () =>
             Effect.sync(() => {
               state.localInvalidationCalls += 1;
@@ -263,13 +260,7 @@ describe("GitStatusBroadcasterLive", () => {
             Effect.sync(() => {
               state.remoteInvalidationCalls += 1;
             }),
-          invalidateStatus: () => Effect.die("invalidateStatus should not be called in this test"),
-          resolvePullRequest: () =>
-            Effect.die("resolvePullRequest should not be called in this test"),
-          preparePullRequestThread: () =>
-            Effect.die("preparePullRequestThread should not be called in this test"),
-          runStackedAction: () => Effect.die("runStackedAction should not be called in this test"),
-        } satisfies GitManagerShape),
+        } satisfies Partial<GitWorkflowServiceShape>),
       ),
     );
 
@@ -279,7 +270,7 @@ describe("GitStatusBroadcasterLive", () => {
       remoteInterruptedDeferred = remoteInterrupted;
       remoteStartedDeferred = remoteStarted;
 
-      const broadcaster = yield* GitStatusBroadcaster;
+      const broadcaster = yield* VcsStatusBroadcaster;
       const firstSnapshot = yield* Deferred.make<GitStatusStreamEvent>();
       const secondSnapshot = yield* Deferred.make<GitStatusStreamEvent>();
       const firstScope = yield* Scope.make();
@@ -302,11 +293,11 @@ describe("GitStatusBroadcasterLive", () => {
       assert.equal(state.remoteStatusCalls, 1);
 
       yield* Scope.close(firstScope, Exit.void);
-      assert.equal(Option.isNone(yield* Deferred.poll(remoteInterrupted)), true);
+      assert.isTrue(Option.isNone(yield* Deferred.poll(remoteInterrupted)));
 
       yield* Scope.close(secondScope, Exit.void).pipe(Effect.forkScoped);
       yield* Deferred.await(remoteInterrupted);
-      assert.equal(Option.isSome(yield* Deferred.poll(remoteInterrupted)), true);
+      assert.isTrue(Option.isSome(yield* Deferred.poll(remoteInterrupted)));
     }).pipe(Effect.provide(testLayer));
   });
 });

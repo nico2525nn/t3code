@@ -22,7 +22,7 @@ interface GitStatusState {
   readonly isPending: boolean;
 }
 
-type GitStatusClient = Pick<WsRpcClient["git"], "onStatus" | "refreshStatus">;
+type GitStatusClient = Pick<WsRpcClient["vcs"], "onStatus" | "refreshStatus">;
 interface ResolvedGitStatusClient {
   readonly clientIdentity: string;
   readonly client: GitStatusClient;
@@ -83,7 +83,7 @@ function readResolvedGitStatusClient(target: GitStatusTarget): ResolvedGitStatus
   }
   const connection = readEnvironmentConnection(target.environmentId);
   return connection
-    ? { clientIdentity: connection.environmentId, client: connection.client.git }
+    ? { clientIdentity: connection.environmentId, client: connection.client.vcs }
     : null;
 }
 

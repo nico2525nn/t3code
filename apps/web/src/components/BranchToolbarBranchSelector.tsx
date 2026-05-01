@@ -343,7 +343,7 @@ export function BranchToolbarBranchSelector({
       const previousBranch = resolvedActiveBranch;
       setOptimisticBranch(selectedBranchName);
       try {
-        const checkoutResult = await api.git.checkout({
+        const checkoutResult = await api.vcs.checkout({
           cwd: selectionTarget.checkoutCwd,
           branch: branch.name,
         });
@@ -377,7 +377,7 @@ export function BranchToolbarBranchSelector({
       const previousBranch = resolvedActiveBranch;
       setOptimisticBranch(name);
       try {
-        const createBranchResult = await api.git.createBranch({
+        const createBranchResult = await api.vcs.createBranch({
           cwd: branchCwd,
           branch: name,
           checkout: true,

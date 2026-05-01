@@ -59,11 +59,6 @@ import {
   type CheckpointDiffQueryShape,
 } from "./checkpointing/Services/CheckpointDiffQuery.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
-import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster.ts";
-import {
-  GitStatusBroadcaster,
-  type GitStatusBroadcasterShape,
-} from "./git/Services/GitStatusBroadcaster.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
 import {
@@ -107,10 +102,16 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import type { VcsDriverShape } from "./vcs/VcsDriver.ts";
 import {
+  VcsStatusBroadcaster,
+  type VcsStatusBroadcasterShape,
+  layer as VcsStatusBroadcasterLayer,
+} from "./vcs/VcsStatusBroadcaster.ts";
+import {
   VcsDriverRegistry,
   type VcsDriverRegistryShape,
   type VcsDriverHandle,
 } from "./vcs/VcsDriverRegistry.ts";
+import { layer as GitWorkflowServiceLayer } from "./git/GitWorkflowService.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 
@@ -324,7 +325,7 @@ const buildAppUnderTest = (options?: {
     vcsDriverRegistry?: Partial<VcsDriverRegistryShape>;
     gitVcsDriver?: Partial<GitVcsDriver.GitVcsDriverShape>;
     gitManager?: Partial<GitManagerShape>;
-    gitStatusBroadcaster?: Partial<GitStatusBroadcasterShape>;
+    vcsStatusBroadcaster?: Partial<VcsStatusBroadcasterShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
@@ -469,11 +470,16 @@ const buildAppUnderTest = (options?: {
       ),
       ProjectFaviconResolverLive,
     );
-    const gitStatusBroadcasterLayer = options?.layers?.gitStatusBroadcaster
-      ? Layer.mock(GitStatusBroadcaster)({
-          ...options.layers.gitStatusBroadcaster,
+    const gitWorkflowLayer = GitWorkflowServiceLayer.pipe(
+      Layer.provideMerge(vcsDriverRegistryLayer),
+      Layer.provideMerge(gitVcsDriverLayer),
+      Layer.provideMerge(gitManagerLayer),
+    );
+    const vcsStatusBroadcasterLayer = options?.layers?.vcsStatusBroadcaster
+      ? Layer.mock(VcsStatusBroadcaster)({
+          ...options.layers.vcsStatusBroadcaster,
         })
-      : GitStatusBroadcasterLive.pipe(Layer.provide(gitManagerLayer));
+      : VcsStatusBroadcasterLayer.pipe(Layer.provide(gitWorkflowLayer));
 
     const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
@@ -514,7 +520,8 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provide(gitManagerLayer),
       Layer.provide(gitVcsDriverLayer),
-      Layer.provideMerge(gitStatusBroadcasterLayer),
+      Layer.provide(gitWorkflowLayer),
+      Layer.provideMerge(vcsStatusBroadcasterLayer),
       Layer.provide(
         Layer.mock(ProjectSetupScriptRunner)({
           runForThread: () => Effect.succeed({ status: "no-script" as const }),
@@ -2484,13 +2491,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const wsUrl = yield* getWsServerUrl("/ws");
 
       const pull = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitPull]({ cwd: "/tmp/repo" })),
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsPull]({ cwd: "/tmp/repo" })),
       );
       assert.equal(pull.status, "pulled");
 
       const refreshedStatus = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitRefreshStatus]({ cwd: "/tmp/repo" }),
+          client[WS_METHODS.vcsRefreshStatus]({ cwd: "/tmp/repo" }),
         ),
       );
       assert.equal(refreshedStatus.isRepo, true);
@@ -2536,14 +2543,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       const branches = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitListBranches]({ cwd: "/tmp/repo" }),
+          client[WS_METHODS.vcsListBranches]({ cwd: "/tmp/repo" }),
         ),
       );
       assert.equal(branches.branches[0]?.name, "main");
 
       const worktree = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitCreateWorktree]({
+          client[WS_METHODS.vcsCreateWorktree]({
             cwd: "/tmp/repo",
             branch: "main",
             path: null,
@@ -2554,7 +2561,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitRemoveWorktree]({
+          client[WS_METHODS.vcsRemoveWorktree]({
             cwd: "/tmp/repo",
             path: "/tmp/wt",
           }),
@@ -2563,7 +2570,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitCreateBranch]({
+          client[WS_METHODS.vcsCreateBranch]({
             cwd: "/tmp/repo",
             branch: "feature/new",
           }),
@@ -2572,7 +2579,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitCheckout]({
+          client[WS_METHODS.vcsCheckout]({
             cwd: "/tmp/repo",
             branch: "main",
           }),
@@ -2581,7 +2588,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitInit]({
+          client[WS_METHODS.vcsInit]({
             cwd: "/tmp/repo",
           }),
         ),
@@ -2658,7 +2665,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       const wsUrl = yield* getWsServerUrl("/ws");
       const result = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitPull]({ cwd: "/tmp/repo" })).pipe(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsPull]({ cwd: "/tmp/repo" })).pipe(
           Effect.result,
         ),
       );
@@ -2791,7 +2798,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const wsUrl = yield* getWsServerUrl("/ws");
       const startedAt = Date.now();
       const result = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitPull]({ cwd: "/tmp/repo" })),
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsPull]({ cwd: "/tmp/repo" })),
       );
       const elapsedMs = Date.now() - startedAt;
 
@@ -3594,7 +3601,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             gitVcsDriver: {
               createWorktree,
             },
-            gitStatusBroadcaster: {
+            vcsStatusBroadcaster: {
               refreshStatus,
             },
             orchestrationEngine: {

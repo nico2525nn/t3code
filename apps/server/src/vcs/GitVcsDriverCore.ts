@@ -1,6 +1,7 @@
 import {
   Cache,
   Data,
+  DateTime,
   Duration,
   Effect,
   Exit,
@@ -350,17 +351,18 @@ interface Trace2Monitor {
   readonly flush: Effect.Effect<void, never>;
 }
 
-const nowUnixNano = (): bigint => BigInt(Date.now()) * 1_000_000n;
+const nowUnixNano = DateTime.now.pipe(
+  Effect.map((now) => BigInt(DateTime.toEpochMillis(now)) * 1_000_000n),
+);
 
 const addCurrentSpanEvent = (name: string, attributes: Record<string, unknown>) =>
-  Effect.currentSpan.pipe(
-    Effect.tap((span) =>
-      Effect.sync(() => {
-        span.event(name, nowUnixNano(), compactTraceAttributes(attributes));
-      }),
-    ),
-    Effect.catch(() => Effect.void),
-  );
+  Effect.gen(function* () {
+    const span = yield* Effect.currentSpan;
+    const timestamp = yield* nowUnixNano;
+    yield* Effect.sync(() => {
+      span.event(name, timestamp, compactTraceAttributes(attributes));
+    });
+  }).pipe(Effect.catch(() => Effect.void));
 
 function trace2ChildKey(record: Record<string, unknown>): string | null {
   const childId = record.child_id;
@@ -433,7 +435,8 @@ const createTrace2Monitor = Effect.fn("createTrace2Monitor")(function* (
     }
 
     if (event === "child_start") {
-      hookStartByChildKey.set(childKey, { hookName, startedAtMs: Date.now() });
+      const now = yield* DateTime.now;
+      hookStartByChildKey.set(childKey, { hookName, startedAtMs: DateTime.toEpochMillis(now) });
       yield* addCurrentSpanEvent("git.hook.started", {
         hookName,
       });
@@ -447,7 +450,10 @@ const createTrace2Monitor = Effect.fn("createTrace2Monitor")(function* (
       hookStartByChildKey.delete(childKey);
       const code = traceRecord.success.code;
       const exitCode = typeof code === "number" && Number.isInteger(code) ? code : null;
-      const durationMs = started ? Math.max(0, Date.now() - started.startedAtMs) : null;
+      const now = yield* DateTime.now;
+      const durationMs = started
+        ? Math.max(0, DateTime.toEpochMillis(now) - started.startedAtMs)
+        : null;
       yield* addCurrentSpanEvent("git.hook.finished", {
         hookName: started?.hookName ?? hookName,
         exitCode,

@@ -35,7 +35,7 @@ const baseRemoteStatus: GitStatusRemoteResult = {
 };
 
 describe("wsRpcClient", () => {
-  it("reduces git status stream events into flat status snapshots", () => {
+  it("reduces vcs status stream events into flat status snapshots", () => {
     const subscribe = vi.fn(<TValue>(_connect: unknown, listener: (value: TValue) => void) => {
       for (const event of [
         {
@@ -74,7 +74,7 @@ describe("wsRpcClient", () => {
     const client = createWsRpcClient(transport as unknown as WsTransport);
     const listener = vi.fn();
 
-    client.git.onStatus({ cwd: "/repo" }, listener);
+    client.vcs.onStatus({ cwd: "/repo" }, listener);
 
     expect(listener.mock.calls).toEqual([
       [

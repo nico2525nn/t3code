@@ -25,7 +25,6 @@ import {
 
 import { CheckpointStoreLive } from "../src/checkpointing/Layers/CheckpointStore.ts";
 import { CheckpointStore } from "../src/checkpointing/Services/CheckpointStore.ts";
-import { GitStatusBroadcaster } from "../src/git/Services/GitStatusBroadcaster.ts";
 import { TextGeneration, type TextGenerationShape } from "../src/git/Services/TextGeneration.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../src/persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../src/persistence/Layers/OrchestrationEventStore.ts";
@@ -77,6 +76,8 @@ import { WorkspaceEntriesLive } from "../src/workspace/Layers/WorkspaceEntries.t
 import { WorkspacePathsLive } from "../src/workspace/Layers/WorkspacePaths.ts";
 import * as GitVcsDriver from "../src/vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../src/vcs/VcsDriverRegistry.ts";
+import { VcsStatusBroadcaster } from "../src/vcs/VcsStatusBroadcaster.ts";
+import { GitWorkflowService } from "../src/git/GitWorkflowService.ts";
 import * as VcsProcess from "../src/vcs/VcsProcess.ts";
 
 function runGit(cwd: string, args: ReadonlyArray<string>) {
@@ -308,7 +309,7 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(serverSettingsLayer),
     );
-    const gitVcsDriverLayer = Layer.mock(GitVcsDriver.GitVcsDriver)({
+    const gitWorkflowLayer = Layer.mock(GitWorkflowService)({
       renameBranch: (input: Parameters<GitVcsDriver.GitVcsDriverShape["renameBranch"]>[0]) =>
         Effect.succeed({ branch: input.newBranch }),
     });
@@ -318,14 +319,14 @@ export const makeOrchestrationIntegrationHarness = (
     } as unknown as TextGenerationShape);
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
-      Layer.provideMerge(gitVcsDriverLayer),
+      Layer.provideMerge(gitWorkflowLayer),
       Layer.provideMerge(textGenerationLayer),
       Layer.provideMerge(serverSettingsLayer),
     );
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(
-        Layer.succeed(GitStatusBroadcaster, {
+        Layer.succeed(VcsStatusBroadcaster, {
           getStatus: () => Effect.die("getStatus should not be called in this test"),
           refreshLocalStatus: () =>
             Effect.succeed({

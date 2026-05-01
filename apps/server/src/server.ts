@@ -26,7 +26,6 @@ import { OpenCodeRuntimeLive } from "./provider/opencodeRuntime.ts";
 import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQuery.ts";
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore.ts";
 import { GitHubCliLive } from "./git/Layers/GitHubCli.ts";
-import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster.ts";
 import { TextGenerationLive } from "./git/Layers/TextGenerationLive.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/ProviderInstanceRegistryHydration.ts";
 import { TerminalManagerLive } from "./terminal/Layers/Manager.ts";
@@ -48,7 +47,11 @@ import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
+import * as VcsProjectConfig from "./vcs/VcsProjectConfig.ts";
 import * as VcsProcess from "./vcs/VcsProcess.ts";
+import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
+import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner.ts";
 import { ObservabilityLive } from "./observability/Layers/Observability.ts";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment.ts";
@@ -135,11 +138,6 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 
-const CheckpointingLayerLive = Layer.empty.pipe(
-  Layer.provideMerge(CheckpointDiffQueryLive),
-  Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(VcsDriverRegistry.layer))),
-);
-
 const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
   Layer.provide(ProviderSessionRuntimeRepositoryLive),
 );
@@ -160,21 +158,41 @@ const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersisten
 const GitManagerLayerLive = GitManagerLive.pipe(
   Layer.provideMerge(ProjectSetupScriptRunnerLive),
   Layer.provideMerge(GitVcsDriver.layer),
-  Layer.provideMerge(GitHubCliLive),
+  Layer.provideMerge(SourceControlProviderRegistry.layer.pipe(Layer.provide(GitHubCliLive))),
   Layer.provideMerge(TextGenerationLive),
 );
 
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
-  Layer.provideMerge(GitStatusBroadcasterLive.pipe(Layer.provide(GitManagerLayerLive))),
   Layer.provideMerge(GitVcsDriver.layer),
+);
+
+const VcsDriverRegistryLayerLive = VcsDriverRegistry.layer.pipe(
+  Layer.provide(VcsProjectConfig.layer),
+);
+
+const GitWorkflowLayerLive = GitWorkflowService.layer.pipe(
+  Layer.provideMerge(VcsDriverRegistryLayerLive),
+  Layer.provideMerge(GitLayerLive),
+);
+
+const VcsLayerLive = Layer.empty.pipe(
+  Layer.provideMerge(VcsProjectConfig.layer),
+  Layer.provideMerge(VcsDriverRegistryLayerLive),
+  Layer.provideMerge(GitWorkflowLayerLive),
+  Layer.provideMerge(VcsStatusBroadcaster.layer.pipe(Layer.provide(GitWorkflowLayerLive))),
+);
+
+const CheckpointingLayerLive = Layer.empty.pipe(
+  Layer.provideMerge(CheckpointDiffQueryLive),
+  Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(VcsDriverRegistryLayerLive))),
 );
 
 const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive));
 
 const WorkspaceEntriesLayerLive = WorkspaceEntriesLive.pipe(
   Layer.provide(WorkspacePathsLive),
-  Layer.provideMerge(VcsDriverRegistry.layer),
+  Layer.provideMerge(VcsDriverRegistryLayerLive),
 );
 
 const WorkspaceFileSystemLayerLive = WorkspaceFileSystemLive.pipe(
@@ -198,10 +216,11 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
-const RuntimeDependenciesLive = ReactorLayerLive.pipe(
+const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(GitLayerLive),
+  Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(ProviderRuntimeLayerLive),
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(PersistenceLayerLive),
@@ -231,7 +250,9 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(RepositoryIdentityResolverLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),
+);
 
+const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   // Misc.
   Layer.provideMerge(AnalyticsServiceLayerLive),
   Layer.provideMerge(OpenLive),
