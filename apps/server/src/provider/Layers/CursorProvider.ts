@@ -13,7 +13,7 @@ import type {
   ServerSettingsError,
 } from "@t3tools/contracts";
 import type * as EffectAcpSchema from "effect-acp/schema";
-import { Cause, Effect, Equal, Exit, Layer, Option, Result, Stream } from "effect";
+import { Cause, Effect, Equal, Exit, Layer, Option, Result, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import {
   createModelCapabilities,
@@ -33,6 +33,7 @@ import {
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import { CursorProvider } from "../Services/CursorProvider.ts";
 import { AcpSessionRuntime } from "../acp/AcpSessionRuntime.ts";
+import { CursorListAvailableModelsResponse } from "../acp/CursorAcpExtension.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
 const PROVIDER = "cursor" as const;
@@ -100,16 +101,6 @@ interface CursorAcpDiscoveredModel {
   readonly slug: string;
   readonly name: string;
   readonly capabilities: ModelCapabilities;
-}
-
-interface CursorAcpAvailableModel {
-  readonly value?: unknown;
-  readonly name?: unknown;
-  readonly configOptions?: unknown;
-}
-
-interface CursorAcpListAvailableModelsResponse {
-  readonly models?: unknown;
 }
 
 function flattenSessionConfigSelectOptions(
@@ -401,34 +392,21 @@ export function buildCursorDiscoveredModelsFromConfigOptions(
 }
 
 function buildCursorDiscoveredModelsFromAvailableModelsResponse(
-  response: unknown,
+  response: typeof CursorListAvailableModelsResponse.Type,
 ): ReadonlyArray<ServerProviderModel> {
-  const models = (response as CursorAcpListAvailableModelsResponse | null | undefined)?.models;
-  if (!Array.isArray(models)) {
-    return [];
-  }
-
   return buildCursorDiscoveredModels(
-    models.flatMap((entry) => {
-      if (!entry || typeof entry !== "object") {
-        return [];
-      }
-
-      const model = entry as CursorAcpAvailableModel;
-      const slug = typeof model.value === "string" ? model.value.trim() : "";
-      const name = typeof model.name === "string" ? model.name.trim() : "";
+    response.models.flatMap((model) => {
+      const slug = model.value.trim();
+      const name = model.name.trim();
       if (!slug || !name) {
         return [];
       }
 
-      const configOptions = Array.isArray(model.configOptions)
-        ? (model.configOptions as ReadonlyArray<EffectAcpSchema.SessionConfigOption>)
-        : [];
       return [
         {
           slug,
           name,
-          capabilities: buildCursorCapabilitiesFromConfigOptions(configOptions),
+          capabilities: buildCursorCapabilitiesFromConfigOptions(model.configOptions),
         },
       ];
     }),
@@ -573,7 +551,10 @@ const discoverCursorModelsViaListAvailableModels = (cursorSettings: CursorSettin
     Effect.gen(function* () {
       yield* acp.start();
       const response = yield* acp.request("cursor/list_available_models", {});
-      return buildCursorDiscoveredModelsFromAvailableModelsResponse(response);
+      const decoded = yield* Schema.decodeUnknownEffect(CursorListAvailableModelsResponse)(
+        response,
+      );
+      return buildCursorDiscoveredModelsFromAvailableModelsResponse(decoded);
     }),
   );
 
