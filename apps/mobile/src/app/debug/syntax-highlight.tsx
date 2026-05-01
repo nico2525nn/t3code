@@ -13,6 +13,7 @@ import githubLightDefault from "@shikijs/themes/github-light-default";
 import Stack from "expo-router/stack";
 import {
   memo,
+  type ReactElement,
   useCallback,
   useEffect,
   useMemo,
@@ -21,7 +22,9 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  Animated,
   FlatList,
+  PanResponder,
   Pressable,
   ScrollView,
   Text as NativeText,
@@ -98,11 +101,6 @@ type DebugDiffCodeRow = {
 
 type DebugDiffRow = DebugDiffFileHeaderRow | DebugDiffHunkRow | DebugDiffCodeRow;
 
-type DebugDiffFileBlock = {
-  readonly file: DebugDiffFileHeaderRow;
-  readonly rows: ReadonlyArray<DebugDiffHunkRow | DebugDiffCodeRow>;
-};
-
 type DebugHighlightChunk = {
   readonly id: string;
   readonly fileId: string;
@@ -112,7 +110,6 @@ type DebugHighlightChunk = {
 
 type DebugParsedDiff = {
   readonly files: ReadonlyArray<DebugDiffFile>;
-  readonly fileBlocks: ReadonlyArray<DebugDiffFileBlock>;
   readonly rows: ReadonlyArray<DebugDiffRow>;
   readonly highlightChunks: ReadonlyArray<DebugHighlightChunk>;
   readonly additions: number;
@@ -135,6 +132,15 @@ const DEBUG_STICKY_WIDTH = DEBUG_CHANGE_BAR_WIDTH + DEBUG_GUTTER_WIDTH;
 const DEBUG_CONTENT_WIDTH = 3_000;
 const DEBUG_DELETE_STRIPE_COUNT = DEBUG_DIFF_ROW_HEIGHT / 2;
 const DEBUG_MONO_FONT_FAMILY = "BerkeleyMono-Regular";
+const DEBUG_CODE_TEXT_STYLE = {
+  fontFamily: DEBUG_MONO_FONT_FAMILY,
+  fontStyle: "normal" as const,
+  fontWeight: "700" as const,
+};
+const DEBUG_DELETE_STRIPE_INDICES = Array.from(
+  { length: DEBUG_DELETE_STRIPE_COUNT },
+  (_, index) => index,
+);
 const DEBUG_THEME_NAME_BY_SCHEME = {
   dark: "github-dark-default",
   light: "github-light-default",
@@ -197,6 +203,35 @@ class DebugTokenStore {
         this.listenersByFileId.delete(fileId);
       }
     };
+  }
+}
+
+class DebugHorizontalOffsetStore {
+  private readonly offsetsByFileId = new Map<string, number>();
+  private readonly valuesByFileId = new Map<string, Animated.Value>();
+
+  getOffset(fileId: string): number {
+    return this.offsetsByFileId.get(fileId) ?? 0;
+  }
+
+  getValue(fileId: string): Animated.Value {
+    let value = this.valuesByFileId.get(fileId);
+    if (!value) {
+      value = new Animated.Value(-this.getOffset(fileId));
+      this.valuesByFileId.set(fileId, value);
+    }
+    return value;
+  }
+
+  reset(): void {
+    this.valuesByFileId.forEach((value) => value.stopAnimation());
+    this.valuesByFileId.clear();
+    this.offsetsByFileId.clear();
+  }
+
+  setOffset(fileId: string, offset: number): void {
+    this.offsetsByFileId.set(fileId, offset);
+    this.getValue(fileId).setValue(-offset);
   }
 }
 
@@ -424,20 +459,6 @@ function parseDebugDiffFixture(fixture: DebugReviewDiffFixture): DebugParsedDiff
       deletions: file?.deletions ?? row.deletions,
     };
   });
-  const fileBlocksById = new Map<
-    string,
-    { file: DebugDiffFileHeaderRow; rows: Array<DebugDiffHunkRow | DebugDiffCodeRow> }
-  >();
-  for (const row of rowsWithFileStats) {
-    if (row.kind === "file") {
-      fileBlocksById.set(row.fileId, { file: row, rows: [] });
-      continue;
-    }
-
-    fileBlocksById.get(row.fileId)?.rows.push(row);
-  }
-  const fileBlocks: DebugDiffFileBlock[] = Array.from(fileBlocksById.values());
-
   const highlightChunks: DebugHighlightChunk[] = [];
   fileLineRows.forEach((lineRows, fileId) => {
     const file = fileSummaryById.get(fileId);
@@ -461,7 +482,6 @@ function parseDebugDiffFixture(fixture: DebugReviewDiffFixture): DebugParsedDiff
 
   const parsed = {
     files: fileSummaries,
-    fileBlocks,
     rows: rowsWithFileStats,
     highlightChunks,
     additions: fileSummaries.reduce((total, file) => total + file.additions, 0),
@@ -487,8 +507,8 @@ const TokenText = memo(function TokenText(props: {
     return (
       <NativeText
         numberOfLines={1}
-        className="text-[13px] font-medium leading-[18px] text-foreground"
-        style={{ fontFamily: DEBUG_MONO_FONT_FAMILY }}
+        className="text-[13px] leading-[18px] text-foreground"
+        style={DEBUG_CODE_TEXT_STYLE}
       >
         {props.content || " "}
       </NativeText>
@@ -500,29 +520,19 @@ const TokenText = memo(function TokenText(props: {
   return (
     <NativeText
       numberOfLines={1}
-      className="text-[13px] font-medium leading-[18px] text-foreground"
-      style={{ fontFamily: DEBUG_MONO_FONT_FAMILY }}
+      className="text-[13px] leading-[18px] text-foreground"
+      style={DEBUG_CODE_TEXT_STYLE}
     >
       {props.tokens.map((token) => {
         const tokenKey = `${tokenOffset}:${token.content.length}:${token.color ?? ""}:${token.fontStyle ?? ""}`;
         tokenOffset += token.content.length;
-        const fontWeight =
-          token.fontStyle !== null && (token.fontStyle & 2) === 2
-            ? ("700" as const)
-            : ("500" as const);
-        const fontStyle =
-          token.fontStyle !== null && (token.fontStyle & 1) === 1
-            ? ("italic" as const)
-            : ("normal" as const);
 
         return (
           <NativeText
             key={tokenKey}
             style={{
+              ...DEBUG_CODE_TEXT_STYLE,
               color: token.color ?? undefined,
-              fontFamily: DEBUG_MONO_FONT_FAMILY,
-              fontStyle,
-              fontWeight,
             }}
           >
             {token.content}
@@ -539,11 +549,11 @@ function changeRowClassName(change: DebugDiffChange): string {
   return "bg-card";
 }
 
-function DebugChangeBar(props: { readonly change: DebugDiffChange }) {
+const DebugChangeBar = memo(function DebugChangeBar(props: { readonly change: DebugDiffChange }) {
   if (props.change === "delete") {
     return (
       <View className="overflow-hidden" style={{ width: DEBUG_CHANGE_BAR_WIDTH }}>
-        {Array.from({ length: DEBUG_DELETE_STRIPE_COUNT }, (_, index) => (
+        {DEBUG_DELETE_STRIPE_INDICES.map((index) => (
           <View key={index}>
             <View className="bg-rose-400" style={{ height: 1, width: DEBUG_CHANGE_BAR_WIDTH }} />
             <View style={{ height: 1, width: DEBUG_CHANGE_BAR_WIDTH }} />
@@ -558,9 +568,9 @@ function DebugChangeBar(props: { readonly change: DebugDiffChange }) {
   }
 
   return <View style={{ width: DEBUG_CHANGE_BAR_WIDTH }} />;
-}
+});
 
-function DebugDiffFileHeader(props: {
+const DebugDiffFileHeader = memo(function DebugDiffFileHeader(props: {
   readonly header: DebugDiffFileHeaderRow;
   readonly width: number;
 }) {
@@ -578,9 +588,11 @@ function DebugDiffFileHeader(props: {
       </Text>
     </View>
   );
-}
+});
 
-function DebugDiffStickyCell(props: { readonly item: DebugDiffHunkRow | DebugDiffCodeRow }) {
+const DebugDiffStickyCell = memo(function DebugDiffStickyCell(props: {
+  readonly item: DebugDiffHunkRow | DebugDiffCodeRow;
+}) {
   if (props.item.kind === "hunk") {
     return (
       <View
@@ -599,13 +611,19 @@ function DebugDiffStickyCell(props: { readonly item: DebugDiffHunkRow | DebugDif
     >
       <DebugChangeBar change={props.item.change} />
       <View className="items-end justify-center pr-2" style={{ width: DEBUG_GUTTER_WIDTH }}>
-        <Text className="font-mono text-[11px] text-foreground-muted">{displayLineNumber}</Text>
+        <NativeText
+          className="text-[11px] text-foreground-muted"
+          numberOfLines={1}
+          style={DEBUG_CODE_TEXT_STYLE}
+        >
+          {displayLineNumber}
+        </NativeText>
       </View>
     </View>
   );
-}
+});
 
-function DebugDiffCodeCell(props: {
+const DebugDiffCodeCell = memo(function DebugDiffCodeCell(props: {
   readonly item: DebugDiffHunkRow | DebugDiffCodeRow;
   readonly tokens: ReadonlyArray<DebugToken> | null;
 }) {
@@ -619,8 +637,8 @@ function DebugDiffCodeCell(props: {
       >
         <NativeText
           numberOfLines={1}
-          className="text-[13px] font-medium leading-[18px] text-sky-700 dark:text-sky-300"
-          style={{ fontFamily: DEBUG_MONO_FONT_FAMILY }}
+          className="text-[13px] leading-[18px] text-sky-700 dark:text-sky-300"
+          style={DEBUG_CODE_TEXT_STYLE}
         >
           {item.text}
         </NativeText>
@@ -636,73 +654,109 @@ function DebugDiffCodeCell(props: {
       <TokenText content={item.content} tokens={props.tokens} />
     </View>
   );
-}
+});
 
-const DebugDiffFileBlockView = memo(function DebugDiffFileBlockView(props: {
-  readonly block: DebugDiffFileBlock;
-  readonly tokenStore: DebugTokenStore;
-  readonly width: number;
+const DebugHorizontalCodeViewport = memo(function DebugHorizontalCodeViewport(props: {
+  readonly children: ReactElement;
+  readonly fileId: string;
+  readonly horizontalOffset: Animated.Value;
+  readonly onActivateFile: (fileId: string) => void;
+  readonly viewportWidth: number;
 }) {
-  const viewportWidth = Math.max(0, props.width - DEBUG_STICKY_WIDTH);
+  return (
+    <View
+      onTouchStart={() => props.onActivateFile(props.fileId)}
+      style={{ overflow: "hidden", width: props.viewportWidth }}
+    >
+      <Animated.View style={{ transform: [{ translateX: props.horizontalOffset }] }}>
+        {props.children}
+      </Animated.View>
+    </View>
+  );
+});
+
+const DebugDiffLineRowView = memo(function DebugDiffLineRowView(props: {
+  readonly horizontalOffset: Animated.Value;
+  readonly onActivateFile: (fileId: string) => void;
+  readonly row: DebugDiffCodeRow;
+  readonly tokenStore: DebugTokenStore;
+  readonly viewportWidth: number;
+}) {
   useSyncExternalStore(
     useCallback(
-      (listener) => props.tokenStore.subscribeFile(props.block.file.fileId, listener),
-      [props.block.file.fileId, props.tokenStore],
+      (listener) => props.tokenStore.subscribeFile(props.row.fileId, listener),
+      [props.row.fileId, props.tokenStore],
     ),
     useCallback(
-      () => props.tokenStore.getFileVersion(props.block.file.fileId),
-      [props.block.file.fileId, props.tokenStore],
+      () => props.tokenStore.getFileVersion(props.row.fileId),
+      [props.row.fileId, props.tokenStore],
     ),
     useCallback(
-      () => props.tokenStore.getFileVersion(props.block.file.fileId),
-      [props.block.file.fileId, props.tokenStore],
+      () => props.tokenStore.getFileVersion(props.row.fileId),
+      [props.row.fileId, props.tokenStore],
     ),
   );
 
   return (
-    <View style={{ width: props.width }}>
-      <DebugDiffFileHeader header={props.block.file} width={props.width} />
-      <View
-        className="flex-row"
-        style={{
-          height: props.block.rows.length * DEBUG_DIFF_ROW_HEIGHT,
-          width: props.width,
-        }}
+    <View className="flex-row" style={{ height: DEBUG_DIFF_ROW_HEIGHT }}>
+      <DebugDiffStickyCell item={props.row} />
+      <DebugHorizontalCodeViewport
+        fileId={props.row.fileId}
+        horizontalOffset={props.horizontalOffset}
+        onActivateFile={props.onActivateFile}
+        viewportWidth={props.viewportWidth}
       >
-        <View style={{ width: DEBUG_STICKY_WIDTH }}>
-          {props.block.rows.map((row) => (
-            <DebugDiffStickyCell key={row.id} item={row} />
-          ))}
-        </View>
-        <ScrollView
-          horizontal
-          bounces={false}
-          directionalLockEnabled
-          keyboardShouldPersistTaps="handled"
-          showsHorizontalScrollIndicator
-          style={{
-            height: props.block.rows.length * DEBUG_DIFF_ROW_HEIGHT,
-            width: viewportWidth,
-          }}
-        >
-          <View style={{ width: DEBUG_CONTENT_WIDTH }}>
-            {props.block.rows.map((row) => (
-              <DebugDiffCodeCell
-                key={row.id}
-                item={row}
-                tokens={
-                  row.kind === "line"
-                    ? (props.tokenStore.getTokens(row.highlightChunkId)?.[
-                        row.indexInHighlightChunk
-                      ] ?? null)
-                    : null
-                }
-              />
-            ))}
-          </View>
-        </ScrollView>
-      </View>
+        <DebugDiffCodeCell
+          item={props.row}
+          tokens={
+            props.tokenStore.getTokens(props.row.highlightChunkId)?.[
+              props.row.indexInHighlightChunk
+            ] ?? null
+          }
+        />
+      </DebugHorizontalCodeViewport>
     </View>
+  );
+});
+
+const DebugDiffFlatRowView = memo(function DebugDiffFlatRowView(props: {
+  readonly horizontalOffsetStore: DebugHorizontalOffsetStore;
+  readonly onActivateFile: (fileId: string) => void;
+  readonly row: DebugDiffRow;
+  readonly tokenStore: DebugTokenStore;
+  readonly width: number;
+}) {
+  if (props.row.kind === "file") {
+    return <DebugDiffFileHeader header={props.row} width={props.width} />;
+  }
+
+  const viewportWidth = Math.max(0, props.width - DEBUG_STICKY_WIDTH);
+
+  if (props.row.kind === "hunk") {
+    const horizontalOffset = props.horizontalOffsetStore.getValue(props.row.fileId);
+    return (
+      <View className="flex-row" style={{ height: DEBUG_DIFF_ROW_HEIGHT, width: props.width }}>
+        <DebugDiffStickyCell item={props.row} />
+        <View
+          onTouchStart={() => props.onActivateFile(props.row.fileId)}
+          style={{ overflow: "hidden", width: viewportWidth }}
+        >
+          <Animated.View style={{ transform: [{ translateX: horizontalOffset }] }}>
+            <DebugDiffCodeCell item={props.row} tokens={null} />
+          </Animated.View>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <DebugDiffLineRowView
+      horizontalOffset={props.horizontalOffsetStore.getValue(props.row.fileId)}
+      onActivateFile={props.onActivateFile}
+      row={props.row}
+      tokenStore={props.tokenStore}
+      viewportWidth={viewportWidth}
+    />
   );
 });
 
@@ -781,6 +835,9 @@ export default function SyntaxHighlightDebugRoute() {
   const renderStartRef = useRef<number | null>(null);
   const generationRef = useRef(0);
   const tokenStore = useMemo(() => new DebugTokenStore(), []);
+  const horizontalOffsetStore = useMemo(() => new DebugHorizontalOffsetStore(), []);
+  const activeHorizontalFileIdRef = useRef<string | null>(null);
+  const horizontalDragStartRef = useRef(0);
 
   const fixture = useMemo(
     () =>
@@ -789,21 +846,12 @@ export default function SyntaxHighlightDebugRoute() {
     [fixtureId],
   );
   const parsedDiff = useMemo(() => parseDebugDiffFixture(fixture), [fixture]);
-  const fileBlockOffsets = useMemo(() => {
-    let offset = 0;
-    return parsedDiff.fileBlocks.map((block, index) => {
-      const length = DEBUG_DIFF_ROW_HEIGHT * (block.rows.length + 1);
-      const itemLayout = { index, length, offset };
-      offset += length;
-      return itemLayout;
-    });
-  }, [parsedDiff.fileBlocks]);
-
   useEffect(() => {
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     renderStartRef.current = performance.now();
     tokenStore.reset();
+    horizontalOffsetStore.reset();
     setStatus("Initializing highlighter");
 
     void (async () => {
@@ -887,6 +935,7 @@ export default function SyntaxHighlightDebugRoute() {
     parsedDiff.highlightChunks,
     parsedDiff.rows.length,
     themeName,
+    horizontalOffsetStore,
     tokenStore,
   ]);
 
@@ -906,11 +955,53 @@ export default function SyntaxHighlightDebugRoute() {
     });
   });
 
+  const onActivateHorizontalFile = useCallback((fileId: string) => {
+    activeHorizontalFileIdRef.current = fileId;
+  }, []);
+
+  const maxHorizontalOffset = Math.max(
+    0,
+    DEBUG_CONTENT_WIDTH - Math.max(0, width - DEBUG_STICKY_WIDTH),
+  );
+  const horizontalPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gestureState) => {
+          const horizontalDistance = Math.abs(gestureState.dx);
+          const verticalDistance = Math.abs(gestureState.dy);
+          return horizontalDistance > 8 && horizontalDistance > verticalDistance * 1.25;
+        },
+        onPanResponderGrant: () => {
+          const fileId = activeHorizontalFileIdRef.current;
+          horizontalDragStartRef.current = fileId ? horizontalOffsetStore.getOffset(fileId) : 0;
+        },
+        onPanResponderMove: (_event, gestureState) => {
+          const fileId = activeHorizontalFileIdRef.current;
+          if (!fileId) {
+            return;
+          }
+          const nextOffset = Math.min(
+            Math.max(horizontalDragStartRef.current - gestureState.dx, 0),
+            maxHorizontalOffset,
+          );
+          horizontalOffsetStore.setOffset(fileId, nextOffset);
+        },
+        onPanResponderTerminationRequest: () => true,
+      }),
+    [horizontalOffsetStore, maxHorizontalOffset],
+  );
+
   const renderItem = useCallback(
-    ({ item }: ListRenderItemInfo<DebugDiffFileBlock>) => (
-      <DebugDiffFileBlockView block={item} tokenStore={tokenStore} width={width} />
+    ({ item }: ListRenderItemInfo<DebugDiffRow>) => (
+      <DebugDiffFlatRowView
+        horizontalOffsetStore={horizontalOffsetStore}
+        onActivateFile={onActivateHorizontalFile}
+        row={item}
+        tokenStore={tokenStore}
+        width={width}
+      />
     ),
-    [tokenStore, width],
+    [horizontalOffsetStore, onActivateHorizontalFile, tokenStore, width],
   );
 
   return (
@@ -922,6 +1013,7 @@ export default function SyntaxHighlightDebugRoute() {
           headerTintColor: headerIcon,
           headerTransparent: true,
           headerShadowVisible: false,
+          gestureEnabled: false,
         }}
       />
 
@@ -942,23 +1034,26 @@ export default function SyntaxHighlightDebugRoute() {
         <FixtureToggle fixtureId={fixtureId} onChangeFixture={setFixtureId} />
       </View>
 
-      <FlatList
-        style={{ flex: 1, width }}
-        data={parsedDiff.fileBlocks}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.file.id}
-        getItemLayout={(_, index) => ({
-          length: fileBlockOffsets[index]?.length ?? DEBUG_DIFF_ROW_HEIGHT,
-          offset: fileBlockOffsets[index]?.offset ?? 0,
-          index,
-        })}
-        initialNumToRender={2}
-        maxToRenderPerBatch={3}
-        updateCellsBatchingPeriod={32}
-        windowSize={5}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
-      />
+      <View className="flex-1" {...horizontalPanResponder.panHandlers}>
+        <FlatList
+          style={{ flex: 1, width }}
+          data={parsedDiff.rows}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          getItemLayout={(_, index) => ({
+            length: DEBUG_DIFF_ROW_HEIGHT,
+            offset: DEBUG_DIFF_ROW_HEIGHT * index,
+            index,
+          })}
+          initialNumToRender={28}
+          maxToRenderPerBatch={32}
+          updateCellsBatchingPeriod={24}
+          windowSize={7}
+          removeClippedSubviews
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
+        />
+      </View>
     </View>
   );
 }

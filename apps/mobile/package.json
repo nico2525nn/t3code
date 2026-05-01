@@ -47,6 +47,7 @@
     "@shikijs/themes": "3.23.0",
     "@t3tools/client-runtime": "workspace:*",
     "@t3tools/contracts": "workspace:*",
+    "@t3tools/mobile-review-diff-native": "file:./modules/t3-review-diff",
     "@t3tools/mobile-terminal-native": "file:./modules/t3-terminal",
     "@t3tools/shared": "workspace:*",
     "clsx": "^2.1.1",
