@@ -576,6 +576,15 @@ export const discoverCursorModelCapabilitiesViaAcp = (
   _existingModels: ReadonlyArray<ServerProviderModel>,
 ) =>
   discoverCursorModelsViaListAvailableModels(cursorSettings).pipe(
+    Effect.catchCause(() =>
+      withCursorAcpProbeRuntime(cursorSettings, (acp) =>
+        Effect.map(acp.start(), (started) =>
+          buildCursorDiscoveredModelsFromConfigOptions(
+            started.sessionSetupResult.configOptions ?? [],
+          ),
+        ),
+      ),
+    ),
     Effect.withSpan("cursor-acp-model-capability-discovery", {}),
   );
 
