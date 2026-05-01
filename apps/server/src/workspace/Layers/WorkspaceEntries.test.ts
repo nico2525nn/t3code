@@ -5,9 +5,9 @@ import { it, afterEach, describe, expect, vi } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path, PlatformError } from "effect";
 
 import { ServerConfig } from "../../config.ts";
-import { GitVcsDriverLive } from "../../vcs/Layers/GitVcsDriver.ts";
-import { VcsProcessLive } from "../../vcs/Layers/VcsProcess.ts";
-import { VcsProcess } from "../../vcs/Services/VcsProcess.ts";
+import { layer as GitVcsDriverLayer } from "../../vcs/GitVcsDriver.ts";
+import { layer as VcsProcessLayer } from "../../vcs/VcsProcess.ts";
+import { VcsProcess } from "../../vcs/VcsProcess.ts";
 import { WorkspaceEntries } from "../Services/WorkspaceEntries.ts";
 import { WorkspaceEntriesLive } from "./WorkspaceEntries.ts";
 import { WorkspacePathsLive } from "./WorkspacePaths.ts";
@@ -15,8 +15,8 @@ import { WorkspacePathsLive } from "./WorkspacePaths.ts";
 const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
   Layer.provideMerge(WorkspacePathsLive),
-  Layer.provideMerge(VcsProcessLive),
-  Layer.provideMerge(GitVcsDriverLive.pipe(Layer.provide(VcsProcessLive))),
+  Layer.provideMerge(VcsProcessLayer),
+  Layer.provideMerge(GitVcsDriverLayer.pipe(Layer.provide(VcsProcessLayer))),
   Layer.provide(
     ServerConfig.layerTest(process.cwd(), {
       prefix: "t3-workspace-entries-test-",

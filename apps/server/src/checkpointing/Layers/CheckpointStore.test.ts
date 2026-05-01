@@ -8,9 +8,9 @@ import { describe, expect } from "vitest";
 import { checkpointRefForThreadTurn } from "../Utils.ts";
 import { CheckpointStoreLive } from "./CheckpointStore.ts";
 import { CheckpointStore } from "../Services/CheckpointStore.ts";
-import { GitVcsDriverLive } from "../../vcs/Layers/GitVcsDriver.ts";
-import { VcsProcessLive } from "../../vcs/Layers/VcsProcess.ts";
-import { VcsProcess } from "../../vcs/Services/VcsProcess.ts";
+import { layer as GitVcsDriverLayer } from "../../vcs/GitVcsDriver.ts";
+import { layer as VcsProcessLayer } from "../../vcs/VcsProcess.ts";
+import { VcsProcess } from "../../vcs/VcsProcess.ts";
 import type { VcsError } from "@t3tools/contracts";
 import { ServerConfig } from "../../config.ts";
 import { ThreadId } from "@t3tools/contracts";
@@ -18,8 +18,8 @@ import { ThreadId } from "@t3tools/contracts";
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-checkpoint-store-test-",
 });
-const VcsProcessTestLayer = VcsProcessLive.pipe(Layer.provide(NodeServices.layer));
-const VcsDriverTestLayer = GitVcsDriverLive.pipe(Layer.provide(VcsProcessTestLayer));
+const VcsProcessTestLayer = VcsProcessLayer.pipe(Layer.provide(NodeServices.layer));
+const VcsDriverTestLayer = GitVcsDriverLayer.pipe(Layer.provide(VcsProcessTestLayer));
 const CheckpointStoreTestLayer = CheckpointStoreLive.pipe(
   Layer.provideMerge(VcsDriverTestLayer),
   Layer.provideMerge(NodeServices.layer),

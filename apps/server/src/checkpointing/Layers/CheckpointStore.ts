@@ -15,7 +15,7 @@ import { Effect, Layer, FileSystem, Path } from "effect";
 
 import { CheckpointInvariantError } from "../Errors.ts";
 import { VcsProcessExitError } from "@t3tools/contracts";
-import { VcsDriver } from "../../vcs/Services/VcsDriver.ts";
+import { VcsDriver } from "../../vcs/VcsDriver.ts";
 import { CheckpointStore, type CheckpointStoreShape } from "../Services/CheckpointStore.ts";
 import { CheckpointRef } from "@t3tools/contracts";
 

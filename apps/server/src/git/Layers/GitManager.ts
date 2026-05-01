@@ -49,7 +49,7 @@ import {
   decodeGitHubPullRequestListJson,
   formatGitHubJsonDecodeError,
 } from "../githubPullRequests.ts";
-import { VcsDriver } from "../../vcs/Services/VcsDriver.ts";
+import { VcsDriver } from "../../vcs/VcsDriver.ts";
 
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;

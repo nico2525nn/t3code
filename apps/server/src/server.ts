@@ -46,8 +46,8 @@ import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdent
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
-import { GitVcsDriverLive } from "./vcs/Layers/GitVcsDriver.ts";
-import { VcsProcessLive } from "./vcs/Layers/VcsProcess.ts";
+import { layer as GitVcsDriverLayer } from "./vcs/GitVcsDriver.ts";
+import { layer as VcsProcessLayer } from "./vcs/VcsProcess.ts";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner.ts";
 import { ObservabilityLive } from "./observability/Layers/Observability.ts";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment.ts";
@@ -136,7 +136,7 @@ const ReactorLayerLive = Layer.empty.pipe(
 
 const CheckpointingLayerLive = Layer.empty.pipe(
   Layer.provideMerge(CheckpointDiffQueryLive),
-  Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(GitVcsDriverLive))),
+  Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(GitVcsDriverLayer))),
 );
 
 const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
@@ -158,7 +158,7 @@ const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersisten
 
 const GitManagerLayerLive = GitManagerLive.pipe(
   Layer.provideMerge(ProjectSetupScriptRunnerLive),
-  Layer.provideMerge(GitVcsDriverLive),
+  Layer.provideMerge(GitVcsDriverLayer),
   Layer.provideMerge(GitHubCliLive),
   Layer.provideMerge(TextGenerationLive),
 );
@@ -166,14 +166,14 @@ const GitManagerLayerLive = GitManagerLive.pipe(
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(GitStatusBroadcasterLive.pipe(Layer.provide(GitManagerLayerLive))),
-  Layer.provideMerge(GitVcsDriverLive),
+  Layer.provideMerge(GitVcsDriverLayer),
 );
 
 const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive));
 
 const WorkspaceEntriesLayerLive = WorkspaceEntriesLive.pipe(
   Layer.provide(WorkspacePathsLive),
-  Layer.provideMerge(GitVcsDriverLive),
+  Layer.provideMerge(GitVcsDriverLayer),
 );
 
 const WorkspaceFileSystemLayerLive = WorkspaceFileSystemLive.pipe(
@@ -311,7 +311,7 @@ export const makeServerLayer = Layer.unwrap(
       Layer.provideMerge(HttpServerLive),
       Layer.provide(ObservabilityLive),
       Layer.provideMerge(FetchHttpClient.layer),
-      Layer.provideMerge(VcsProcessLive),
+      Layer.provideMerge(VcsProcessLayer),
       Layer.provideMerge(PlatformServicesLive),
     );
   }),

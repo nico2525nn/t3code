@@ -28,7 +28,7 @@ import {
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { VcsDriver } from "../../vcs/Services/VcsDriver.ts";
+import { VcsDriver } from "../../vcs/VcsDriver.ts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,

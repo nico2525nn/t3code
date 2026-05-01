@@ -13,7 +13,7 @@ import {
   type RankedSearchResult,
 } from "@t3tools/shared/searchRanking";
 
-import { VcsDriver } from "../../vcs/Services/VcsDriver.ts";
+import { VcsDriver } from "../../vcs/VcsDriver.ts";
 import {
   WorkspaceEntries,
   WorkspaceEntriesBrowseError,
