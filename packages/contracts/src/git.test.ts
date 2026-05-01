@@ -78,7 +78,7 @@ describe("GitRunStackedActionResult", () => {
   it("decodes a server-authored completion toast", () => {
     const parsed = decodeRunStackedActionResult({
       action: "commit_push",
-      refName: {
+      branch: {
         status: "created",
         name: "feature/server-owned-toast",
       },
@@ -89,8 +89,8 @@ describe("GitRunStackedActionResult", () => {
       },
       push: {
         status: "pushed",
-        refName: "feature/server-owned-toast",
-        upstreamRef: "origin/feature/server-owned-toast",
+        branch: "feature/server-owned-toast",
+        upstreamBranch: "origin/feature/server-owned-toast",
       },
       pr: {
         status: "skipped_not_requested",

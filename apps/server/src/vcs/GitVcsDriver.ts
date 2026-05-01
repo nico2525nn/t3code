@@ -44,7 +44,7 @@ export interface ExecuteGitResult {
 
 export interface GitStatusDetails {
   isRepo: boolean;
-  hostingProvider?: VcsStatusResult["hostingProvider"];
+  sourceControlProvider?: VcsStatusResult["sourceControlProvider"];
   hasOriginRemote: boolean;
   isDefaultBranch: boolean;
   branch: string | null;

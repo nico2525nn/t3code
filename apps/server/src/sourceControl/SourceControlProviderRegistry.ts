@@ -1,7 +1,7 @@
 import { Cache, Context, Duration, Effect, Exit, Layer } from "effect";
 import { SourceControlProviderError } from "@t3tools/contracts";
 import type { SourceControlProviderKind } from "@t3tools/contracts";
-import { detectGitHostingProviderFromRemoteUrl } from "@t3tools/shared/git";
+import { detectSourceControlProviderFromGitRemoteUrl } from "@t3tools/shared/git";
 
 import { SourceControlProvider, type SourceControlProviderShape } from "./SourceControlProvider.ts";
 import * as GitHubSourceControlProvider from "./GitHubSourceControlProvider.ts";
@@ -98,7 +98,7 @@ export const make = Effect.fn("makeSourceControlProviderRegistry")(function* () 
         return "unknown" as const;
       }
 
-      return detectGitHostingProviderFromRemoteUrl(remoteUrl)?.kind ?? "unknown";
+      return detectSourceControlProviderFromGitRemoteUrl(remoteUrl)?.kind ?? "unknown";
     },
   );
 

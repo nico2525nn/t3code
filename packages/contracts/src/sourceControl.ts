@@ -9,6 +9,13 @@ export const SourceControlProviderKind = Schema.Literals([
 ]);
 export type SourceControlProviderKind = typeof SourceControlProviderKind.Type;
 
+export const SourceControlProviderInfo = Schema.Struct({
+  kind: SourceControlProviderKind,
+  name: TrimmedNonEmptyString,
+  baseUrl: Schema.String,
+});
+export type SourceControlProviderInfo = typeof SourceControlProviderInfo.Type;
+
 export const ChangeRequestState = Schema.Literals(["open", "closed", "merged"]);
 export type ChangeRequestState = typeof ChangeRequestState.Type;
 

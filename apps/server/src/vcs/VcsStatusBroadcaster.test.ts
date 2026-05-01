@@ -16,7 +16,7 @@ import { GitWorkflowService, type GitWorkflowServiceShape } from "../git/GitWork
 
 const baseLocalStatus: VcsStatusLocalResult = {
   isRepo: true,
-  hostingProvider: {
+  sourceControlProvider: {
     kind: "github",
     name: "GitHub",
     baseUrl: "https://github.com",
