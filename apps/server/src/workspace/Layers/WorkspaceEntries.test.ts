@@ -5,9 +5,9 @@ import { it, afterEach, describe, expect, vi } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path, PlatformError } from "effect";
 
 import { ServerConfig } from "../../config.ts";
-import { layer as GitVcsDriverLayer } from "../../vcs/GitVcsDriver.ts";
-import { layer as VcsProcessLayer } from "../../vcs/VcsProcess.ts";
-import { VcsProcess } from "../../vcs/VcsProcess.ts";
+import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
+import * as VcsProcess from "../../vcs/VcsProcess.ts";
+import { VcsProcess as VcsProcessService } from "../../vcs/VcsProcess.ts";
 import { WorkspaceEntries } from "../Services/WorkspaceEntries.ts";
 import { WorkspaceEntriesLive } from "./WorkspaceEntries.ts";
 import { WorkspacePathsLive } from "./WorkspacePaths.ts";
@@ -15,8 +15,8 @@ import { WorkspacePathsLive } from "./WorkspacePaths.ts";
 const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
   Layer.provideMerge(WorkspacePathsLive),
-  Layer.provideMerge(VcsProcessLayer),
-  Layer.provideMerge(GitVcsDriverLayer.pipe(Layer.provide(VcsProcessLayer))),
+  Layer.provideMerge(VcsProcess.layer),
+  Layer.provideMerge(GitVcsDriver.layer.pipe(Layer.provide(VcsProcess.layer))),
   Layer.provide(
     ServerConfig.layerTest(process.cwd(), {
       prefix: "t3-workspace-entries-test-",
@@ -52,7 +52,7 @@ function writeTextFile(
 
 const git = (cwd: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv) =>
   Effect.gen(function* () {
-    const process = yield* VcsProcess;
+    const process = yield* VcsProcessService;
     const result = yield* process.run({
       operation: "WorkspaceEntries.test.git",
       command: "git",
