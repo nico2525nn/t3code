@@ -38,7 +38,6 @@ import {
   type GitManagerShape,
   type GitRunStackedActionOptions,
 } from "../Services/GitManager.ts";
-import type { GitStatusDetails } from "../Services/GitCore.ts";
 import { GitHubCli, type GitHubPullRequestSummary } from "../Services/GitHubCli.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
 import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScriptRunner.ts";
@@ -49,7 +48,7 @@ import {
   decodeGitHubPullRequestListJson,
   formatGitHubJsonDecodeError,
 } from "../githubPullRequests.ts";
-import { GitVcsDriver } from "../../vcs/GitVcsDriver.ts";
+import { GitVcsDriver, type GitStatusDetails } from "../../vcs/GitVcsDriver.ts";
 
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;
