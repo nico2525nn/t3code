@@ -5,6 +5,11 @@ import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { OpenError, OpenInEditorInput } from "./editor.ts";
 import { AuthAccessStreamEvent } from "./auth.ts";
 import {
+  AcpRegistryInstallBinaryInput,
+  AcpRegistryInstallBinaryResult,
+  AcpRegistryListResult,
+} from "./acp.ts";
+import {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
   FilesystemBrowseError,
@@ -119,6 +124,8 @@ export const WS_METHODS = {
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
+  serverListAcpRegistry: "server.listAcpRegistry",
+  serverInstallAcpRegistryBinary: "server.installAcpRegistryBinary",
 
   // Streaming subscriptions
   subscribeGitStatus: "subscribeGitStatus",
@@ -164,6 +171,19 @@ export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSetting
   success: ServerSettings,
   error: ServerSettingsError,
 });
+
+export const WsServerListAcpRegistryRpc = Rpc.make(WS_METHODS.serverListAcpRegistry, {
+  payload: Schema.Struct({}),
+  success: AcpRegistryListResult,
+});
+
+export const WsServerInstallAcpRegistryBinaryRpc = Rpc.make(
+  WS_METHODS.serverInstallAcpRegistryBinary,
+  {
+    payload: AcpRegistryInstallBinaryInput,
+    success: AcpRegistryInstallBinaryResult,
+  },
+);
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   payload: ProjectSearchEntriesInput,
@@ -370,6 +390,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
+  WsServerListAcpRegistryRpc,
+  WsServerInstallAcpRegistryBinaryRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,

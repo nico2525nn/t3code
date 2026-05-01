@@ -97,6 +97,9 @@ function redactedEmailPlaceholder(email: string): string {
 function readConfigString(config: unknown, key: string): string {
   if (config === null || typeof config !== "object") return "";
   const value = (config as Record<string, unknown>)[key];
+  if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) {
+    return value.join(" ");
+  }
   return typeof value === "string" ? value : "";
 }
 
@@ -586,7 +589,14 @@ export function ProviderInstanceCard({
   };
 
   const updateConfigField = (key: string, value: string) => {
-    const nextConfig = nextConfigBlobWithString(instance.config, key, value);
+    const nextConfig =
+      key === "args"
+        ? nextConfigBlobWithValue(
+            instance.config,
+            key,
+            value.trim().length > 0 ? value.trim().split(/\s+/).filter(Boolean) : [],
+          )
+        : nextConfigBlobWithString(instance.config, key, value);
     const { config: _omit, ...rest } = instance;
     onUpdate(
       nextConfig !== undefined
@@ -622,6 +632,7 @@ export function ProviderInstanceCard({
                   driverKind={driverKind}
                   displayName={displayName}
                   accentColor={accentColor}
+                  iconUrl={instance.iconUrl ?? liveProvider?.iconUrl}
                   showBadge={Boolean(accentColor)}
                   statusDotClassName={statusStyle.dot}
                   className="size-5"

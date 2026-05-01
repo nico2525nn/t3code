@@ -1,5 +1,5 @@
 import { ProviderDriverKind } from "@t3tools/contracts";
-import { ClaudeAI, CursorIcon, type Icon, OpenAI, OpenCodeIcon } from "../Icons";
+import { ACPRegistryIcon, ClaudeAI, CursorIcon, type Icon, OpenAI, OpenCodeIcon } from "../Icons";
 
 /**
  * A single editable field exposed on a provider instance. `key` must match
@@ -132,6 +132,25 @@ export const DRIVER_OPTIONS: readonly DriverOption[] = [
         placeholder: "Optional",
         type: "password",
         description: "Stored in plain text on disk.",
+      },
+    ],
+  },
+  {
+    value: ProviderDriverKind.make("acpRegistry"),
+    label: "ACP Registry",
+    icon: ACPRegistryIcon,
+    fields: [
+      {
+        key: "command",
+        label: "Command",
+        placeholder: "npx",
+        description: "Executable used to launch the ACP agent.",
+      },
+      {
+        key: "args",
+        label: "Arguments",
+        placeholder: "-y @example/acp-agent",
+        description: "Space-separated launch arguments passed to the command.",
       },
     ],
   },

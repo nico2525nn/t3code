@@ -18,6 +18,11 @@ import type {
   GitStatusResult,
   GitCreateBranchResult,
 } from "./git.ts";
+import type {
+  AcpRegistryInstallBinaryInput,
+  AcpRegistryInstallBinaryResult,
+  AcpRegistryListResult,
+} from "./acp.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type {
   ProjectSearchEntriesInput,
@@ -227,6 +232,10 @@ export interface LocalApi {
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
+    listAcpRegistry: () => Promise<AcpRegistryListResult>;
+    installAcpRegistryBinary: (
+      input: AcpRegistryInstallBinaryInput,
+    ) => Promise<AcpRegistryInstallBinaryResult>;
   };
 }
 
