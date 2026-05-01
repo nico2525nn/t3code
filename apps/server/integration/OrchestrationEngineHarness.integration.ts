@@ -308,10 +308,10 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(serverSettingsLayer),
     );
-    const gitVcsDriverLayer = Layer.succeed(GitVcsDriver.GitVcsDriver, {
+    const gitVcsDriverLayer = Layer.mock(GitVcsDriver.GitVcsDriver)({
       renameBranch: (input: Parameters<GitVcsDriver.GitVcsDriverShape["renameBranch"]>[0]) =>
         Effect.succeed({ branch: input.newBranch }),
-    } as unknown as GitVcsDriver.GitVcsDriverShape);
+    });
     const textGenerationLayer = Layer.succeed(TextGeneration, {
       generateBranchName: () => Effect.succeed({ branch: "update" }),
       generateThreadTitle: () => Effect.succeed({ title: "New thread" }),

@@ -325,9 +325,9 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
       Layer.provideMerge(
-        Layer.succeed(GitVcsDriver.GitVcsDriver, {
+        Layer.mock(GitVcsDriver.GitVcsDriver)({
           renameBranch,
-        } as unknown as GitVcsDriver.GitVcsDriverShape),
+        }),
       ),
       Layer.provideMerge(
         Layer.succeed(GitStatusBroadcaster, {
