@@ -10,7 +10,6 @@ import { CheckpointStoreLive } from "./CheckpointStore.ts";
 import { CheckpointStore } from "../Services/CheckpointStore.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
-import { VcsProcess as VcsProcessService } from "../../vcs/VcsProcess.ts";
 import type { VcsError } from "@t3tools/contracts";
 import { ServerConfig } from "../../config.ts";
 import { ThreadId } from "@t3tools/contracts";
@@ -53,9 +52,9 @@ function writeTextFile(
 function git(
   cwd: string,
   args: ReadonlyArray<string>,
-): Effect.Effect<string, VcsError, VcsProcessService> {
+): Effect.Effect<string, VcsError, VcsProcess.VcsProcess> {
   return Effect.gen(function* () {
-    const process = yield* VcsProcessService;
+    const process = yield* VcsProcess.VcsProcess;
     const result = yield* process.run({
       operation: "CheckpointStore.test.git",
       command: "git",
@@ -72,7 +71,7 @@ function initRepoWithCommit(
 ): Effect.Effect<
   void,
   VcsError | PlatformError.PlatformError,
-  VcsProcessService | FileSystem.FileSystem
+  VcsProcess.VcsProcess | FileSystem.FileSystem
 > {
   return Effect.gen(function* () {
     yield* git(cwd, ["init"]);

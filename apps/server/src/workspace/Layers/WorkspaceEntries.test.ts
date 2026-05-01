@@ -7,7 +7,6 @@ import { Effect, FileSystem, Layer, Path, PlatformError } from "effect";
 import { ServerConfig } from "../../config.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
-import { VcsProcess as VcsProcessService } from "../../vcs/VcsProcess.ts";
 import { WorkspaceEntries } from "../Services/WorkspaceEntries.ts";
 import { WorkspaceEntriesLive } from "./WorkspaceEntries.ts";
 import { WorkspacePathsLive } from "./WorkspacePaths.ts";
@@ -52,7 +51,7 @@ function writeTextFile(
 
 const git = (cwd: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv) =>
   Effect.gen(function* () {
-    const process = yield* VcsProcessService;
+    const process = yield* VcsProcess.VcsProcess;
     const result = yield* process.run({
       operation: "WorkspaceEntries.test.git",
       command: "git",
