@@ -15,7 +15,7 @@ import { Effect, Layer, FileSystem, Path } from "effect";
 
 import { CheckpointInvariantError } from "../Errors.ts";
 import { VcsProcessExitError } from "@t3tools/contracts";
-import { VcsDriver } from "../../vcs/VcsDriver.ts";
+import { VcsDriverRegistry } from "../../vcs/VcsDriverRegistry.ts";
 import { CheckpointStore, type CheckpointStoreShape } from "../Services/CheckpointStore.ts";
 import { CheckpointRef } from "@t3tools/contracts";
 
@@ -24,7 +24,23 @@ const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
 const makeCheckpointStore = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const vcs = yield* VcsDriver;
+  const vcsRegistry = yield* VcsDriverRegistry;
+  const vcs = {
+    execute: (input: {
+      readonly operation: string;
+      readonly cwd: string;
+      readonly args: ReadonlyArray<string>;
+      readonly stdin?: string;
+      readonly env?: NodeJS.ProcessEnv;
+      readonly allowNonZeroExit?: boolean;
+      readonly timeoutMs?: number;
+      readonly maxOutputBytes?: number;
+      readonly truncateOutputAtMaxBytes?: boolean;
+    }) =>
+      vcsRegistry
+        .resolve({ cwd: input.cwd, requestedKind: "git" })
+        .pipe(Effect.flatMap((handle) => handle.driver.execute(input))),
+  };
 
   const resolveHeadCommit = (cwd: string) =>
     vcs

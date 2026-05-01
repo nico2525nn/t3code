@@ -105,7 +105,12 @@ import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
-import { VcsDriver, type VcsDriverShape } from "./vcs/VcsDriver.ts";
+import type { VcsDriverShape } from "./vcs/VcsDriver.ts";
+import {
+  VcsDriverRegistry,
+  type VcsDriverRegistryShape,
+  type VcsDriverHandle,
+} from "./vcs/VcsDriverRegistry.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 
@@ -316,6 +321,7 @@ const buildAppUnderTest = (options?: {
     serverSettings?: Partial<ServerSettingsShape>;
     open?: Partial<OpenShape>;
     vcsDriver?: Partial<VcsDriverShape>;
+    vcsDriverRegistry?: Partial<VcsDriverRegistryShape>;
     gitVcsDriver?: Partial<GitVcsDriver.GitVcsDriverShape>;
     gitManager?: Partial<GitManagerShape>;
     gitStatusBroadcaster?: Partial<GitStatusBroadcasterShape>;
@@ -364,7 +370,7 @@ const buildAppUnderTest = (options?: {
       ...options?.config,
     };
     const layerConfig = Layer.succeed(ServerConfig, config);
-    const vcsDriverLayer = Layer.mock(VcsDriver)({
+    const defaultVcsDriver: VcsDriverShape = {
       capabilities: {
         kind: "git",
         supportsWorktrees: true,
@@ -372,6 +378,14 @@ const buildAppUnderTest = (options?: {
         supportsAtomicSnapshot: false,
         supportsPushDefaultRemote: true,
       },
+      execute: () =>
+        Effect.succeed({
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        }),
       detectRepository: () => Effect.succeed(null),
       isInsideWorkTree: () => Effect.succeed(false),
       listWorkspaceFiles: () =>
@@ -385,6 +399,56 @@ const buildAppUnderTest = (options?: {
         }),
       filterIgnoredPaths: (_cwd, relativePaths) => Effect.succeed(relativePaths),
       ...options?.layers?.vcsDriver,
+    };
+    const vcsDriverRegistryLayer = Layer.mock(VcsDriverRegistry)({
+      detect: (input) =>
+        defaultVcsDriver.detectRepository(input.cwd).pipe(
+          Effect.flatMap((repository) =>
+            repository
+              ? Effect.succeed(repository)
+              : defaultVcsDriver.isInsideWorkTree(input.cwd).pipe(
+                  Effect.map((isInsideWorkTree) =>
+                    isInsideWorkTree
+                      ? {
+                          kind: "git" as const,
+                          rootPath: input.cwd,
+                          metadataPath: null,
+                          freshness: {
+                            source: "live-local" as const,
+                            observedAt: new Date(0).toISOString(),
+                          },
+                        }
+                      : null,
+                  ),
+                ),
+          ),
+          Effect.map((repository) =>
+            repository
+              ? ({
+                  kind: repository.kind,
+                  repository,
+                  driver: defaultVcsDriver,
+                } satisfies VcsDriverHandle)
+              : null,
+          ),
+        ),
+      resolve: (input) =>
+        Effect.succeed({
+          kind:
+            input.requestedKind === "auto" || !input.requestedKind ? "git" : input.requestedKind,
+          repository: {
+            kind:
+              input.requestedKind === "auto" || !input.requestedKind ? "git" : input.requestedKind,
+            rootPath: input.cwd,
+            metadataPath: null,
+            freshness: {
+              source: "live-local",
+              observedAt: new Date(0).toISOString(),
+            },
+          },
+          driver: defaultVcsDriver,
+        }),
+      ...options?.layers?.vcsDriverRegistry,
     });
     const gitVcsDriverLayer = Layer.mock(GitVcsDriver.GitVcsDriver)({
       ...options?.layers?.gitVcsDriver,
@@ -394,7 +458,7 @@ const buildAppUnderTest = (options?: {
     });
     const workspaceEntriesLayer = WorkspaceEntriesLive.pipe(
       Layer.provide(WorkspacePathsLive),
-      Layer.provideMerge(vcsDriverLayer),
+      Layer.provideMerge(vcsDriverRegistryLayer),
     );
     const workspaceAndProjectServicesLayer = Layer.mergeAll(
       WorkspacePathsLive,
