@@ -23,7 +23,6 @@ import {
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
-import { VcsDriver } from "../../vcs/VcsDriver.ts";
 import { makeGitManager } from "./GitManager.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -212,30 +211,18 @@ function runGit(
 ): Effect.Effect<
   { readonly code: number; readonly stdout: string; readonly stderr: string },
   GitCommandError,
-  VcsDriver
+  GitVcsDriver.GitVcsDriver
 > {
   return Effect.gen(function* () {
-    const vcs = yield* VcsDriver;
-    const result = yield* vcs
-      .execute({
-        operation: "GitManager.test.runGit",
-        cwd,
-        args,
-        allowNonZeroExit,
-      })
-      .pipe(
-        Effect.mapError(
-          (error) =>
-            new GitCommandError({
-              operation: "GitManager.test.runGit",
-              command: `git ${args.join(" ")}`,
-              cwd,
-              detail: error.message,
-            }),
-        ),
-      );
+    const git = yield* GitVcsDriver.GitVcsDriver;
+    const result = yield* git.execute({
+      operation: "GitManager.test.runGit",
+      cwd,
+      args,
+      allowNonZeroExit,
+    });
     return {
-      code: result.exitCode,
+      code: result.code,
       stdout: result.stdout,
       stderr: result.stderr,
     };
@@ -247,7 +234,7 @@ function initRepo(
 ): Effect.Effect<
   void,
   PlatformError.PlatformError | GitCommandError,
-  FileSystem.FileSystem | Scope.Scope | VcsDriver
+  FileSystem.FileSystem | Scope.Scope | GitVcsDriver.GitVcsDriver
 > {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -263,7 +250,7 @@ function initRepo(
 function createBareRemote(): Effect.Effect<
   string,
   PlatformError.PlatformError | GitCommandError,
-  FileSystem.FileSystem | Scope.Scope | VcsDriver
+  FileSystem.FileSystem | Scope.Scope | GitVcsDriver.GitVcsDriver
 > {
   return Effect.gen(function* () {
     const remoteDir = yield* makeTempDir("t3code-git-remote-");
@@ -277,7 +264,7 @@ function configureRemote(
   remoteName: string,
   remotePath: string,
   fetchNamespace: string,
-): Effect.Effect<void, GitCommandError, VcsDriver> {
+): Effect.Effect<void, GitCommandError, GitVcsDriver.GitVcsDriver> {
   return Effect.gen(function* () {
     yield* runGit(cwd, ["config", `remote.${remoteName}.url`, remotePath]);
     yield* runGit(cwd, [

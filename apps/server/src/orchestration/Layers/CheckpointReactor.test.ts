@@ -307,11 +307,11 @@ describe("CheckpointReactor", () => {
       Layer.provideMerge(RuntimeReceiptBusLive),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(gitStatusBroadcasterLayer),
-      Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(GitVcsDriver.layer))),
+      Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(GitVcsDriver.vcsLayer))),
       Layer.provideMerge(
         WorkspaceEntriesLive.pipe(
           Layer.provide(WorkspacePathsLive),
-          Layer.provideMerge(GitVcsDriver.layer),
+          Layer.provideMerge(GitVcsDriver.vcsLayer),
         ),
       ),
       Layer.provideMerge(WorkspacePathsLive),

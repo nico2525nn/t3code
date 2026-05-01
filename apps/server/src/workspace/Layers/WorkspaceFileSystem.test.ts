@@ -20,7 +20,7 @@ const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(ProjectLayer),
   Layer.provideMerge(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
   Layer.provideMerge(WorkspacePathsLive),
-  Layer.provideMerge(GitVcsDriver.layer.pipe(Layer.provide(VcsProcess.layer))),
+  Layer.provideMerge(GitVcsDriver.vcsLayer.pipe(Layer.provide(VcsProcess.layer))),
   Layer.provide(
     ServerConfig.layerTest(process.cwd(), {
       prefix: "t3-workspace-files-test-",

@@ -18,7 +18,7 @@ const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-checkpoint-store-test-",
 });
 const VcsProcessTestLayer = VcsProcess.layer.pipe(Layer.provide(NodeServices.layer));
-const VcsDriverTestLayer = GitVcsDriver.layer.pipe(Layer.provide(VcsProcessTestLayer));
+const VcsDriverTestLayer = GitVcsDriver.vcsLayer.pipe(Layer.provide(VcsProcessTestLayer));
 const CheckpointStoreTestLayer = CheckpointStoreLive.pipe(
   Layer.provideMerge(VcsDriverTestLayer),
   Layer.provideMerge(NodeServices.layer),

@@ -18,7 +18,7 @@ const GitVcsDriverTestDependencies = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-git-vcs-driver-test-",
 }).pipe(Layer.provide(NodeServices.layer));
 
-it.layer(Layer.empty)("GitVcsDriver.layer", (it) => {
+it.layer(Layer.empty)("GitVcsDriver.vcsLayer", (it) => {
   describe("workspace helpers", () => {
     it.effect("filterIgnoredPaths chunks large path lists and preserves kept paths", () =>
       Effect.gen(function* () {
@@ -32,7 +32,7 @@ it.layer(Layer.empty)("GitVcsDriver.layer", (it) => {
         );
 
         const seenChunks: string[][] = [];
-        const layer = GitVcsDriver.layer.pipe(
+        const layer = GitVcsDriver.vcsLayer.pipe(
           Layer.provideMerge(GitVcsDriverTestDependencies),
           Layer.provideMerge(NodeServices.layer),
           Layer.provide(
@@ -81,7 +81,7 @@ it.layer(Layer.empty)("GitVcsDriver.layer", (it) => {
 
     it.effect("listWorkspaceFiles disables fsmonitor and untracked cache helpers", () =>
       Effect.gen(function* () {
-        const layer = GitVcsDriver.layer.pipe(
+        const layer = GitVcsDriver.vcsLayer.pipe(
           Layer.provideMerge(GitVcsDriverTestDependencies),
           Layer.provideMerge(NodeServices.layer),
           Layer.provide(

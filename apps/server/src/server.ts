@@ -136,7 +136,7 @@ const ReactorLayerLive = Layer.empty.pipe(
 
 const CheckpointingLayerLive = Layer.empty.pipe(
   Layer.provideMerge(CheckpointDiffQueryLive),
-  Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(GitVcsDriver.layer))),
+  Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(GitVcsDriver.vcsLayer))),
 );
 
 const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
@@ -173,7 +173,7 @@ const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive)
 
 const WorkspaceEntriesLayerLive = WorkspaceEntriesLive.pipe(
   Layer.provide(WorkspacePathsLive),
-  Layer.provideMerge(GitVcsDriver.layer),
+  Layer.provideMerge(GitVcsDriver.vcsLayer),
 );
 
 const WorkspaceFileSystemLayerLive = WorkspaceFileSystemLive.pipe(
