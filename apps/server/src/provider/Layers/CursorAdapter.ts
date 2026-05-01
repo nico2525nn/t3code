@@ -101,6 +101,8 @@ export interface CursorAdapterLiveOptions {
   };
   readonly normalizeModel?: (model: string | null | undefined) => string;
   readonly applyCursorModelOptions?: boolean;
+  readonly authMethodId?: string;
+  readonly clientCapabilities?: EffectAcpSchema.InitializeRequest["clientCapabilities"];
   /**
    * Selections are honored when `modelSelection.instanceId` matches this value.
    * Defaults to the legacy built-in instance id (`cursor`).
@@ -546,6 +548,10 @@ export function makeCursorAdapter(
             cwd,
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "t3-code", version: "0.0.0" },
+            ...(options?.authMethodId ? { authMethodId: options.authMethodId } : {}),
+            ...(options?.clientCapabilities
+              ? { clientCapabilities: options.clientCapabilities }
+              : {}),
             ...acpNativeLoggers,
           }).pipe(
             Effect.provideService(Scope.Scope, sessionScope),

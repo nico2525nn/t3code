@@ -137,6 +137,8 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
           readyReason: "ACP session ready",
           applyCursorModelOptions: false,
           normalizeModel: (model) => model?.trim() || "default",
+          authMethodId: "none",
+          clientCapabilities: {},
           ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
           spawn: ({ cwd, environment: spawnEnv }) => ({
             command: effectiveConfig.command.trim(),
