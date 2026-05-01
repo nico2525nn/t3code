@@ -8,7 +8,7 @@ import { describe, expect } from "vitest";
 import { checkpointRefForThreadTurn } from "../Utils.ts";
 import { CheckpointStoreLive } from "./CheckpointStore.ts";
 import { CheckpointStore } from "../Services/CheckpointStore.ts";
-import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
+import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
 import type { VcsError } from "@t3tools/contracts";
 import { ServerConfig } from "../../config.ts";
@@ -18,7 +18,7 @@ const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-checkpoint-store-test-",
 });
 const VcsProcessTestLayer = VcsProcess.layer.pipe(Layer.provide(NodeServices.layer));
-const VcsDriverTestLayer = GitVcsDriver.vcsLayer.pipe(Layer.provide(VcsProcessTestLayer));
+const VcsDriverTestLayer = VcsDriverRegistry.layer.pipe(Layer.provide(VcsProcessTestLayer));
 const CheckpointStoreTestLayer = CheckpointStoreLive.pipe(
   Layer.provideMerge(VcsDriverTestLayer),
   Layer.provideMerge(NodeServices.layer),

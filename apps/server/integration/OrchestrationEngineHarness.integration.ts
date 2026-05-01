@@ -76,6 +76,7 @@ import { deriveServerPaths, ServerConfig } from "../src/config.ts";
 import { WorkspaceEntriesLive } from "../src/workspace/Layers/WorkspaceEntries.ts";
 import { WorkspacePathsLive } from "../src/workspace/Layers/WorkspacePaths.ts";
 import * as GitVcsDriver from "../src/vcs/GitVcsDriver.ts";
+import * as VcsDriverRegistry from "../src/vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../src/vcs/VcsProcess.ts";
 
 function runGit(cwd: string, args: ReadonlyArray<string>) {
@@ -291,7 +292,7 @@ export const makeOrchestrationIntegrationHarness = (
           Layer.provide(providerEventLoggersLayer),
         );
 
-    const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitVcsDriver.vcsLayer));
+    const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(VcsDriverRegistry.layer));
     const projectionSnapshotQueryLayer = OrchestrationProjectionSnapshotQueryLive;
     const runtimeServicesLayer = Layer.mergeAll(
       projectionSnapshotQueryLayer,
@@ -342,7 +343,7 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(
         WorkspaceEntriesLive.pipe(
           Layer.provide(WorkspacePathsLive),
-          Layer.provideMerge(GitVcsDriver.vcsLayer),
+          Layer.provideMerge(VcsDriverRegistry.layer),
           Layer.provide(NodeServices.layer),
         ),
       ),

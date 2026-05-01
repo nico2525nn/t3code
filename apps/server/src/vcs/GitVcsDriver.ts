@@ -278,7 +278,7 @@ const gitCommand = (
       : {}),
   });
 
-export const makeVcsDriver = Effect.fn("makeGitVcsDriver")(function* () {
+export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* () {
   const process = yield* VcsProcess;
   const capabilities = {
     kind: "git" as const,
@@ -427,14 +427,19 @@ export const makeVcsDriver = Effect.fn("makeGitVcsDriver")(function* () {
     },
   );
 
-  return VcsDriver.of({
+  return {
     capabilities,
     execute,
     detectRepository,
     isInsideWorkTree,
     listWorkspaceFiles,
     filterIgnoredPaths,
-  });
+  } satisfies VcsDriverShape;
+});
+
+export const makeVcsDriver = Effect.fn("makeGitVcsDriver")(function* () {
+  const driver = yield* makeVcsDriverShape();
+  return VcsDriver.of(driver);
 });
 
 export const make = Effect.fn("makeGitVcsDriverService")(function* () {

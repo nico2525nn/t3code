@@ -2,7 +2,7 @@ import * as OS from "node:os";
 import fsPromises from "node:fs/promises";
 import type { Dirent } from "node:fs";
 
-import { Cache, DateTime, Duration, Effect, Exit, Layer, Option, Path } from "effect";
+import { Cache, DateTime, Duration, Effect, Exit, Layer, Path } from "effect";
 
 import { type FilesystemBrowseInput, type ProjectEntry } from "@t3tools/contracts";
 import { isExplicitRelativePath, isWindowsAbsolutePath } from "@t3tools/shared/path";
@@ -13,7 +13,7 @@ import {
   type RankedSearchResult,
 } from "@t3tools/shared/searchRanking";
 
-import { VcsDriver } from "../../vcs/VcsDriver.ts";
+import { VcsDriverRegistry } from "../../vcs/VcsDriverRegistry.ts";
 import {
   WorkspaceEntries,
   WorkspaceEntriesBrowseError,
@@ -174,38 +174,39 @@ const resolveBrowseTarget = (
 
 export const makeWorkspaceEntries = Effect.gen(function* () {
   const path = yield* Path.Path;
-  const vcsOption = yield* Effect.serviceOption(VcsDriver);
+  const vcsRegistry = yield* VcsDriverRegistry;
   const workspacePaths = yield* WorkspacePaths;
 
   const isInsideVcsWorkTree = (cwd: string): Effect.Effect<boolean> =>
-    Option.match(vcsOption, {
-      onSome: (vcs) => vcs.isInsideWorkTree(cwd).pipe(Effect.catch(() => Effect.succeed(false))),
-      onNone: () => Effect.succeed(false),
-    });
+    vcsRegistry.detect({ cwd }).pipe(
+      Effect.map((handle) => handle !== null),
+      Effect.catch(() => Effect.succeed(false)),
+    );
 
   const filterVcsIgnoredPaths = (
     cwd: string,
     relativePaths: string[],
   ): Effect.Effect<string[], never> =>
-    Option.match(vcsOption, {
-      onSome: (vcs) =>
-        vcs.filterIgnoredPaths(cwd, relativePaths).pipe(
-          Effect.map((paths) => [...paths]),
-          Effect.catch(() => Effect.succeed(relativePaths)),
-        ),
-      onNone: () => Effect.succeed(relativePaths),
-    });
+    vcsRegistry.detect({ cwd }).pipe(
+      Effect.flatMap((handle) =>
+        handle
+          ? handle.driver.filterIgnoredPaths(cwd, relativePaths).pipe(
+              Effect.map((paths) => [...paths]),
+              Effect.catch(() => Effect.succeed(relativePaths)),
+            )
+          : Effect.succeed(relativePaths),
+      ),
+      Effect.catch(() => Effect.succeed(relativePaths)),
+    );
 
   const buildWorkspaceIndexFromVcs = Effect.fn("WorkspaceEntries.buildWorkspaceIndexFromVcs")(
     function* (cwd: string) {
-      if (Option.isNone(vcsOption)) {
-        return null;
-      }
-      if (!(yield* isInsideVcsWorkTree(cwd))) {
+      const vcs = yield* vcsRegistry.detect({ cwd }).pipe(Effect.catch(() => Effect.succeed(null)));
+      if (!vcs) {
         return null;
       }
 
-      const listedFiles = yield* vcsOption.value
+      const listedFiles = yield* vcs.driver
         .listWorkspaceFiles(cwd)
         .pipe(Effect.catch(() => Effect.succeed(null)));
 
@@ -216,7 +217,10 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
       const listedPaths = [...listedFiles.paths]
         .map((entry) => toPosixPath(entry))
         .filter((entry) => entry.length > 0 && !isPathInIgnoredDirectory(entry));
-      const filePaths = yield* filterVcsIgnoredPaths(cwd, listedPaths);
+      const filePaths = yield* vcs.driver.filterIgnoredPaths(cwd, listedPaths).pipe(
+        Effect.map((paths) => [...paths]),
+        Effect.catch(() => filterVcsIgnoredPaths(cwd, listedPaths)),
+      );
 
       const directorySet = new Set<string>();
       for (const filePath of filePaths) {

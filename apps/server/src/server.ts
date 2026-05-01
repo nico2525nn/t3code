@@ -47,6 +47,7 @@ import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
+import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "./vcs/VcsProcess.ts";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner.ts";
 import { ObservabilityLive } from "./observability/Layers/Observability.ts";
@@ -136,7 +137,7 @@ const ReactorLayerLive = Layer.empty.pipe(
 
 const CheckpointingLayerLive = Layer.empty.pipe(
   Layer.provideMerge(CheckpointDiffQueryLive),
-  Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(GitVcsDriver.vcsLayer))),
+  Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(VcsDriverRegistry.layer))),
 );
 
 const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
@@ -173,7 +174,7 @@ const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive)
 
 const WorkspaceEntriesLayerLive = WorkspaceEntriesLive.pipe(
   Layer.provide(WorkspacePathsLive),
-  Layer.provideMerge(GitVcsDriver.vcsLayer),
+  Layer.provideMerge(VcsDriverRegistry.layer),
 );
 
 const WorkspaceFileSystemLayerLive = WorkspaceFileSystemLive.pipe(
