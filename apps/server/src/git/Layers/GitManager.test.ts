@@ -21,9 +21,9 @@ import {
   GitHubCli,
 } from "../Services/GitHubCli.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
-import { GitVcsDriverLive } from "../../vcs/Layers/GitVcsDriver.ts";
-import { VcsProcessLive } from "../../vcs/Layers/VcsProcess.ts";
-import { VcsDriver } from "../../vcs/Services/VcsDriver.ts";
+import { layer as GitVcsDriverLayer } from "../../vcs/GitVcsDriver.ts";
+import { layer as VcsProcessLayer } from "../../vcs/VcsProcess.ts";
+import { VcsDriver } from "../../vcs/VcsDriver.ts";
 import { makeGitManager } from "./GitManager.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -657,8 +657,8 @@ function makeManager(input?: {
 
   const serverSettingsLayer = ServerSettingsService.layerTest();
 
-  const vcsDriverLayer = GitVcsDriverLive.pipe(
-    Layer.provideMerge(VcsProcessLive),
+  const vcsDriverLayer = GitVcsDriverLayer.pipe(
+    Layer.provideMerge(VcsProcessLayer),
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(ServerConfigLayer),
   );
@@ -684,9 +684,9 @@ function makeManager(input?: {
 
 const asThreadId = (threadId: string) => threadId as ThreadId;
 
-const GitManagerTestLayer = GitVcsDriverLive.pipe(
+const GitManagerTestLayer = GitVcsDriverLayer.pipe(
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-git-manager-test-" })),
-  Layer.provideMerge(VcsProcessLive),
+  Layer.provideMerge(VcsProcessLayer),
   Layer.provideMerge(NodeServices.layer),
 );
 

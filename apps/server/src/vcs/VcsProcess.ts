@@ -1,13 +1,42 @@
-import { Duration, Effect, Layer, Option, PlatformError, Stream } from "effect";
+import { Duration, Context, Effect, Layer, Option, PlatformError, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
   VcsOutputDecodeError,
+  type VcsError,
   VcsProcessExitError,
   VcsProcessSpawnError,
   VcsProcessTimeoutError,
 } from "@t3tools/contracts";
-import { VcsProcess, type VcsProcessInput, type VcsProcessOutput } from "../Services/VcsProcess.ts";
+
+export interface VcsProcessInput {
+  readonly operation: string;
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd: string;
+  readonly stdin?: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly allowNonZeroExit?: boolean;
+  readonly timeoutMs?: number;
+  readonly maxOutputBytes?: number;
+  readonly truncateOutputAtMaxBytes?: boolean;
+}
+
+export interface VcsProcessOutput {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly stdoutTruncated: boolean;
+  readonly stderrTruncated: boolean;
+}
+
+export interface VcsProcessShape {
+  readonly run: (input: VcsProcessInput) => Effect.Effect<VcsProcessOutput, VcsError>;
+}
+
+export class VcsProcess extends Context.Service<VcsProcess, VcsProcessShape>()(
+  "t3/vcs/VcsProcess",
+) {}
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
@@ -37,7 +66,6 @@ const collectOutput = Effect.fn("VcsProcess.collectOutput")(function* (
         truncated = true;
         if (truncateOutputAtMaxBytes) {
           text += OUTPUT_TRUNCATED_MARKER;
-          return;
         }
         return;
       }
@@ -73,7 +101,7 @@ const collectOutput = Effect.fn("VcsProcess.collectOutput")(function* (
   return { text, truncated };
 });
 
-export const makeVcsProcess = Effect.fn("makeVcsProcess")(function* () {
+export const make = Effect.fn("makeVcsProcess")(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
   const run = Effect.fn("VcsProcess.run")(function* (input: VcsProcessInput) {
@@ -191,4 +219,4 @@ export const makeVcsProcess = Effect.fn("makeVcsProcess")(function* () {
   return VcsProcess.of({ run });
 });
 
-export const VcsProcessLive = Layer.effect(VcsProcess, makeVcsProcess());
+export const layer = Layer.effect(VcsProcess, make());

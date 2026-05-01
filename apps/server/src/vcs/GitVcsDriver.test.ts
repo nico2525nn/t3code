@@ -3,10 +3,10 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer } from "effect";
 import { describe, expect } from "vitest";
 
-import { ServerConfig } from "../../config.ts";
-import { VcsProcess } from "../Services/VcsProcess.ts";
-import { VcsDriver } from "../Services/VcsDriver.ts";
-import { GitVcsDriverLive } from "./GitVcsDriver.ts";
+import { ServerConfig } from "../config.ts";
+import { VcsProcess } from "./VcsProcess.ts";
+import { VcsDriver } from "./VcsDriver.ts";
+import { layer as GitVcsDriverLayer } from "./GitVcsDriver.ts";
 
 const splitNullSeparatedPaths = (input: string): string[] =>
   input
@@ -18,7 +18,7 @@ const GitVcsDriverTestDependencies = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-git-vcs-driver-test-",
 }).pipe(Layer.provide(NodeServices.layer));
 
-it.layer(Layer.empty)("GitVcsDriverLive", (it) => {
+it.layer(Layer.empty)("GitVcsDriverLayer", (it) => {
   describe("workspace helpers", () => {
     it.effect("filterIgnoredPaths chunks large path lists and preserves kept paths", () =>
       Effect.gen(function* () {
@@ -32,7 +32,7 @@ it.layer(Layer.empty)("GitVcsDriverLive", (it) => {
         );
 
         const seenChunks: string[][] = [];
-        const layer = GitVcsDriverLive.pipe(
+        const layer = GitVcsDriverLayer.pipe(
           Layer.provideMerge(GitVcsDriverTestDependencies),
           Layer.provideMerge(NodeServices.layer),
           Layer.provide(
@@ -81,7 +81,7 @@ it.layer(Layer.empty)("GitVcsDriverLive", (it) => {
 
     it.effect("listWorkspaceFiles disables fsmonitor and untracked cache helpers", () =>
       Effect.gen(function* () {
-        const layer = GitVcsDriverLive.pipe(
+        const layer = GitVcsDriverLayer.pipe(
           Layer.provideMerge(GitVcsDriverTestDependencies),
           Layer.provideMerge(NodeServices.layer),
           Layer.provide(

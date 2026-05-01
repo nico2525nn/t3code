@@ -6,7 +6,7 @@ import type {
   VcsListWorkspaceFilesResult,
   VcsRepositoryIdentity,
 } from "@t3tools/contracts";
-import type { GitCoreShape } from "../../git/Services/GitCore.ts";
+import type { GitCoreShape } from "../git/Services/GitCore.ts";
 import type { VcsProcessInput, VcsProcessOutput } from "./VcsProcess.ts";
 
 export interface VcsDriverShape extends Omit<GitCoreShape, "execute"> {
@@ -25,6 +25,4 @@ export interface VcsDriverShape extends Omit<GitCoreShape, "execute"> {
   ) => Effect.Effect<ReadonlyArray<string>, VcsError>;
 }
 
-export class VcsDriver extends Context.Service<VcsDriver, VcsDriverShape>()(
-  "t3/vcs/Services/VcsDriver",
-) {}
+export class VcsDriver extends Context.Service<VcsDriver, VcsDriverShape>()("t3/vcs/VcsDriver") {}

@@ -1,9 +1,9 @@
 import { Effect, Layer } from "effect";
 
 import { VcsProcessExitError } from "@t3tools/contracts";
-import { makeGitCore } from "../../git/Layers/GitCore.ts";
-import { VcsDriver, type VcsDriverShape } from "../Services/VcsDriver.ts";
-import { VcsProcess, type VcsProcessShape } from "../Services/VcsProcess.ts";
+import { makeGitCore } from "../git/Layers/GitCore.ts";
+import { VcsDriver, type VcsDriverShape } from "./VcsDriver.ts";
+import { VcsProcess, type VcsProcessShape } from "./VcsProcess.ts";
 
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const GIT_CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
@@ -91,7 +91,7 @@ const gitCommand = (
       : {}),
   });
 
-export const makeGitVcsDriver = Effect.fn("makeGitVcsDriver")(function* () {
+export const make = Effect.fn("makeGitVcsDriver")(function* () {
   const process = yield* VcsProcess;
   const legacyGit = yield* makeGitCore();
   const capabilities = {
@@ -249,4 +249,4 @@ export const makeGitVcsDriver = Effect.fn("makeGitVcsDriver")(function* () {
   });
 });
 
-export const GitVcsDriverLive = Layer.effect(VcsDriver, makeGitVcsDriver());
+export const layer = Layer.effect(VcsDriver, make());
