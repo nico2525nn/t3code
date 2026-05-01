@@ -4,9 +4,9 @@ import { Effect, Layer } from "effect";
 import { describe, expect } from "vitest";
 
 import { ServerConfig } from "../config.ts";
-import { VcsProcess } from "./VcsProcess.ts";
 import { VcsDriver } from "./VcsDriver.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
+import * as VcsProcess from "./VcsProcess.ts";
 
 const splitNullSeparatedPaths = (input: string): string[] =>
   input
@@ -36,7 +36,7 @@ it.layer(Layer.empty)("GitVcsDriver.layer", (it) => {
           Layer.provideMerge(GitVcsDriverTestDependencies),
           Layer.provideMerge(NodeServices.layer),
           Layer.provide(
-            Layer.succeed(VcsProcess, {
+            Layer.succeed(VcsProcess.VcsProcess, {
               run: (input) => {
                 expect(input.command).toBe("git");
                 expect(input.args).toEqual([
@@ -85,7 +85,7 @@ it.layer(Layer.empty)("GitVcsDriver.layer", (it) => {
           Layer.provideMerge(GitVcsDriverTestDependencies),
           Layer.provideMerge(NodeServices.layer),
           Layer.provide(
-            Layer.succeed(VcsProcess, {
+            Layer.succeed(VcsProcess.VcsProcess, {
               run: (input) => {
                 expect(input.command).toBe("git");
                 expect(input.args).toEqual([
