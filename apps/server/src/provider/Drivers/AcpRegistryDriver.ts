@@ -9,7 +9,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { ServerConfig } from "../../config.ts";
 import { ProviderDriverError } from "../Errors.ts";
-import { makeCursorAdapter } from "../Layers/CursorAdapter.ts";
+import { makeGenericAcpAdapter } from "../Layers/GenericAcpAdapter.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {
@@ -123,11 +123,10 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         continuationGroupKey: continuationIdentity.continuationKey,
       });
 
-      const adapter = yield* makeCursorAdapter(
+      const adapter = yield* makeGenericAcpAdapter(
         {
           enabled: effectiveConfig.enabled,
           binaryPath: effectiveConfig.command || "acp",
-          apiEndpoint: "",
           customModels: effectiveConfig.customModels,
         },
         {
@@ -135,8 +134,6 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
           instanceId,
           environment: processEnv,
           readyReason: "ACP session ready",
-          applyCursorModelOptions: false,
-          normalizeModel: (model) => model?.trim() || "default",
           ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
           spawn: ({ cwd, environment: spawnEnv }) => ({
             command: effectiveConfig.command.trim(),
