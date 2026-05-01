@@ -274,34 +274,10 @@ export interface EnvironmentApi {
     ) => () => void;
   };
   git: {
-    /** @deprecated Use `EnvironmentApi.vcs.listBranches` for local VCS branch/ref listing. */
-    listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
-    /** @deprecated Use `EnvironmentApi.vcs.createWorktree` for local VCS workspace creation. */
-    createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
-    /** @deprecated Use `EnvironmentApi.vcs.removeWorktree` for local VCS workspace removal. */
-    removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
-    /** @deprecated Use `EnvironmentApi.vcs.createBranch` for local VCS branch/ref creation. */
-    createBranch: (input: GitCreateBranchInput) => Promise<GitCreateBranchResult>;
-    /** @deprecated Use `EnvironmentApi.vcs.checkout` for local VCS checkout/switch operations. */
-    checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResult>;
-    /** @deprecated Use `EnvironmentApi.vcs.init` for local VCS repository initialization. */
-    init: (input: GitInitInput) => Promise<void>;
     resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Promise<GitPreparePullRequestThreadResult>;
-    /** @deprecated Use `EnvironmentApi.vcs.pull` for local VCS pull/sync operations. */
-    pull: (input: GitPullInput) => Promise<GitPullResult>;
-    /** @deprecated Use `EnvironmentApi.vcs.refreshStatus` for local VCS status refreshes. */
-    refreshStatus: (input: GitStatusInput) => Promise<GitStatusResult>;
-    /** @deprecated Use `EnvironmentApi.vcs.onStatus` for local VCS status subscriptions. */
-    onStatus: (
-      input: GitStatusInput,
-      callback: (status: GitStatusResult) => void,
-      options?: {
-        onResubscribe?: () => void;
-      },
-    ) => () => void;
   };
   orchestration: {
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
