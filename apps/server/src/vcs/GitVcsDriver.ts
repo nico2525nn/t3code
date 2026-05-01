@@ -1,12 +1,191 @@
 import { Context, DateTime, Effect, Layer } from "effect";
 
-import { VcsProcessExitError } from "@t3tools/contracts";
-import { makeGitCore } from "../git/Layers/GitCore.ts";
-import type { GitCoreShape } from "../git/Services/GitCore.ts";
+import {
+  GitCommandError,
+  VcsProcessExitError,
+  type GitCheckoutInput,
+  type GitCheckoutResult,
+  type GitCreateBranchInput,
+  type GitCreateBranchResult,
+  type GitCreateWorktreeInput,
+  type GitCreateWorktreeResult,
+  type GitInitInput,
+  type GitListBranchesInput,
+  type GitListBranchesResult,
+  type GitPullResult,
+  type GitRemoveWorktreeInput,
+  type GitStatusInput,
+  type GitStatusResult,
+} from "@t3tools/contracts";
+import { makeGitVcsDriverCore } from "./GitVcsDriverCore.ts";
 import { VcsDriver, type VcsDriverShape } from "./VcsDriver.ts";
 import { VcsProcess, type VcsProcessShape } from "./VcsProcess.ts";
 
-export interface GitVcsDriverShape extends GitCoreShape {}
+export interface ExecuteGitInput {
+  readonly operation: string;
+  readonly cwd: string;
+  readonly args: ReadonlyArray<string>;
+  readonly stdin?: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly allowNonZeroExit?: boolean;
+  readonly timeoutMs?: number;
+  readonly maxOutputBytes?: number;
+  readonly truncateOutputAtMaxBytes?: boolean;
+  readonly progress?: ExecuteGitProgress;
+}
+
+export interface ExecuteGitResult {
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly stdoutTruncated: boolean;
+  readonly stderrTruncated: boolean;
+}
+
+export interface GitStatusDetails extends Omit<GitStatusResult, "pr"> {
+  upstreamRef: string | null;
+}
+
+export interface GitPreparedCommitContext {
+  stagedSummary: string;
+  stagedPatch: string;
+}
+
+export interface ExecuteGitProgress {
+  readonly onStdoutLine?: (line: string) => Effect.Effect<void, never>;
+  readonly onStderrLine?: (line: string) => Effect.Effect<void, never>;
+  readonly onHookStarted?: (hookName: string) => Effect.Effect<void, never>;
+  readonly onHookFinished?: (input: {
+    hookName: string;
+    exitCode: number | null;
+    durationMs: number | null;
+  }) => Effect.Effect<void, never>;
+}
+
+export interface GitCommitProgress {
+  readonly onOutputLine?: (input: {
+    stream: "stdout" | "stderr";
+    text: string;
+  }) => Effect.Effect<void, never>;
+  readonly onHookStarted?: (hookName: string) => Effect.Effect<void, never>;
+  readonly onHookFinished?: (input: {
+    hookName: string;
+    exitCode: number | null;
+    durationMs: number | null;
+  }) => Effect.Effect<void, never>;
+}
+
+export interface GitCommitOptions {
+  readonly timeoutMs?: number;
+  readonly progress?: GitCommitProgress;
+}
+
+export interface GitPushResult {
+  status: "pushed" | "skipped_up_to_date";
+  branch: string;
+  upstreamBranch?: string | undefined;
+  setUpstream?: boolean | undefined;
+}
+
+export interface GitRangeContext {
+  commitSummary: string;
+  diffSummary: string;
+  diffPatch: string;
+}
+
+export interface GitRenameBranchInput {
+  cwd: string;
+  oldBranch: string;
+  newBranch: string;
+}
+
+export interface GitRenameBranchResult {
+  branch: string;
+}
+
+export interface GitFetchPullRequestBranchInput {
+  cwd: string;
+  prNumber: number;
+  branch: string;
+}
+
+export interface GitEnsureRemoteInput {
+  cwd: string;
+  preferredName: string;
+  url: string;
+}
+
+export interface GitFetchRemoteBranchInput {
+  cwd: string;
+  remoteName: string;
+  remoteBranch: string;
+  localBranch: string;
+}
+
+export interface GitSetBranchUpstreamInput {
+  cwd: string;
+  branch: string;
+  remoteName: string;
+  remoteBranch: string;
+}
+
+export interface GitVcsDriverShape {
+  readonly execute: (input: ExecuteGitInput) => Effect.Effect<ExecuteGitResult, GitCommandError>;
+  readonly status: (input: GitStatusInput) => Effect.Effect<GitStatusResult, GitCommandError>;
+  readonly statusDetails: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
+  readonly statusDetailsLocal: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
+  readonly prepareCommitContext: (
+    cwd: string,
+    filePaths?: readonly string[],
+  ) => Effect.Effect<GitPreparedCommitContext | null, GitCommandError>;
+  readonly commit: (
+    cwd: string,
+    subject: string,
+    body: string,
+    options?: GitCommitOptions,
+  ) => Effect.Effect<{ commitSha: string }, GitCommandError>;
+  readonly pushCurrentBranch: (
+    cwd: string,
+    fallbackBranch: string | null,
+  ) => Effect.Effect<GitPushResult, GitCommandError>;
+  readonly readRangeContext: (
+    cwd: string,
+    baseBranch: string,
+  ) => Effect.Effect<GitRangeContext, GitCommandError>;
+  readonly readConfigValue: (
+    cwd: string,
+    key: string,
+  ) => Effect.Effect<string | null, GitCommandError>;
+  readonly listBranches: (
+    input: GitListBranchesInput,
+  ) => Effect.Effect<GitListBranchesResult, GitCommandError>;
+  readonly pullCurrentBranch: (cwd: string) => Effect.Effect<GitPullResult, GitCommandError>;
+  readonly createWorktree: (
+    input: GitCreateWorktreeInput,
+  ) => Effect.Effect<GitCreateWorktreeResult, GitCommandError>;
+  readonly fetchPullRequestBranch: (
+    input: GitFetchPullRequestBranchInput,
+  ) => Effect.Effect<void, GitCommandError>;
+  readonly ensureRemote: (input: GitEnsureRemoteInput) => Effect.Effect<string, GitCommandError>;
+  readonly fetchRemoteBranch: (
+    input: GitFetchRemoteBranchInput,
+  ) => Effect.Effect<void, GitCommandError>;
+  readonly setBranchUpstream: (
+    input: GitSetBranchUpstreamInput,
+  ) => Effect.Effect<void, GitCommandError>;
+  readonly removeWorktree: (input: GitRemoveWorktreeInput) => Effect.Effect<void, GitCommandError>;
+  readonly renameBranch: (
+    input: GitRenameBranchInput,
+  ) => Effect.Effect<GitRenameBranchResult, GitCommandError>;
+  readonly createBranch: (
+    input: GitCreateBranchInput,
+  ) => Effect.Effect<GitCreateBranchResult, GitCommandError>;
+  readonly checkoutBranch: (
+    input: GitCheckoutInput,
+  ) => Effect.Effect<GitCheckoutResult, GitCommandError>;
+  readonly initRepo: (input: GitInitInput) => Effect.Effect<void, GitCommandError>;
+  readonly listLocalBranchNames: (cwd: string) => Effect.Effect<string[], GitCommandError>;
+}
 
 export class GitVcsDriver extends Context.Service<GitVcsDriver, GitVcsDriverShape>()(
   "t3/vcs/GitVcsDriver",
@@ -259,8 +438,8 @@ export const makeVcsDriver = Effect.fn("makeGitVcsDriver")(function* () {
 });
 
 export const make = Effect.fn("makeGitVcsDriverService")(function* () {
-  const legacyGit = yield* makeGitCore();
-  return GitVcsDriver.of(legacyGit);
+  const git = yield* makeGitVcsDriverCore();
+  return GitVcsDriver.of(git);
 });
 
 export const vcsLayer = Layer.effect(VcsDriver, makeVcsDriver());
