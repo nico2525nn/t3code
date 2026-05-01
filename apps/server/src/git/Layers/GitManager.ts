@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 
 import {
+  Array as EffectArray,
   Cache,
   DateTime,
   Duration,
@@ -10,6 +11,7 @@ import {
   FileSystem,
   Layer,
   Option,
+  Order,
   Path,
   Ref,
 } from "effect";
@@ -73,6 +75,11 @@ interface PullRequestInfo extends OpenPrInfo, PullRequestHeadRemoteInfo {
   state: "open" | "closed" | "merged";
   updatedAt: Option.Option<DateTime.Utc>;
 }
+
+const pullRequestUpdatedAtDescOrder: Order.Order<PullRequestInfo> = Order.mapInput(
+  Order.flip(Option.makeOrder(DateTime.Order)),
+  (pullRequest) => pullRequest.updatedAt,
+);
 
 interface ResolvedPullRequest {
   number: number;
@@ -271,20 +278,6 @@ function toPullRequestInfo(summary: ChangeRequest): PullRequestInfo {
       ? { headRepositoryOwnerLogin: summary.headRepositoryOwnerLogin }
       : {}),
   };
-}
-
-function compareOptionalDateTimeDesc(
-  left: Option.Option<DateTime.Utc>,
-  right: Option.Option<DateTime.Utc>,
-): number {
-  return Option.match(left, {
-    onNone: () => (Option.isNone(right) ? 0 : 1),
-    onSome: (leftValue) =>
-      Option.match(right, {
-        onNone: () => -1,
-        onSome: (rightValue) => DateTime.Order(rightValue, leftValue),
-      }),
-  });
 }
 
 function gitManagerError(operation: string, detail: string, cause?: unknown): GitManagerError {
@@ -895,9 +888,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       }
     }
 
-    const parsed = Array.from(parsedByNumber.values()).toSorted((a, b) =>
-      compareOptionalDateTimeDesc(a.updatedAt, b.updatedAt),
-    );
+    const parsed = EffectArray.sort(parsedByNumber.values(), pullRequestUpdatedAtDescOrder);
 
     const latestOpenPr = parsed.find((pr) => pr.state === "open");
     if (latestOpenPr) {

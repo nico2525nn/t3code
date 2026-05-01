@@ -89,7 +89,7 @@ function createRegisteredGitStatusClient(environmentId: EnvironmentId) {
     shell: {
       openInEditor: vi.fn(async () => undefined),
     },
-    git: {
+    vcs: {
       pull: vi.fn(async () => undefined),
       refreshStatus: vi.fn(async (input: { cwd: string }) => ({
         ...BASE_STATUS,
@@ -98,13 +98,15 @@ function createRegisteredGitStatusClient(environmentId: EnvironmentId) {
       onStatus: vi.fn((_: { cwd: string }, listener: (event: GitStatusResult) => void) =>
         registerListener(listeners, listener),
       ),
-      runStackedAction: vi.fn(async () => ({}) as any),
       listBranches: vi.fn(async () => []),
       createWorktree: vi.fn(async () => undefined),
       removeWorktree: vi.fn(async () => undefined),
       createBranch: vi.fn(async () => undefined),
       checkout: vi.fn(async () => undefined),
       init: vi.fn(async () => undefined),
+    },
+    git: {
+      runStackedAction: vi.fn(async () => ({}) as any),
       resolvePullRequest: vi.fn(async () => undefined),
       preparePullRequestThread: vi.fn(async () => undefined),
     },
