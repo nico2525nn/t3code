@@ -20,7 +20,7 @@ import {
   type GitHubPullRequestSummary,
   GitHubCli,
 } from "../Services/GitHubCli.ts";
-import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
+import { type TextGenerationShape, TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
 import * as GitHubSourceControlProvider from "../../sourceControl/GitHubSourceControlProvider.ts";

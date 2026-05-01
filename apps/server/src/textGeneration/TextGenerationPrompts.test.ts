@@ -5,8 +5,8 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
-} from "./Prompts.ts";
-import { normalizeCliError, sanitizeThreadTitle } from "./Utils.ts";
+} from "./TextGenerationPrompts.ts";
+import { normalizeCliError, sanitizeThreadTitle } from "./TextGenerationUtils.ts";
 import { TextGenerationError } from "@t3tools/contracts";
 
 describe("buildCommitMessagePrompt", () => {

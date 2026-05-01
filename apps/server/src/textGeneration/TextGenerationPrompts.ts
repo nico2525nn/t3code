@@ -9,7 +9,13 @@
 import { Schema } from "effect";
 import type { ChatAttachment } from "@t3tools/contracts";
 
-import { limitSection } from "./Utils.ts";
+import { limitSection } from "./TextGenerationUtils.ts";
+import type { TextGenerationPolicy } from "./TextGenerationPolicy.ts";
+
+function policyInstruction(instruction: string | undefined): ReadonlyArray<string> {
+  const trimmed = instruction?.trim();
+  return trimmed ? ["", "Additional instructions:", limitSection(trimmed, 4_000)] : [];
+}
 
 // ---------------------------------------------------------------------------
 // Commit message
@@ -20,6 +26,7 @@ export interface CommitMessagePromptInput {
   stagedSummary: string;
   stagedPatch: string;
   includeBranch: boolean;
+  policy?: TextGenerationPolicy | undefined;
 }
 
 export function buildCommitMessagePrompt(input: CommitMessagePromptInput) {
@@ -37,6 +44,7 @@ export function buildCommitMessagePrompt(input: CommitMessagePromptInput) {
       ? ["- branch must be a short semantic git branch fragment for this change"]
       : []),
     "- capture the primary user-visible or developer-visible change",
+    ...policyInstruction(input.policy?.commitInstructions),
     "",
     `Branch: ${input.branch ?? "(detached)"}`,
     "",
@@ -77,6 +85,7 @@ export interface PrContentPromptInput {
   commitSummary: string;
   diffSummary: string;
   diffPatch: string;
+  policy?: TextGenerationPolicy | undefined;
 }
 
 export function buildPrContentPrompt(input: PrContentPromptInput) {
@@ -88,6 +97,7 @@ export function buildPrContentPrompt(input: PrContentPromptInput) {
     "- body must be markdown and include headings '## Summary' and '## Testing'",
     "- under Summary, provide short bullet points",
     "- under Testing, include bullet points with concrete checks or 'Not run' where appropriate",
+    ...policyInstruction(input.policy?.changeRequestInstructions),
     "",
     `Base branch: ${input.baseBranch}`,
     `Head branch: ${input.headBranch}`,
@@ -117,6 +127,7 @@ export function buildPrContentPrompt(input: PrContentPromptInput) {
 export interface BranchNamePromptInput {
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
+  policy?: TextGenerationPolicy | undefined;
 }
 
 interface PromptFromMessageInput {
@@ -125,6 +136,7 @@ interface PromptFromMessageInput {
   rules: ReadonlyArray<string>;
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
+  additionalInstructions?: string | undefined;
 }
 
 function buildPromptFromMessage(input: PromptFromMessageInput): string {
@@ -140,6 +152,7 @@ function buildPromptFromMessage(input: PromptFromMessageInput): string {
     "",
     "User message:",
     limitSection(input.message, 8_000),
+    ...policyInstruction(input.additionalInstructions),
   ];
   if (attachmentLines.length > 0) {
     promptSections.push(
@@ -164,6 +177,7 @@ export function buildBranchNamePrompt(input: BranchNamePromptInput) {
     ],
     message: input.message,
     attachments: input.attachments,
+    additionalInstructions: input.policy?.branchInstructions,
   });
   const outputSchema = Schema.Struct({
     branch: Schema.String,
@@ -179,6 +193,7 @@ export function buildBranchNamePrompt(input: BranchNamePromptInput) {
 export interface ThreadTitlePromptInput {
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
+  policy?: TextGenerationPolicy | undefined;
 }
 
 export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
@@ -193,6 +208,7 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
     ],
     message: input.message,
     attachments: input.attachments,
+    additionalInstructions: input.policy?.threadTitleInstructions,
   });
   const outputSchema = Schema.Struct({
     title: Schema.String,

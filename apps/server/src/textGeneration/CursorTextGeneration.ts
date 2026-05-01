@@ -5,26 +5,23 @@ import { type CursorSettings, type ModelSelection } from "@t3tools/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 
 import { TextGenerationError } from "@t3tools/contracts";
-import {
-  type ThreadTitleGenerationResult,
-  type TextGenerationShape,
-} from "../Services/TextGeneration.ts";
+import { type ThreadTitleGenerationResult, type TextGenerationShape } from "./TextGeneration.ts";
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
-} from "../Prompts.ts";
+} from "./TextGenerationPrompts.ts";
 import {
   extractJsonObject,
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
-} from "../Utils.ts";
+} from "./TextGenerationUtils.ts";
 import {
   applyCursorAcpModelSelection,
   makeCursorAcpRuntime,
-} from "../../provider/acp/CursorAcpSupport.ts";
+} from "../provider/acp/CursorAcpSupport.ts";
 
 const CURSOR_TIMEOUT_MS = 180_000;
 
@@ -277,7 +274,3 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
     generateThreadTitle,
   } satisfies TextGenerationShape;
 });
-
-// NOTE: `CursorTextGenerationLive` (the singleton Layer) has been removed.
-// `makeCursorTextGeneration(cursorConfig)` is now invoked directly by
-// `CursorDriver.create()` so each provider instance owns its own closure.

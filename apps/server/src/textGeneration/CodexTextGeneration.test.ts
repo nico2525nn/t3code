@@ -6,8 +6,8 @@ import { expect } from "vitest";
 
 import { CodexSettings, ProviderInstanceId, TextGenerationError } from "@t3tools/contracts";
 
-import { ServerConfig } from "../../config.ts";
-import { type TextGenerationShape } from "../Services/TextGeneration.ts";
+import { ServerConfig } from "../config.ts";
+import { type TextGenerationShape } from "./TextGeneration.ts";
 import { makeCodexTextGeneration } from "./CodexTextGeneration.ts";
 
 const DEFAULT_TEST_MODEL_SELECTION = createModelSelection(
@@ -168,7 +168,7 @@ function withFakeCodexEnv<A, E, R>(
   }).pipe(Effect.scoped);
 }
 
-it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
+it.layer(CodexTextGenerationTestLayer)("CodexTextGeneration", (it) => {
   it.effect("generates and sanitizes commit messages without branch by default", () =>
     withFakeCodexEnv(
       {

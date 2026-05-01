@@ -5,9 +5,9 @@ import { Effect, FileSystem, Layer, Path, Schema } from "effect";
 import { createModelSelection } from "@t3tools/shared/model";
 import { expect } from "vitest";
 
-import { ServerConfig } from "../../config.ts";
-import { type TextGenerationShape } from "../Services/TextGeneration.ts";
-import { sanitizeThreadTitle } from "../Utils.ts";
+import { ServerConfig } from "../config.ts";
+import { type TextGenerationShape } from "./TextGeneration.ts";
+import { sanitizeThreadTitle } from "./TextGenerationUtils.ts";
 import { makeClaudeTextGeneration } from "./ClaudeTextGeneration.ts";
 
 const ClaudeTextGenerationTestLayer = ServerConfig.layerTest(process.cwd(), {
@@ -184,7 +184,7 @@ function withFakeClaudeEnv<A, E, R>(
   }).pipe(Effect.scoped);
 }
 
-it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGenerationLive", (it) => {
+it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
   it.effect("forwards Claude thinking settings for Haiku without passing effort", () =>
     withFakeClaudeEnv(
       {

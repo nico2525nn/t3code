@@ -4,28 +4,28 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { type CodexSettings, type ModelSelection } from "@t3tools/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 
-import { resolveAttachmentPath } from "../../attachmentStore.ts";
-import { ServerConfig } from "../../config.ts";
-import { expandHomePath } from "../../pathExpansion.ts";
+import { resolveAttachmentPath } from "../attachmentStore.ts";
+import { ServerConfig } from "../config.ts";
+import { expandHomePath } from "../pathExpansion.ts";
 import { TextGenerationError } from "@t3tools/contracts";
 import {
   type BranchNameGenerationInput,
   type ThreadTitleGenerationResult,
   type TextGenerationShape,
-} from "../Services/TextGeneration.ts";
+} from "./TextGeneration.ts";
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
-} from "../Prompts.ts";
+} from "./TextGenerationPrompts.ts";
 import {
   normalizeCliError,
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
   toJsonSchemaObject,
-} from "../Utils.ts";
+} from "./TextGenerationUtils.ts";
 import {
   getModelSelectionBooleanOptionValue,
   getModelSelectionStringOptionValue,
@@ -386,7 +386,3 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     generateThreadTitle,
   } satisfies TextGenerationShape;
 });
-
-// NOTE: `CodexTextGenerationLive` (the singleton Layer) has been removed.
-// `makeCodexTextGeneration(codexConfig)` is now invoked directly by
-// `CodexDriver.create()` for each configured instance.

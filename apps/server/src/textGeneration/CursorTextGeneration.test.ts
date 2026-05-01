@@ -11,12 +11,12 @@ import { expect } from "vitest";
 
 import { CursorSettings, ProviderInstanceId } from "@t3tools/contracts";
 
-import { ServerConfig } from "../../config.ts";
-import { type TextGenerationShape } from "../Services/TextGeneration.ts";
+import { ServerConfig } from "../config.ts";
+import { type TextGenerationShape } from "./TextGeneration.ts";
 import { makeCursorTextGeneration } from "./CursorTextGeneration.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const mockAgentPath = path.join(__dirname, "../../../scripts/acp-mock-agent.ts");
+const mockAgentPath = path.join(__dirname, "../../scripts/acp-mock-agent.ts");
 
 function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -82,7 +82,7 @@ function waitForFileContent(path: string): Effect.Effect<string> {
   });
 }
 
-it.layer(CursorTextGenerationTestLayer)("CursorTextGenerationLive", (it) => {
+it.layer(CursorTextGenerationTestLayer)("CursorTextGeneration", (it) => {
   it.effect("uses ACP model config options instead of raw CLI model ids", () => {
     const requestLogDir = mkdtempSync(path.join(os.tmpdir(), "t3code-cursor-text-log-"));
     const requestLogPath = path.join(requestLogDir, "requests.ndjson");
@@ -100,9 +100,9 @@ it.layer(CursorTextGenerationTestLayer)("CursorTextGenerationLive", (it) => {
           const generated = yield* textGeneration.generateCommitMessage({
             cwd: process.cwd(),
             branch: "feature/cursor-text-generation",
-            stagedSummary: "M apps/server/src/git/Layers/CursorTextGeneration.ts",
+            stagedSummary: "M apps/server/src/textGeneration/CursorTextGeneration.ts",
             stagedPatch:
-              "diff --git a/apps/server/src/git/Layers/CursorTextGeneration.ts b/apps/server/src/git/Layers/CursorTextGeneration.ts",
+              "diff --git a/apps/server/src/textGeneration/CursorTextGeneration.ts b/apps/server/src/textGeneration/CursorTextGeneration.ts",
             modelSelection: {
               ...createModelSelection(ProviderInstanceId.make("cursor"), "gpt-5.4", [
                 { id: "reasoning", value: "xhigh" },
@@ -243,9 +243,9 @@ it.layer(CursorTextGenerationTestLayer)("CursorTextGenerationLive", (it) => {
           const generated = yield* textGeneration.generateCommitMessage({
             cwd: process.cwd(),
             branch: "feature/cursor-runtime-close",
-            stagedSummary: "M apps/server/src/git/Layers/CursorTextGeneration.ts",
+            stagedSummary: "M apps/server/src/textGeneration/CursorTextGeneration.ts",
             stagedPatch:
-              "diff --git a/apps/server/src/git/Layers/CursorTextGeneration.ts b/apps/server/src/git/Layers/CursorTextGeneration.ts",
+              "diff --git a/apps/server/src/textGeneration/CursorTextGeneration.ts b/apps/server/src/textGeneration/CursorTextGeneration.ts",
             modelSelection: {
               instanceId: ProviderInstanceId.make("cursor"),
               model: "composer-2",

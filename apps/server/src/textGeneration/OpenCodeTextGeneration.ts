@@ -10,21 +10,21 @@ import {
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 
-import { ServerConfig } from "../../config.ts";
-import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { ServerConfig } from "../config.ts";
+import { resolveAttachmentPath } from "../attachmentStore.ts";
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
-} from "../Prompts.ts";
-import { type TextGenerationShape } from "../Services/TextGeneration.ts";
+} from "./TextGenerationPrompts.ts";
+import { type TextGenerationShape } from "./TextGeneration.ts";
 import {
   extractJsonObject,
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
-} from "../Utils.ts";
+} from "./TextGenerationUtils.ts";
 import {
   OpenCodeRuntime,
   type OpenCodeServerConnection,
@@ -32,7 +32,7 @@ import {
   openCodeRuntimeErrorDetail,
   parseOpenCodeModelSlug,
   toOpenCodeFileParts,
-} from "../../provider/opencodeRuntime.ts";
+} from "../provider/opencodeRuntime.ts";
 
 const OPENCODE_TEXT_GENERATION_IDLE_TTL = "30 seconds";
 
