@@ -2,7 +2,6 @@ import { type CursorSettings, type ProviderOptionSelection } from "@t3tools/cont
 import { Effect, Layer, Scope } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import type * as EffectAcpErrors from "effect-acp/errors";
-import type * as EffectAcpSchema from "effect-acp/schema";
 
 import {
   CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES,
@@ -25,9 +24,6 @@ export interface CursorAcpRuntimeInput extends Omit<
   readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
   readonly cursorSettings: CursorAcpRuntimeCursorSettings | null | undefined;
   readonly environment?: NodeJS.ProcessEnv;
-  readonly spawn?: AcpSpawnInput;
-  readonly authMethodId?: string;
-  readonly clientCapabilities?: EffectAcpSchema.InitializeRequest["clientCapabilities"];
 }
 
 export interface CursorAcpModelSelectionErrorContext {
@@ -59,12 +55,9 @@ export const makeCursorAcpRuntime = (
     const acpContext = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...input,
-        spawn:
-          input.spawn ??
-          buildCursorAcpSpawnInput(input.cursorSettings, input.cwd, input.environment),
-        authMethodId: input.authMethodId ?? "cursor_login",
-        clientCapabilities:
-          input.clientCapabilities ?? CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES,
+        spawn: buildCursorAcpSpawnInput(input.cursorSettings, input.cwd, input.environment),
+        authMethodId: "cursor_login",
+        clientCapabilities: CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES,
       }).pipe(
         Layer.provide(
           Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, input.childProcessSpawner),

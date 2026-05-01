@@ -126,8 +126,8 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       const adapter = yield* makeGenericAcpAdapter(
         {
           enabled: effectiveConfig.enabled,
-          binaryPath: effectiveConfig.command || "acp",
-          customModels: effectiveConfig.customModels,
+          command: effectiveConfig.command || "acp",
+          args: effectiveConfig.args,
         },
         {
           provider: DRIVER_KIND,
@@ -135,12 +135,6 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
           environment: processEnv,
           readyReason: "ACP session ready",
           ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
-          spawn: ({ cwd, environment: spawnEnv }) => ({
-            command: effectiveConfig.command.trim(),
-            args: effectiveConfig.args,
-            cwd,
-            ...(spawnEnv ? { env: spawnEnv } : {}),
-          }),
         },
       );
 
