@@ -1,4 +1,4 @@
-import { Effect, Layer, Result, Schema } from "effect";
+import { Effect, Layer, Option, Result, Schema } from "effect";
 import {
   SourceControlProviderError,
   type ChangeRequest,
@@ -28,7 +28,7 @@ function toChangeRequest(summary: GitHubPullRequestSummary): ChangeRequest {
     baseRefName: summary.baseRefName,
     headRefName: summary.headRefName,
     state: summary.state ?? "open",
-    updatedAt: null,
+    updatedAt: Option.none(),
     ...(summary.isCrossRepository !== undefined
       ? { isCrossRepository: summary.isCrossRepository }
       : {}),

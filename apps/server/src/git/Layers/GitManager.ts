@@ -71,7 +71,7 @@ interface OpenPrInfo {
 
 interface PullRequestInfo extends OpenPrInfo, PullRequestHeadRemoteInfo {
   state: "open" | "closed" | "merged";
-  updatedAt: string | null;
+  updatedAt: Option.Option<DateTime.Utc>;
 }
 
 interface ResolvedPullRequest {
@@ -273,12 +273,18 @@ function toPullRequestInfo(summary: ChangeRequest): PullRequestInfo {
   };
 }
 
-function parseDateTimeMillis(value: string | null): number {
-  if (!value) {
-    return 0;
-  }
-  const parsed = DateTime.make(value);
-  return Option.isSome(parsed) ? DateTime.toEpochMillis(parsed.value) : 0;
+function compareOptionalDateTimeDesc(
+  left: Option.Option<DateTime.Utc>,
+  right: Option.Option<DateTime.Utc>,
+): number {
+  return Option.match(left, {
+    onNone: () => (Option.isNone(right) ? 0 : 1),
+    onSome: (leftValue) =>
+      Option.match(right, {
+        onNone: () => -1,
+        onSome: (rightValue) => DateTime.Order(rightValue, leftValue),
+      }),
+  });
 }
 
 function gitManagerError(operation: string, detail: string, cause?: unknown): GitManagerError {
@@ -858,7 +864,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
           baseRefName: firstPullRequest.baseRefName,
           headRefName: firstPullRequest.headRefName,
           state: "open",
-          updatedAt: null,
+          updatedAt: Option.none(),
         } satisfies PullRequestInfo;
       }
     }
@@ -889,11 +895,9 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       }
     }
 
-    const parsed = Array.from(parsedByNumber.values()).toSorted((a, b) => {
-      const left = parseDateTimeMillis(a.updatedAt);
-      const right = parseDateTimeMillis(b.updatedAt);
-      return right - left;
-    });
+    const parsed = Array.from(parsedByNumber.values()).toSorted((a, b) =>
+      compareOptionalDateTimeDesc(a.updatedAt, b.updatedAt),
+    );
 
     const latestOpenPr = parsed.find((pr) => pr.state === "open");
     if (latestOpenPr) {

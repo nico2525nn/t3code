@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import { DateTime, Option } from "effect";
 import { Effect, FileSystem, Layer, Path, type PlatformError, type Scope } from "effect";
 import { describe } from "vitest";
 
@@ -59,7 +60,8 @@ export function runVcsDriverContractSuite<R, E>(input: VcsDriverContractSuiteInp
           assert.equal(identity?.kind, input.kind);
           assert.isTrue(identity?.rootPath.endsWith(cwd));
           assert.equal(identity?.freshness.source, "live-local");
-          assert.equal(typeof identity?.freshness.observedAt, "string");
+          assert.isTrue(DateTime.isDateTime(identity?.freshness.observedAt));
+          assert.isTrue(Option.isNone(identity?.freshness.expiresAt ?? Option.none()));
           assert.equal(yield* driver.isInsideWorkTree(cwd), true);
 
           const path = yield* Path.Path;
@@ -91,7 +93,8 @@ export function runVcsDriverContractSuite<R, E>(input: VcsDriverContractSuiteInp
           assert.include(result.paths, "untracked.ts");
           assert.equal(result.truncated, false);
           assert.equal(result.freshness.source, "live-local");
-          assert.equal(typeof result.freshness.observedAt, "string");
+          assert.isTrue(DateTime.isDateTime(result.freshness.observedAt));
+          assert.isTrue(Option.isNone(result.freshness.expiresAt));
         }),
       );
 

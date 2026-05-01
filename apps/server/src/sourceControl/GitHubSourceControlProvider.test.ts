@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { DateTime, Effect, Layer, Option } from "effect";
 
 import { GitHubCli, type GitHubCliShape } from "../git/Services/GitHubCli.ts";
 import * as GitHubSourceControlProvider from "./GitHubSourceControlProvider.ts";
@@ -46,7 +46,7 @@ it.effect("maps GitHub PR summaries into provider-neutral change requests", () =
       baseRefName: "main",
       headRefName: "feature/source-control",
       state: "open",
-      updatedAt: null,
+      updatedAt: Option.none(),
       isCrossRepository: true,
       headRepositoryNameWithOwner: "fork/t3code",
       headRepositoryOwnerLogin: "fork",
@@ -99,7 +99,10 @@ it.effect("uses gh json listing for non-open change request state queries", () =
     ]);
     assert.strictEqual(changeRequests[0]?.provider, "github");
     assert.strictEqual(changeRequests[0]?.state, "merged");
-    assert.strictEqual(changeRequests[0]?.updatedAt, "2026-01-02T00:00:00.000Z");
+    assert.deepStrictEqual(
+      changeRequests[0]?.updatedAt,
+      Option.some(DateTime.makeUnsafe("2026-01-02T00:00:00.000Z")),
+    );
   }),
 );
 
