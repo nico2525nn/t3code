@@ -3,7 +3,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type DesktopBridge,
   EnvironmentId,
-  type GitStatusResult,
+  type VcsStatusResult,
   ProjectId,
   type OrchestrationShellStreamItem,
   ProviderDriverKind,
@@ -34,7 +34,7 @@ function registerListener<T>(listeners: Set<(event: T) => void>, listener: (even
 
 const terminalEventListeners = new Set<(event: TerminalEvent) => void>();
 const shellStreamListeners = new Set<(event: OrchestrationShellStreamItem) => void>();
-const gitStatusListeners = new Set<(event: GitStatusResult) => void>();
+const gitStatusListeners = new Set<(event: VcsStatusResult) => void>();
 
 const rpcClientMock = {
   dispose: vi.fn(),
@@ -62,14 +62,14 @@ const rpcClientMock = {
   vcs: {
     pull: vi.fn(),
     refreshStatus: vi.fn(),
-    onStatus: vi.fn((input: { cwd: string }, listener: (event: GitStatusResult) => void) =>
+    onStatus: vi.fn((input: { cwd: string }, listener: (event: VcsStatusResult) => void) =>
       registerListener(gitStatusListeners, listener),
     ),
-    listBranches: vi.fn(),
+    listRefs: vi.fn(),
     createWorktree: vi.fn(),
     removeWorktree: vi.fn(),
-    createBranch: vi.fn(),
-    checkout: vi.fn(),
+    createRef: vi.fn(),
+    switchRef: vi.fn(),
     init: vi.fn(),
   },
   git: {
@@ -261,11 +261,11 @@ const baseServerConfig: ServerConfig = {
   settings: DEFAULT_SERVER_SETTINGS,
 };
 
-const baseGitStatus: GitStatusResult = {
+const baseGitStatus: VcsStatusResult = {
   isRepo: true,
-  hasOriginRemote: true,
-  isDefaultBranch: false,
-  branch: "feature/streamed",
+  hasPrimaryRemote: true,
+  isDefaultRef: false,
+  refName: "feature/streamed",
   hasWorkingTreeChanges: false,
   workingTree: { files: [], insertions: 0, deletions: 0 },
   hasUpstream: true,

@@ -453,8 +453,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             if (bootstrap?.prepareWorktree) {
               const worktree = yield* gitWorkflow.createWorktree({
                 cwd: bootstrap.prepareWorktree.projectCwd,
-                branch: bootstrap.prepareWorktree.baseBranch,
-                newBranch: bootstrap.prepareWorktree.branch,
+                refName: bootstrap.prepareWorktree.baseBranch,
+                newRefName: bootstrap.prepareWorktree.branch,
                 path: null,
               });
               targetWorktreePath = worktree.worktree.path;
@@ -462,7 +462,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 type: "thread.meta.update",
                 commandId: serverCommandId("bootstrap-thread-meta-update"),
                 threadId: command.threadId,
-                branch: worktree.worktree.branch,
+                branch: worktree.worktree.refName,
                 worktreePath: targetWorktreePath,
               });
               yield* refreshGitStatus(targetWorktreePath);
@@ -896,8 +896,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },
           ),
-        [WS_METHODS.vcsListBranches]: (input) =>
-          observeRpcEffect(WS_METHODS.vcsListBranches, gitWorkflow.listBranches(input), {
+        [WS_METHODS.vcsListRefs]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsListRefs, gitWorkflow.listRefs(input), {
             "rpc.aggregate": "vcs",
           }),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
@@ -912,16 +912,16 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
-        [WS_METHODS.vcsCreateBranch]: (input) =>
+        [WS_METHODS.vcsCreateRef]: (input) =>
           observeRpcEffect(
-            WS_METHODS.vcsCreateBranch,
-            gitWorkflow.createBranch(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            WS_METHODS.vcsCreateRef,
+            gitWorkflow.createRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
-        [WS_METHODS.vcsCheckout]: (input) =>
+        [WS_METHODS.vcsSwitchRef]: (input) =>
           observeRpcEffect(
-            WS_METHODS.vcsCheckout,
-            gitWorkflow.checkoutBranch(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            WS_METHODS.vcsSwitchRef,
+            gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsInit]: (input) =>

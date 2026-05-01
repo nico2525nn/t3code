@@ -1,10 +1,10 @@
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Exit, Layer, Option, Scope, Stream } from "effect";
 import type {
-  GitStatusLocalResult,
-  GitStatusRemoteResult,
-  GitStatusResult,
-  GitStatusStreamEvent,
+  VcsStatusLocalResult,
+  VcsStatusRemoteResult,
+  VcsStatusResult,
+  VcsStatusStreamEvent,
 } from "@t3tools/contracts";
 import { describe } from "vitest";
 
@@ -14,35 +14,35 @@ import {
 } from "./VcsStatusBroadcaster.ts";
 import { GitWorkflowService, type GitWorkflowServiceShape } from "../git/GitWorkflowService.ts";
 
-const baseLocalStatus: GitStatusLocalResult = {
+const baseLocalStatus: VcsStatusLocalResult = {
   isRepo: true,
   hostingProvider: {
     kind: "github",
     name: "GitHub",
     baseUrl: "https://github.com",
   },
-  hasOriginRemote: true,
-  isDefaultBranch: false,
-  branch: "feature/status-broadcast",
+  hasPrimaryRemote: true,
+  isDefaultRef: false,
+  refName: "feature/status-broadcast",
   hasWorkingTreeChanges: false,
   workingTree: { files: [], insertions: 0, deletions: 0 },
 };
 
-const baseRemoteStatus: GitStatusRemoteResult = {
+const baseRemoteStatus: VcsStatusRemoteResult = {
   hasUpstream: true,
   aheadCount: 0,
   behindCount: 0,
   pr: null,
 };
 
-const baseStatus: GitStatusResult = {
+const baseStatus: VcsStatusResult = {
   ...baseLocalStatus,
   ...baseRemoteStatus,
 };
 
 function makeTestLayer(state: {
-  currentLocalStatus: GitStatusLocalResult;
-  currentRemoteStatus: GitStatusRemoteResult | null;
+  currentLocalStatus: VcsStatusLocalResult;
+  currentRemoteStatus: VcsStatusRemoteResult | null;
   localStatusCalls: number;
   remoteStatusCalls: number;
   localInvalidationCalls: number;
@@ -116,7 +116,7 @@ describe("VcsStatusBroadcaster", () => {
 
       state.currentLocalStatus = {
         ...baseLocalStatus,
-        branch: "feature/updated-status",
+        refName: "feature/updated-status",
       };
       state.currentRemoteStatus = {
         ...baseRemoteStatus,
@@ -157,7 +157,7 @@ describe("VcsStatusBroadcaster", () => {
 
       state.currentLocalStatus = {
         ...baseLocalStatus,
-        branch: "feature/local-only-refresh",
+        refName: "feature/local-only-refresh",
         hasWorkingTreeChanges: true,
       };
 
@@ -189,8 +189,8 @@ describe("VcsStatusBroadcaster", () => {
 
     return Effect.gen(function* () {
       const broadcaster = yield* VcsStatusBroadcaster;
-      const snapshotDeferred = yield* Deferred.make<GitStatusStreamEvent>();
-      const remoteUpdatedDeferred = yield* Deferred.make<GitStatusStreamEvent>();
+      const snapshotDeferred = yield* Deferred.make<VcsStatusStreamEvent>();
+      const remoteUpdatedDeferred = yield* Deferred.make<VcsStatusStreamEvent>();
       yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo" }), (event) => {
         if (event._tag === "snapshot") {
           return Deferred.succeed(snapshotDeferred, event).pipe(Effect.ignore);
@@ -209,11 +209,11 @@ describe("VcsStatusBroadcaster", () => {
         _tag: "snapshot",
         local: baseLocalStatus,
         remote: null,
-      } satisfies GitStatusStreamEvent);
+      } satisfies VcsStatusStreamEvent);
       assert.deepStrictEqual(remoteUpdated, {
         _tag: "remoteUpdated",
         remote: baseRemoteStatus,
-      } satisfies GitStatusStreamEvent);
+      } satisfies VcsStatusStreamEvent);
     }).pipe(Effect.provide(makeTestLayer(state)));
   });
 
@@ -245,7 +245,7 @@ describe("VcsStatusBroadcaster", () => {
                   ? Deferred.succeed(remoteStartedDeferred, undefined).pipe(Effect.ignore)
                   : Effect.void,
               ),
-              Effect.andThen(Effect.never as Effect.Effect<GitStatusRemoteResult | null, never>),
+              Effect.andThen(Effect.never as Effect.Effect<VcsStatusRemoteResult | null, never>),
               Effect.onInterrupt(() =>
                 remoteInterruptedDeferred
                   ? Deferred.succeed(remoteInterruptedDeferred, undefined).pipe(Effect.ignore)
@@ -271,8 +271,8 @@ describe("VcsStatusBroadcaster", () => {
       remoteStartedDeferred = remoteStarted;
 
       const broadcaster = yield* VcsStatusBroadcaster;
-      const firstSnapshot = yield* Deferred.make<GitStatusStreamEvent>();
-      const secondSnapshot = yield* Deferred.make<GitStatusStreamEvent>();
+      const firstSnapshot = yield* Deferred.make<VcsStatusStreamEvent>();
+      const secondSnapshot = yield* Deferred.make<VcsStatusStreamEvent>();
       const firstScope = yield* Scope.make();
       const secondScope = yield* Scope.make();
       yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo" }), (event) =>

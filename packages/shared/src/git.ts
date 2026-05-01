@@ -1,10 +1,10 @@
 import type {
-  GitBranch,
+  VcsRef,
   GitHostingProvider,
-  GitStatusLocalResult,
-  GitStatusRemoteResult,
-  GitStatusResult,
-  GitStatusStreamEvent,
+  VcsStatusLocalResult,
+  VcsStatusRemoteResult,
+  VcsStatusResult,
+  VcsStatusStreamEvent,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Random from "effect/Random";
@@ -13,7 +13,7 @@ export const WORKTREE_BRANCH_PREFIX = "t3code";
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
 
 /**
- * Sanitize an arbitrary string into a valid, lowercase git branch fragment.
+ * Sanitize an arbitrary string into a valid, lowercase git refName fragment.
  * Strips quotes, collapses separators, limits to 64 chars.
  */
 export function sanitizeBranchFragment(raw: string): string {
@@ -35,7 +35,7 @@ export function sanitizeBranchFragment(raw: string): string {
 }
 
 /**
- * Sanitize a string into a `feature/…` branch name.
+ * Sanitize a string into a `feature/…` refName name.
  * Preserves an existing `feature/` prefix or slash-separated namespace.
  */
 export function sanitizeFeatureBranchName(raw: string): string {
@@ -49,8 +49,8 @@ export function sanitizeFeatureBranchName(raw: string): string {
 const AUTO_FEATURE_BRANCH_FALLBACK = "feature/update";
 
 /**
- * Resolve a unique `feature/…` branch name that doesn't collide with
- * any existing branch. Appends a numeric suffix when needed.
+ * Resolve a unique `feature/…` refName name that doesn't collide with
+ * any existing refName. Appends a numeric suffix when needed.
  */
 export function resolveAutoFeatureBranchName(
   existingBranchNames: readonly string[],
@@ -60,7 +60,7 @@ export function resolveAutoFeatureBranchName(
   const resolvedBase = sanitizeFeatureBranchName(
     preferred && preferred.length > 0 ? preferred : AUTO_FEATURE_BRANCH_FALLBACK,
   );
-  const existingNames = new Set(existingBranchNames.map((branch) => branch.toLowerCase()));
+  const existingNames = new Set(existingBranchNames.map((refName) => refName.toLowerCase()));
 
   if (!existingNames.has(resolvedBase)) {
     return resolvedBase;
@@ -90,8 +90,8 @@ export function buildTemporaryWorktreeBranchName(): string {
   return `${WORKTREE_BRANCH_PREFIX}/${token}`;
 }
 
-export function isTemporaryWorktreeBranch(branch: string): boolean {
-  return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
+export function isTemporaryWorktreeBranch(refName: string): boolean {
+  return TEMP_WORKTREE_BRANCH_PATTERN.test(refName.trim().toLowerCase());
 }
 
 /**
@@ -165,27 +165,27 @@ function deriveLocalBranchNameCandidatesFromRemoteRef(
 }
 
 /**
- * Hide `origin/*` remote refs when a matching local branch already exists.
+ * Hide `origin/*` remote refs when a matching local refName already exists.
  */
 export function dedupeRemoteBranchesWithLocalMatches(
-  branches: ReadonlyArray<GitBranch>,
-): ReadonlyArray<GitBranch> {
+  refs: ReadonlyArray<VcsRef>,
+): ReadonlyArray<VcsRef> {
   const localBranchNames = new Set(
-    branches.filter((branch) => !branch.isRemote).map((branch) => branch.name),
+    refs.filter((refName) => !refName.isRemote).map((refName) => refName.name),
   );
 
-  return branches.filter((branch) => {
-    if (!branch.isRemote) {
+  return refs.filter((refName) => {
+    if (!refName.isRemote) {
       return true;
     }
 
-    if (branch.remoteName !== "origin") {
+    if (refName.remoteName !== "origin") {
       return true;
     }
 
     const localBranchCandidates = deriveLocalBranchNameCandidatesFromRemoteRef(
-      branch.name,
-      branch.remoteName,
+      refName.name,
+      refName.remoteName,
     );
     return !localBranchCandidates.some((candidate) => localBranchNames.has(candidate));
   });
@@ -268,7 +268,7 @@ export function detectGitHostingProviderFromRemoteUrl(
   };
 }
 
-const EMPTY_GIT_STATUS_REMOTE: GitStatusRemoteResult = {
+const EMPTY_GIT_STATUS_REMOTE: VcsStatusRemoteResult = {
   hasUpstream: false,
   aheadCount: 0,
   behindCount: 0,
@@ -276,16 +276,16 @@ const EMPTY_GIT_STATUS_REMOTE: GitStatusRemoteResult = {
 };
 
 export function mergeGitStatusParts(
-  local: GitStatusLocalResult,
-  remote: GitStatusRemoteResult | null,
-): GitStatusResult {
+  local: VcsStatusLocalResult,
+  remote: VcsStatusRemoteResult | null,
+): VcsStatusResult {
   return {
     ...local,
     ...(remote ?? EMPTY_GIT_STATUS_REMOTE),
   };
 }
 
-function toRemoteStatusPart(status: GitStatusResult): GitStatusRemoteResult {
+function toRemoteStatusPart(status: VcsStatusResult): VcsStatusRemoteResult {
   return {
     hasUpstream: status.hasUpstream,
     aheadCount: status.aheadCount,
@@ -294,22 +294,22 @@ function toRemoteStatusPart(status: GitStatusResult): GitStatusRemoteResult {
   };
 }
 
-function toLocalStatusPart(status: GitStatusResult): GitStatusLocalResult {
+function toLocalStatusPart(status: VcsStatusResult): VcsStatusLocalResult {
   return {
     isRepo: status.isRepo,
     ...(status.hostingProvider ? { hostingProvider: status.hostingProvider } : {}),
-    hasOriginRemote: status.hasOriginRemote,
-    isDefaultBranch: status.isDefaultBranch,
-    branch: status.branch,
+    hasPrimaryRemote: status.hasPrimaryRemote,
+    isDefaultRef: status.isDefaultRef,
+    refName: status.refName,
     hasWorkingTreeChanges: status.hasWorkingTreeChanges,
     workingTree: status.workingTree,
   };
 }
 
 export function applyGitStatusStreamEvent(
-  current: GitStatusResult | null,
-  event: GitStatusStreamEvent,
-): GitStatusResult {
+  current: VcsStatusResult | null,
+  event: VcsStatusStreamEvent,
+): VcsStatusResult {
   switch (event._tag) {
     case "snapshot":
       return mergeGitStatusParts(event.local, event.remote);
@@ -320,9 +320,9 @@ export function applyGitStatusStreamEvent(
         return mergeGitStatusParts(
           {
             isRepo: true,
-            hasOriginRemote: false,
-            isDefaultBranch: false,
-            branch: null,
+            hasPrimaryRemote: false,
+            isDefaultRef: false,
+            refName: null,
             hasWorkingTreeChanges: false,
             workingTree: { files: [], insertions: 0, deletions: 0 },
           },

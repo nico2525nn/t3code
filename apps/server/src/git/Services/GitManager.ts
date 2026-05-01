@@ -14,10 +14,10 @@ import {
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
   GitRunStackedActionResult,
-  GitStatusLocalResult,
-  GitStatusRemoteResult,
-  GitStatusInput,
-  GitStatusResult,
+  VcsStatusLocalResult,
+  VcsStatusRemoteResult,
+  VcsStatusInput,
+  VcsStatusResult,
 } from "@t3tools/contracts";
 import { Context } from "effect";
 import type { Effect } from "effect";
@@ -40,22 +40,22 @@ export interface GitManagerShape {
    * Read current repository Git status plus open PR metadata when available.
    */
   readonly status: (
-    input: GitStatusInput,
-  ) => Effect.Effect<GitStatusResult, GitManagerServiceError>;
+    input: VcsStatusInput,
+  ) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
 
   /**
    * Read local repository status without remote hosting enrichment.
    */
   readonly localStatus: (
-    input: GitStatusInput,
-  ) => Effect.Effect<GitStatusLocalResult, GitManagerServiceError>;
+    input: VcsStatusInput,
+  ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
 
   /**
    * Read remote tracking / PR status for a repository.
    */
   readonly remoteStatus: (
-    input: GitStatusInput,
-  ) => Effect.Effect<GitStatusRemoteResult | null, GitManagerServiceError>;
+    input: VcsStatusInput,
+  ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;
 
   /**
    * Clear any cached local status snapshot for a repository.

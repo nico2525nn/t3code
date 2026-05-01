@@ -79,13 +79,13 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         const cwd = yield* makeTmpDir();
         const driver = yield* GitVcsDriver.GitVcsDriver;
 
-        const branches = yield* driver.listBranches({ cwd });
-        assert.equal(branches.isRepo, false);
-        assert.deepStrictEqual(branches.branches, []);
+        const refs = yield* driver.listRefs({ cwd });
+        assert.equal(refs.isRepo, false);
+        assert.deepStrictEqual(refs.refs, []);
       }),
     );
 
-    it.effect("reports branch and dirty state for a repository", () =>
+    it.effect("reports refName and dirty state for a repository", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         const { initialBranch } = yield* initRepoWithCommit(cwd);
@@ -104,16 +104,16 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
     );
   });
 
-  describe("branch operations", () => {
-    it.effect("creates, checks out, renames, and lists branches", () =>
+  describe("refName operations", () => {
+    it.effect("creates, checks out, renames, and lists refs", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         yield* initRepoWithCommit(cwd);
         const driver = yield* GitVcsDriver.GitVcsDriver;
 
-        yield* driver.createBranch({ cwd, branch: "feature/original" });
-        const checkout = yield* driver.checkoutBranch({ cwd, branch: "feature/original" });
-        assert.equal(checkout.branch, "feature/original");
+        yield* driver.createRef({ cwd, refName: "feature/original" });
+        const switchRef = yield* driver.switchRef({ cwd, refName: "feature/original" });
+        assert.equal(switchRef.refName, "feature/original");
 
         const renamed = yield* driver.renameBranch({
           cwd,
@@ -123,15 +123,15 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         assert.equal(renamed.branch, "feature/renamed");
         assert.equal(yield* git(cwd, ["branch", "--show-current"]), "feature/renamed");
 
-        const branches = yield* driver.listBranches({ cwd });
+        const refs = yield* driver.listRefs({ cwd });
         assert.equal(
-          branches.branches.find((branch) => branch.name === "feature/renamed")?.current,
+          refs.refs.find((refName) => refName.name === "feature/renamed")?.current,
           true,
         );
       }),
     );
 
-    it.effect("returns the existing branch when rename source and target match", () =>
+    it.effect("returns the existing refName when rename source and target match", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         yield* initRepoWithCommit(cwd);
@@ -150,7 +150,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 
   describe("worktree operations", () => {
-    it.effect("creates and removes a worktree for a new branch", () =>
+    it.effect("creates and removes a worktree for a new refName", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         const { initialBranch } = yield* initRepoWithCommit(cwd);
@@ -164,12 +164,12 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         const created = yield* driver.createWorktree({
           cwd,
           path: worktreePath,
-          branch: initialBranch,
-          newBranch: "feature/worktree",
+          refName: initialBranch,
+          newRefName: "feature/worktree",
         });
 
         assert.equal(created.worktree.path, worktreePath);
-        assert.equal(created.worktree.branch, "feature/worktree");
+        assert.equal(created.worktree.refName, "feature/worktree");
         assert.equal(yield* git(worktreePath, ["branch", "--show-current"]), "feature/worktree");
 
         yield* driver.removeWorktree({ cwd, path: worktreePath });
@@ -212,13 +212,13 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         yield* initRepoWithCommit(cwd);
         yield* git(remote, ["init", "--bare"]);
         yield* git(cwd, ["remote", "add", "origin", remote]);
-        yield* (yield* GitVcsDriver.GitVcsDriver).createBranch({
+        yield* (yield* GitVcsDriver.GitVcsDriver).createRef({
           cwd,
-          branch: "feature/push",
+          refName: "feature/push",
         });
-        yield* (yield* GitVcsDriver.GitVcsDriver).checkoutBranch({
+        yield* (yield* GitVcsDriver.GitVcsDriver).switchRef({
           cwd,
-          branch: "feature/push",
+          refName: "feature/push",
         });
         yield* writeTextFile(cwd, "feature.txt", "feature\n");
         yield* (yield* GitVcsDriver.GitVcsDriver).prepareCommitContext(cwd);

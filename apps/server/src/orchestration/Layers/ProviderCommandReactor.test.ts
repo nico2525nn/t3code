@@ -240,9 +240,9 @@ describe("ProviderCommandReactor", () => {
     const refreshStatus = vi.fn((_: string) =>
       Effect.succeed({
         isRepo: true,
-        hasOriginRemote: true,
-        isDefaultBranch: false,
-        branch: "renamed-branch",
+        hasPrimaryRemote: true,
+        isDefaultRef: false,
+        refName: "renamed-branch",
         hasWorkingTreeChanges: false,
         workingTree: {
           files: [],

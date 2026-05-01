@@ -2,8 +2,8 @@ import {
   type GitActionProgressEvent,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
-  type GitStatusResult,
-  type GitStatusStreamEvent,
+  type VcsStatusResult,
+  type VcsStatusStreamEvent,
   type LocalApi,
   ORCHESTRATION_WS_METHODS,
   type ServerSettingsPatch,
@@ -82,14 +82,14 @@ export interface WsRpcClient {
     readonly refreshStatus: RpcUnaryMethod<typeof WS_METHODS.vcsRefreshStatus>;
     readonly onStatus: (
       input: RpcInput<typeof WS_METHODS.subscribeVcsStatus>,
-      listener: (status: GitStatusResult) => void,
+      listener: (status: VcsStatusResult) => void,
       options?: StreamSubscriptionOptions,
     ) => () => void;
-    readonly listBranches: RpcUnaryMethod<typeof WS_METHODS.vcsListBranches>;
+    readonly listRefs: RpcUnaryMethod<typeof WS_METHODS.vcsListRefs>;
     readonly createWorktree: RpcUnaryMethod<typeof WS_METHODS.vcsCreateWorktree>;
     readonly removeWorktree: RpcUnaryMethod<typeof WS_METHODS.vcsRemoveWorktree>;
-    readonly createBranch: RpcUnaryMethod<typeof WS_METHODS.vcsCreateBranch>;
-    readonly checkout: RpcUnaryMethod<typeof WS_METHODS.vcsCheckout>;
+    readonly createRef: RpcUnaryMethod<typeof WS_METHODS.vcsCreateRef>;
+    readonly switchRef: RpcUnaryMethod<typeof WS_METHODS.vcsSwitchRef>;
     readonly init: RpcUnaryMethod<typeof WS_METHODS.vcsInit>;
   };
   /**
@@ -171,25 +171,23 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       refreshStatus: (input) =>
         transport.request((client) => client[WS_METHODS.vcsRefreshStatus](input)),
       onStatus: (input, listener, options) => {
-        let current: GitStatusResult | null = null;
+        let current: VcsStatusResult | null = null;
         return transport.subscribe(
           (client) => client[WS_METHODS.subscribeVcsStatus](input),
-          (event: GitStatusStreamEvent) => {
+          (event: VcsStatusStreamEvent) => {
             current = applyGitStatusStreamEvent(current, event);
             listener(current);
           },
           options,
         );
       },
-      listBranches: (input) =>
-        transport.request((client) => client[WS_METHODS.vcsListBranches](input)),
+      listRefs: (input) => transport.request((client) => client[WS_METHODS.vcsListRefs](input)),
       createWorktree: (input) =>
         transport.request((client) => client[WS_METHODS.vcsCreateWorktree](input)),
       removeWorktree: (input) =>
         transport.request((client) => client[WS_METHODS.vcsRemoveWorktree](input)),
-      createBranch: (input) =>
-        transport.request((client) => client[WS_METHODS.vcsCreateBranch](input)),
-      checkout: (input) => transport.request((client) => client[WS_METHODS.vcsCheckout](input)),
+      createRef: (input) => transport.request((client) => client[WS_METHODS.vcsCreateRef](input)),
+      switchRef: (input) => transport.request((client) => client[WS_METHODS.vcsSwitchRef](input)),
       init: (input) => transport.request((client) => client[WS_METHODS.vcsInit](input)),
     },
     git: {

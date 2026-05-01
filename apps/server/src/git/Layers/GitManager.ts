@@ -21,8 +21,8 @@ import {
   GitCommandError,
   GitRunStackedActionResult,
   GitStackedAction,
-  type GitStatusLocalResult,
-  type GitStatusRemoteResult,
+  type VcsStatusLocalResult,
+  type VcsStatusRemoteResult,
   ModelSelection,
 } from "@t3tools/contracts";
 import {
@@ -425,16 +425,16 @@ function toStatusPr(pr: PullRequestInfo): {
   number: number;
   title: string;
   url: string;
-  baseBranch: string;
-  headBranch: string;
+  baseRef: string;
+  headRef: string;
   state: "open" | "closed" | "merged";
 } {
   return {
     number: pr.number,
     title: pr.title,
     url: pr.url,
-    baseBranch: pr.baseRefName,
-    headBranch: pr.headRefName,
+    baseRef: pr.baseRefName,
+    headRef: pr.headRefName,
     state: pr.state,
   };
 }
@@ -666,12 +666,12 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     return {
       isRepo: details.isRepo,
       ...(hostingProvider ? { hostingProvider } : {}),
-      hasOriginRemote: details.hasOriginRemote,
-      isDefaultBranch: details.isDefaultBranch,
-      branch: details.branch,
+      hasPrimaryRemote: details.hasOriginRemote,
+      isDefaultRef: details.isDefaultBranch,
+      refName: details.branch,
       hasWorkingTreeChanges: details.hasWorkingTreeChanges,
       workingTree: details.workingTree,
-    } satisfies GitStatusLocalResult;
+    } satisfies VcsStatusLocalResult;
   });
   const localStatusResultCache = yield* Cache.makeWith(readLocalStatus, {
     capacity: STATUS_RESULT_CACHE_CAPACITY,
@@ -709,7 +709,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       aheadCount: details.aheadCount,
       behindCount: details.behindCount,
       pr,
-    } satisfies GitStatusRemoteResult;
+    } satisfies VcsStatusRemoteResult;
   });
   const remoteStatusResultCache = yield* Cache.makeWith(readRemoteStatus, {
     capacity: STATUS_RESULT_CACHE_CAPACITY,
@@ -1390,9 +1390,9 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         resolvePullRequestWorktreeLocalBranchName(pullRequestWithRemoteInfo);
 
       const findLocalHeadBranch = (cwd: string) =>
-        gitCore.listBranches({ cwd }).pipe(
+        gitCore.listRefs({ cwd }).pipe(
           Effect.map((result) => {
-            const localBranch = result.branches.find(
+            const localBranch = result.refs.find(
               (branch) => !branch.isRemote && branch.name === localPullRequestBranch,
             );
             if (localBranch) {
@@ -1402,7 +1402,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
               return null;
             }
             return (
-              result.branches.find(
+              result.refs.find(
                 (branch) =>
                   !branch.isRemote &&
                   branch.name === pullRequest.headBranch &&
@@ -1465,7 +1465,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
       const worktree = yield* gitCore.createWorktree({
         cwd: input.cwd,
-        branch: localPullRequestBranch,
+        refName: localPullRequestBranch,
         path: null,
       });
       yield* ensureExistingWorktreeUpstream(worktree.worktree.path);
@@ -1473,7 +1473,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
       return {
         pullRequest,
-        branch: worktree.worktree.branch,
+        branch: worktree.worktree.refName,
         worktreePath: worktree.worktree.path,
       };
     }).pipe(Effect.ensuring(invalidateStatus(input.cwd)));
@@ -1505,8 +1505,8 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     const existingBranchNames = yield* gitCore.listLocalBranchNames(cwd);
     const resolvedBranch = resolveAutoFeatureBranchName(existingBranchNames, preferredBranch);
 
-    yield* gitCore.createBranch({ cwd, branch: resolvedBranch });
-    yield* Effect.scoped(gitCore.checkoutBranch({ cwd, branch: resolvedBranch }));
+    yield* gitCore.createRef({ cwd, refName: resolvedBranch });
+    yield* Effect.scoped(gitCore.switchRef({ cwd, refName: resolvedBranch }));
 
     return {
       branchStep: { status: "created" as const, name: resolvedBranch },

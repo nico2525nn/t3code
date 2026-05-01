@@ -3,27 +3,27 @@ import { Context, Effect, Layer } from "effect";
 import {
   GitManagerError,
   GitCommandError,
-  type GitCheckoutInput,
-  type GitCheckoutResult,
-  type GitCreateBranchInput,
-  type GitCreateBranchResult,
-  type GitCreateWorktreeInput,
-  type GitCreateWorktreeResult,
-  type GitListBranchesInput,
-  type GitListBranchesResult,
+  type VcsSwitchRefInput,
+  type VcsSwitchRefResult,
+  type VcsCreateRefInput,
+  type VcsCreateRefResult,
+  type VcsCreateWorktreeInput,
+  type VcsCreateWorktreeResult,
+  type VcsListRefsInput,
+  type VcsListRefsResult,
   type GitManagerServiceError,
   type GitPreparePullRequestThreadInput,
   type GitPreparePullRequestThreadResult,
   type GitPullRequestRefInput,
-  type GitPullResult,
-  type GitRemoveWorktreeInput,
+  type VcsPullResult,
+  type VcsRemoveWorktreeInput,
   type GitResolvePullRequestResult,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
-  type GitStatusInput,
-  type GitStatusLocalResult,
-  type GitStatusRemoteResult,
-  type GitStatusResult,
+  type VcsStatusInput,
+  type VcsStatusLocalResult,
+  type VcsStatusRemoteResult,
+  type VcsStatusResult,
 } from "@t3tools/contracts";
 
 import { GitManager, type GitRunStackedActionOptions } from "./Services/GitManager.ts";
@@ -32,18 +32,18 @@ import { VcsDriverRegistry } from "../vcs/VcsDriverRegistry.ts";
 
 export interface GitWorkflowServiceShape {
   readonly status: (
-    input: GitStatusInput,
-  ) => Effect.Effect<GitStatusResult, GitManagerServiceError>;
+    input: VcsStatusInput,
+  ) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
   readonly localStatus: (
-    input: GitStatusInput,
-  ) => Effect.Effect<GitStatusLocalResult, GitManagerServiceError>;
+    input: VcsStatusInput,
+  ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
   readonly remoteStatus: (
-    input: GitStatusInput,
-  ) => Effect.Effect<GitStatusRemoteResult | null, GitManagerServiceError>;
+    input: VcsStatusInput,
+  ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;
   readonly invalidateLocalStatus: (cwd: string) => Effect.Effect<void, never>;
   readonly invalidateRemoteStatus: (cwd: string) => Effect.Effect<void, never>;
   readonly invalidateStatus: (cwd: string) => Effect.Effect<void, never>;
-  readonly pullCurrentBranch: (cwd: string) => Effect.Effect<GitPullResult, GitCommandError>;
+  readonly pullCurrentBranch: (cwd: string) => Effect.Effect<VcsPullResult, GitCommandError>;
   readonly runStackedAction: (
     input: GitRunStackedActionInput,
     options?: GitRunStackedActionOptions,
@@ -54,25 +54,23 @@ export interface GitWorkflowServiceShape {
   readonly preparePullRequestThread: (
     input: GitPreparePullRequestThreadInput,
   ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
-  readonly listBranches: (
-    input: GitListBranchesInput,
-  ) => Effect.Effect<GitListBranchesResult, GitCommandError>;
+  readonly listRefs: (input: VcsListRefsInput) => Effect.Effect<VcsListRefsResult, GitCommandError>;
   readonly createWorktree: (
-    input: GitCreateWorktreeInput,
-  ) => Effect.Effect<GitCreateWorktreeResult, GitCommandError>;
-  readonly removeWorktree: (input: GitRemoveWorktreeInput) => Effect.Effect<void, GitCommandError>;
-  readonly createBranch: (
-    input: GitCreateBranchInput,
-  ) => Effect.Effect<GitCreateBranchResult, GitCommandError>;
-  readonly checkoutBranch: (
-    input: GitCheckoutInput,
-  ) => Effect.Effect<GitCheckoutResult, GitCommandError>;
+    input: VcsCreateWorktreeInput,
+  ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
+  readonly removeWorktree: (input: VcsRemoveWorktreeInput) => Effect.Effect<void, GitCommandError>;
+  readonly createRef: (
+    input: VcsCreateRefInput,
+  ) => Effect.Effect<VcsCreateRefResult, GitCommandError>;
+  readonly switchRef: (
+    input: VcsSwitchRefInput,
+  ) => Effect.Effect<VcsSwitchRefResult, GitCommandError>;
   readonly initRepo: (input: { readonly cwd: string }) => Effect.Effect<void, GitCommandError>;
   readonly renameBranch: (input: {
     readonly cwd: string;
     readonly oldBranch: string;
     readonly newBranch: string;
-  }) => Effect.Effect<GitCreateBranchResult, GitManagerServiceError>;
+  }) => Effect.Effect<{ readonly branch: string }, GitManagerServiceError>;
 }
 
 export class GitWorkflowService extends Context.Service<
@@ -178,9 +176,9 @@ export const make = Effect.fn("makeGitWorkflowService")(function* () {
       "GitWorkflowService.preparePullRequestThread",
       gitManager.preparePullRequestThread,
     ),
-    listBranches: (input) =>
-      ensureGitCommand("GitWorkflowService.listBranches", input.cwd).pipe(
-        Effect.andThen(git.listBranches(input)),
+    listRefs: (input) =>
+      ensureGitCommand("GitWorkflowService.listRefs", input.cwd).pipe(
+        Effect.andThen(git.listRefs(input)),
       ),
     createWorktree: (input) =>
       ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(
@@ -190,13 +188,13 @@ export const make = Effect.fn("makeGitWorkflowService")(function* () {
       ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
         Effect.andThen(git.removeWorktree(input)),
       ),
-    createBranch: (input) =>
-      ensureGitCommand("GitWorkflowService.createBranch", input.cwd).pipe(
-        Effect.andThen(git.createBranch(input)),
+    createRef: (input) =>
+      ensureGitCommand("GitWorkflowService.createRef", input.cwd).pipe(
+        Effect.andThen(git.createRef(input)),
       ),
-    checkoutBranch: (input) =>
-      ensureGitCommand("GitWorkflowService.checkoutBranch", input.cwd).pipe(
-        Effect.andThen(Effect.scoped(git.checkoutBranch(input))),
+    switchRef: (input) =>
+      ensureGitCommand("GitWorkflowService.switchRef", input.cwd).pipe(
+        Effect.andThen(Effect.scoped(git.switchRef(input))),
       ),
     initRepo: (input) => git.initRepo(input),
     renameBranch: (input) =>

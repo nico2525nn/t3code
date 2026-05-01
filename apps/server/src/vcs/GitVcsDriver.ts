@@ -3,19 +3,19 @@ import { Context, DateTime, Effect, Layer, Option } from "effect";
 import {
   GitCommandError,
   VcsProcessExitError,
-  type GitCheckoutInput,
-  type GitCheckoutResult,
-  type GitCreateBranchInput,
-  type GitCreateBranchResult,
-  type GitCreateWorktreeInput,
-  type GitCreateWorktreeResult,
-  type GitInitInput,
-  type GitListBranchesInput,
-  type GitListBranchesResult,
-  type GitPullResult,
-  type GitRemoveWorktreeInput,
-  type GitStatusInput,
-  type GitStatusResult,
+  type VcsSwitchRefInput,
+  type VcsSwitchRefResult,
+  type VcsCreateRefInput,
+  type VcsCreateRefResult,
+  type VcsCreateWorktreeInput,
+  type VcsCreateWorktreeResult,
+  type VcsInitInput,
+  type VcsListRefsInput,
+  type VcsListRefsResult,
+  type VcsPullResult,
+  type VcsRemoveWorktreeInput,
+  type VcsStatusInput,
+  type VcsStatusResult,
 } from "@t3tools/contracts";
 import { makeGitVcsDriverCore } from "./GitVcsDriverCore.ts";
 import { VcsDriver, type VcsDriverShape } from "./VcsDriver.ts";
@@ -42,8 +42,18 @@ export interface ExecuteGitResult {
   readonly stderrTruncated: boolean;
 }
 
-export interface GitStatusDetails extends Omit<GitStatusResult, "pr"> {
+export interface GitStatusDetails {
+  isRepo: boolean;
+  hostingProvider?: VcsStatusResult["hostingProvider"];
+  hasOriginRemote: boolean;
+  isDefaultBranch: boolean;
+  branch: string | null;
   upstreamRef: string | null;
+  hasWorkingTreeChanges: boolean;
+  workingTree: VcsStatusResult["workingTree"];
+  hasUpstream: boolean;
+  aheadCount: number;
+  behindCount: number;
 }
 
 export interface GitPreparedCommitContext {
@@ -131,7 +141,7 @@ export interface GitSetBranchUpstreamInput {
 
 export interface GitVcsDriverShape {
   readonly execute: (input: ExecuteGitInput) => Effect.Effect<ExecuteGitResult, GitCommandError>;
-  readonly status: (input: GitStatusInput) => Effect.Effect<GitStatusResult, GitCommandError>;
+  readonly status: (input: VcsStatusInput) => Effect.Effect<VcsStatusResult, GitCommandError>;
   readonly statusDetails: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
   readonly statusDetailsLocal: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
   readonly prepareCommitContext: (
@@ -150,19 +160,17 @@ export interface GitVcsDriverShape {
   ) => Effect.Effect<GitPushResult, GitCommandError>;
   readonly readRangeContext: (
     cwd: string,
-    baseBranch: string,
+    baseRef: string,
   ) => Effect.Effect<GitRangeContext, GitCommandError>;
   readonly readConfigValue: (
     cwd: string,
     key: string,
   ) => Effect.Effect<string | null, GitCommandError>;
-  readonly listBranches: (
-    input: GitListBranchesInput,
-  ) => Effect.Effect<GitListBranchesResult, GitCommandError>;
-  readonly pullCurrentBranch: (cwd: string) => Effect.Effect<GitPullResult, GitCommandError>;
+  readonly listRefs: (input: VcsListRefsInput) => Effect.Effect<VcsListRefsResult, GitCommandError>;
+  readonly pullCurrentBranch: (cwd: string) => Effect.Effect<VcsPullResult, GitCommandError>;
   readonly createWorktree: (
-    input: GitCreateWorktreeInput,
-  ) => Effect.Effect<GitCreateWorktreeResult, GitCommandError>;
+    input: VcsCreateWorktreeInput,
+  ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
   readonly fetchPullRequestBranch: (
     input: GitFetchPullRequestBranchInput,
   ) => Effect.Effect<void, GitCommandError>;
@@ -173,17 +181,17 @@ export interface GitVcsDriverShape {
   readonly setBranchUpstream: (
     input: GitSetBranchUpstreamInput,
   ) => Effect.Effect<void, GitCommandError>;
-  readonly removeWorktree: (input: GitRemoveWorktreeInput) => Effect.Effect<void, GitCommandError>;
+  readonly removeWorktree: (input: VcsRemoveWorktreeInput) => Effect.Effect<void, GitCommandError>;
   readonly renameBranch: (
     input: GitRenameBranchInput,
   ) => Effect.Effect<GitRenameBranchResult, GitCommandError>;
-  readonly createBranch: (
-    input: GitCreateBranchInput,
-  ) => Effect.Effect<GitCreateBranchResult, GitCommandError>;
-  readonly checkoutBranch: (
-    input: GitCheckoutInput,
-  ) => Effect.Effect<GitCheckoutResult, GitCommandError>;
-  readonly initRepo: (input: GitInitInput) => Effect.Effect<void, GitCommandError>;
+  readonly createRef: (
+    input: VcsCreateRefInput,
+  ) => Effect.Effect<VcsCreateRefResult, GitCommandError>;
+  readonly switchRef: (
+    input: VcsSwitchRefInput,
+  ) => Effect.Effect<VcsSwitchRefResult, GitCommandError>;
+  readonly initRepo: (input: VcsInitInput) => Effect.Effect<void, GitCommandError>;
   readonly listLocalBranchNames: (cwd: string) => Effect.Effect<string[], GitCommandError>;
 }
 

@@ -2362,9 +2362,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             localStatus: () =>
               Effect.succeed({
                 isRepo: true,
-                hasOriginRemote: true,
-                isDefaultBranch: true,
-                branch: "main",
+                hasPrimaryRemote: true,
+                isDefaultRef: true,
+                refName: "main",
                 hasWorkingTreeChanges: false,
                 workingTree: { files: [], insertions: 0, deletions: 0 },
               }),
@@ -2378,9 +2378,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             status: () =>
               Effect.succeed({
                 isRepo: true,
-                hasOriginRemote: true,
-                isDefaultBranch: true,
-                branch: "main",
+                hasPrimaryRemote: true,
+                isDefaultRef: true,
+                refName: "main",
                 hasWorkingTreeChanges: false,
                 workingTree: { files: [], insertions: 0, deletions: 0 },
                 hasUpstream: true,
@@ -2465,12 +2465,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             pullCurrentBranch: () =>
               Effect.succeed({
                 status: "pulled",
-                branch: "main",
-                upstreamBranch: "origin/main",
+                refName: "main",
+                upstreamRef: "origin/main",
               }),
-            listBranches: () =>
+            listRefs: () =>
               Effect.succeed({
-                branches: [
+                refs: [
                   {
                     name: "main",
                     current: true,
@@ -2479,17 +2479,17 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   },
                 ],
                 isRepo: true,
-                hasOriginRemote: true,
+                hasPrimaryRemote: true,
                 nextCursor: null,
                 totalCount: 1,
               }),
             createWorktree: () =>
               Effect.succeed({
-                worktree: { path: "/tmp/wt", branch: "feature/demo" },
+                worktree: { path: "/tmp/wt", refName: "feature/demo" },
               }),
             removeWorktree: () => Effect.void,
-            createBranch: (input) => Effect.succeed({ branch: input.branch }),
-            checkoutBranch: (input) => Effect.succeed({ branch: input.branch }),
+            createRef: (input) => Effect.succeed({ refName: input.refName }),
+            switchRef: (input) => Effect.succeed({ refName: input.refName }),
             initRepo: () => Effect.void,
           },
         },
@@ -2548,23 +2548,21 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
       assert.equal(prepared.branch, "feature/demo");
 
-      const branches = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.vcsListBranches]({ cwd: "/tmp/repo" }),
-        ),
+      const refs = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsListRefs]({ cwd: "/tmp/repo" })),
       );
-      assert.equal(branches.branches[0]?.name, "main");
+      assert.equal(refs.refs[0]?.name, "main");
 
       const worktree = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
           client[WS_METHODS.vcsCreateWorktree]({
             cwd: "/tmp/repo",
-            branch: "main",
+            refName: "main",
             path: null,
           }),
         ),
       );
-      assert.equal(worktree.worktree.branch, "feature/demo");
+      assert.equal(worktree.worktree.refName, "feature/demo");
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
@@ -2577,18 +2575,18 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.vcsCreateBranch]({
+          client[WS_METHODS.vcsCreateRef]({
             cwd: "/tmp/repo",
-            branch: "feature/new",
+            refName: "feature/new",
           }),
         ),
       );
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.vcsCheckout]({
+          client[WS_METHODS.vcsSwitchRef]({
             cwd: "/tmp/repo",
-            branch: "main",
+            refName: "main",
           }),
         ),
       );
@@ -2634,9 +2632,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             localStatus: () =>
               Effect.succeed({
                 isRepo: true,
-                hasOriginRemote: true,
-                isDefaultBranch: true,
-                branch: "main",
+                hasPrimaryRemote: true,
+                isDefaultRef: true,
+                refName: "main",
                 hasWorkingTreeChanges: true,
                 workingTree: { files: [], insertions: 0, deletions: 0 },
               }),
@@ -2655,9 +2653,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 statusCalls += 1;
                 return {
                   isRepo: true,
-                  hasOriginRemote: true,
-                  isDefaultBranch: true,
-                  branch: "main",
+                  hasPrimaryRemote: true,
+                  isDefaultRef: true,
+                  refName: "main",
                   hasWorkingTreeChanges: true,
                   workingTree: { files: [], insertions: 0, deletions: 0 },
                   hasUpstream: true,
@@ -2711,9 +2709,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             localStatus: () =>
               Effect.succeed({
                 isRepo: true,
-                hasOriginRemote: true,
-                isDefaultBranch: false,
-                branch: "feature/demo",
+                hasPrimaryRemote: true,
+                isDefaultRef: false,
+                refName: "feature/demo",
                 hasWorkingTreeChanges: true,
                 workingTree: { files: [], insertions: 0, deletions: 0 },
               }),
@@ -2732,9 +2730,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 statusCalls += 1;
                 return {
                   isRepo: true,
-                  hasOriginRemote: true,
-                  isDefaultBranch: false,
-                  branch: "feature/demo",
+                  hasPrimaryRemote: true,
+                  isDefaultRef: false,
+                  refName: "feature/demo",
                   hasWorkingTreeChanges: true,
                   workingTree: { files: [], insertions: 0, deletions: 0 },
                   hasUpstream: true,
@@ -2773,8 +2771,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             pullCurrentBranch: () =>
               Effect.succeed({
                 status: "pulled" as const,
-                branch: "main",
-                upstreamBranch: "origin/main",
+                refName: "main",
+                upstreamRef: "origin/main",
               }),
           },
           gitManager: {
@@ -2783,9 +2781,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             localStatus: () =>
               Effect.succeed({
                 isRepo: true,
-                hasOriginRemote: true,
-                isDefaultBranch: true,
-                branch: "main",
+                hasPrimaryRemote: true,
+                isDefaultRef: true,
+                refName: "main",
                 hasWorkingTreeChanges: false,
                 workingTree: { files: [], insertions: 0, deletions: 0 },
               }),
@@ -2826,9 +2824,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               localStatus: () =>
                 Effect.succeed({
                   isRepo: true,
-                  hasOriginRemote: true,
-                  isDefaultBranch: false,
-                  branch: "feature/demo",
+                  hasPrimaryRemote: true,
+                  isDefaultRef: false,
+                  refName: "feature/demo",
                   hasWorkingTreeChanges: false,
                   workingTree: { files: [], insertions: 0, deletions: 0 },
                 }),
@@ -2902,9 +2900,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   Effect.andThen(
                     Effect.succeed({
                       isRepo: true,
-                      hasOriginRemote: true,
-                      isDefaultBranch: false,
-                      branch: "feature/demo",
+                      hasPrimaryRemote: true,
+                      isDefaultRef: false,
+                      refName: "feature/demo",
                       hasWorkingTreeChanges: false,
                       workingTree: { files: [], insertions: 0, deletions: 0 },
                     }),
@@ -3568,9 +3566,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         const refreshStatus = vi.fn((_: string) =>
           Effect.succeed({
             isRepo: true,
-            hasOriginRemote: true,
-            isDefaultBranch: false,
-            branch: "t3code/bootstrap-branch",
+            hasPrimaryRemote: true,
+            isDefaultRef: false,
+            refName: "t3code/bootstrap-refName",
             hasWorkingTreeChanges: false,
             workingTree: {
               files: [],
@@ -3587,7 +3585,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           (_: Parameters<GitVcsDriver.GitVcsDriverShape["createWorktree"]>[0]) =>
             Effect.succeed({
               worktree: {
-                branch: "t3code/bootstrap-branch",
+                refName: "t3code/bootstrap-refName",
                 path: "/tmp/bootstrap-worktree",
               },
             }),
@@ -3656,7 +3654,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 prepareWorktree: {
                   projectCwd: "/tmp/project",
                   baseBranch: "main",
-                  branch: "t3code/bootstrap-branch",
+                  branch: "t3code/bootstrap-refName",
                 },
                 runSetupScript: true,
               },
@@ -3678,8 +3676,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         );
         assert.deepEqual(createWorktree.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
-          branch: "main",
-          newBranch: "t3code/bootstrap-branch",
+          refName: "main",
+          newRefName: "t3code/bootstrap-refName",
           path: null,
         });
         assert.deepEqual(runForThread.mock.calls[0]?.[0], {
@@ -3713,7 +3711,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         (_: Parameters<GitVcsDriver.GitVcsDriverShape["createWorktree"]>[0]) =>
           Effect.succeed({
             worktree: {
-              branch: "t3code/bootstrap-branch",
+              refName: "t3code/bootstrap-refName",
               path: "/tmp/bootstrap-worktree",
             },
           }),
@@ -3773,7 +3771,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               prepareWorktree: {
                 projectCwd: "/tmp/project",
                 baseBranch: "main",
-                branch: "t3code/bootstrap-branch",
+                branch: "t3code/bootstrap-refName",
               },
               runSetupScript: true,
             },
@@ -3807,7 +3805,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         (_: Parameters<GitVcsDriver.GitVcsDriverShape["createWorktree"]>[0]) =>
           Effect.succeed({
             worktree: {
-              branch: "t3code/bootstrap-branch",
+              refName: "t3code/bootstrap-refName",
               path: "/tmp/bootstrap-worktree",
             },
           }),
@@ -3890,7 +3888,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               prepareWorktree: {
                 projectCwd: "/tmp/project",
                 baseBranch: "main",
-                branch: "t3code/bootstrap-branch",
+                branch: "t3code/bootstrap-refName",
               },
               runSetupScript: true,
             },
@@ -3974,7 +3972,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               prepareWorktree: {
                 projectCwd: "/tmp/project",
                 baseBranch: "main",
-                branch: "t3code/bootstrap-branch",
+                branch: "t3code/bootstrap-refName",
               },
               runSetupScript: false,
             },

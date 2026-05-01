@@ -717,15 +717,15 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       const status = yield* manager.status({ cwd: repoDir });
       expect(status.isRepo).toBe(true);
-      expect(status.hasOriginRemote).toBe(true);
-      expect(status.isDefaultBranch).toBe(false);
-      expect(status.branch).toBe("feature/status-open-pr");
+      expect(status.hasPrimaryRemote).toBe(true);
+      expect(status.isDefaultRef).toBe(false);
+      expect(status.refName).toBe("feature/status-open-pr");
       expect(status.pr).toEqual({
         number: 13,
         title: "Existing PR",
         url: "https://github.com/pingdotgg/codething-mvp/pull/13",
-        baseBranch: "main",
-        headBranch: "feature/status-open-pr",
+        baseRef: "main",
+        headRef: "feature/status-open-pr",
         state: "open",
       });
     }),
@@ -762,8 +762,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         number: 14,
         title: "Existing PR title",
         url: "https://github.com/pingdotgg/codething-mvp/pull/14",
-        baseBranch: "main",
-        headBranch: "feature/status-trimmed-pr",
+        baseRef: "main",
+        headRef: "feature/status-trimmed-pr",
         state: "open",
       });
     }),
@@ -813,8 +813,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         number: 15,
         title: "Valid PR title",
         url: "https://github.com/pingdotgg/codething-mvp/pull/15",
-        baseBranch: "main",
-        headBranch: "feature/status-valid-pr-entry",
+        baseRef: "main",
+        headRef: "feature/status-valid-pr-entry",
         state: "open",
       });
     }),
@@ -862,8 +862,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         number: 17,
         title: "Merged PR",
         url: "https://github.com/pingdotgg/codething-mvp/pull/17",
-        baseBranch: "main",
-        headBranch: "feature/status-lowercase-state",
+        baseRef: "main",
+        headRef: "feature/status-lowercase-state",
         state: "merged",
       });
     }),
@@ -878,9 +878,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       expect(status).toEqual({
         isRepo: false,
-        hasOriginRemote: false,
-        isDefaultBranch: false,
-        branch: null,
+        hasPrimaryRemote: false,
+        isDefaultRef: false,
+        refName: null,
         hasWorkingTreeChanges: false,
         workingTree: {
           files: [],
@@ -907,9 +907,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       expect(status).toEqual({
         isRepo: false,
-        hasOriginRemote: false,
-        isDefaultBranch: false,
-        branch: null,
+        hasPrimaryRemote: false,
+        isDefaultRef: false,
+        refName: null,
         hasWorkingTreeChanges: false,
         workingTree: {
           files: [],
@@ -991,7 +991,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         });
 
         const status = yield* manager.status({ cwd: repoDir });
-        expect(status.branch).toBe("main");
+        expect(status.refName).toBe("main");
         expect(status.pr).toBeNull();
       }),
   );
@@ -1045,13 +1045,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         });
 
         const status = yield* manager.status({ cwd: repoDir });
-        expect(status.branch).toBe("t3code/pr-488/statemachine");
+        expect(status.refName).toBe("t3code/pr-488/statemachine");
         expect(status.pr).toEqual({
           number: 488,
           title: "Rebase this PR on latest main",
           url: "https://github.com/pingdotgg/codething-mvp/pull/488",
-          baseBranch: "main",
-          headBranch: "statemachine",
+          baseRef: "main",
+          headRef: "statemachine",
           state: "open",
         });
         expect(ghCalls).toContain(
@@ -1145,13 +1145,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         });
 
         const status = yield* manager.status({ cwd: repoDir });
-        expect(status.branch).toBe("upstream/effect-atom");
+        expect(status.refName).toBe("upstream/effect-atom");
         expect(status.pr).toEqual({
           number: 1618,
           title: "Correct PR",
           url: "https://github.com/pingdotgg/t3code/pull/1618",
-          baseBranch: "main",
-          headBranch: "effect-atom",
+          baseRef: "main",
+          headRef: "effect-atom",
           state: "open",
         });
         expect(ghCalls.some((call) => call.includes("pr list --head upstream/effect-atom "))).toBe(
@@ -1195,13 +1195,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
 
       const status = yield* manager.status({ cwd: repoDir });
-      expect(status.branch).toBe("feature/status-merged-pr");
+      expect(status.refName).toBe("feature/status-merged-pr");
       expect(status.pr).toEqual({
         number: 22,
         title: "Merged PR",
         url: "https://github.com/pingdotgg/codething-mvp/pull/22",
-        baseBranch: "main",
-        headBranch: "feature/status-merged-pr",
+        baseRef: "main",
+        headRef: "feature/status-merged-pr",
         state: "merged",
       });
     }),
@@ -1232,7 +1232,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
 
       const status = yield* manager.status({ cwd: repoDir });
-      expect(status.branch).toBe("main");
+      expect(status.refName).toBe("main");
       expect(status.pr).toBeNull();
     }),
   );
@@ -1272,13 +1272,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
 
       const status = yield* manager.status({ cwd: repoDir });
-      expect(status.branch).toBe("feature/status-open-over-merged");
+      expect(status.refName).toBe("feature/status-open-over-merged");
       expect(status.pr).toEqual({
         number: 46,
         title: "Open PR",
         url: "https://github.com/pingdotgg/codething-mvp/pull/46",
-        baseBranch: "main",
-        headBranch: "feature/status-open-over-merged",
+        baseRef: "main",
+        headRef: "feature/status-open-over-merged",
         state: "open",
       });
     }),
@@ -1303,7 +1303,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
 
       const status = yield* manager.status({ cwd: repoDir });
-      expect(status.branch).toBe("feature/status-no-gh");
+      expect(status.refName).toBe("feature/status-no-gh");
       expect(status.pr).toBeNull();
     }),
   );

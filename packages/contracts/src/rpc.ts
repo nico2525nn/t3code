@@ -11,28 +11,28 @@ import {
 } from "./filesystem.ts";
 import {
   GitActionProgressEvent,
-  GitCheckoutInput,
-  GitCheckoutResult,
+  VcsSwitchRefInput,
+  VcsSwitchRefResult,
   GitCommandError,
-  GitCreateBranchInput,
-  GitCreateBranchResult,
-  GitCreateWorktreeInput,
-  GitCreateWorktreeResult,
-  GitInitInput,
-  GitListBranchesInput,
-  GitListBranchesResult,
+  VcsCreateRefInput,
+  VcsCreateRefResult,
+  VcsCreateWorktreeInput,
+  VcsCreateWorktreeResult,
+  VcsInitInput,
+  VcsListRefsInput,
+  VcsListRefsResult,
   GitManagerServiceError,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
-  GitPullInput,
+  VcsPullInput,
   GitPullRequestRefInput,
-  GitPullResult,
-  GitRemoveWorktreeInput,
+  VcsPullResult,
+  VcsRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
-  GitStatusInput,
-  GitStatusResult,
-  GitStatusStreamEvent,
+  VcsStatusInput,
+  VcsStatusResult,
+  VcsStatusStreamEvent,
 } from "./git.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
@@ -95,11 +95,11 @@ export const WS_METHODS = {
   // VCS methods
   vcsPull: "vcs.pull",
   vcsRefreshStatus: "vcs.refreshStatus",
-  vcsListBranches: "vcs.listBranches",
+  vcsListRefs: "vcs.listRefs",
   vcsCreateWorktree: "vcs.createWorktree",
   vcsRemoveWorktree: "vcs.removeWorktree",
-  vcsCreateBranch: "vcs.createBranch",
-  vcsCheckout: "vcs.checkout",
+  vcsCreateRef: "vcs.createRef",
+  vcsSwitchRef: "vcs.switchRef",
   vcsInit: "vcs.init",
 
   // Git workflow methods
@@ -191,21 +191,21 @@ export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
 });
 
 export const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
-  payload: GitStatusInput,
-  success: GitStatusStreamEvent,
+  payload: VcsStatusInput,
+  success: VcsStatusStreamEvent,
   error: GitManagerServiceError,
   stream: true,
 });
 
 export const WsVcsPullRpc = Rpc.make(WS_METHODS.vcsPull, {
-  payload: GitPullInput,
-  success: GitPullResult,
+  payload: VcsPullInput,
+  success: VcsPullResult,
   error: GitCommandError,
 });
 
 export const WsVcsRefreshStatusRpc = Rpc.make(WS_METHODS.vcsRefreshStatus, {
-  payload: GitStatusInput,
-  success: GitStatusResult,
+  payload: VcsStatusInput,
+  success: VcsStatusResult,
   error: GitManagerServiceError,
 });
 
@@ -228,37 +228,37 @@ export const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePu
   error: GitManagerServiceError,
 });
 
-export const WsVcsListBranchesRpc = Rpc.make(WS_METHODS.vcsListBranches, {
-  payload: GitListBranchesInput,
-  success: GitListBranchesResult,
+export const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
+  payload: VcsListRefsInput,
+  success: VcsListRefsResult,
   error: GitCommandError,
 });
 
 export const WsVcsCreateWorktreeRpc = Rpc.make(WS_METHODS.vcsCreateWorktree, {
-  payload: GitCreateWorktreeInput,
-  success: GitCreateWorktreeResult,
+  payload: VcsCreateWorktreeInput,
+  success: VcsCreateWorktreeResult,
   error: GitCommandError,
 });
 
 export const WsVcsRemoveWorktreeRpc = Rpc.make(WS_METHODS.vcsRemoveWorktree, {
-  payload: GitRemoveWorktreeInput,
+  payload: VcsRemoveWorktreeInput,
   error: GitCommandError,
 });
 
-export const WsVcsCreateBranchRpc = Rpc.make(WS_METHODS.vcsCreateBranch, {
-  payload: GitCreateBranchInput,
-  success: GitCreateBranchResult,
+export const WsVcsCreateRefRpc = Rpc.make(WS_METHODS.vcsCreateRef, {
+  payload: VcsCreateRefInput,
+  success: VcsCreateRefResult,
   error: GitCommandError,
 });
 
-export const WsVcsCheckoutRpc = Rpc.make(WS_METHODS.vcsCheckout, {
-  payload: GitCheckoutInput,
-  success: GitCheckoutResult,
+export const WsVcsSwitchRefRpc = Rpc.make(WS_METHODS.vcsSwitchRef, {
+  payload: VcsSwitchRefInput,
+  success: VcsSwitchRefResult,
   error: GitCommandError,
 });
 
 export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
-  payload: GitInitInput,
+  payload: VcsInitInput,
   error: GitCommandError,
 });
 
@@ -382,11 +382,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
-  WsVcsListBranchesRpc,
+  WsVcsListRefsRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,
-  WsVcsCreateBranchRpc,
-  WsVcsCheckoutRpc,
+  WsVcsCreateRefRpc,
+  WsVcsSwitchRefRpc,
   WsVcsInitRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,

@@ -1,22 +1,22 @@
 import type {
-  GitCheckoutInput,
-  GitCheckoutResult,
-  GitCreateBranchInput,
+  VcsSwitchRefInput,
+  VcsSwitchRefResult,
+  VcsCreateRefInput,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
-  GitCreateWorktreeInput,
-  GitCreateWorktreeResult,
-  GitInitInput,
-  GitListBranchesInput,
-  GitListBranchesResult,
-  GitPullInput,
-  GitPullResult,
-  GitRemoveWorktreeInput,
+  VcsCreateWorktreeInput,
+  VcsCreateWorktreeResult,
+  VcsInitInput,
+  VcsListRefsInput,
+  VcsListRefsResult,
+  VcsPullInput,
+  VcsPullResult,
+  VcsRemoveWorktreeInput,
   GitResolvePullRequestResult,
-  GitStatusInput,
-  GitStatusResult,
-  GitCreateBranchResult,
+  VcsStatusInput,
+  VcsStatusResult,
+  VcsCreateRefResult,
 } from "./git.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type {
@@ -257,17 +257,17 @@ export interface EnvironmentApi {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
   };
   vcs: {
-    listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
-    createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
-    removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
-    createBranch: (input: GitCreateBranchInput) => Promise<GitCreateBranchResult>;
-    checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResult>;
-    init: (input: GitInitInput) => Promise<void>;
-    pull: (input: GitPullInput) => Promise<GitPullResult>;
-    refreshStatus: (input: GitStatusInput) => Promise<GitStatusResult>;
+    listRefs: (input: VcsListRefsInput) => Promise<VcsListRefsResult>;
+    createWorktree: (input: VcsCreateWorktreeInput) => Promise<VcsCreateWorktreeResult>;
+    removeWorktree: (input: VcsRemoveWorktreeInput) => Promise<void>;
+    createRef: (input: VcsCreateRefInput) => Promise<VcsCreateRefResult>;
+    switchRef: (input: VcsSwitchRefInput) => Promise<VcsSwitchRefResult>;
+    init: (input: VcsInitInput) => Promise<void>;
+    pull: (input: VcsPullInput) => Promise<VcsPullResult>;
+    refreshStatus: (input: VcsStatusInput) => Promise<VcsStatusResult>;
     onStatus: (
-      input: GitStatusInput,
-      callback: (status: GitStatusResult) => void,
+      input: VcsStatusInput,
+      callback: (status: VcsStatusResult) => void,
       options?: {
         onResubscribe?: () => void;
       },
