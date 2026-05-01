@@ -26,7 +26,7 @@ import {
   ModelSelection,
 } from "@t3tools/contracts";
 import {
-  detectGitHostingProviderFromRemoteUrl,
+  detectSourceControlProviderFromGitRemoteUrl,
   mergeGitStatusParts,
   resolveAutoFeatureBranchName,
   sanitizeBranchFragment,
@@ -659,13 +659,13 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       .pipe(
         Effect.catchIf(isNotGitRepositoryError, () => Effect.succeed(nonRepositoryStatusDetails)),
       );
-    const hostingProvider = details.isRepo
+    const sourceControlProvider = details.isRepo
       ? yield* resolveHostingProvider(cwd, details.branch)
       : null;
 
     return {
       isRepo: details.isRepo,
-      ...(hostingProvider ? { hostingProvider } : {}),
+      ...(sourceControlProvider ? { sourceControlProvider } : {}),
       hasPrimaryRemote: details.hasOriginRemote,
       isDefaultRef: details.isDefaultBranch,
       refName: details.branch,
@@ -733,7 +733,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       (yield* readConfigValueNullable(cwd, `remote.${preferredRemoteName}.url`)) ??
       (yield* readConfigValueNullable(cwd, "remote.origin.url"));
 
-    return remoteUrl ? detectGitHostingProviderFromRemoteUrl(remoteUrl) : null;
+    return remoteUrl ? detectSourceControlProviderFromGitRemoteUrl(remoteUrl) : null;
   });
 
   const resolveRemoteRepositoryContext = Effect.fn("resolveRemoteRepositoryContext")(function* (

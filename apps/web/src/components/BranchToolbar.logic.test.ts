@@ -120,7 +120,7 @@ describe("resolveEnvironmentOptionLabel", () => {
 });
 
 describe("resolveEffectiveEnvMode", () => {
-  it("treats draft threads already attached to a worktree as current-switchRef mode", () => {
+  it("treats draft threads already attached to a worktree as current-checkout mode", () => {
     expect(
       resolveEffectiveEnvMode({
         activeWorktreePath: "/repo/.t3/worktrees/feature-a",
@@ -143,24 +143,24 @@ describe("resolveEffectiveEnvMode", () => {
 
 describe("resolveEnvModeLabel", () => {
   it("uses explicit workspace labels", () => {
-    expect(resolveEnvModeLabel("local")).toBe("Current switchRef");
+    expect(resolveEnvModeLabel("local")).toBe("Current checkout");
     expect(resolveEnvModeLabel("worktree")).toBe("New worktree");
   });
 });
 
 describe("resolveCurrentWorkspaceLabel", () => {
-  it("describes the main repo switchRef when no worktree path is active", () => {
-    expect(resolveCurrentWorkspaceLabel(null)).toBe("Current switchRef");
+  it("describes the main repo checkout when no worktree path is active", () => {
+    expect(resolveCurrentWorkspaceLabel(null)).toBe("Current checkout");
   });
 
-  it("describes the active switchRef as a worktree when one is attached", () => {
+  it("describes the active checkout as a worktree when one is attached", () => {
     expect(resolveCurrentWorkspaceLabel("/repo/.t3/worktrees/feature-a")).toBe("Current worktree");
   });
 });
 
 describe("resolveLockedWorkspaceLabel", () => {
-  it("uses a shorter label for the main repo switchRef", () => {
-    expect(resolveLockedWorkspaceLabel(null)).toBe("Local switchRef");
+  it("uses a shorter label for the main repo checkout", () => {
+    expect(resolveLockedWorkspaceLabel(null)).toBe("Local checkout");
   });
 
   it("uses a shorter label for an attached worktree", () => {
@@ -343,7 +343,7 @@ describe("resolveBranchSelectionTarget", () => {
     });
   });
 
-  it("keeps switchRef in the current worktree for non-default refs", () => {
+  it("keeps checkout in the current worktree for non-default refs", () => {
     expect(
       resolveBranchSelectionTarget({
         activeProjectCwd: "/repo",
@@ -362,12 +362,12 @@ describe("resolveBranchSelectionTarget", () => {
 });
 
 describe("shouldIncludeBranchPickerItem", () => {
-  it("keeps the synthetic switchRef PR item visible for gh pr switchRef input", () => {
+  it("keeps the synthetic checkout PR item visible for gh pr checkout input", () => {
     expect(
       shouldIncludeBranchPickerItem({
         itemValue: "__checkout_pull_request__:1359",
-        normalizedQuery: "gh pr switchRef 1359",
-        createBranchItemValue: "__create_new_branch__:gh pr switchRef 1359",
+        normalizedQuery: "gh pr checkout 1359",
+        createBranchItemValue: "__create_new_branch__:gh pr checkout 1359",
         checkoutPullRequestItemValue: "__checkout_pull_request__:1359",
       }),
     ).toBe(true);
@@ -388,8 +388,8 @@ describe("shouldIncludeBranchPickerItem", () => {
     expect(
       shouldIncludeBranchPickerItem({
         itemValue: "main",
-        normalizedQuery: "gh pr switchRef 1359",
-        createBranchItemValue: "__create_new_branch__:gh pr switchRef 1359",
+        normalizedQuery: "gh pr checkout 1359",
+        createBranchItemValue: "__create_new_branch__:gh pr checkout 1359",
         checkoutPullRequestItemValue: "__checkout_pull_request__:1359",
       }),
     ).toBe(false);

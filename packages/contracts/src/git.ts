@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { SourceControlProviderError } from "./sourceControl.ts";
+import { SourceControlProviderError, SourceControlProviderInfo } from "./sourceControl.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
@@ -45,19 +45,6 @@ const VcsStatusChangeRequestState = Schema.Literals(["open", "closed", "merged"]
 const GitPullRequestReference = TrimmedNonEmptyStringSchema;
 const GitPullRequestState = Schema.Literals(["open", "closed", "merged"]);
 const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
-export const GitHostingProviderKind = Schema.Literals([
-  "github",
-  "gitlab",
-  "azure-devops",
-  "unknown",
-]);
-export type GitHostingProviderKind = typeof GitHostingProviderKind.Type;
-export const GitHostingProvider = Schema.Struct({
-  kind: GitHostingProviderKind,
-  name: TrimmedNonEmptyStringSchema,
-  baseUrl: Schema.String,
-});
-export type GitHostingProvider = typeof GitHostingProvider.Type;
 export const GitRunStackedActionToastRunAction = Schema.Struct({
   kind: GitStackedAction,
 });
@@ -208,7 +195,7 @@ const VcsStatusChangeRequest = Schema.Struct({
 
 const VcsStatusLocalShape = {
   isRepo: Schema.Boolean,
-  hostingProvider: Schema.optional(GitHostingProvider),
+  sourceControlProvider: Schema.optional(SourceControlProviderInfo),
   hasPrimaryRemote: Schema.Boolean,
   isDefaultRef: Schema.Boolean,
   refName: Schema.NullOr(TrimmedNonEmptyStringSchema),

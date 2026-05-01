@@ -1,6 +1,6 @@
 import type {
   VcsRef,
-  GitHostingProvider,
+  SourceControlProviderInfo,
   VcsStatusLocalResult,
   VcsStatusRemoteResult,
   VcsStatusResult,
@@ -229,9 +229,9 @@ function isAzureDevOpsHost(host: string): boolean {
   return host === "dev.azure.com" || host.endsWith(".visualstudio.com");
 }
 
-export function detectGitHostingProviderFromRemoteUrl(
+export function detectSourceControlProviderFromGitRemoteUrl(
   remoteUrl: string,
-): GitHostingProvider | null {
+): SourceControlProviderInfo | null {
   const host = parseGitRemoteHost(remoteUrl);
   if (!host) {
     return null;
@@ -297,7 +297,9 @@ function toRemoteStatusPart(status: VcsStatusResult): VcsStatusRemoteResult {
 function toLocalStatusPart(status: VcsStatusResult): VcsStatusLocalResult {
   return {
     isRepo: status.isRepo,
-    ...(status.hostingProvider ? { hostingProvider: status.hostingProvider } : {}),
+    ...(status.sourceControlProvider
+      ? { sourceControlProvider: status.sourceControlProvider }
+      : {}),
     hasPrimaryRemote: status.hasPrimaryRemote,
     isDefaultRef: status.isDefaultRef,
     refName: status.refName,

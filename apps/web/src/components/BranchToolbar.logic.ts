@@ -43,7 +43,7 @@ export function resolveEnvironmentOptionLabel(input: {
 }
 
 export function resolveEnvModeLabel(mode: EnvMode): string {
-  return mode === "worktree" ? "New worktree" : "Current switchRef";
+  return mode === "worktree" ? "New worktree" : "Current checkout";
 }
 
 export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null): string {
@@ -51,7 +51,7 @@ export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null):
 }
 
 export function resolveLockedWorkspaceLabel(activeWorktreePath: string | null): string {
-  return activeWorktreePath ? "Worktree" : "Local switchRef";
+  return activeWorktreePath ? "Worktree" : "Local checkout";
 }
 
 export function resolveEffectiveEnvMode(input: {
