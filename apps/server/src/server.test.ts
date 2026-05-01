@@ -58,7 +58,6 @@ import {
   CheckpointDiffQuery,
   type CheckpointDiffQueryShape,
 } from "./checkpointing/Services/CheckpointDiffQuery.ts";
-import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
 import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster.ts";
 import {
@@ -105,6 +104,7 @@ import {
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import { VcsDriver, type VcsDriverShape } from "./vcs/Services/VcsDriver.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 
@@ -194,16 +194,6 @@ const makeDefaultOrchestrationThreadShell = (
     ...overrides,
   };
 };
-
-const workspaceAndProjectServicesLayer = Layer.mergeAll(
-  WorkspacePathsLive,
-  WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
-  WorkspaceFileSystemLive.pipe(
-    Layer.provide(WorkspacePathsLive),
-    Layer.provide(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
-  ),
-  ProjectFaviconResolverLive,
-);
 
 const browserOtlpTracingLayer = Layer.mergeAll(
   FetchHttpClient.layer,
@@ -324,7 +314,7 @@ const buildAppUnderTest = (options?: {
     providerRegistry?: Partial<ProviderRegistryShape>;
     serverSettings?: Partial<ServerSettingsShape>;
     open?: Partial<OpenShape>;
-    gitCore?: Partial<GitCoreShape>;
+    vcsDriver?: Partial<VcsDriverShape>;
     gitManager?: Partial<GitManagerShape>;
     gitStatusBroadcaster?: Partial<GitStatusBroadcasterShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
@@ -372,22 +362,34 @@ const buildAppUnderTest = (options?: {
       ...options?.config,
     };
     const layerConfig = Layer.succeed(ServerConfig, config);
-    const gitCoreLayer = Layer.mock(GitCore)({
+    const vcsDriverLayer = Layer.mock(VcsDriver)({
+      capabilities: {
+        kind: "git",
+        supportsWorktrees: true,
+        supportsBookmarks: false,
+        supportsAtomicSnapshot: false,
+        supportsPushDefaultRemote: true,
+      },
+      detectRepository: () => Effect.succeed(null),
       isInsideWorkTree: () => Effect.succeed(false),
       listWorkspaceFiles: () =>
         Effect.succeed({
           paths: [],
           truncated: false,
+          freshness: {
+            source: "live-local",
+            observedAt: new Date(0).toISOString(),
+          },
         }),
       filterIgnoredPaths: (_cwd, relativePaths) => Effect.succeed(relativePaths),
-      ...options?.layers?.gitCore,
+      ...options?.layers?.vcsDriver,
     });
     const gitManagerLayer = Layer.mock(GitManager)({
       ...options?.layers?.gitManager,
     });
     const workspaceEntriesLayer = WorkspaceEntriesLive.pipe(
       Layer.provide(WorkspacePathsLive),
-      Layer.provideMerge(gitCoreLayer),
+      Layer.provideMerge(vcsDriverLayer),
     );
     const workspaceAndProjectServicesLayer = Layer.mergeAll(
       WorkspacePathsLive,
@@ -441,7 +443,6 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.open,
         }),
       ),
-      Layer.provide(gitCoreLayer),
       Layer.provide(gitManagerLayer),
       Layer.provideMerge(gitStatusBroadcasterLayer),
       Layer.provide(
@@ -2068,12 +2069,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* buildAppUnderTest({
         layers: {
-          gitCore: {
+          vcsDriver: {
             isInsideWorkTree: () => Effect.succeed(true),
             listWorkspaceFiles: () =>
               Effect.succeed({
                 paths: ["src/tracked.ts"],
                 truncated: false,
+                freshness: {
+                  source: "live-local",
+                  observedAt: new Date(0).toISOString(),
+                },
               }),
             filterIgnoredPaths: (_cwd, relativePaths) =>
               Effect.succeed(
@@ -2372,7 +2377,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 worktreePath: null,
               }),
           },
-          gitCore: {
+          vcsDriver: {
             pullCurrentBranch: () =>
               Effect.succeed({
                 status: "pulled",
@@ -2526,7 +2531,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       let statusCalls = 0;
       yield* buildAppUnderTest({
         layers: {
-          gitCore: {
+          vcsDriver: {
             pullCurrentBranch: () => Effect.fail(gitError),
           },
           gitManager: {
@@ -2680,7 +2685,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       yield* buildAppUnderTest({
         layers: {
-          gitCore: {
+          vcsDriver: {
             pullCurrentBranch: () =>
               Effect.succeed({
                 status: "pulled" as const,
@@ -3494,7 +3499,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             pr: null,
           }),
         );
-        const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
+        const createWorktree = vi.fn((_: Parameters<VcsDriverShape["createWorktree"]>[0]) =>
           Effect.succeed({
             worktree: {
               branch: "t3code/bootstrap-branch",
@@ -3515,7 +3520,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
         yield* buildAppUnderTest({
           layers: {
-            gitCore: {
+            vcsDriver: {
               createWorktree,
             },
             gitStatusBroadcaster: {
@@ -3619,7 +3624,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("records setup-script failures without aborting bootstrap turn start", () =>
     Effect.gen(function* () {
       const dispatchedCommands: Array<OrchestrationCommand> = [];
-      const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
+      const createWorktree = vi.fn((_: Parameters<VcsDriverShape["createWorktree"]>[0]) =>
         Effect.succeed({
           worktree: {
             branch: "t3code/bootstrap-branch",
@@ -3634,7 +3639,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* buildAppUnderTest({
         layers: {
-          gitCore: {
+          vcsDriver: {
             createWorktree,
           },
           orchestrationEngine: {
@@ -3712,7 +3717,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("does not misattribute setup activity dispatch failures as setup launch failures", () =>
     Effect.gen(function* () {
       const dispatchedCommands: Array<OrchestrationCommand> = [];
-      const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
+      const createWorktree = vi.fn((_: Parameters<VcsDriverShape["createWorktree"]>[0]) =>
         Effect.succeed({
           worktree: {
             branch: "t3code/bootstrap-branch",
@@ -3734,7 +3739,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* buildAppUnderTest({
         layers: {
-          gitCore: {
+          vcsDriver: {
             createWorktree,
           },
           orchestrationEngine: {
@@ -3830,13 +3835,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("cleans up created bootstrap threads when worktree creation defects", () =>
     Effect.gen(function* () {
       const dispatchedCommands: Array<OrchestrationCommand> = [];
-      const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
+      const createWorktree = vi.fn((_: Parameters<VcsDriverShape["createWorktree"]>[0]) =>
         Effect.die(new Error("worktree exploded")),
       );
 
       yield* buildAppUnderTest({
         layers: {
-          gitCore: {
+          vcsDriver: {
             createWorktree,
           },
           orchestrationEngine: {

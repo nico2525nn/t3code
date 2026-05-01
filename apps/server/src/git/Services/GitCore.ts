@@ -98,11 +98,6 @@ export interface GitRangeContext {
   diffPatch: string;
 }
 
-export interface GitListWorkspaceFilesResult {
-  readonly paths: ReadonlyArray<string>;
-  readonly truncated: boolean;
-}
-
 export interface GitRenameBranchInput {
   cwd: string;
   oldBranch: string;
@@ -204,26 +199,6 @@ export interface GitCoreShape {
     cwd: string,
     key: string,
   ) => Effect.Effect<string | null, GitCommandError>;
-
-  /**
-   * Determine whether the provided cwd is inside a git work tree.
-   */
-  readonly isInsideWorkTree: (cwd: string) => Effect.Effect<boolean, GitCommandError>;
-
-  /**
-   * List tracked and untracked workspace file paths relative to cwd.
-   */
-  readonly listWorkspaceFiles: (
-    cwd: string,
-  ) => Effect.Effect<GitListWorkspaceFilesResult, GitCommandError>;
-
-  /**
-   * Remove gitignored paths from a relative path list.
-   */
-  readonly filterIgnoredPaths: (
-    cwd: string,
-    relativePaths: ReadonlyArray<string>,
-  ) => Effect.Effect<ReadonlyArray<string>, GitCommandError>;
 
   /**
    * List local + remote branches and branch metadata.

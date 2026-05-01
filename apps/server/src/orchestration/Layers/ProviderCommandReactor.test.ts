@@ -33,7 +33,6 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
-import { GitCore, type GitCoreShape } from "../../git/Services/GitCore.ts";
 import {
   GitStatusBroadcaster,
   type GitStatusBroadcasterShape,
@@ -52,6 +51,7 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { VcsDriver, type VcsDriverShape } from "../../vcs/Services/VcsDriver.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
@@ -324,7 +324,7 @@ describe("ProviderCommandReactor", () => {
     const layer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
-      Layer.provideMerge(Layer.succeed(GitCore, { renameBranch } as unknown as GitCoreShape)),
+      Layer.provideMerge(Layer.succeed(VcsDriver, { renameBranch } as unknown as VcsDriverShape)),
       Layer.provideMerge(
         Layer.succeed(GitStatusBroadcaster, {
           getStatus: () => Effect.die("getStatus should not be called in this test"),

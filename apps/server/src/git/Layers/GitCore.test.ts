@@ -173,13 +173,6 @@ function buildLargeText(lineCount = 20_000): string {
     .concat("\n");
 }
 
-function splitNullSeparatedPaths(input: string): string[] {
-  return input
-    .split("\0")
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-}
-
 // ── Tests ──
 
 it.layer(TestLayer)("git integration", (it) => {
@@ -219,87 +212,6 @@ it.layer(TestLayer)("git integration", (it) => {
         expect(result.isRepo).toBe(true);
         expect(result.hasOriginRemote).toBe(false);
         expect(result.branches.length).toBeGreaterThanOrEqual(1);
-      }),
-    );
-  });
-
-  describe("workspace helpers", () => {
-    it.effect("filterIgnoredPaths chunks large path lists and preserves kept paths", () =>
-      Effect.gen(function* () {
-        const cwd = "/virtual/repo";
-        const relativePaths = Array.from({ length: 340 }, (_, index) => {
-          const prefix = index % 3 === 0 ? "ignored" : "kept";
-          return `${prefix}/segment-${String(index).padStart(4, "0")}/${"x".repeat(900)}.ts`;
-        });
-        const expectedPaths = relativePaths.filter(
-          (relativePath) => !relativePath.startsWith("ignored/"),
-        );
-
-        const seenChunks: string[][] = [];
-        const core = yield* makeIsolatedGitCore((input) => {
-          if (
-            input.args.join(" ") !==
-            "-c core.fsmonitor=false -c core.untrackedCache=false check-ignore --no-index -z --stdin"
-          ) {
-            return Effect.fail(
-              new GitCommandError({
-                operation: input.operation,
-                command: `git ${input.args.join(" ")}`,
-                cwd: input.cwd,
-                detail: "unexpected git command in chunking test",
-              }),
-            );
-          }
-
-          const chunkPaths = splitNullSeparatedPaths(input.stdin ?? "");
-          seenChunks.push(chunkPaths);
-          const ignoredPaths = chunkPaths.filter((relativePath) =>
-            relativePath.startsWith("ignored/"),
-          );
-
-          return Effect.succeed({
-            code: ignoredPaths.length > 0 ? 0 : 1,
-            stdout: ignoredPaths.length > 0 ? `${ignoredPaths.join("\0")}\0` : "",
-            stderr: "",
-            stdoutTruncated: false,
-            stderrTruncated: false,
-          });
-        });
-
-        const result = yield* core.filterIgnoredPaths(cwd, relativePaths);
-
-        expect(seenChunks.length).toBeGreaterThan(1);
-        expect(seenChunks.flat()).toEqual(relativePaths);
-        expect(result).toEqual(expectedPaths);
-      }),
-    );
-
-    it.effect("listWorkspaceFiles disables fsmonitor and untracked cache helpers", () =>
-      Effect.gen(function* () {
-        const core = yield* makeIsolatedGitCore((input) => {
-          expect(input.args).toEqual([
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "core.untrackedCache=false",
-            "ls-files",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "-z",
-          ]);
-          return Effect.succeed({
-            code: 0,
-            stdout: "src/index.ts\0README.md\0",
-            stderr: "",
-            stdoutTruncated: false,
-            stderrTruncated: false,
-          });
-        });
-
-        const result = yield* core.listWorkspaceFiles("/virtual/repo");
-        expect(result.paths).toEqual(["src/index.ts", "README.md"]);
-        expect(result.truncated).toBe(false);
       }),
     );
   });

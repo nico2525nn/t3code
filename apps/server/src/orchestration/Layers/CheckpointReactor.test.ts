@@ -24,8 +24,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CheckpointStoreLive } from "../../checkpointing/Layers/CheckpointStore.ts";
 import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
-import { GitCoreLive } from "../../git/Layers/GitCore.ts";
 import { GitStatusBroadcaster } from "../../git/Services/GitStatusBroadcaster.ts";
+import { GitVcsDriverLive } from "../../vcs/Layers/GitVcsDriver.ts";
+import { VcsProcessLive } from "../../vcs/Layers/VcsProcess.ts";
 import { RepositoryIdentityResolverLive } from "../../project/Layers/RepositoryIdentityResolver.ts";
 import { CheckpointReactorLive } from "./CheckpointReactor.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
@@ -306,10 +307,15 @@ describe("CheckpointReactor", () => {
       Layer.provideMerge(RuntimeReceiptBusLive),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(gitStatusBroadcasterLayer),
-      Layer.provideMerge(CheckpointStoreLive),
-      Layer.provideMerge(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
+      Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(GitVcsDriverLive))),
+      Layer.provideMerge(
+        WorkspaceEntriesLive.pipe(
+          Layer.provide(WorkspacePathsLive),
+          Layer.provideMerge(GitVcsDriverLive),
+        ),
+      ),
       Layer.provideMerge(WorkspacePathsLive),
-      Layer.provideMerge(GitCoreLive),
+      Layer.provideMerge(VcsProcessLive),
       Layer.provideMerge(ServerConfigLayer),
       Layer.provideMerge(NodeServices.layer),
     );
