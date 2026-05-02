@@ -265,6 +265,7 @@ const gitCommand = (
   args: ReadonlyArray<string>,
   options?: {
     readonly stdin?: string;
+    readonly env?: NodeJS.ProcessEnv;
     readonly allowNonZeroExit?: boolean;
     readonly timeoutMs?: number;
     readonly maxOutputBytes?: number;
@@ -277,6 +278,7 @@ const gitCommand = (
     args,
     cwd,
     ...(options?.stdin !== undefined ? { stdin: options.stdin } : {}),
+    ...(options?.env !== undefined ? { env: options.env } : {}),
     ...(options?.allowNonZeroExit !== undefined
       ? { allowNonZeroExit: options.allowNonZeroExit }
       : {}),
@@ -313,6 +315,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
   const execute: VcsDriverShape["execute"] = (input) =>
     gitCommand(process, input.operation, input.cwd, input.args, {
       ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
+      ...(input.env !== undefined ? { env: input.env } : {}),
       ...(input.allowNonZeroExit !== undefined ? { allowNonZeroExit: input.allowNonZeroExit } : {}),
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
       ...(input.maxOutputBytes !== undefined ? { maxOutputBytes: input.maxOutputBytes } : {}),

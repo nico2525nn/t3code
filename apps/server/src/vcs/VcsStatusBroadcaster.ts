@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+
 import {
   Duration,
   Effect,
@@ -65,6 +67,14 @@ export class VcsStatusBroadcaster extends Context.Service<
 
 function fingerprintStatusPart(status: unknown): string {
   return JSON.stringify(status);
+}
+
+function normalizeCwd(cwd: string): string {
+  try {
+    return realpathSync.native(cwd);
+  } catch {
+    return cwd;
+  }
 }
 
 export const layer = Layer.effect(
@@ -188,16 +198,18 @@ export const layer = Layer.effect(
     const getStatus: VcsStatusBroadcasterShape["getStatus"] = Effect.fn(
       "VcsStatusBroadcaster.getStatus",
     )(function* (input) {
+      const cwd = normalizeCwd(input.cwd);
       const [local, remote] = yield* Effect.all([
-        getOrLoadLocalStatus(input.cwd),
-        getOrLoadRemoteStatus(input.cwd),
+        getOrLoadLocalStatus(cwd),
+        getOrLoadRemoteStatus(cwd),
       ]);
       return mergeGitStatusParts(local, remote);
     });
 
     const refreshLocalStatus: VcsStatusBroadcasterShape["refreshLocalStatus"] = Effect.fn(
       "VcsStatusBroadcaster.refreshLocalStatus",
-    )(function* (cwd) {
+    )(function* (rawCwd) {
+      const cwd = normalizeCwd(rawCwd);
       yield* workflow.invalidateLocalStatus(cwd);
       const local = yield* workflow.localStatus({ cwd });
       return yield* updateCachedLocalStatus(cwd, local, { publish: true });
@@ -213,7 +225,8 @@ export const layer = Layer.effect(
 
     const refreshStatus: VcsStatusBroadcasterShape["refreshStatus"] = Effect.fn(
       "VcsStatusBroadcaster.refreshStatus",
-    )(function* (cwd) {
+    )(function* (rawCwd) {
+      const cwd = normalizeCwd(rawCwd);
       const [local, remote] = yield* Effect.all([
         refreshLocalStatus(cwd),
         refreshRemoteStatus(cwd),
@@ -299,12 +312,13 @@ export const layer = Layer.effect(
     const streamStatus: VcsStatusBroadcasterShape["streamStatus"] = (input) =>
       Stream.unwrap(
         Effect.gen(function* () {
+          const cwd = normalizeCwd(input.cwd);
           const subscription = yield* PubSub.subscribe(changesPubSub);
-          const initialLocal = yield* getOrLoadLocalStatus(input.cwd);
-          const initialRemote = (yield* getCachedStatus(input.cwd))?.remote?.value ?? null;
-          yield* retainRemotePoller(input.cwd);
+          const initialLocal = yield* getOrLoadLocalStatus(cwd);
+          const initialRemote = (yield* getCachedStatus(cwd))?.remote?.value ?? null;
+          yield* retainRemotePoller(cwd);
 
-          const release = releaseRemotePoller(input.cwd).pipe(Effect.ignore, Effect.asVoid);
+          const release = releaseRemotePoller(cwd).pipe(Effect.ignore, Effect.asVoid);
 
           return Stream.concat(
             Stream.make({
@@ -313,7 +327,7 @@ export const layer = Layer.effect(
               remote: initialRemote,
             }),
             Stream.fromSubscription(subscription).pipe(
-              Stream.filter((event) => event.cwd === input.cwd),
+              Stream.filter((event) => event.cwd === cwd),
               Stream.map((event) => event.event),
             ),
           ).pipe(Stream.ensuring(release));
