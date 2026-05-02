@@ -1097,7 +1097,9 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           Effect.provide(
             makeWsRpcLayer(session.sessionId).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
-              Layer.provide(SourceControlDiscoveryLayer.layer.pipe(Layer.provide(VcsProcess.layer))),
+              Layer.provide(
+                SourceControlDiscoveryLayer.layer.pipe(Layer.provide(VcsProcess.layer)),
+              ),
             ),
           ),
         );
