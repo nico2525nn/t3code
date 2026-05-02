@@ -26,7 +26,7 @@ import {
   type VcsStatusResult,
 } from "@t3tools/contracts";
 
-import { GitManager, type GitRunStackedActionOptions } from "./Services/GitManager.ts";
+import { GitManager, type GitRunStackedActionOptions } from "./GitManager.ts";
 import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
 import { VcsDriverRegistry } from "../vcs/VcsDriverRegistry.ts";
 

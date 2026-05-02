@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs";
 import {
   Array as Arr,
   Cache,
+  Context,
   DateTime,
   Duration,
   Effect,
@@ -19,10 +20,17 @@ import {
   GitActionProgressEvent,
   GitActionProgressPhase,
   GitCommandError,
+  GitPreparePullRequestThreadInput,
+  GitPreparePullRequestThreadResult,
+  GitPullRequestRefInput,
+  GitResolvePullRequestResult,
+  GitRunStackedActionInput,
   GitRunStackedActionResult,
   GitStackedAction,
+  VcsStatusInput,
   type VcsStatusLocalResult,
   type VcsStatusRemoteResult,
+  VcsStatusResult,
   ModelSelection,
 } from "@t3tools/contracts";
 import {
@@ -34,20 +42,52 @@ import {
 } from "@t3tools/shared/git";
 
 import { GitManagerError } from "@t3tools/contracts";
-import {
-  GitManager,
-  type GitActionProgressReporter,
-  type GitManagerShape,
-  type GitRunStackedActionOptions,
-} from "../Services/GitManager.ts";
-import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
-import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScriptRunner.ts";
-import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
+import { TextGeneration } from "../textGeneration/TextGeneration.ts";
+import { ProjectSetupScriptRunner } from "../project/Services/ProjectSetupScriptRunner.ts";
+import { extractBranchNameFromRemoteRef } from "./remoteRefs.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
-import { GitVcsDriver, type GitStatusDetails } from "../../vcs/GitVcsDriver.ts";
-import { SourceControlProviderRegistry } from "../../sourceControl/SourceControlProviderRegistry.ts";
+import { GitVcsDriver, type GitStatusDetails } from "../vcs/GitVcsDriver.ts";
+import { SourceControlProviderRegistry } from "../sourceControl/SourceControlProviderRegistry.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
+
+export interface GitActionProgressReporter {
+  readonly publish: (event: GitActionProgressEvent) => Effect.Effect<void, never>;
+}
+
+export interface GitRunStackedActionOptions {
+  readonly actionId?: string;
+  readonly progressReporter?: GitActionProgressReporter;
+}
+
+export interface GitManagerShape {
+  readonly status: (
+    input: VcsStatusInput,
+  ) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
+  readonly localStatus: (
+    input: VcsStatusInput,
+  ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
+  readonly remoteStatus: (
+    input: VcsStatusInput,
+  ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;
+  readonly invalidateLocalStatus: (cwd: string) => Effect.Effect<void, never>;
+  readonly invalidateRemoteStatus: (cwd: string) => Effect.Effect<void, never>;
+  readonly invalidateStatus: (cwd: string) => Effect.Effect<void, never>;
+  readonly resolvePullRequest: (
+    input: GitPullRequestRefInput,
+  ) => Effect.Effect<GitResolvePullRequestResult, GitManagerServiceError>;
+  readonly preparePullRequestThread: (
+    input: GitPreparePullRequestThreadInput,
+  ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
+  readonly runStackedAction: (
+    input: GitRunStackedActionInput,
+    options?: GitRunStackedActionOptions,
+  ) => Effect.Effect<GitRunStackedActionResult, GitManagerServiceError>;
+}
+
+export class GitManager extends Context.Service<GitManager, GitManagerShape>()(
+  "t3/git/GitManager",
+) {}
 
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;
@@ -1707,4 +1747,4 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   } satisfies GitManagerShape;
 });
 
-export const GitManagerLive = Layer.effect(GitManager, makeGitManager());
+export const layer = Layer.effect(GitManager, makeGitManager());

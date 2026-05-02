@@ -25,11 +25,11 @@ import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReap
 import { OpenCodeRuntimeLive } from "./provider/opencodeRuntime.ts";
 import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQuery.ts";
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore.ts";
-import { GitHubCliLive } from "./git/Layers/GitHubCli.ts";
+import * as GitHubCli from "./sourceControl/GitHubCli.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/ProviderInstanceRegistryHydration.ts";
 import { TerminalManagerLive } from "./terminal/Layers/Manager.ts";
-import { GitManagerLive } from "./git/Layers/GitManager.ts";
+import * as GitManager from "./git/GitManager.ts";
 import { KeybindingsLive } from "./keybindings.ts";
 import { ServerRuntimeStartup, ServerRuntimeStartupLive } from "./serverRuntimeStartup.ts";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor.ts";
@@ -155,10 +155,10 @@ const ProviderLayerLive = ProviderServiceLive.pipe(
 
 const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
 
-const GitManagerLayerLive = GitManagerLive.pipe(
+const GitManagerLayerLive = GitManager.layer.pipe(
   Layer.provideMerge(ProjectSetupScriptRunnerLive),
   Layer.provideMerge(GitVcsDriver.layer),
-  Layer.provideMerge(SourceControlProviderRegistry.layer.pipe(Layer.provide(GitHubCliLive))),
+  Layer.provideMerge(SourceControlProviderRegistry.layer.pipe(Layer.provide(GitHubCli.layer))),
   Layer.provideMerge(TextGeneration.layer),
 );
 

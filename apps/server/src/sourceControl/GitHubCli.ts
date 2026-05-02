@@ -1,20 +1,80 @@
-import { Effect, Layer, Result, Schema, SchemaIssue } from "effect";
-import { TrimmedNonEmptyString } from "@t3tools/contracts";
+import { Context, Effect, Layer, Result, Schema, SchemaIssue } from "effect";
 
-import { runProcess } from "../../processRunner.ts";
-import { GitHubCliError } from "@t3tools/contracts";
-import {
-  GitHubCli,
-  type GitHubRepositoryCloneUrls,
-  type GitHubCliShape,
-} from "../Services/GitHubCli.ts";
+import { GitHubCliError, TrimmedNonEmptyString } from "@t3tools/contracts";
+
+import type { ProcessRunResult } from "../processRunner.ts";
+import { runProcess } from "../processRunner.ts";
 import {
   decodeGitHubPullRequestJson,
   decodeGitHubPullRequestListJson,
   formatGitHubJsonDecodeError,
-} from "../githubPullRequests.ts";
+} from "../git/githubPullRequests.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+
+export interface GitHubPullRequestSummary {
+  readonly number: number;
+  readonly title: string;
+  readonly url: string;
+  readonly baseRefName: string;
+  readonly headRefName: string;
+  readonly state?: "open" | "closed" | "merged";
+  readonly isCrossRepository?: boolean;
+  readonly headRepositoryNameWithOwner?: string | null;
+  readonly headRepositoryOwnerLogin?: string | null;
+}
+
+export interface GitHubRepositoryCloneUrls {
+  readonly nameWithOwner: string;
+  readonly url: string;
+  readonly sshUrl: string;
+}
+
+export interface GitHubCliShape {
+  readonly execute: (input: {
+    readonly cwd: string;
+    readonly args: ReadonlyArray<string>;
+    readonly timeoutMs?: number;
+  }) => Effect.Effect<ProcessRunResult, GitHubCliError>;
+
+  readonly listOpenPullRequests: (input: {
+    readonly cwd: string;
+    readonly headSelector: string;
+    readonly limit?: number;
+  }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
+
+  readonly getPullRequest: (input: {
+    readonly cwd: string;
+    readonly reference: string;
+  }) => Effect.Effect<GitHubPullRequestSummary, GitHubCliError>;
+
+  readonly getRepositoryCloneUrls: (input: {
+    readonly cwd: string;
+    readonly repository: string;
+  }) => Effect.Effect<GitHubRepositoryCloneUrls, GitHubCliError>;
+
+  readonly createPullRequest: (input: {
+    readonly cwd: string;
+    readonly baseBranch: string;
+    readonly headSelector: string;
+    readonly title: string;
+    readonly bodyFile: string;
+  }) => Effect.Effect<void, GitHubCliError>;
+
+  readonly getDefaultBranch: (input: {
+    readonly cwd: string;
+  }) => Effect.Effect<string | null, GitHubCliError>;
+
+  readonly checkoutPullRequest: (input: {
+    readonly cwd: string;
+    readonly reference: string;
+    readonly force?: boolean;
+  }) => Effect.Effect<void, GitHubCliError>;
+}
+
+export class GitHubCli extends Context.Service<GitHubCli, GitHubCliShape>()(
+  "t3/source-control/GitHubCli",
+) {}
 
 function normalizeGitHubCliError(operation: "execute" | "stdout", error: unknown): GitHubCliError {
   if (error instanceof Error) {
@@ -101,7 +161,7 @@ function decodeGitHubJson<S extends Schema.Top>(
   );
 }
 
-const makeGitHubCli = Effect.sync(() => {
+export const make = Effect.sync(() => {
   const execute: GitHubCliShape["execute"] = (input) =>
     Effect.tryPromise({
       try: () =>
@@ -112,7 +172,7 @@ const makeGitHubCli = Effect.sync(() => {
       catch: (error) => normalizeGitHubCliError("execute", error),
     });
 
-  const service = {
+  return GitHubCli.of({
     execute,
     listOpenPullRequests: (input) =>
       execute({
@@ -232,9 +292,7 @@ const makeGitHubCli = Effect.sync(() => {
         cwd: input.cwd,
         args: ["pr", "checkout", input.reference, ...(input.force ? ["--force"] : [])],
       }).pipe(Effect.asVoid),
-  } satisfies GitHubCliShape;
-
-  return service;
+  });
 });
 
-export const GitHubCliLive = Layer.effect(GitHubCli, makeGitHubCli);
+export const layer = Layer.effect(GitHubCli, make);

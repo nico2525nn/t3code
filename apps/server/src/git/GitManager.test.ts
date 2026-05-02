@@ -14,25 +14,25 @@ import type {
 } from "@t3tools/contracts";
 
 import { GitCommandError, GitHubCliError, TextGenerationError } from "@t3tools/contracts";
-import { type GitManagerShape } from "../Services/GitManager.ts";
+import { type GitManagerShape } from "./GitManager.ts";
 import {
   type GitHubCliShape,
   type GitHubPullRequestSummary,
   GitHubCli,
-} from "../Services/GitHubCli.ts";
-import { type TextGenerationShape, TextGeneration } from "../../textGeneration/TextGeneration.ts";
-import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
-import * as VcsProcess from "../../vcs/VcsProcess.ts";
-import * as GitHubSourceControlProvider from "../../sourceControl/GitHubSourceControlProvider.ts";
-import * as SourceControlProviderRegistry from "../../sourceControl/SourceControlProviderRegistry.ts";
+} from "../sourceControl/GitHubCli.ts";
+import { type TextGenerationShape, TextGeneration } from "../textGeneration/TextGeneration.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as GitHubSourceControlProvider from "../sourceControl/GitHubSourceControlProvider.ts";
+import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import { makeGitManager } from "./GitManager.ts";
-import { ServerConfig } from "../../config.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
+import { ServerConfig } from "../config.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import {
   ProjectSetupScriptRunner,
   type ProjectSetupScriptRunnerInput,
   type ProjectSetupScriptRunnerShape,
-} from "../../project/Services/ProjectSetupScriptRunner.ts";
+} from "../project/Services/ProjectSetupScriptRunner.ts";
 
 interface FakeGhScenario {
   prListSequence?: string[];
