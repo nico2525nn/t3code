@@ -1,14 +1,4 @@
-import {
-  Duration,
-  Context,
-  Effect,
-  Layer,
-  Option,
-  PlatformError,
-  Sink,
-  Stream,
-  type Scope,
-} from "effect";
+import { Duration, Context, Effect, Layer, Option, PlatformError, Sink, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
@@ -55,9 +45,10 @@ export interface VcsProcessHandle {
 }
 
 export interface VcsProcessShape {
-  readonly spawn: (
+  readonly withProcess: <A, E, R>(
     input: VcsProcessInput,
-  ) => Effect.Effect<VcsProcessHandle, VcsError, Scope.Scope>;
+    use: (handle: VcsProcessHandle) => Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E | VcsError, R>;
   readonly run: (input: VcsProcessInput) => Effect.Effect<VcsProcessOutput, VcsError>;
 }
 
@@ -161,6 +152,7 @@ export const make = Effect.fn("makeVcsProcess")(function* () {
             }),
         ),
       );
+    yield* Effect.addFinalizer(() => child.kill().pipe(Effect.ignore));
 
     const mapStreamError = (streamName: "stdout" | "stderr") =>
       Stream.mapError((cause: PlatformError.PlatformError) =>
@@ -187,36 +179,39 @@ export const make = Effect.fn("makeVcsProcess")(function* () {
     } satisfies VcsProcessHandle;
   });
 
+  const withProcess: VcsProcessShape["withProcess"] = (input, use) =>
+    Effect.scoped(spawn(input).pipe(Effect.flatMap(use)));
+
   const run = Effect.fn("VcsProcess.run")(function* (input: VcsProcessInput) {
     const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const maxOutputBytes = input.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
     const label = commandLabel(input.command, input.args);
 
     const runProcess = Effect.gen(function* () {
-      const child = yield* spawn(input);
-
-      const [stdout, stderr, exitCode] = yield* Effect.all(
-        [
-          collectText({
-            operation: input.operation,
-            command: label,
-            cwd: input.cwd,
-            stream: child.stdout,
-            maxOutputBytes,
-            truncateOutputAtMaxBytes: input.truncateOutputAtMaxBytes ?? false,
-          }),
-          collectText({
-            operation: input.operation,
-            command: label,
-            cwd: input.cwd,
-            stream: child.stderr,
-            maxOutputBytes,
-            truncateOutputAtMaxBytes: input.truncateOutputAtMaxBytes ?? false,
-          }),
-          child.exitCode,
-          input.stdin === undefined ? Effect.void : child.writeStdin(input.stdin),
-        ],
-        { concurrency: "unbounded" },
+      const [stdout, stderr, exitCode] = yield* withProcess(input, (child) =>
+        Effect.all(
+          [
+            collectText({
+              operation: input.operation,
+              command: label,
+              cwd: input.cwd,
+              stream: child.stdout,
+              maxOutputBytes,
+              truncateOutputAtMaxBytes: input.truncateOutputAtMaxBytes ?? false,
+            }),
+            collectText({
+              operation: input.operation,
+              command: label,
+              cwd: input.cwd,
+              stream: child.stderr,
+              maxOutputBytes,
+              truncateOutputAtMaxBytes: input.truncateOutputAtMaxBytes ?? false,
+            }),
+            child.exitCode,
+            input.stdin === undefined ? Effect.void : child.writeStdin(input.stdin),
+          ],
+          { concurrency: "unbounded" },
+        ),
       ).pipe(Effect.map(([stdout, stderr, exitCode]) => [stdout, stderr, exitCode] as const));
 
       if (!input.allowNonZeroExit && exitCode !== 0) {
@@ -258,7 +253,7 @@ export const make = Effect.fn("makeVcsProcess")(function* () {
     );
   });
 
-  return VcsProcess.of({ spawn, run });
+  return VcsProcess.of({ withProcess, run });
 });
 
 export const layer = Layer.effect(VcsProcess, make());
