@@ -2,22 +2,21 @@ import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { afterEach, expect, vi } from "vitest";
 
-vi.mock("../../processRunner", () => ({
+vi.mock("../processRunner", () => ({
   runProcess: vi.fn(),
 }));
 
-import { runProcess } from "../../processRunner.ts";
-import { GitHubCli } from "../Services/GitHubCli.ts";
-import { GitHubCliLive } from "./GitHubCli.ts";
+import { runProcess } from "../processRunner.ts";
+import * as GitHubCli from "./GitHubCli.ts";
 
 const mockedRunProcess = vi.mocked(runProcess);
-const layer = it.layer(GitHubCliLive);
+const layer = it.layer(GitHubCli.layer);
 
 afterEach(() => {
   mockedRunProcess.mockReset();
 });
 
-layer("GitHubCliLive", (it) => {
+layer("GitHubCli.layer", (it) => {
   it.effect("parses pull request view output", () =>
     Effect.gen(function* () {
       mockedRunProcess.mockResolvedValueOnce({
@@ -44,7 +43,7 @@ layer("GitHubCliLive", (it) => {
       });
 
       const result = yield* Effect.gen(function* () {
-        const gh = yield* GitHubCli;
+        const gh = yield* GitHubCli.GitHubCli;
         return yield* gh.getPullRequest({
           cwd: "/repo",
           reference: "#42",
@@ -102,7 +101,7 @@ layer("GitHubCliLive", (it) => {
       });
 
       const result = yield* Effect.gen(function* () {
-        const gh = yield* GitHubCli;
+        const gh = yield* GitHubCli.GitHubCli;
         return yield* gh.getPullRequest({
           cwd: "/repo",
           reference: "#42",
@@ -155,7 +154,7 @@ layer("GitHubCliLive", (it) => {
       });
 
       const result = yield* Effect.gen(function* () {
-        const gh = yield* GitHubCli;
+        const gh = yield* GitHubCli.GitHubCli;
         return yield* gh.listOpenPullRequests({
           cwd: "/repo",
           headSelector: "feature/pr-list",
@@ -190,7 +189,7 @@ layer("GitHubCliLive", (it) => {
       });
 
       const result = yield* Effect.gen(function* () {
-        const gh = yield* GitHubCli;
+        const gh = yield* GitHubCli.GitHubCli;
         return yield* gh.getRepositoryCloneUrls({
           cwd: "/repo",
           repository: "octocat/codething-mvp",
@@ -214,7 +213,7 @@ layer("GitHubCliLive", (it) => {
       );
 
       const error = yield* Effect.gen(function* () {
-        const gh = yield* GitHubCli;
+        const gh = yield* GitHubCli.GitHubCli;
         return yield* gh.getPullRequest({
           cwd: "/repo",
           reference: "4888",

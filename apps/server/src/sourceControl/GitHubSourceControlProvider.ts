@@ -6,7 +6,7 @@ import {
   type GitHubCliError,
 } from "@t3tools/contracts";
 
-import { GitHubCli, type GitHubPullRequestSummary } from "../git/Services/GitHubCli.ts";
+import { GitHubCli, type GitHubPullRequestSummary } from "./GitHubCli.ts";
 import { decodeGitHubPullRequestListJson } from "../git/githubPullRequests.ts";
 import { SourceControlProvider, type SourceControlProviderShape } from "./SourceControlProvider.ts";
 

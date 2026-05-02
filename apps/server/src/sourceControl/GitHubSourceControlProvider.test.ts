@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { DateTime, Effect, Layer, Option } from "effect";
 
-import { GitHubCli, type GitHubCliShape } from "../git/Services/GitHubCli.ts";
+import { GitHubCli, type GitHubCliShape } from "./GitHubCli.ts";
 import * as GitHubSourceControlProvider from "./GitHubSourceControlProvider.ts";
 
 const processResult = (stdout: string) => ({
