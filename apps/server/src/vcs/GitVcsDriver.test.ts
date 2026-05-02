@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Layer, Path, PlatformError } from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
 import { assert, it } from "@effect/vitest";
 
 import { GitCommandError } from "@t3tools/contracts";
@@ -85,7 +86,7 @@ it.effect("GitVcsDriver forwards execute env to the VCS process", () => {
           Effect.sync(() => {
             observedEnv = input.env;
             return {
-              exitCode: 0,
+              exitCode: ChildProcessSpawner.ExitCode(0),
               stdout: "",
               stderr: "",
               stdoutTruncated: false,

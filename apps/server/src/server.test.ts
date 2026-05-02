@@ -39,6 +39,7 @@ import {
   Path,
   Stream,
 } from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
 import {
   FetchHttpClient,
   HttpBody,
@@ -384,7 +385,7 @@ const buildAppUnderTest = (options?: {
       },
       execute: () =>
         Effect.succeed({
-          exitCode: 0,
+          exitCode: ChildProcessSpawner.ExitCode(0),
           stdout: "",
           stderr: "",
           stdoutTruncated: false,

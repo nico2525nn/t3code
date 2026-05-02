@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
 import { describe } from "vitest";
 
 import { VcsProcess, type VcsProcessInput, type VcsProcessOutput } from "./VcsProcess.ts";
@@ -7,7 +8,7 @@ import { VcsProjectConfig } from "./VcsProjectConfig.ts";
 import { VcsDriverRegistry, make as makeVcsDriverRegistry } from "./VcsDriverRegistry.ts";
 
 const processOutput = (stdout: string): VcsProcessOutput => ({
-  exitCode: 0,
+  exitCode: ChildProcessSpawner.ExitCode(0),
   stdout,
   stderr: "",
   stdoutTruncated: false,

@@ -448,7 +448,7 @@ const createTrace2Monitor = Effect.fn("createTrace2Monitor")(function* (
 
     if (event === "child_exit") {
       hookStartByChildKey.delete(childKey);
-      const code = traceRecord.success.code;
+      const code = traceRecord.success.exitCode;
       const exitCode = typeof code === "number" && Number.isInteger(code) ? code : null;
       const now = yield* DateTime.now;
       const durationMs = started
@@ -666,7 +666,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               input.progress?.onStderrLine,
             ),
             child.exitCode.pipe(
-              Effect.map((value) => Number(value)),
               Effect.mapError(toGitCommandError(commandInput, "failed to report exit code.")),
             ),
             input.stdin === undefined
@@ -693,7 +692,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         }
 
         return {
-          code: exitCode,
+          exitCode,
           stdout: stdout.text,
           stderr: stderr.text,
           stdoutTruncated: stdout.truncated,
@@ -761,7 +760,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ...(options.progress ? { progress: options.progress } : {}),
     }).pipe(
       Effect.flatMap((result) => {
-        if (options.allowNonZeroExit || result.code === 0) {
+        if (options.allowNonZeroExit || result.exitCode === 0) {
           return Effect.succeed(result);
         }
         const stderr = result.stderr.trim();
@@ -778,7 +777,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             operation,
             cwd,
             args,
-            `${commandLabel(args)} failed: code=${result.code ?? "null"}`,
+            `${commandLabel(args)} failed: code=${result.exitCode ?? "null"}`,
           ),
         );
       }),
@@ -823,7 +822,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         allowNonZeroExit: true,
         timeoutMs: 5_000,
       },
-    ).pipe(Effect.map((result) => result.code === 0));
+    ).pipe(Effect.map((result) => result.exitCode === 0));
 
   const resolveAvailableBranchName = Effect.fn("resolveAvailableBranchName")(function* (
     cwd: string,
@@ -939,7 +938,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       { allowNonZeroExit: true },
     ).pipe(
       Effect.map((result) => {
-        if (result.code !== 0) {
+        if (result.exitCode !== 0) {
           return null;
         }
         return parseDefaultBranchFromRemoteHeadRef(result.stdout, remoteName);
@@ -958,12 +957,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       {
         allowNonZeroExit: true,
       },
-    ).pipe(Effect.map((result) => result.code === 0));
+    ).pipe(Effect.map((result) => result.exitCode === 0));
 
   const originRemoteExists = (cwd: string): Effect.Effect<boolean, GitCommandError> =>
     executeGit("GitVcsDriver.originRemoteExists", cwd, ["remote", "get-url", "origin"], {
       allowNonZeroExit: true,
-    }).pipe(Effect.map((result) => result.code === 0));
+    }).pipe(Effect.map((result) => result.exitCode === 0));
 
   const listRemoteNames = (cwd: string): Effect.Effect<ReadonlyArray<string>, GitCommandError> =>
     runGitStdout("GitVcsDriver.listRemoteNames", cwd, ["remote"]).pipe(
@@ -1115,7 +1114,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ["rev-list", "--count", `${baseRef}..HEAD`],
       { allowNonZeroExit: true },
     );
-    if (result.code !== 0) {
+    if (result.exitCode !== 0) {
       return 0;
     }
 
@@ -1140,7 +1139,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     );
 
     const branchLastCommit = new Map<string, number>();
-    if (branchRecency.code !== 0) {
+    if (branchRecency.exitCode !== 0) {
       return branchLastCommit;
     }
 
@@ -1173,7 +1172,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       return NON_REPOSITORY_STATUS_DETAILS;
     }
 
-    if (statusResult.code !== 0) {
+    if (statusResult.exitCode !== 0) {
       const stderr = statusResult.stderr.trim();
       return yield* createGitCommandError(
         "GitVcsDriver.statusDetails.status",
@@ -1206,7 +1205,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       );
     const statusStdout = statusResult.stdout;
     const defaultBranch =
-      defaultRefResult.code === 0
+      defaultRefResult.exitCode === 0
         ? defaultRefResult.stdout.trim().replace(/^refs\/remotes\/origin\//, "")
         : null;
 
@@ -1614,7 +1613,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     ).pipe(
       Effect.catchIf(isMissingGitCwdError, () =>
         Effect.succeed({
-          code: 128,
+          exitCode: ChildProcessSpawner.ExitCode(128),
           stdout: "",
           stderr: "fatal: not a git repository",
           stdoutTruncated: false,
@@ -1623,7 +1622,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ),
     );
 
-    if (localBranchResult.code !== 0) {
+    if (localBranchResult.exitCode !== 0) {
       const stderr = localBranchResult.stderr.trim();
       if (stderr.toLowerCase().includes("not a git repository")) {
         return {
@@ -1654,7 +1653,15 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       Effect.catch((error) =>
         Effect.logWarning(
           `GitVcsDriver.listRefs: remote refName lookup failed for ${input.cwd}: ${error.message}. Falling back to an empty remote refName list.`,
-        ).pipe(Effect.as({ code: 1, stdout: "", stderr: "" })),
+        ).pipe(
+          Effect.as({
+            exitCode: ChildProcessSpawner.ExitCode(1),
+            stdout: "",
+            stderr: "",
+            stdoutTruncated: false,
+            stderrTruncated: false,
+          } satisfies ExecuteGitResult),
+        ),
       ),
     );
 
@@ -1670,7 +1677,15 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       Effect.catch((error) =>
         Effect.logWarning(
           `GitVcsDriver.listRefs: remote name lookup failed for ${input.cwd}: ${error.message}. Falling back to an empty remote name list.`,
-        ).pipe(Effect.as({ code: 1, stdout: "", stderr: "" })),
+        ).pipe(
+          Effect.as({
+            exitCode: ChildProcessSpawner.ExitCode(1),
+            stdout: "",
+            stderr: "",
+            stdoutTruncated: false,
+            stderrTruncated: false,
+          } satisfies ExecuteGitResult),
+        ),
       ),
     );
 
@@ -1703,25 +1718,25 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       );
 
     const remoteNames =
-      remoteNamesResult.code === 0 ? parseRemoteNames(remoteNamesResult.stdout) : [];
-    if (remoteBranchResult.code !== 0 && remoteBranchResult.stderr.trim().length > 0) {
+      remoteNamesResult.exitCode === 0 ? parseRemoteNames(remoteNamesResult.stdout) : [];
+    if (remoteBranchResult.exitCode !== 0 && remoteBranchResult.stderr.trim().length > 0) {
       yield* Effect.logWarning(
-        `GitVcsDriver.listRefs: remote refName lookup returned code ${remoteBranchResult.code} for ${input.cwd}: ${remoteBranchResult.stderr.trim()}. Falling back to an empty remote refName list.`,
+        `GitVcsDriver.listRefs: remote refName lookup returned code ${remoteBranchResult.exitCode} for ${input.cwd}: ${remoteBranchResult.stderr.trim()}. Falling back to an empty remote refName list.`,
       );
     }
-    if (remoteNamesResult.code !== 0 && remoteNamesResult.stderr.trim().length > 0) {
+    if (remoteNamesResult.exitCode !== 0 && remoteNamesResult.stderr.trim().length > 0) {
       yield* Effect.logWarning(
-        `GitVcsDriver.listRefs: remote name lookup returned code ${remoteNamesResult.code} for ${input.cwd}: ${remoteNamesResult.stderr.trim()}. Falling back to an empty remote name list.`,
+        `GitVcsDriver.listRefs: remote name lookup returned code ${remoteNamesResult.exitCode} for ${input.cwd}: ${remoteNamesResult.stderr.trim()}. Falling back to an empty remote name list.`,
       );
     }
 
     const defaultBranch =
-      defaultRef.code === 0
+      defaultRef.exitCode === 0
         ? defaultRef.stdout.trim().replace(/^refs\/remotes\/origin\//, "")
         : null;
 
     const worktreeMap = new Map<string, string>();
-    if (worktreeList.code === 0) {
+    if (worktreeList.exitCode === 0) {
       let currentPath: string | null = null;
       for (const line of worktreeList.stdout.split("\n")) {
         if (line.startsWith("worktree ")) {
@@ -1762,7 +1777,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       });
 
     const remoteBranches =
-      remoteBranchResult.code === 0
+      remoteBranchResult.exitCode === 0
         ? remoteBranchResult.stdout
             .split("\n")
             .map(parseBranchLine)
@@ -1943,7 +1958,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             timeoutMs: 5_000,
             allowNonZeroExit: true,
           },
-        ).pipe(Effect.map((result) => result.code === 0)),
+        ).pipe(Effect.map((result) => result.exitCode === 0)),
         executeGit(
           "GitVcsDriver.switchRef.remoteExists",
           input.cwd,
@@ -1952,7 +1967,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             timeoutMs: 5_000,
             allowNonZeroExit: true,
           },
-        ).pipe(Effect.map((result) => result.code === 0)),
+        ).pipe(Effect.map((result) => result.exitCode === 0)),
       ],
       { concurrency: "unbounded" },
     );
@@ -1968,7 +1983,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           },
         ).pipe(
           Effect.map((result) =>
-            result.code === 0
+            result.exitCode === 0
               ? parseTrackingBranchByUpstreamRef(result.stdout, input.refName)
               : null,
           ),
@@ -1986,7 +2001,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               timeoutMs: 5_000,
               allowNonZeroExit: true,
             },
-          ).pipe(Effect.map((result) => result.code === 0))
+          ).pipe(Effect.map((result) => result.exitCode === 0))
         : false;
 
     const checkoutArgs = localInputExists
