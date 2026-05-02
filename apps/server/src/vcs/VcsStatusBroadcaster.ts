@@ -201,13 +201,19 @@ export const layer = Layer.effect(
       return mergeGitStatusParts(local, remote);
     });
 
+    const refreshLocalStatusCore = Effect.fn("VcsStatusBroadcaster.refreshLocalStatusCore")(
+      function* (cwd: string) {
+        yield* workflow.invalidateLocalStatus(cwd);
+        const local = yield* workflow.localStatus({ cwd });
+        return yield* updateCachedLocalStatus(cwd, local, { publish: true });
+      },
+    );
+
     const refreshLocalStatus: VcsStatusBroadcasterShape["refreshLocalStatus"] = Effect.fn(
       "VcsStatusBroadcaster.refreshLocalStatus",
     )(function* (rawCwd) {
       const cwd = yield* normalizeCwd(rawCwd);
-      yield* workflow.invalidateLocalStatus(cwd);
-      const local = yield* workflow.localStatus({ cwd });
-      return yield* updateCachedLocalStatus(cwd, local, { publish: true });
+      return yield* refreshLocalStatusCore(cwd);
     });
 
     const refreshRemoteStatus = Effect.fn("VcsStatusBroadcaster.refreshRemoteStatus")(function* (
@@ -223,7 +229,7 @@ export const layer = Layer.effect(
     )(function* (rawCwd) {
       const cwd = yield* normalizeCwd(rawCwd);
       const [local, remote] = yield* Effect.all([
-        refreshLocalStatus(cwd),
+        refreshLocalStatusCore(cwd),
         refreshRemoteStatus(cwd),
       ]);
       return mergeGitStatusParts(local, remote);
