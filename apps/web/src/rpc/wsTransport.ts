@@ -25,6 +25,7 @@ import { isTransportConnectionErrorMessage } from "./transportError";
 interface SubscribeOptions {
   readonly retryDelay?: Duration.Input;
   readonly onResubscribe?: () => void;
+  readonly onError?: (message: string) => void;
 }
 
 interface RequestOptions {
@@ -160,6 +161,7 @@ export class WsTransport {
             console.warn("WebSocket RPC subscription failed", {
               error: formattedError,
             });
+            options?.onError?.(formattedError);
             return;
           }
 
