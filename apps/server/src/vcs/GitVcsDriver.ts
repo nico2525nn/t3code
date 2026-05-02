@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
