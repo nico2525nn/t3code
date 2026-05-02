@@ -168,33 +168,6 @@ export const make = Effect.fn("makeGitWorkflowService")(function* () {
     }
   });
 
-  const detectGitRepositoryForStatus = Effect.fn("GitWorkflowService.detectGitRepositoryForStatus")(
-    function* (operation: string, cwd: string) {
-      const handle = yield* registry
-        .detect({ cwd })
-        .pipe(
-          Effect.mapError((error) =>
-            unsupportedGitWorkflow(
-              operation,
-              cwd,
-              error instanceof Error ? error.message : String(error),
-            ),
-          ),
-        );
-      if (!handle) {
-        return false;
-      }
-      if (handle.kind !== "git") {
-        return yield* unsupportedGitWorkflow(
-          operation,
-          cwd,
-          `The ${operation} workflow currently supports Git repositories only; detected ${handle.kind}.`,
-        );
-      }
-      return true;
-    },
-  );
-
   const detectGitRepositoryForCommand = Effect.fn(
     "GitWorkflowService.detectGitRepositoryForCommand",
   )(function* (operation: string, cwd: string) {
