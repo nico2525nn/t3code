@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Layer, Path, PlatformError } from "effect";
+import { assert, it } from "@effect/vitest";
 
 import { GitCommandError } from "@t3tools/contracts";
 import { ServerConfig } from "../config.ts";
@@ -57,4 +58,41 @@ runVcsDriverContractSuite<GitVcsDriver.GitVcsDriver, GitContractError>({
         yield* fileSystem.writeFileString(path.join(cwd, ".gitignore"), `${pattern}\n`);
       }),
   },
+});
+
+it.effect("GitVcsDriver forwards execute env to the VCS process", () => {
+  let observedEnv: NodeJS.ProcessEnv | undefined;
+
+  return Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.makeVcsDriverShape();
+
+    yield* driver.execute({
+      operation: "GitVcsDriver.test.env",
+      cwd: "/repo",
+      args: ["status"],
+      env: {
+        GIT_INDEX_FILE: "/tmp/t3-index",
+      },
+    });
+
+    assert.deepStrictEqual(observedEnv, {
+      GIT_INDEX_FILE: "/tmp/t3-index",
+    });
+  }).pipe(
+    Effect.provide(
+      Layer.mock(VcsProcess.VcsProcess)({
+        run: (input) =>
+          Effect.sync(() => {
+            observedEnv = input.env;
+            return {
+              exitCode: 0,
+              stdout: "",
+              stderr: "",
+              stdoutTruncated: false,
+              stderrTruncated: false,
+            };
+          }),
+      }),
+    ),
+  );
 });
