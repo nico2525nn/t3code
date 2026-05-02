@@ -46,6 +46,21 @@ export type SourceControlRepositoryCloneUrls = typeof SourceControlRepositoryClo
 export const SourceControlDiscoveryStatus = Schema.Literals(["available", "missing"]);
 export type SourceControlDiscoveryStatus = typeof SourceControlDiscoveryStatus.Type;
 
+export const SourceControlProviderAuthStatus = Schema.Literals([
+  "authenticated",
+  "unauthenticated",
+  "unknown",
+]);
+export type SourceControlProviderAuthStatus = typeof SourceControlProviderAuthStatus.Type;
+
+export const SourceControlProviderAuth = Schema.Struct({
+  status: SourceControlProviderAuthStatus,
+  account: Schema.Option(TrimmedNonEmptyString),
+  host: Schema.Option(TrimmedNonEmptyString),
+  detail: Schema.Option(TrimmedNonEmptyString),
+});
+export type SourceControlProviderAuth = typeof SourceControlProviderAuth.Type;
+
 const SourceControlDiscoveryItemFields = {
   label: TrimmedNonEmptyString,
   executable: TrimmedNonEmptyString,
@@ -71,6 +86,7 @@ export type VcsDiscoveryItem = typeof VcsDiscoveryItem.Type;
 export const SourceControlProviderDiscoveryItem = Schema.Struct({
   kind: SourceControlProviderKind,
   ...SourceControlDiscoveryItemFields,
+  auth: SourceControlProviderAuth,
 });
 export type SourceControlProviderDiscoveryItem = typeof SourceControlProviderDiscoveryItem.Type;
 
