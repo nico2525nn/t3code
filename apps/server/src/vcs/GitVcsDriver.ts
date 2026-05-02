@@ -1,4 +1,5 @@
 import { Context, DateTime, Effect, Layer, Option } from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
   GitCommandError,
@@ -35,7 +36,7 @@ export interface ExecuteGitInput {
 }
 
 export interface ExecuteGitResult {
-  readonly code: number;
+  readonly exitCode: ChildProcessSpawner.ExitCode;
   readonly stdout: string;
   readonly stderr: string;
   readonly stdoutTruncated: boolean;

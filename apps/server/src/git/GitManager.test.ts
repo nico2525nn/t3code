@@ -211,7 +211,11 @@ function runGit(
   args: readonly string[],
   allowNonZeroExit = false,
 ): Effect.Effect<
-  { readonly code: number; readonly stdout: string; readonly stderr: string },
+  {
+    readonly exitCode: GitVcsDriver.ExecuteGitResult["exitCode"];
+    readonly stdout: string;
+    readonly stderr: string;
+  },
   GitCommandError,
   GitVcsDriver.GitVcsDriver
 > {
@@ -224,7 +228,7 @@ function runGit(
       allowNonZeroExit,
     });
     return {
-      code: result.code,
+      exitCode: result.exitCode,
       stdout: result.stdout,
       stderr: result.stderr,
     };

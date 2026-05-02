@@ -89,7 +89,7 @@ export const make = Effect.fn("makeSourceControlProviderRegistry")(function* () 
           })
           .pipe(
             Effect.map((result) =>
-              result.code === 0 ? firstRemoteUrlFromVerboseOutput(result.stdout) : null,
+              result.exitCode === 0 ? firstRemoteUrlFromVerboseOutput(result.stdout) : null,
             ),
             Effect.mapError((error) => providerDetectionError("detectProvider", cwd, error)),
           ));

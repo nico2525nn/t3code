@@ -23,7 +23,7 @@ export interface VcsProcessInput {
 }
 
 export interface VcsProcessOutput {
-  readonly exitCode: number;
+  readonly exitCode: ChildProcessSpawner.ExitCode;
   readonly stdout: string;
   readonly stderr: string;
   readonly stdoutTruncated: boolean;
@@ -147,7 +147,6 @@ export const make = Effect.fn("makeVcsProcess")(function* () {
             input.truncateOutputAtMaxBytes ?? false,
           ),
           child.exitCode.pipe(
-            Effect.map((value) => Number(value)),
             Effect.mapError(
               (cause) =>
                 new VcsOutputDecodeError({

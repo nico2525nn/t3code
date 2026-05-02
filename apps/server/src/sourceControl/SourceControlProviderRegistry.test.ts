@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { GitHubCli } from "./GitHubCli.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -8,9 +9,7 @@ import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.
 const processResult = (stdout: string) => ({
   stdout,
   stderr: "",
-  code: 0,
-  signal: null,
-  timedOut: false,
+  exitCode: ChildProcessSpawner.ExitCode(0),
   stdoutTruncated: false,
   stderrTruncated: false,
 });
