@@ -1,5 +1,3 @@
-import { spawnSync } from "node:child_process";
-
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path, PlatformError } from "effect";
@@ -28,8 +26,6 @@ const processOutput = (stdout: string, exitCode = 0, stderr = ""): VcsProcessOut
   stderrTruncated: false,
 });
 
-const hasJj = spawnSync("jj", ["--version"], { stdio: "ignore" }).status === 0;
-
 const runJj = (cwd: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const process = yield* VcsProcess;
@@ -44,34 +40,28 @@ const runJj = (cwd: string, args: ReadonlyArray<string>) =>
 
 type JjContractError = PlatformError.PlatformError | VcsError;
 
-if (hasJj) {
-  runVcsDriverContractSuite<VcsProcess, JjContractError>({
-    name: "JJ",
-    kind: "jj",
-    layer: JjContractLayer,
-    fixture: {
-      createRepo: (cwd) => runJj(cwd, ["git", "init", "--colocate"]),
-      writeFile: (cwd, relativePath, contents) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          const absolutePath = path.join(cwd, relativePath);
-          yield* fileSystem.makeDirectory(path.dirname(absolutePath), { recursive: true });
-          yield* fileSystem.writeFileString(absolutePath, contents);
-        }),
-      ignorePath: (cwd, pattern) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          yield* fileSystem.writeFileString(path.join(cwd, ".gitignore"), `${pattern}\n`);
-        }),
-    },
-  });
-} else {
-  it("skips the JJ VCS driver contract when jj is not installed", () => {
-    assert.isFalse(hasJj);
-  });
-}
+runVcsDriverContractSuite<VcsProcess, JjContractError>({
+  name: "JJ",
+  kind: "jj",
+  layer: JjContractLayer,
+  fixture: {
+    createRepo: (cwd) => runJj(cwd, ["git", "init", "--colocate"]),
+    writeFile: (cwd, relativePath, contents) =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const absolutePath = path.join(cwd, relativePath);
+        yield* fileSystem.makeDirectory(path.dirname(absolutePath), { recursive: true });
+        yield* fileSystem.writeFileString(absolutePath, contents);
+      }),
+    ignorePath: (cwd, pattern) =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        yield* fileSystem.writeFileString(path.join(cwd, ".gitignore"), `${pattern}\n`);
+      }),
+  },
+});
 
 describe("JjVcsDriver", () => {
   it.effect("detects repository identity with jj root", () => {
@@ -87,13 +77,16 @@ describe("JjVcsDriver", () => {
       assert.deepStrictEqual(commandCalls(calls), [["jj", "--no-pager", "root"]]);
     }).pipe(
       Effect.provide(
-        Layer.mock(VcsProcess)({
-          run: (input) =>
-            Effect.sync(() => {
-              calls.push(input);
-              return processOutput("/repo\n");
-            }),
-        }),
+        Layer.mergeAll(
+          Layer.mock(VcsProcess)({
+            run: (input) =>
+              Effect.sync(() => {
+                calls.push(input);
+                return processOutput("/repo\n");
+              }),
+          }),
+          NodeServices.layer,
+        ),
       ),
     );
   });
@@ -109,13 +102,16 @@ describe("JjVcsDriver", () => {
       assert.deepStrictEqual(observedInput?.args, ["--no-pager", "file", "list"]);
     }).pipe(
       Effect.provide(
-        Layer.mock(VcsProcess)({
-          run: (input) =>
-            Effect.sync(() => {
-              observedInput = input;
-              return processOutput("README.md\nsrc/index.ts\n");
-            }),
-        }),
+        Layer.mergeAll(
+          Layer.mock(VcsProcess)({
+            run: (input) =>
+              Effect.sync(() => {
+                observedInput = input;
+                return processOutput("README.md\nsrc/index.ts\n");
+              }),
+          }),
+          NodeServices.layer,
+        ),
       ),
     );
   });
@@ -144,16 +140,19 @@ describe("JjVcsDriver", () => {
       assert.equal(calls[1]?.stdin, "keep.ts\0debug.log\0src/index.ts\0");
     }).pipe(
       Effect.provide(
-        Layer.mock(VcsProcess)({
-          run: (input) =>
-            Effect.sync(() => {
-              calls.push(input);
-              if (input.command === "git" && input.args.includes("check-ignore")) {
-                return processOutput("debug.log\0");
-              }
-              return processOutput("");
-            }),
-        }),
+        Layer.mergeAll(
+          Layer.mock(VcsProcess)({
+            run: (input) =>
+              Effect.sync(() => {
+                calls.push(input);
+                if (input.command === "git" && input.args.includes("check-ignore")) {
+                  return processOutput("debug.log\0");
+                }
+                return processOutput("");
+              }),
+          }),
+          NodeServices.layer,
+        ),
       ),
     );
   });
@@ -178,13 +177,16 @@ describe("JjVcsDriver", () => {
       });
     }).pipe(
       Effect.provide(
-        Layer.mock(VcsProcess)({
-          run: (input) =>
-            Effect.sync(() => {
-              observedEnv = input.env;
-              return processOutput("");
-            }),
-        }),
+        Layer.mergeAll(
+          Layer.mock(VcsProcess)({
+            run: (input) =>
+              Effect.sync(() => {
+                observedEnv = input.env;
+                return processOutput("");
+              }),
+          }),
+          NodeServices.layer,
+        ),
       ),
     );
   });
