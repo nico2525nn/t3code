@@ -868,6 +868,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       expect(status).toEqual({
         isRepo: false,
+        kind: "unknown",
         hasPrimaryRemote: false,
         isDefaultRef: false,
         refName: null,
@@ -897,6 +898,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       expect(status).toEqual({
         isRepo: false,
+        kind: "unknown",
         hasPrimaryRemote: false,
         isDefaultRef: false,
         refName: null,
