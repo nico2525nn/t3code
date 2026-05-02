@@ -106,12 +106,12 @@ export const make = Effect.fn("makeVcsDriverRegistry")(function* () {
       return yield* detectWithDriver(requestedKind, driver, input.cwd);
     }
 
-    const gitDetected = yield* detectWithDriver("git", git, input.cwd);
-    if (gitDetected) {
-      return gitDetected;
+    const jjDetected = yield* detectWithDriver("jj", jj, input.cwd);
+    if (jjDetected) {
+      return jjDetected;
     }
 
-    return yield* detectWithDriver("jj", jj, input.cwd);
+    return yield* detectWithDriver("git", git, input.cwd);
   });
 
   const detectionCache = yield* Cache.makeWith<string, VcsDriverHandle | null, VcsError>(
