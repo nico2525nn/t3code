@@ -1,29 +1,25 @@
 import { ChevronDownIcon, GitBranchIcon, GitPullRequestIcon, RefreshCwIcon } from "lucide-react";
 import { Option } from "effect";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   SourceControlDiscoveryItem,
   SourceControlDiscoveryResult,
+  SourceControlProviderAuth,
   SourceControlProviderDiscoveryItem,
   VcsDiscoveryItem,
 } from "@t3tools/contracts";
 
-import { ensureLocalApi } from "../../localApi";
 import { cn } from "../../lib/utils";
+import {
+  refreshSourceControlDiscovery,
+  useSourceControlDiscovery,
+} from "../../lib/sourceControlDiscoveryState";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import { Switch } from "../ui/switch";
+import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
-
-type DiscoveryLoadState =
-  | { readonly status: "loading"; readonly result: SourceControlDiscoveryResult | null }
-  | { readonly status: "ready"; readonly result: SourceControlDiscoveryResult }
-  | {
-      readonly status: "error";
-      readonly result: SourceControlDiscoveryResult | null;
-      readonly message: string;
-    };
 
 const EMPTY_DISCOVERY_RESULT: SourceControlDiscoveryResult = {
   versionControlSystems: [],
@@ -32,6 +28,46 @@ const EMPTY_DISCOVERY_RESULT: SourceControlDiscoveryResult = {
 
 function optionLabel(value: Option.Option<string>): string | null {
   return Option.getOrNull(value);
+}
+
+function isProviderDiscoveryItem(
+  item: VcsDiscoveryItem | SourceControlProviderDiscoveryItem,
+): item is SourceControlProviderDiscoveryItem {
+  return "auth" in item;
+}
+
+function authPresentation(auth: SourceControlProviderAuth): {
+  readonly label: string;
+  readonly badge: "success" | "warning" | "outline";
+} {
+  if (auth.status === "authenticated") {
+    return { label: "Signed in", badge: "success" };
+  }
+  if (auth.status === "unauthenticated") {
+    return { label: "Sign in", badge: "warning" };
+  }
+  return { label: "Auth unknown", badge: "outline" };
+}
+
+function authSummary(auth: SourceControlProviderAuth): string {
+  if (auth.status === "authenticated") {
+    return "Authenticated";
+  }
+  if (auth.status === "unauthenticated") {
+    return "Not authenticated";
+  }
+  return "Auth not checked";
+}
+
+function RedactedAccount(props: { readonly account: string | null }) {
+  return (
+    <RedactedSensitiveText
+      value={props.account}
+      ariaLabel="Toggle source control account visibility"
+      revealTooltip="Click to reveal account"
+      hideTooltip="Click to hide account"
+    />
+  );
 }
 
 function statusPresentation(item: SourceControlDiscoveryItem): {
@@ -80,6 +116,11 @@ function DiscoveryItemRow({
   const version = optionLabel(item.version);
   const detail = optionLabel(item.detail);
   const enabled = item.implemented && item.status === "available";
+  const auth = isProviderDiscoveryItem(item) ? item.auth : null;
+  const authStatus = auth ? authPresentation(auth) : null;
+  const authAccount = auth ? optionLabel(auth.account) : null;
+  const authHost = auth ? optionLabel(auth.host) : null;
+  const authDetail = auth ? optionLabel(auth.detail) : null;
 
   return (
     <div
@@ -104,6 +145,11 @@ function DiscoveryItemRow({
                   Not in this branch
                 </Badge>
               ) : null}
+              {authStatus ? (
+                <Badge variant={authStatus.badge} size="sm">
+                  {authStatus.label}
+                </Badge>
+              ) : null}
             </div>
             <p className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
               <span>CLI</span>
@@ -111,6 +157,13 @@ function DiscoveryItemRow({
                 {item.executable}
               </code>
               {version ? <span>- {version}</span> : null}
+              {auth ? (
+                <>
+                  <span aria-hidden>-</span>
+                  <span>{authSummary(auth)}</span>
+                  {authAccount ? <RedactedAccount account={authAccount} /> : null}
+                </>
+              ) : null}
             </p>
           </div>
           <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
@@ -138,6 +191,23 @@ function DiscoveryItemRow({
               <dd className="min-w-0 font-mono text-foreground">{item.executable}</dd>
               <dt className="text-muted-foreground">Version</dt>
               <dd className="min-w-0 text-foreground">{version ?? "Not detected"}</dd>
+              {auth ? (
+                <>
+                  <dt className="text-muted-foreground">Auth</dt>
+                  <dd className="min-w-0 space-y-1 text-foreground">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span>{authSummary(auth)}</span>
+                      {authAccount ? <RedactedAccount account={authAccount} /> : null}
+                      {authHost ? (
+                        <span className="text-muted-foreground">on {authHost}</span>
+                      ) : null}
+                    </div>
+                    {authDetail ? (
+                      <div className="break-words text-muted-foreground">{authDetail}</div>
+                    ) : null}
+                  </dd>
+                </>
+              ) : null}
               <dt className="text-muted-foreground">Install</dt>
               <dd className="min-w-0 leading-relaxed text-foreground">{item.installHint}</dd>
               <dt className="text-muted-foreground">Build</dt>
@@ -161,49 +231,15 @@ function DiscoveryItemRow({
 }
 
 export function SourceControlSettingsPanel() {
-  const [loadState, setLoadState] = useState<DiscoveryLoadState>({
-    status: "loading",
-    result: null,
-  });
-  const latestResultRef = useRef<SourceControlDiscoveryResult | null>(null);
+  const discovery = useSourceControlDiscovery();
   const [expanded, setExpanded] = useState<Readonly<Record<string, boolean>>>({});
 
-  const refresh = useCallback((options?: { readonly signal?: AbortSignal }) => {
-    const previous = latestResultRef.current;
-    setLoadState({ status: "loading", result: previous });
-
-    ensureLocalApi()
-      .server.discoverSourceControl()
-      .then((result) => {
-        if (!options?.signal?.aborted) {
-          latestResultRef.current = result;
-          setLoadState({ status: "ready", result });
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!options?.signal?.aborted) {
-          setLoadState({
-            status: "error",
-            result: previous,
-            message:
-              cause instanceof Error ? cause.message : "Failed to discover source control tools.",
-          });
-        }
-      });
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    refresh({ signal: controller.signal });
-    return () => controller.abort();
-  }, [refresh]);
-
-  const result = loadState.result ?? EMPTY_DISCOVERY_RESULT;
+  const result = discovery.data ?? EMPTY_DISCOVERY_RESULT;
   const statusText = useMemo(() => {
-    if (loadState.status === "loading") return "Scanning installed tools...";
-    if (loadState.status === "error") return loadState.message;
+    if (discovery.isPending) return "Scanning installed tools...";
+    if (discovery.error) return discovery.error;
     return "Detected source control tools on this system.";
-  }, [loadState]);
+  }, [discovery.error, discovery.isPending]);
 
   const setItemExpanded = (key: string, value: boolean) => {
     setExpanded((current) => ({ ...current, [key]: value }));
@@ -224,12 +260,12 @@ export function SourceControlSettingsPanel() {
             size="sm"
             variant="ghost"
             className="h-7 gap-1.5 px-2 text-xs"
-            onClick={() => refresh()}
-            disabled={loadState.status === "loading"}
+            onClick={() => {
+              void refreshSourceControlDiscovery();
+            }}
+            disabled={discovery.isPending}
           >
-            <RefreshCwIcon
-              className={cn("size-3.5", loadState.status === "loading" && "animate-spin")}
-            />
+            <RefreshCwIcon className={cn("size-3.5", discovery.isPending && "animate-spin")} />
             Scan
           </Button>
         }
