@@ -699,13 +699,13 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       .pipe(
         Effect.catchIf(isNotGitRepositoryError, () => Effect.succeed(nonRepositoryStatusDetails)),
       );
-    const sourceControlProvider = details.isRepo
+    const hostingProvider = details.isRepo
       ? yield* resolveHostingProvider(cwd, details.branch)
       : null;
 
     return {
       isRepo: details.isRepo,
-      ...(sourceControlProvider ? { sourceControlProvider } : {}),
+      ...(hostingProvider ? { sourceControlProvider: hostingProvider } : {}),
       hasPrimaryRemote: details.hasOriginRemote,
       isDefaultRef: details.isDefaultBranch,
       refName: details.branch,
