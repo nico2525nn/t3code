@@ -3041,6 +3041,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           expect.objectContaining({
             kind: "hook_finished",
             hookName: "pre-commit",
+            exitCode: 0,
           }),
           expect.objectContaining({
             kind: "action_finished",

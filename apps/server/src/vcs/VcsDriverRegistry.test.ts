@@ -124,7 +124,7 @@ describe("VcsDriverRegistry", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("auto-detects jj after git misses", () => {
+  it.effect("prefers jj auto-detection before git for colocated repositories", () => {
     const calls: VcsProcessInput[] = [];
     const layer = Layer.effect(VcsDriverRegistry, makeVcsDriverRegistry()).pipe(
       Layer.provide(
@@ -138,13 +138,13 @@ describe("VcsDriverRegistry", () => {
             Effect.sync(() => {
               calls.push(input);
               const command = input.args.join(" ");
-              if (input.command === "git" && command === "rev-parse --is-inside-work-tree") {
-                return processOutput("", 1, "not a git repository");
-              }
               if (input.command === "jj" && command === "--no-pager root") {
                 return processOutput("/repo\n");
               }
-              return processOutput("");
+              if (input.command === "git") {
+                return processOutput("true\n");
+              }
+              return processOutput("", 1, "not found");
             }),
         }),
       ),
@@ -157,10 +157,7 @@ describe("VcsDriverRegistry", () => {
 
       assert.equal(handle.kind, "jj");
       assert.equal(handle.repository.rootPath, "/repo");
-      assert.deepStrictEqual(commandCalls(calls), [
-        ["git", "rev-parse", "--is-inside-work-tree"],
-        ["jj", "--no-pager", "root"],
-      ]);
+      assert.deepStrictEqual(commandCalls(calls), [["jj", "--no-pager", "root"]]);
     }).pipe(Effect.provide(layer));
   });
 });

@@ -1,9 +1,23 @@
-import { Effect, FileSystem, Layer } from "effect";
+import { Context, Effect, FileSystem, Layer } from "effect";
 
 import { VcsOutputDecodeError, VcsProcessExitError } from "@t3tools/contracts";
 import { VcsDriver, type VcsDriverShape } from "./VcsDriver.ts";
 import { nowFreshness } from "./VcsFreshness.ts";
 import { VcsProcess, type VcsProcessShape } from "./VcsProcess.ts";
+
+export interface JjVcsDriverShape extends VcsDriverShape {
+  readonly capabilities: VcsDriverShape["capabilities"] & {
+    readonly kind: "jj";
+    readonly supportsBookmarks: true;
+    readonly supportsAtomicSnapshot: true;
+    readonly supportsWorktrees: false;
+    readonly ignoreClassifier: "git-compatible-fallback";
+  };
+}
+
+export class JjVcsDriver extends Context.Service<JjVcsDriver, JjVcsDriverShape>()(
+  "t3/vcs/JjVcsDriver",
+) {}
 
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
@@ -137,10 +151,11 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
   const fileSystem = yield* FileSystem.FileSystem;
   const capabilities = {
     kind: "jj" as const,
-    supportsWorktrees: true,
-    supportsBookmarks: true,
-    supportsAtomicSnapshot: true,
-    supportsPushDefaultRemote: false,
+    supportsWorktrees: false as const,
+    supportsBookmarks: true as const,
+    supportsAtomicSnapshot: true as const,
+    supportsPushDefaultRemote: false as const,
+    ignoreClassifier: "git-compatible-fallback" as const,
   };
 
   const isInsideWorkTree: VcsDriverShape["isInsideWorkTree"] = (cwd) =>
@@ -308,12 +323,18 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
     isInsideWorkTree,
     listWorkspaceFiles,
     filterIgnoredPaths,
-  } satisfies VcsDriverShape;
+  } satisfies JjVcsDriverShape;
 });
 
-export const makeVcsDriver = Effect.fn("makeJjVcsDriver")(function* () {
+export const makeJjVcsDriver = Effect.fn("makeJjVcsDriver")(function* () {
+  const driver = yield* makeVcsDriverShape();
+  return JjVcsDriver.of(driver);
+});
+
+export const makeVcsDriver = Effect.fn("makeJjGenericVcsDriver")(function* () {
   const driver = yield* makeVcsDriverShape();
   return VcsDriver.of(driver);
 });
 
+export const layer = Layer.effect(JjVcsDriver, makeJjVcsDriver());
 export const vcsLayer = Layer.effect(VcsDriver, makeVcsDriver());
