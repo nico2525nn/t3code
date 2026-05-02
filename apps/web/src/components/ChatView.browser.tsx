@@ -955,10 +955,10 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   if (tag === WS_METHODS.vcsListRefs) {
     return {
       isRepo: true,
-      hasOriginRemote: true,
+      hasPrimaryRemote: true,
       nextCursor: null,
       totalCount: 1,
-      branches: [
+      refs: [
         {
           name: "main",
           current: true,
@@ -2288,18 +2288,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
       branchButton.click();
 
       const branchInput = await waitForElement(
-        () => document.querySelector<HTMLInputElement>('input[placeholder="Search branches..."]'),
-        "Unable to find branch search input.",
+        () => document.querySelector<HTMLInputElement>('input[placeholder="Search refs..."]'),
+        "Unable to find ref search input.",
       );
       branchInput.focus();
-      await page.getByPlaceholder("Search branches...").fill("1359");
+      await page.getByPlaceholder("Search refs...").fill("1359");
 
       const checkoutItem = await waitForElement(
         () =>
           Array.from(document.querySelectorAll("span")).find(
             (element) => element.textContent?.trim() === "Checkout Pull Request",
           ) as HTMLSpanElement | null,
-        "Unable to find switchRef pull request option.",
+        "Unable to find checkout pull request option.",
       );
       checkoutItem.click();
 
@@ -2576,10 +2576,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
-            hasOriginRemote: true,
+            hasPrimaryRemote: true,
             nextCursor: null,
             totalCount: 1,
-            branches: [
+            refs: [
               {
                 name: "main",
                 current: true,
@@ -2599,7 +2599,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      (await waitForButtonByText("Current switchRef")).click();
+      (await waitForButtonByText("Current checkout")).click();
       await page.getByText("New worktree", { exact: true }).click();
 
       await vi.waitFor(
@@ -2669,10 +2669,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
-            hasOriginRemote: true,
+            hasPrimaryRemote: true,
             nextCursor: null,
             totalCount: 2,
-            branches: [
+            refs: [
               {
                 name: "main",
                 current: true,
@@ -2698,7 +2698,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      (await waitForButtonByText("Current switchRef")).click();
+      (await waitForButtonByText("Current checkout")).click();
       await page.getByText("New worktree", { exact: true }).click();
       await page.getByText("From main", { exact: true }).click();
       await page.getByText("release/next", { exact: true }).click();
@@ -2765,10 +2765,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
-            hasOriginRemote: true,
+            hasPrimaryRemote: true,
             nextCursor: null,
             totalCount: 2,
-            branches: [
+            refs: [
               {
                 name: "main",
                 current: true,
@@ -2794,7 +2794,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      (await waitForButtonByText("Current switchRef")).click();
+      (await waitForButtonByText("Current checkout")).click();
       await page.getByText("New worktree", { exact: true }).click();
       await page.getByText("From main", { exact: true }).click();
       await page.getByText("release/next", { exact: true }).click();
@@ -2822,13 +2822,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          expect(findButtonByText("Current switchRef")).toBeTruthy();
+          expect(findButtonByText("Current checkout")).toBeTruthy();
           expect(findButtonByText("From release/next")).toBeNull();
         },
         { timeout: 8_000, interval: 16 },
       );
 
-      (await waitForButtonByText("Current switchRef")).click();
+      (await waitForButtonByText("Current checkout")).click();
       await page.getByText("New worktree", { exact: true }).click();
 
       await vi.waitFor(
@@ -3025,10 +3025,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
-            hasOriginRemote: true,
+            hasPrimaryRemote: true,
             nextCursor: null,
             totalCount: 2,
-            branches: [
+            refs: [
               {
                 name: "main",
                 current: true,
@@ -3150,10 +3150,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
-            hasOriginRemote: true,
+            hasPrimaryRemote: true,
             nextCursor: null,
             totalCount: branches.length,
-            branches,
+            refs: branches,
           };
         }
         return undefined;
@@ -3171,8 +3171,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       branchButton.click();
 
       await waitForElement(
-        () => document.querySelector<HTMLInputElement>('input[placeholder="Search branches..."]'),
-        "Unable to find branch search input.",
+        () => document.querySelector<HTMLInputElement>('input[placeholder="Search refs..."]'),
+        "Unable to find ref search input.",
       );
 
       const popup = await waitForElement(

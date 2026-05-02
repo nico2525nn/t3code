@@ -259,10 +259,10 @@ function resolveWsRpc(tag: string): unknown {
   if (tag === WS_METHODS.vcsListRefs) {
     return {
       isRepo: true,
-      hasOriginRemote: true,
+      hasPrimaryRemote: true,
       nextCursor: null,
       totalCount: 1,
-      branches: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
+      refs: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
     };
   }
   if (tag === WS_METHODS.projectsSearchEntries) {
