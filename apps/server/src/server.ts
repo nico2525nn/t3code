@@ -155,20 +155,25 @@ const ProviderLayerLive = ProviderServiceLive.pipe(
 
 const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
 
+const VcsDriverRegistryLayerLive = VcsDriverRegistry.layer.pipe(
+  Layer.provide(VcsProjectConfig.layer),
+);
+
 const GitManagerLayerLive = GitManager.layer.pipe(
   Layer.provideMerge(ProjectSetupScriptRunnerLive),
   Layer.provideMerge(GitVcsDriver.layer),
-  Layer.provideMerge(SourceControlProviderRegistry.layer.pipe(Layer.provide(GitHubCli.layer))),
+  Layer.provideMerge(
+    SourceControlProviderRegistry.layer.pipe(
+      Layer.provide(GitHubCli.layer),
+      Layer.provideMerge(VcsDriverRegistryLayerLive),
+    ),
+  ),
   Layer.provideMerge(TextGeneration.layer),
 );
 
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(GitVcsDriver.layer),
-);
-
-const VcsDriverRegistryLayerLive = VcsDriverRegistry.layer.pipe(
-  Layer.provide(VcsProjectConfig.layer),
 );
 
 const GitWorkflowLayerLive = GitWorkflowService.layer.pipe(

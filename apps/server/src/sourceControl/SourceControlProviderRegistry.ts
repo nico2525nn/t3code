@@ -1,16 +1,33 @@
 import { Cache, Context, Duration, Effect, Exit, Layer } from "effect";
 import { SourceControlProviderError } from "@t3tools/contracts";
 import type { SourceControlProviderKind } from "@t3tools/contracts";
-import { detectSourceControlProviderFromGitRemoteUrl } from "@t3tools/shared/git";
+import { detectSourceControlProviderFromRemoteUrl } from "@t3tools/shared/sourceControl";
 
-import { SourceControlProvider, type SourceControlProviderShape } from "./SourceControlProvider.ts";
+import {
+  SourceControlProvider,
+  type SourceControlProviderContext,
+  type SourceControlProviderShape,
+} from "./SourceControlProvider.ts";
 import * as GitHubSourceControlProvider from "./GitHubSourceControlProvider.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import { VcsDriverRegistry } from "../vcs/VcsDriverRegistry.ts";
 
 const PROVIDER_DETECTION_CACHE_CAPACITY = 2_048;
 const PROVIDER_DETECTION_CACHE_TTL = Duration.seconds(5);
 
+export interface SourceControlProviderRegistration {
+  readonly kind: SourceControlProviderKind;
+  readonly provider: SourceControlProviderShape;
+}
+
+export interface SourceControlProviderHandle {
+  readonly provider: SourceControlProviderShape;
+  readonly context: SourceControlProviderContext | null;
+}
+
 export interface SourceControlProviderRegistryShape {
+  readonly resolveHandle: (input: {
+    readonly cwd: string;
+  }) => Effect.Effect<SourceControlProviderHandle, SourceControlProviderError>;
   readonly resolve: (input: {
     readonly cwd: string;
   }) => Effect.Effect<SourceControlProviderShape, SourceControlProviderError>;
@@ -51,72 +68,88 @@ function providerDetectionError(operation: string, cwd: string, cause: unknown) 
   });
 }
 
-function firstRemoteUrlFromVerboseOutput(output: string): string | null {
-  for (const line of output.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) {
-      continue;
-    }
-    const match = /^\S+\s+(\S+)\s+\((?:fetch|push)\)$/.exec(trimmed);
-    const remoteUrl = match?.[1]?.trim() ?? "";
-    if (remoteUrl.length > 0) {
-      return remoteUrl;
-    }
-  }
-  return null;
+function selectProviderContext(
+  remotes: ReadonlyArray<{
+    readonly name: string;
+    readonly url: string;
+  }>,
+): SourceControlProviderContext | null {
+  const candidates = remotes
+    .map((remote) => {
+      const provider = detectSourceControlProviderFromRemoteUrl(remote.url);
+      return provider
+        ? {
+            provider,
+            remoteName: remote.name,
+            remoteUrl: remote.url,
+          }
+        : null;
+    })
+    .filter((value): value is SourceControlProviderContext => value !== null);
+
+  return (
+    candidates.find((candidate) => candidate.remoteName === "origin") ??
+    candidates.find((candidate) => candidate.provider.kind !== "unknown") ??
+    candidates[0] ??
+    null
+  );
 }
+
+export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWithProviders")(
+  function* (registrations: ReadonlyArray<SourceControlProviderRegistration>) {
+    const vcsRegistry = yield* VcsDriverRegistry;
+    const providers = new Map<SourceControlProviderKind, SourceControlProviderShape>(
+      registrations.map((registration) => [registration.kind, registration.provider]),
+    );
+
+    const detectProviderContext = Effect.fn("SourceControlProviderRegistry.detectProviderContext")(
+      function* (cwd: string) {
+        const handle = yield* vcsRegistry
+          .resolve({ cwd })
+          .pipe(Effect.mapError((error) => providerDetectionError("detectProvider", cwd, error)));
+        const remotes = yield* handle.driver
+          .listRemotes(cwd)
+          .pipe(Effect.mapError((error) => providerDetectionError("detectProvider", cwd, error)));
+
+        return selectProviderContext(remotes.remotes);
+      },
+    );
+
+    const providerContextCache = yield* Cache.makeWith<
+      string,
+      SourceControlProviderContext | null,
+      SourceControlProviderError
+    >(detectProviderContext, {
+      capacity: PROVIDER_DETECTION_CACHE_CAPACITY,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? PROVIDER_DETECTION_CACHE_TTL : Duration.zero),
+    });
+
+    const resolveHandle: SourceControlProviderRegistryShape["resolveHandle"] = (input) =>
+      Cache.get(providerContextCache, input.cwd).pipe(
+        Effect.map((context) => {
+          const kind = context?.provider.kind ?? "unknown";
+          return {
+            provider: providers.get(kind) ?? unsupportedProvider(kind),
+            context,
+          } satisfies SourceControlProviderHandle;
+        }),
+      );
+
+    return SourceControlProviderRegistry.of({
+      resolveHandle,
+      resolve: (input) => resolveHandle(input).pipe(Effect.map((handle) => handle.provider)),
+    });
+  },
+);
 
 export const make = Effect.fn("makeSourceControlProviderRegistry")(function* () {
   const github = yield* GitHubSourceControlProvider.make();
-  const git = yield* GitVcsDriver.GitVcsDriver;
-  const providers: Partial<Record<SourceControlProviderKind, SourceControlProviderShape>> = {
-    github,
-  };
-
-  const detectProviderKind = Effect.fn("SourceControlProviderRegistry.detectProviderKind")(
-    function* (cwd: string) {
-      const originUrl = yield* git
-        .readConfigValue(cwd, "remote.origin.url")
-        .pipe(Effect.catch(() => Effect.succeed(null)));
-      const remoteUrl =
-        originUrl ??
-        (yield* git
-          .execute({
-            operation: "SourceControlProviderRegistry.detectProvider.remoteVerbose",
-            cwd,
-            args: ["remote", "-v"],
-            allowNonZeroExit: true,
-          })
-          .pipe(
-            Effect.map((result) =>
-              result.exitCode === 0 ? firstRemoteUrlFromVerboseOutput(result.stdout) : null,
-            ),
-            Effect.mapError((error) => providerDetectionError("detectProvider", cwd, error)),
-          ));
-
-      if (!remoteUrl) {
-        return "unknown" as const;
-      }
-
-      return detectSourceControlProviderFromGitRemoteUrl(remoteUrl)?.kind ?? "unknown";
+  return yield* makeWithProviders([
+    {
+      kind: "github",
+      provider: github,
     },
-  );
-
-  const providerKindCache = yield* Cache.makeWith<
-    string,
-    SourceControlProviderKind,
-    SourceControlProviderError
-  >(detectProviderKind, {
-    capacity: PROVIDER_DETECTION_CACHE_CAPACITY,
-    timeToLive: (exit) => (Exit.isSuccess(exit) ? PROVIDER_DETECTION_CACHE_TTL : Duration.zero),
-  });
-
-  return SourceControlProviderRegistry.of({
-    resolve: (input) =>
-      Cache.get(providerKindCache, input.cwd).pipe(
-        Effect.map((kind) => providers[kind] ?? unsupportedProvider(kind)),
-      ),
-  });
+  ]);
 });
 
 export const layer = Layer.effect(SourceControlProviderRegistry, make());

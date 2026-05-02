@@ -3,6 +3,7 @@ import { Context, type Effect } from "effect";
 import type {
   VcsDriverCapabilities,
   VcsError,
+  VcsListRemotesResult,
   VcsListWorkspaceFilesResult,
   VcsRepositoryIdentity,
 } from "@t3tools/contracts";
@@ -18,6 +19,7 @@ export interface VcsDriverShape {
   readonly listWorkspaceFiles: (
     cwd: string,
   ) => Effect.Effect<VcsListWorkspaceFilesResult, VcsError>;
+  readonly listRemotes: (cwd: string) => Effect.Effect<VcsListRemotesResult, VcsError>;
   readonly filterIgnoredPaths: (
     cwd: string,
     relativePaths: ReadonlyArray<string>,

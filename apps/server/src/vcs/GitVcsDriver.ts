@@ -259,6 +259,38 @@ function chunkPathsForGitCheckIgnore(relativePaths: ReadonlyArray<string>): stri
   return chunks;
 }
 
+function parseGitRemoteVerboseOutput(
+  output: string,
+): Map<string, { url?: string; pushUrl?: string }> {
+  const remotes = new Map<string, { url?: string; pushUrl?: string }>();
+  for (const line of output.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+
+    const match = /^(\S+)\s+(\S+)\s+\((fetch|push)\)$/.exec(trimmed);
+    if (!match) {
+      continue;
+    }
+
+    const name = match[1];
+    const url = match[2];
+    const direction = match[3];
+    if (!name || !url || !direction) {
+      continue;
+    }
+    const remote = remotes.get(name) ?? {};
+    if (direction === "fetch") {
+      remote.url = url;
+    } else {
+      remote.pushUrl = url;
+    }
+    remotes.set(name, remote);
+  }
+  return remotes;
+}
+
 const gitCommand = (
   process: VcsProcessShape,
   operation: string,
@@ -298,6 +330,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     supportsBookmarks: false,
     supportsAtomicSnapshot: false,
     supportsPushDefaultRemote: true,
+    ignoreClassifier: "native" as const,
   };
 
   const isInsideWorkTree: VcsDriverShape["isInsideWorkTree"] = (cwd) =>
@@ -393,6 +426,44 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       ),
     );
 
+  const listRemotes: VcsDriverShape["listRemotes"] = Effect.fn("listRemotes")(function* (cwd) {
+    const result = yield* gitCommand(process, "GitVcsDriver.listRemotes", cwd, ["remote", "-v"], {
+      allowNonZeroExit: true,
+      timeoutMs: 5_000,
+      maxOutputBytes: 64 * 1024,
+    });
+
+    if (result.exitCode !== 0) {
+      return yield* new VcsProcessExitError({
+        operation: "GitVcsDriver.listRemotes",
+        command: "git remote -v",
+        cwd,
+        exitCode: result.exitCode,
+        detail: result.stderr.trim() || "git remote -v failed",
+      });
+    }
+
+    const parsed = parseGitRemoteVerboseOutput(result.stdout);
+    const remotes = Array.from(parsed.entries()).flatMap(([name, remote]) => {
+      if (!remote.url) {
+        return [];
+      }
+      return [
+        {
+          name,
+          url: remote.url,
+          pushUrl: remote.pushUrl ? Option.some(remote.pushUrl) : Option.none(),
+          isPrimary: name === "origin",
+        },
+      ];
+    });
+
+    return {
+      remotes,
+      freshness: yield* nowFreshness(),
+    };
+  });
+
   const filterIgnoredPaths: VcsDriverShape["filterIgnoredPaths"] = Effect.fn("filterIgnoredPaths")(
     function* (cwd, relativePaths) {
       if (relativePaths.length === 0) {
@@ -446,6 +517,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     detectRepository,
     isInsideWorkTree,
     listWorkspaceFiles,
+    listRemotes,
     filterIgnoredPaths,
   } satisfies VcsDriverShape;
 });
