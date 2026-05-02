@@ -1,6 +1,6 @@
-import { Context, Effect, FileSystem, Layer } from "effect";
+import { Context, Effect, FileSystem, Layer, Option } from "effect";
 
-import { VcsOutputDecodeError, VcsProcessExitError } from "@t3tools/contracts";
+import { VcsOutputDecodeError, VcsProcessExitError, type VcsError } from "@t3tools/contracts";
 import { VcsDriver, type VcsDriverShape } from "./VcsDriver.ts";
 import { nowFreshness } from "./VcsFreshness.ts";
 import { VcsProcess, type VcsProcessShape } from "./VcsProcess.ts";
@@ -13,6 +13,25 @@ export interface JjVcsDriverShape extends VcsDriverShape {
     readonly supportsWorktrees: false;
     readonly ignoreClassifier: "git-compatible-fallback";
   };
+  readonly currentChange: (cwd: string) => Effect.Effect<JjCurrentChange | null, VcsError>;
+  readonly listBookmarks: (cwd: string) => Effect.Effect<ReadonlyArray<JjBookmark>, VcsError>;
+  readonly listWorkspaces: (cwd: string) => Effect.Effect<ReadonlyArray<JjWorkspace>, VcsError>;
+}
+
+export interface JjCurrentChange {
+  readonly changeId: string;
+  readonly commitId: string | null;
+  readonly description: string | null;
+}
+
+export interface JjBookmark {
+  readonly name: string;
+  readonly target: string | null;
+}
+
+export interface JjWorkspace {
+  readonly name: string;
+  readonly path: string | null;
 }
 
 export class JjVcsDriver extends Context.Service<JjVcsDriver, JjVcsDriverShape>()(
@@ -40,6 +59,76 @@ function splitLineSeparatedPaths(input: string, truncated: boolean): string[] {
   }
 
   return lines.map((line) => line.trim()).filter((line) => line.length > 0);
+}
+
+function parseJjRemoteList(output: string): Array<{ name: string; url: string }> {
+  return output
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .flatMap((line) => {
+      if (line.length === 0) {
+        return [];
+      }
+
+      const [name, ...urlParts] = line.split(/\s+/g);
+      const url = urlParts.join(" ").trim();
+      return name && url ? [{ name, url }] : [];
+    });
+}
+
+function parseNullRecord(record: string): string[] {
+  return record.split("\0").map((value) => value.trim());
+}
+
+function decodeJjCurrentChange(raw: string, cwd: string): JjCurrentChange | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const [changeId, commitId, description] = parseNullRecord(trimmed);
+  if (!changeId) {
+    throw new VcsOutputDecodeError({
+      operation: "JjVcsDriver.currentChange",
+      command: "jj log",
+      cwd,
+      detail: "jj current change output did not include a change id",
+    });
+  }
+
+  return {
+    changeId,
+    commitId: commitId || null,
+    description: description || null,
+  };
+}
+
+function decodeJjBookmarkList(raw: string): ReadonlyArray<JjBookmark> {
+  return raw
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [name, target] = parseNullRecord(line);
+      return {
+        name: name ?? line,
+        target: target || null,
+      };
+    });
+}
+
+function decodeJjWorkspaceList(raw: string): ReadonlyArray<JjWorkspace> {
+  return raw
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [name, path] = parseNullRecord(line);
+      return {
+        name: name ?? line,
+        path: path || null,
+      };
+    });
 }
 
 function chunkPathsForCheckIgnore(relativePaths: ReadonlyArray<string>): string[][] {
@@ -233,6 +322,86 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
       ),
     );
 
+  const listRemotes: VcsDriverShape["listRemotes"] = Effect.fn("listRemotes")(function* (cwd) {
+    const result = yield* jjCommand(
+      process,
+      "JjVcsDriver.listRemotes",
+      cwd,
+      ["git", "remote", "list"],
+      {
+        allowNonZeroExit: true,
+        timeoutMs: 5_000,
+        maxOutputBytes: 64 * 1024,
+      },
+    );
+
+    if (result.exitCode !== 0) {
+      return {
+        remotes: [],
+        freshness: yield* nowFreshness(),
+      };
+    }
+
+    return {
+      remotes: parseJjRemoteList(result.stdout).map((remote) => ({
+        name: remote.name,
+        url: remote.url,
+        pushUrl: Option.none(),
+        isPrimary: remote.name === "origin",
+      })),
+      freshness: yield* nowFreshness(),
+    };
+  });
+
+  const currentChange: JjVcsDriverShape["currentChange"] = (cwd) =>
+    jjCommand(
+      process,
+      "JjVcsDriver.currentChange",
+      cwd,
+      [
+        "log",
+        "-r",
+        "@",
+        "--no-graph",
+        "--template",
+        'change_id ++ "\\0" ++ commit_id ++ "\\0" ++ description.first_line()',
+      ],
+      {
+        timeoutMs: 5_000,
+        maxOutputBytes: 64 * 1024,
+      },
+    ).pipe(Effect.map((result) => decodeJjCurrentChange(result.stdout, cwd)));
+
+  const listBookmarks: JjVcsDriverShape["listBookmarks"] = (cwd) =>
+    jjCommand(
+      process,
+      "JjVcsDriver.listBookmarks",
+      cwd,
+      ["bookmark", "list", "--template", 'name ++ "\\0" ++ target.commit_id() ++ "\\n"'],
+      {
+        allowNonZeroExit: true,
+        timeoutMs: 5_000,
+        maxOutputBytes: 256 * 1024,
+      },
+    ).pipe(
+      Effect.map((result) => (result.exitCode === 0 ? decodeJjBookmarkList(result.stdout) : [])),
+    );
+
+  const listWorkspaces: JjVcsDriverShape["listWorkspaces"] = (cwd) =>
+    jjCommand(
+      process,
+      "JjVcsDriver.listWorkspaces",
+      cwd,
+      ["workspace", "list", "--template", 'name ++ "\\0" ++ root ++ "\\n"'],
+      {
+        allowNonZeroExit: true,
+        timeoutMs: 5_000,
+        maxOutputBytes: 256 * 1024,
+      },
+    ).pipe(
+      Effect.map((result) => (result.exitCode === 0 ? decodeJjWorkspaceList(result.stdout) : [])),
+    );
+
   const filterIgnoredPaths: VcsDriverShape["filterIgnoredPaths"] = Effect.fn("filterIgnoredPaths")(
     function* (cwd, relativePaths) {
       if (relativePaths.length === 0) {
@@ -322,7 +491,11 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
     detectRepository,
     isInsideWorkTree,
     listWorkspaceFiles,
+    listRemotes,
     filterIgnoredPaths,
+    currentChange,
+    listBookmarks,
+    listWorkspaces,
   } satisfies JjVcsDriverShape;
 });
 
