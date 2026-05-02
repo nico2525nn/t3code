@@ -58,7 +58,8 @@ export function resolveVcsActionPresentation(
   kind: VcsDriverKind | null | undefined,
 ): VcsActionPresentation {
   const terms = resolveVcsTerms(kind);
-  const supportsGitWorkflowActions = kind === undefined || kind === null || kind === "git";
+  const supportsGitWorkflowActions =
+    kind === undefined || kind === null || kind === "git" || kind === "unknown";
 
   return {
     supportsGitWorkflowActions,
