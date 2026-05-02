@@ -16,6 +16,7 @@ import {
 import { GitWorkflowService, type GitWorkflowServiceShape } from "../git/GitWorkflowService.ts";
 
 const baseLocalStatus: VcsStatusLocalResult = {
+  kind: "git",
   isRepo: true,
   sourceControlProvider: {
     kind: "github",
