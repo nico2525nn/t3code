@@ -80,27 +80,32 @@ function parseNullRecord(record: string): string[] {
   return record.split("\0").map((value) => value.trim());
 }
 
-function decodeJjCurrentChange(raw: string, cwd: string): JjCurrentChange | null {
+function decodeJjCurrentChange(
+  raw: string,
+  cwd: string,
+): Effect.Effect<JjCurrentChange | null, VcsOutputDecodeError> {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    return null;
+    return Effect.succeed(null);
   }
 
   const [changeId, commitId, description] = parseNullRecord(trimmed);
   if (!changeId) {
-    throw new VcsOutputDecodeError({
-      operation: "JjVcsDriver.currentChange",
-      command: "jj log",
-      cwd,
-      detail: "jj current change output did not include a change id",
-    });
+    return Effect.fail(
+      new VcsOutputDecodeError({
+        operation: "JjVcsDriver.currentChange",
+        command: "jj log",
+        cwd,
+        detail: "jj current change output did not include a change id",
+      }),
+    );
   }
 
-  return {
+  return Effect.succeed({
     changeId,
     commitId: commitId || null,
     description: description || null,
-  };
+  });
 }
 
 function decodeJjBookmarkList(raw: string): ReadonlyArray<JjBookmark> {
@@ -370,7 +375,7 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
         timeoutMs: 5_000,
         maxOutputBytes: 64 * 1024,
       },
-    ).pipe(Effect.map((result) => decodeJjCurrentChange(result.stdout, cwd)));
+    ).pipe(Effect.flatMap((result) => decodeJjCurrentChange(result.stdout, cwd)));
 
   const listBookmarks: JjVcsDriverShape["listBookmarks"] = (cwd) =>
     jjCommand(
