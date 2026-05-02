@@ -76,8 +76,12 @@ export const make = Effect.fn("makeGitHubSourceControlProvider")(function* () {
         ],
       })
       .pipe(
-        Effect.flatMap((result) =>
-          Effect.sync(() => decodeGitHubPullRequestListJson(result.stdout.trim())).pipe(
+        Effect.flatMap((result) => {
+          const raw = result.stdout.trim();
+          if (raw.length === 0) {
+            return Effect.succeed([]);
+          }
+          return Effect.sync(() => decodeGitHubPullRequestListJson(raw)).pipe(
             Effect.flatMap((decoded) =>
               Result.isSuccess(decoded)
                 ? Effect.succeed(
@@ -95,8 +99,8 @@ export const make = Effect.fn("makeGitHubSourceControlProvider")(function* () {
                     }),
                   ),
             ),
-          ),
-        ),
+          );
+        }),
         Effect.mapError((error) =>
           Schema.is(SourceControlProviderError)(error)
             ? error

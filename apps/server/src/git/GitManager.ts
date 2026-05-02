@@ -1045,9 +1045,10 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       }
     }
 
-    const defaultFromProvider = yield* (yield* sourceControlProvider(cwd))
-      .getDefaultBranch({ cwd })
-      .pipe(Effect.catch(() => Effect.succeed(null)));
+    const defaultFromProvider = yield* sourceControlProvider(cwd).pipe(
+      Effect.flatMap((provider) => provider.getDefaultBranch({ cwd })),
+      Effect.catch(() => Effect.succeed(null)),
+    );
     if (defaultFromProvider) {
       return defaultFromProvider;
     }

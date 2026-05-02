@@ -106,6 +106,23 @@ it.effect("uses gh json listing for non-open change request state queries", () =
   }),
 );
 
+it.effect("treats empty non-open change request listing output as no results", () =>
+  Effect.gen(function* () {
+    const provider = yield* makeProvider({
+      execute: () => Effect.succeed(processResult("")),
+    });
+
+    const changeRequests = yield* provider.listChangeRequests({
+      cwd: "/repo",
+      headSelector: "feature/empty",
+      state: "all",
+      limit: 10,
+    });
+
+    assert.deepStrictEqual(changeRequests, []);
+  }),
+);
+
 it.effect("creates GitHub PRs through provider-neutral input names", () =>
   Effect.gen(function* () {
     let createInput: Parameters<GitHubCliShape["createPullRequest"]>[0] | null = null;

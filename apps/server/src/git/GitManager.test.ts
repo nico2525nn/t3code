@@ -1731,6 +1731,49 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("create_pr falls back to main when source control provider detection fails", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/provider-fallback"]);
+      fs.writeFileSync(path.join(repoDir, "provider-fallback.txt"), "fallback\n");
+      yield* runGit(repoDir, ["add", "provider-fallback.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Provider fallback"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            "[]",
+            JSON.stringify([
+              {
+                number: 404,
+                title: "Provider fallback",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/404",
+                baseRefName: "main",
+                headRefName: "feature/provider-fallback",
+              },
+            ]),
+          ],
+        },
+      });
+
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "create_pr",
+      });
+
+      expect(result.pr.status).toBe("created");
+      expect(result.pr.number).toBe(404);
+      expect(
+        ghCalls.some((call) =>
+          call.includes("pr create --base main --head feature/provider-fallback"),
+        ),
+      ).toBe(true);
+    }),
+  );
+
   it.effect("returns existing PR metadata for commit/push/pr action", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
