@@ -269,6 +269,9 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
         : {}),
     });
 
+  const initRepository: VcsDriverShape["initRepository"] = (input) =>
+    jjCommand(process, "JjVcsDriver.initRepository", input.cwd, ["git", "init"]);
+
   const detectRepository: VcsDriverShape["detectRepository"] = Effect.fn("detectRepository")(
     function* (cwd) {
       const root = yield* jjCommand(process, "JjVcsDriver.detectRepository.root", cwd, ["root"], {
@@ -488,6 +491,7 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
   return {
     capabilities,
     execute,
+    initRepository,
     detectRepository,
     isInsideWorkTree,
     listWorkspaceFiles,

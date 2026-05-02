@@ -32,6 +32,7 @@ describe("VcsDriverRegistry", () => {
           run: () => Effect.succeed(processOutput("")),
         }),
       ),
+      Layer.provide(NodeServices.layer),
     );
 
     return Effect.gen(function* () {
