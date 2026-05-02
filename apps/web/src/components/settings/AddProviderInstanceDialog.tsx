@@ -124,6 +124,71 @@ function validateInstanceId(id: string, existing: ReadonlySet<string>): string |
   return null;
 }
 
+function acpRegistryAgentSearchFields(entry: ResolvedRegistryAcpAgent): string[] {
+  return [
+    entry.agent.name,
+    entry.agent.id,
+    entry.agent.description,
+    entry.agent.repository,
+    entry.agent.website,
+    entry.distributionType,
+    entry.launch?.command,
+    ...(entry.launch?.args ?? []),
+  ]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .map((value) => normalizeSearchQuery(value));
+}
+
+function acpRegistryAgentSearchText(entry: ResolvedRegistryAcpAgent): string {
+  return acpRegistryAgentSearchFields(entry).join(" ");
+}
+
+function scoreAcpRegistryAgentSearchToken(
+  field: string,
+  token: string,
+  fieldBase: number,
+): number | null {
+  return scoreQueryMatch({
+    value: field,
+    query: token,
+    exactBase: fieldBase,
+    prefixBase: fieldBase + 2,
+    boundaryBase: fieldBase + 4,
+    includesBase: fieldBase + 6,
+    ...(token.length >= 3 ? { fuzzyBase: fieldBase + 100 } : {}),
+  });
+}
+
+function scoreAcpRegistryAgentSearch(
+  entry: ResolvedRegistryAcpAgent,
+  query: string,
+): number | null {
+  const tokens = normalizeSearchQuery(query)
+    .split(/\s+/u)
+    .filter((token) => token.length > 0);
+
+  if (tokens.length === 0) {
+    return 0;
+  }
+
+  const fields = acpRegistryAgentSearchFields(entry);
+  const combinedField = acpRegistryAgentSearchText(entry);
+  let score = 0;
+
+  for (const token of tokens) {
+    const tokenScores = [...fields, combinedField]
+      .map((field, index) => scoreAcpRegistryAgentSearchToken(field, token, index * 10))
+      .filter((fieldScore): fieldScore is number => fieldScore !== null);
+
+    if (tokenScores.length === 0) {
+      return null;
+    }
+
+    score += Math.min(...tokenScores);
+  }
+
+  return score;
+}
 function envRecordToVariables(
   env: Record<string, string> | null | undefined,
 ): ReadonlyArray<EnvironmentVariableDraft> {
@@ -159,49 +224,6 @@ function acpDistributionLabel(entry: ResolvedRegistryAcpAgent): string {
     case "manual":
       return "Manual";
   }
-}
-
-function acpRegistryAgentSearchFields(entry: ResolvedRegistryAcpAgent): readonly string[] {
-  return [
-    entry.agent.name,
-    entry.agent.id,
-    entry.agent.description,
-    entry.agent.repository,
-    entry.agent.website,
-    entry.distributionType,
-    entry.launch?.command,
-    ...(entry.launch?.args ?? []),
-  ]
-    .filter((value): value is string => typeof value === "string" && value.length > 0)
-    .map((value) => normalizeSearchQuery(value));
-}
-
-function scoreAcpRegistryAgentSearch(entry: ResolvedRegistryAcpAgent, query: string): number | null {
-  const tokens = normalizeSearchQuery(query)
-    .split(/\s+/u)
-    .filter((token) => token.length > 0);
-  if (tokens.length === 0) return 0;
-
-  const fields = acpRegistryAgentSearchFields(entry);
-  let score = 0;
-  for (const token of tokens) {
-    const tokenScores = fields
-      .map((field, index) =>
-        scoreQueryMatch({
-          value: field,
-          query: token,
-          exactBase: index * 10,
-          prefixBase: index * 10 + 2,
-          boundaryBase: index * 10 + 4,
-          includesBase: index * 10 + 6,
-          ...(token.length >= 3 ? { fuzzyBase: index * 10 + 100 } : {}),
-        }),
-      )
-      .filter((fieldScore): fieldScore is number => fieldScore !== null);
-    if (tokenScores.length === 0) return null;
-    score += Math.min(...tokenScores);
-  }
-  return score;
 }
 
 type AcpRegistryState =
@@ -327,14 +349,29 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
   ] as const;
   const filteredAcpRegistryAgents = useMemo(() => {
     const query = acpRegistrySearch.trim();
-    if (!query) return acpRegistryState.agents;
-    return acpRegistryState.agents
-      .map((entry) => ({ entry, score: scoreAcpRegistryAgentSearch(entry, query) }))
-      .filter((result): result is { entry: ResolvedRegistryAcpAgent; score: number } => {
-        return result.score !== null;
+    const agents = acpRegistryState.agents;
+    if (!query) return agents;
+    return agents
+      .map((entry) => ({
+        entry,
+        score: scoreAcpRegistryAgentSearch(entry, query),
+        tieBreaker: acpRegistryAgentSearchText(entry),
+      }))
+      .filter(
+        (
+          rankedAgent,
+        ): rankedAgent is {
+          entry: ResolvedRegistryAcpAgent;
+          score: number;
+          tieBreaker: string;
+        } => rankedAgent.score !== null,
+      )
+      .toSorted((left, right) => {
+        const scoreDelta = left.score - right.score;
+        if (scoreDelta !== 0) return scoreDelta;
+        return left.tieBreaker.localeCompare(right.tieBreaker);
       })
-      .toSorted((left, right) => left.score - right.score || left.entry.agent.name.localeCompare(right.entry.agent.name))
-      .map((result) => result.entry);
+      .map((rankedAgent) => rankedAgent.entry);
   }, [acpRegistrySearch, acpRegistryState.agents]);
 
   const loadAcpRegistry = useCallback(async () => {
@@ -384,7 +421,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
       setConfigByDriver((existing) => ({
         ...existing,
         [ACP_REGISTRY_DRIVER_KIND]: {
-          ...(existing[ACP_REGISTRY_DRIVER_KIND] ?? {}),
+          ...existing[ACP_REGISTRY_DRIVER_KIND],
           command: launch.command,
           args: launch.args,
           env: launch.env,
@@ -502,7 +539,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
     setHasAttemptedSubmit(true);
     if (instanceIdError !== null) return;
 
-    const config: Record<string, unknown> = { ...(configByDriver[driver] ?? {}) };
+    const config: Record<string, unknown> = { ...configByDriver[driver] };
     if (driver === ACP_REGISTRY_DRIVER_KIND && selectedAcpRegistryAgent) {
       config.registryAgentId = selectedAcpRegistryAgent.agent.id;
       config.importedVersion = selectedAcpRegistryAgent.agent.version;
@@ -1080,7 +1117,9 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
             ) : null}
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" disabled={installingConfirmAgent} />}>
+            <AlertDialogClose
+              render={<Button variant="outline" disabled={installingConfirmAgent} />}
+            >
               Cancel
             </AlertDialogClose>
             <Button
