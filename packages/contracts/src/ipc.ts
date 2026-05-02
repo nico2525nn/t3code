@@ -55,6 +55,7 @@ import type {
 import type { EnvironmentId } from "./baseSchemas.ts";
 import { EditorId } from "./editor.ts";
 import { ServerSettings, type ClientSettings, type ServerSettingsPatch } from "./settings.ts";
+import type { SourceControlDiscoveryResult } from "./sourceControl.ts";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -227,6 +228,7 @@ export interface LocalApi {
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
+    discoverSourceControl: () => Promise<SourceControlDiscoveryResult>;
   };
 }
 

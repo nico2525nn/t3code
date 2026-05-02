@@ -53,6 +53,8 @@ import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptR
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
 import { ServerAuth } from "./auth/Services/ServerAuth.ts";
+import * as SourceControlDiscoveryLayer from "./sourceControl/SourceControlDiscovery.ts";
+import * as VcsProcess from "./vcs/VcsProcess.ts";
 import {
   BootstrapCredentialService,
   type BootstrapCredentialChange,
@@ -149,6 +151,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment;
       const serverAuth = yield* ServerAuth;
+      const sourceControlDiscovery = yield* SourceControlDiscoveryLayer.SourceControlDiscovery;
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
       const serverCommandId = (tag: string) =>
@@ -781,6 +784,14 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.serverDiscoverSourceControl]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverDiscoverSourceControl,
+            sourceControlDiscovery.discover,
+            {
+              "rpc.aggregate": "server",
+            },
+          ),
         [WS_METHODS.projectsSearchEntries]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchEntries,
@@ -1084,7 +1095,10 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           },
         }).pipe(
           Effect.provide(
-            makeWsRpcLayer(session.sessionId).pipe(Layer.provideMerge(RpcSerialization.layerJson)),
+            makeWsRpcLayer(session.sessionId).pipe(
+              Layer.provideMerge(RpcSerialization.layerJson),
+              Layer.provide(SourceControlDiscoveryLayer.layer.pipe(Layer.provide(VcsProcess.layer))),
+            ),
           ),
         );
         return yield* Effect.acquireUseRelease(

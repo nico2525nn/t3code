@@ -1,10 +1,12 @@
 import { Schema } from "effect";
 import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { VcsDriverKind } from "./vcs.ts";
 
 export const SourceControlProviderKind = Schema.Literals([
   "github",
   "gitlab",
   "azure-devops",
+  "bitbucket",
   "unknown",
 ]);
 export type SourceControlProviderKind = typeof SourceControlProviderKind.Type;
@@ -40,6 +42,43 @@ export const SourceControlRepositoryCloneUrls = Schema.Struct({
   sshUrl: TrimmedNonEmptyString,
 });
 export type SourceControlRepositoryCloneUrls = typeof SourceControlRepositoryCloneUrls.Type;
+
+export const SourceControlDiscoveryStatus = Schema.Literals(["available", "missing"]);
+export type SourceControlDiscoveryStatus = typeof SourceControlDiscoveryStatus.Type;
+
+const SourceControlDiscoveryItemFields = {
+  label: TrimmedNonEmptyString,
+  executable: TrimmedNonEmptyString,
+  implemented: Schema.Boolean,
+  status: SourceControlDiscoveryStatus,
+  version: Schema.Option(TrimmedNonEmptyString),
+  installHint: TrimmedNonEmptyString,
+  detail: Schema.Option(TrimmedNonEmptyString),
+} as const;
+
+export const SourceControlDiscoveryItem = Schema.Struct({
+  kind: Schema.String,
+  ...SourceControlDiscoveryItemFields,
+});
+export type SourceControlDiscoveryItem = typeof SourceControlDiscoveryItem.Type;
+
+export const VcsDiscoveryItem = Schema.Struct({
+  kind: VcsDriverKind,
+  ...SourceControlDiscoveryItemFields,
+});
+export type VcsDiscoveryItem = typeof VcsDiscoveryItem.Type;
+
+export const SourceControlProviderDiscoveryItem = Schema.Struct({
+  kind: SourceControlProviderKind,
+  ...SourceControlDiscoveryItemFields,
+});
+export type SourceControlProviderDiscoveryItem = typeof SourceControlProviderDiscoveryItem.Type;
+
+export const SourceControlDiscoveryResult = Schema.Struct({
+  versionControlSystems: Schema.Array(VcsDiscoveryItem),
+  sourceControlProviders: Schema.Array(SourceControlProviderDiscoveryItem),
+});
+export type SourceControlDiscoveryResult = typeof SourceControlDiscoveryResult.Type;
 
 export class SourceControlProviderError extends Schema.TaggedErrorClass<SourceControlProviderError>()(
   "SourceControlProviderError",
