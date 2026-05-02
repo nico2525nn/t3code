@@ -54,6 +54,17 @@ import { vi } from "vitest";
 
 const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
 
+const testGitRepository = (rootPath: string) => ({
+  kind: "git" as const,
+  rootPath,
+  metadataPath: null,
+  freshness: {
+    source: "live-local" as const,
+    observedAt: TEST_EPOCH,
+    expiresAt: Option.none(),
+  },
+});
+
 import type { ServerConfigShape } from "./config.ts";
 import { deriveServerPaths, ServerConfig } from "./config.ts";
 import { makeRoutesLayer } from "./server.ts";
@@ -2366,6 +2377,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       yield* buildAppUnderTest({
         layers: {
+          vcsDriver: {
+            detectRepository: () => Effect.succeed(testGitRepository("/tmp/repo")),
+          },
           gitManager: {
             invalidateLocalStatus: () => Effect.void,
             invalidateRemoteStatus: () => Effect.void,
@@ -2784,6 +2798,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       yield* buildAppUnderTest({
         layers: {
+          vcsDriver: {
+            detectRepository: () => Effect.succeed(testGitRepository("/tmp/repo")),
+          },
           gitVcsDriver: {
             pullCurrentBranch: () =>
               Effect.succeed({
@@ -2836,6 +2853,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       Effect.gen(function* () {
         yield* buildAppUnderTest({
           layers: {
+            vcsDriver: {
+              detectRepository: () => Effect.succeed(testGitRepository("/tmp/repo")),
+            },
             gitManager: {
               invalidateLocalStatus: () => Effect.void,
               invalidateRemoteStatus: () => Effect.void,
@@ -2910,6 +2930,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
         yield* buildAppUnderTest({
           layers: {
+            vcsDriver: {
+              detectRepository: () => Effect.succeed(testGitRepository("/tmp/repo")),
+            },
             gitManager: {
               invalidateLocalStatus: () => Effect.void,
               invalidateRemoteStatus: () => Effect.void,
