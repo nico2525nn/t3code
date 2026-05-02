@@ -1,8 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 
 import { VcsOutputDecodeError, VcsProcessExitError } from "@t3tools/contracts";
 import { VcsDriver, type VcsDriverShape } from "./VcsDriver.ts";
@@ -117,7 +113,7 @@ const gitCommand = (
   options?: Parameters<typeof processCommand>[5],
 ) => processCommand(process, "git", operation, cwd, args, options);
 
-function tempDirError(operation: string, cwd: string, detail: string, cause: unknown) {
+function fileSystemError(operation: string, cwd: string, detail: string, cause: unknown) {
   return new VcsOutputDecodeError({
     operation,
     command: "git check-ignore",
@@ -127,17 +123,18 @@ function tempDirError(operation: string, cwd: string, detail: string, cause: unk
   });
 }
 
-const makeTempGitDir = (operation: string, cwd: string) =>
-  Effect.tryPromise({
-    try: () => mkdtemp(join(tmpdir(), "t3-jj-check-ignore-")),
-    catch: (cause) => tempDirError(operation, cwd, "failed to create temp git dir", cause),
-  });
-
-const removeTempGitDir = (gitDir: string) =>
-  Effect.promise(() => rm(gitDir, { force: true, recursive: true })).pipe(Effect.ignore);
+const makeScopedTempGitDir = (fileSystem: FileSystem.FileSystem, operation: string, cwd: string) =>
+  fileSystem
+    .makeTempDirectoryScoped({ prefix: "t3-jj-check-ignore-" })
+    .pipe(
+      Effect.mapError((cause) =>
+        fileSystemError(operation, cwd, "failed to create temp git dir", cause),
+      ),
+    );
 
 export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
   const process = yield* VcsProcess;
+  const fileSystem = yield* FileSystem.FileSystem;
   const capabilities = {
     kind: "jj" as const,
     supportsWorktrees: true,
@@ -229,15 +226,19 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
 
       const operation = "JjVcsDriver.filterIgnoredPaths";
       const ignoredPaths = new Set<string>();
-      yield* Effect.acquireUseRelease(
-        makeTempGitDir(operation, cwd),
-        Effect.fn("JjVcsDriver.filterIgnoredPaths.withTempGitDir")(function* (gitDir) {
-          const initResult = yield* gitCommand(process, operation, cwd, [
-            "--git-dir",
-            gitDir,
-            "init",
-            "--bare",
-          ]);
+
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const gitDir = yield* makeScopedTempGitDir(fileSystem, operation, cwd);
+          const initResult = yield* gitCommand(
+            process,
+            operation,
+            cwd,
+            ["--git-dir", gitDir, "init", "--bare"],
+            {
+              allowNonZeroExit: true,
+            },
+          );
           if (initResult.exitCode !== 0) {
             return yield* new VcsProcessExitError({
               operation,
@@ -290,7 +291,6 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
             }
           }
         }),
-        removeTempGitDir,
       );
 
       if (ignoredPaths.size === 0) {
