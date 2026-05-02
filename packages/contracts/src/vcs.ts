@@ -25,6 +25,7 @@ export const VcsDriverCapabilities = Schema.Struct({
   supportsBookmarks: Schema.Boolean,
   supportsAtomicSnapshot: Schema.Boolean,
   supportsPushDefaultRemote: Schema.Boolean,
+  ignoreClassifier: Schema.Literals(["native", "git-compatible-fallback"]),
 });
 export type VcsDriverCapabilities = typeof VcsDriverCapabilities.Type;
 
@@ -42,6 +43,20 @@ export const VcsListWorkspaceFilesResult = Schema.Struct({
   freshness: VcsFreshness,
 });
 export type VcsListWorkspaceFilesResult = typeof VcsListWorkspaceFilesResult.Type;
+
+export const VcsRemote = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  url: TrimmedNonEmptyString,
+  pushUrl: Schema.Option(TrimmedNonEmptyString),
+  isPrimary: Schema.Boolean,
+});
+export type VcsRemote = typeof VcsRemote.Type;
+
+export const VcsListRemotesResult = Schema.Struct({
+  remotes: Schema.Array(VcsRemote),
+  freshness: VcsFreshness,
+});
+export type VcsListRemotesResult = typeof VcsListRemotesResult.Type;
 
 export class VcsProcessSpawnError extends Schema.TaggedErrorClass<VcsProcessSpawnError>()(
   "VcsProcessSpawnError",

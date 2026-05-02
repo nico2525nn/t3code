@@ -382,6 +382,7 @@ const buildAppUnderTest = (options?: {
         supportsBookmarks: false,
         supportsAtomicSnapshot: false,
         supportsPushDefaultRemote: true,
+        ignoreClassifier: "native",
       },
       execute: () =>
         Effect.succeed({
@@ -397,6 +398,15 @@ const buildAppUnderTest = (options?: {
         Effect.succeed({
           paths: [],
           truncated: false,
+          freshness: {
+            source: "live-local",
+            observedAt: TEST_EPOCH,
+            expiresAt: Option.none(),
+          },
+        }),
+      listRemotes: () =>
+        Effect.succeed({
+          remotes: [],
           freshness: {
             source: "live-local",
             observedAt: TEST_EPOCH,

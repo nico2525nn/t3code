@@ -1,38 +1,62 @@
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { DateTime, Effect, Layer, Option } from "effect";
 
 import { GitHubCli } from "./GitHubCli.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
+import { VcsDriverRegistry } from "../vcs/VcsDriverRegistry.ts";
+import type { VcsDriverShape } from "../vcs/VcsDriver.ts";
 
-const processResult = (stdout: string) => ({
-  stdout,
-  stderr: "",
-  exitCode: ChildProcessSpawner.ExitCode(0),
-  stdoutTruncated: false,
-  stderrTruncated: false,
-});
+const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
 
 function makeRegistry(input: {
-  readonly originUrl?: string | null;
-  readonly remoteVerboseOutput?: string;
+  readonly remotes: ReadonlyArray<{
+    readonly name: string;
+    readonly url: string;
+  }>;
 }) {
-  const gitLayer = Layer.mock(GitVcsDriver.GitVcsDriver)({
-    readConfigValue: (_cwd, key) =>
-      key === "remote.origin.url" ? Effect.succeed(input.originUrl ?? null) : Effect.succeed(null),
-    execute: () => Effect.succeed(processResult(input.remoteVerboseOutput ?? "")),
+  const driver = {
+    listRemotes: () =>
+      Effect.succeed({
+        remotes: input.remotes.map((remote) => ({
+          ...remote,
+          pushUrl: Option.none(),
+          isPrimary: remote.name === "origin",
+        })),
+        freshness: {
+          source: "live-local" as const,
+          observedAt: TEST_EPOCH,
+          expiresAt: Option.none(),
+        },
+      }),
+  } satisfies Partial<VcsDriverShape>;
+
+  const registryLayer = Layer.mock(VcsDriverRegistry)({
+    resolve: () =>
+      Effect.succeed({
+        kind: "git",
+        repository: {
+          kind: "git",
+          rootPath: "/repo",
+          metadataPath: null,
+          freshness: {
+            source: "live-local" as const,
+            observedAt: TEST_EPOCH,
+            expiresAt: Option.none(),
+          },
+        },
+        driver: driver as unknown as VcsDriverShape,
+      }),
   });
 
   return SourceControlProviderRegistry.make().pipe(
-    Effect.provide(Layer.mergeAll(gitLayer, Layer.mock(GitHubCli)({}))),
+    Effect.provide(Layer.mergeAll(registryLayer, Layer.mock(GitHubCli)({}))),
   );
 }
 
 it.effect("routes GitHub remotes to the GitHub provider", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry({
-      originUrl: "git@github.com:pingdotgg/t3code.git",
+      remotes: [{ name: "origin", url: "git@github.com:pingdotgg/t3code.git" }],
     });
 
     const provider = yield* registry.resolve({ cwd: "/repo" });
@@ -46,7 +70,7 @@ it.effect(
   () =>
     Effect.gen(function* () {
       const registry = yield* makeRegistry({
-        originUrl: "git@gitlab.com:group/project.git",
+        remotes: [{ name: "origin", url: "git@gitlab.com:group/project.git" }],
       });
 
       const provider = yield* registry.resolve({ cwd: "/repo" });
@@ -64,14 +88,10 @@ it.effect(
     }),
 );
 
-it.effect("falls back to remote verbose output when origin is not configured", () =>
+it.effect("falls back to a non-origin remote when origin is not configured", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry({
-      originUrl: null,
-      remoteVerboseOutput: [
-        "upstream\thttps://dev.azure.com/acme/project/_git/repo (fetch)",
-        "upstream\thttps://dev.azure.com/acme/project/_git/repo (push)",
-      ].join("\n"),
+      remotes: [{ name: "upstream", url: "https://dev.azure.com/acme/project/_git/repo" }],
     });
 
     const provider = yield* registry.resolve({ cwd: "/repo" });
