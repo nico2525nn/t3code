@@ -1,0 +1,319 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { Effect, Layer } from "effect";
+
+import { VcsOutputDecodeError, VcsProcessExitError } from "@t3tools/contracts";
+import { VcsDriver, type VcsDriverShape } from "./VcsDriver.ts";
+import { nowFreshness } from "./VcsFreshness.ts";
+import { VcsProcess, type VcsProcessShape } from "./VcsProcess.ts";
+
+const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
+const CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
+
+function splitNullSeparatedPaths(input: string, truncated: boolean): string[] {
+  const parts = input.split("\0");
+  if (parts.length === 0) return [];
+
+  if (truncated && parts[parts.length - 1]?.length) {
+    parts.pop();
+  }
+
+  return parts.filter((value) => value.length > 0);
+}
+
+function splitLineSeparatedPaths(input: string, truncated: boolean): string[] {
+  const lines = input.split(/\r?\n/g);
+  if (truncated && lines[lines.length - 1]?.length) {
+    lines.pop();
+  }
+
+  return lines.map((line) => line.trim()).filter((line) => line.length > 0);
+}
+
+function chunkPathsForCheckIgnore(relativePaths: ReadonlyArray<string>): string[][] {
+  const chunks: string[][] = [];
+  let chunk: string[] = [];
+  let chunkBytes = 0;
+
+  for (const relativePath of relativePaths) {
+    const relativePathBytes = Buffer.byteLength(relativePath) + 1;
+    if (chunk.length > 0 && chunkBytes + relativePathBytes > CHECK_IGNORE_MAX_STDIN_BYTES) {
+      chunks.push(chunk);
+      chunk = [];
+      chunkBytes = 0;
+    }
+
+    chunk.push(relativePath);
+    chunkBytes += relativePathBytes;
+
+    if (chunkBytes >= CHECK_IGNORE_MAX_STDIN_BYTES) {
+      chunks.push(chunk);
+      chunk = [];
+      chunkBytes = 0;
+    }
+  }
+
+  if (chunk.length > 0) {
+    chunks.push(chunk);
+  }
+
+  return chunks;
+}
+
+const processCommand = (
+  process: VcsProcessShape,
+  command: string,
+  operation: string,
+  cwd: string,
+  args: ReadonlyArray<string>,
+  options?: {
+    readonly stdin?: string;
+    readonly env?: NodeJS.ProcessEnv;
+    readonly allowNonZeroExit?: boolean;
+    readonly timeoutMs?: number;
+    readonly maxOutputBytes?: number;
+    readonly truncateOutputAtMaxBytes?: boolean;
+  },
+) =>
+  process.run({
+    operation,
+    command,
+    args,
+    cwd,
+    ...(options?.stdin !== undefined ? { stdin: options.stdin } : {}),
+    ...(options?.env !== undefined ? { env: options.env } : {}),
+    ...(options?.allowNonZeroExit !== undefined
+      ? { allowNonZeroExit: options.allowNonZeroExit }
+      : {}),
+    ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options?.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
+    ...(options?.truncateOutputAtMaxBytes !== undefined
+      ? { truncateOutputAtMaxBytes: options.truncateOutputAtMaxBytes }
+      : {}),
+  });
+
+const jjCommand = (
+  process: VcsProcessShape,
+  operation: string,
+  cwd: string,
+  args: ReadonlyArray<string>,
+  options?: {
+    readonly stdin?: string;
+    readonly env?: NodeJS.ProcessEnv;
+    readonly allowNonZeroExit?: boolean;
+    readonly timeoutMs?: number;
+    readonly maxOutputBytes?: number;
+    readonly truncateOutputAtMaxBytes?: boolean;
+  },
+) => processCommand(process, "jj", operation, cwd, ["--no-pager", ...args], options);
+
+const gitCommand = (
+  process: VcsProcessShape,
+  operation: string,
+  cwd: string,
+  args: ReadonlyArray<string>,
+  options?: Parameters<typeof processCommand>[5],
+) => processCommand(process, "git", operation, cwd, args, options);
+
+function tempDirError(operation: string, cwd: string, detail: string, cause: unknown) {
+  return new VcsOutputDecodeError({
+    operation,
+    command: "git check-ignore",
+    cwd,
+    detail,
+    cause,
+  });
+}
+
+const makeTempGitDir = (operation: string, cwd: string) =>
+  Effect.tryPromise({
+    try: () => mkdtemp(join(tmpdir(), "t3-jj-check-ignore-")),
+    catch: (cause) => tempDirError(operation, cwd, "failed to create temp git dir", cause),
+  });
+
+const removeTempGitDir = (gitDir: string) =>
+  Effect.promise(() => rm(gitDir, { force: true, recursive: true })).pipe(Effect.ignore);
+
+export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
+  const process = yield* VcsProcess;
+  const capabilities = {
+    kind: "jj" as const,
+    supportsWorktrees: true,
+    supportsBookmarks: true,
+    supportsAtomicSnapshot: true,
+    supportsPushDefaultRemote: false,
+  };
+
+  const isInsideWorkTree: VcsDriverShape["isInsideWorkTree"] = (cwd) =>
+    jjCommand(process, "JjVcsDriver.isInsideWorkTree", cwd, ["root"], {
+      allowNonZeroExit: true,
+      timeoutMs: 5_000,
+      maxOutputBytes: 4_096,
+    }).pipe(
+      Effect.map((result) => result.exitCode === 0 && result.stdout.trim().length > 0),
+      Effect.catch(() => Effect.succeed(false)),
+    );
+
+  const execute: VcsDriverShape["execute"] = (input) =>
+    jjCommand(process, input.operation, input.cwd, input.args, {
+      ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
+      ...(input.env !== undefined ? { env: input.env } : {}),
+      ...(input.allowNonZeroExit !== undefined ? { allowNonZeroExit: input.allowNonZeroExit } : {}),
+      ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+      ...(input.maxOutputBytes !== undefined ? { maxOutputBytes: input.maxOutputBytes } : {}),
+      ...(input.truncateOutputAtMaxBytes !== undefined
+        ? { truncateOutputAtMaxBytes: input.truncateOutputAtMaxBytes }
+        : {}),
+    });
+
+  const detectRepository: VcsDriverShape["detectRepository"] = Effect.fn("detectRepository")(
+    function* (cwd) {
+      const root = yield* jjCommand(process, "JjVcsDriver.detectRepository.root", cwd, ["root"], {
+        allowNonZeroExit: true,
+        timeoutMs: 5_000,
+        maxOutputBytes: 4_096,
+      }).pipe(Effect.catch(() => Effect.succeed(null)));
+      if (!root || root.exitCode !== 0) {
+        return null;
+      }
+
+      const rootPath = root.stdout.trim();
+      if (rootPath.length === 0) {
+        return null;
+      }
+
+      return {
+        kind: "jj" as const,
+        rootPath,
+        metadataPath: `${rootPath.replace(/[\\/]$/g, "")}/.jj`,
+        freshness: yield* nowFreshness(),
+      };
+    },
+  );
+
+  const listWorkspaceFiles: VcsDriverShape["listWorkspaceFiles"] = (cwd) =>
+    jjCommand(process, "JjVcsDriver.listWorkspaceFiles", cwd, ["file", "list"], {
+      allowNonZeroExit: true,
+      timeoutMs: 20_000,
+      maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+      truncateOutputAtMaxBytes: true,
+    }).pipe(
+      Effect.flatMap((result) =>
+        result.exitCode === 0
+          ? Effect.gen(function* () {
+              return {
+                paths: splitLineSeparatedPaths(result.stdout, result.stdoutTruncated),
+                truncated: result.stdoutTruncated,
+                freshness: yield* nowFreshness(),
+              };
+            })
+          : Effect.fail(
+              new VcsProcessExitError({
+                operation: "JjVcsDriver.listWorkspaceFiles",
+                command: "jj file list",
+                cwd,
+                exitCode: result.exitCode,
+                detail: result.stderr.trim() || "jj file list failed",
+              }),
+            ),
+      ),
+    );
+
+  const filterIgnoredPaths: VcsDriverShape["filterIgnoredPaths"] = Effect.fn("filterIgnoredPaths")(
+    function* (cwd, relativePaths) {
+      if (relativePaths.length === 0) {
+        return relativePaths;
+      }
+
+      const operation = "JjVcsDriver.filterIgnoredPaths";
+      const ignoredPaths = new Set<string>();
+      yield* Effect.acquireUseRelease(
+        makeTempGitDir(operation, cwd),
+        Effect.fn("JjVcsDriver.filterIgnoredPaths.withTempGitDir")(function* (gitDir) {
+          const initResult = yield* gitCommand(process, operation, cwd, [
+            "--git-dir",
+            gitDir,
+            "init",
+            "--bare",
+          ]);
+          if (initResult.exitCode !== 0) {
+            return yield* new VcsProcessExitError({
+              operation,
+              command: "git init --bare",
+              cwd,
+              exitCode: initResult.exitCode,
+              detail: initResult.stderr.trim() || "git init --bare failed",
+            });
+          }
+
+          for (const chunk of chunkPathsForCheckIgnore(relativePaths)) {
+            const result = yield* gitCommand(
+              process,
+              operation,
+              cwd,
+              [
+                "--git-dir",
+                gitDir,
+                "--work-tree",
+                cwd,
+                "check-ignore",
+                "--no-index",
+                "-z",
+                "--stdin",
+              ],
+              {
+                stdin: `${chunk.join("\0")}\0`,
+                allowNonZeroExit: true,
+                timeoutMs: 20_000,
+                maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+                truncateOutputAtMaxBytes: true,
+              },
+            );
+
+            if (result.exitCode !== 0 && result.exitCode !== 1) {
+              return yield* new VcsProcessExitError({
+                operation,
+                command: "git check-ignore",
+                cwd,
+                exitCode: result.exitCode,
+                detail: result.stderr.trim() || "git check-ignore failed",
+              });
+            }
+
+            for (const ignoredPath of splitNullSeparatedPaths(
+              result.stdout,
+              result.stdoutTruncated,
+            )) {
+              ignoredPaths.add(ignoredPath);
+            }
+          }
+        }),
+        removeTempGitDir,
+      );
+
+      if (ignoredPaths.size === 0) {
+        return relativePaths;
+      }
+
+      return relativePaths.filter((relativePath) => !ignoredPaths.has(relativePath));
+    },
+  );
+
+  return {
+    capabilities,
+    execute,
+    detectRepository,
+    isInsideWorkTree,
+    listWorkspaceFiles,
+    filterIgnoredPaths,
+  } satisfies VcsDriverShape;
+});
+
+export const makeVcsDriver = Effect.fn("makeJjVcsDriver")(function* () {
+  const driver = yield* makeVcsDriverShape();
+  return VcsDriver.of(driver);
+});
+
+export const vcsLayer = Layer.effect(VcsDriver, makeVcsDriver());

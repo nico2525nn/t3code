@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { SourceControlProviderError, SourceControlProviderInfo } from "./sourceControl.ts";
+import { VcsDriverKind } from "./vcs.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
@@ -194,6 +195,7 @@ const VcsStatusChangeRequest = Schema.Struct({
 });
 
 const VcsStatusLocalShape = {
+  kind: VcsDriverKind,
   isRepo: Schema.Boolean,
   sourceControlProvider: Schema.optional(SourceControlProviderInfo),
   hasPrimaryRemote: Schema.Boolean,
