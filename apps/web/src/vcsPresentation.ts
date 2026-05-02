@@ -40,13 +40,6 @@ export function resolveVcsTerms(kind: VcsDriverKind | null | undefined): VcsTerm
     };
   }
 
-  if (kind === "sapling") {
-    return {
-      ...gitLikeTerms,
-      systemName: "Sapling",
-    };
-  }
-
   if (kind === "git") {
     return gitLikeTerms;
   }
