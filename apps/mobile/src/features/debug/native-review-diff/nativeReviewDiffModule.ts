@@ -87,8 +87,6 @@ export interface NativeReviewDiffStyle {
   readonly fileHeaderMetaFontWeight?: string;
   readonly fileHeaderSubtextFontSize?: number;
   readonly fileHeaderSubtextFontWeight?: string;
-  readonly fileHeaderStatusFontSize?: number;
-  readonly fileHeaderStatusFontWeight?: string;
   readonly emptyStateFontSize?: number;
   readonly emptyStateFontWeight?: string;
 }

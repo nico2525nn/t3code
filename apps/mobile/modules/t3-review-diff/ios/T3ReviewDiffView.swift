@@ -160,8 +160,6 @@ private struct ReviewDiffNativeStylePayload: Decodable {
   let fileHeaderMetaFontWeight: String?
   let fileHeaderSubtextFontSize: Double?
   let fileHeaderSubtextFontWeight: String?
-  let fileHeaderStatusFontSize: Double?
-  let fileHeaderStatusFontWeight: String?
   let emptyStateFontSize: Double?
   let emptyStateFontWeight: String?
 }
@@ -193,8 +191,6 @@ private struct ReviewDiffNativeStyle {
   let fileHeaderMetaFontWeight: UIFont.Weight
   let fileHeaderSubtextFontSize: CGFloat
   let fileHeaderSubtextFontWeight: UIFont.Weight
-  let fileHeaderStatusFontSize: CGFloat
-  let fileHeaderStatusFontWeight: UIFont.Weight
   let emptyStateFontSize: CGFloat
   let emptyStateFontWeight: UIFont.Weight
 
@@ -226,8 +222,6 @@ private struct ReviewDiffNativeStyle {
       fileHeaderMetaFontWeight: fontWeight(payload?.fileHeaderMetaFontWeight, fallback: .bold),
       fileHeaderSubtextFontSize: metric(payload?.fileHeaderSubtextFontSize, fallback: 11),
       fileHeaderSubtextFontWeight: fontWeight(payload?.fileHeaderSubtextFontWeight, fallback: .medium),
-      fileHeaderStatusFontSize: metric(payload?.fileHeaderStatusFontSize, fallback: 10),
-      fileHeaderStatusFontWeight: fontWeight(payload?.fileHeaderStatusFontWeight, fallback: .semibold),
       emptyStateFontSize: metric(payload?.emptyStateFontSize, fallback: 13),
       emptyStateFontWeight: fontWeight(payload?.emptyStateFontWeight, fallback: .semibold)
     )
@@ -293,8 +287,6 @@ private struct ReviewDiffNativeStyle {
       fileHeaderMetaFontWeight: fileHeaderMetaFontWeight,
       fileHeaderSubtextFontSize: fileHeaderSubtextFontSize,
       fileHeaderSubtextFontWeight: fileHeaderSubtextFontWeight,
-      fileHeaderStatusFontSize: fileHeaderStatusFontSize,
-      fileHeaderStatusFontWeight: fileHeaderStatusFontWeight,
       emptyStateFontSize: emptyStateFontSize,
       emptyStateFontWeight: emptyStateFontWeight
     )
@@ -849,10 +841,6 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     UIFont.systemFont(ofSize: style.fileHeaderSubtextFontSize, weight: style.fileHeaderSubtextFontWeight)
   }
 
-  private var fileHeaderStatusFont: UIFont {
-    UIFont.systemFont(ofSize: style.fileHeaderStatusFontSize, weight: style.fileHeaderStatusFontWeight)
-  }
-
   private var emptyStateFont: UIFont {
     UIFont.systemFont(ofSize: style.emptyStateFontSize, weight: style.emptyStateFontWeight)
   }
@@ -1356,7 +1344,7 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
         continue
       }
       let rowEnd = rowStart + rowHeight
-      if rowEnd < visibleMinY || rowStart > visibleMaxY {
+      if rowEnd < rangeMinY || rowStart > rangeMaxY {
         continue
       }
       drawRow(rows[rowIndex], rowIndex: rowIndex, context: context)
@@ -1569,19 +1557,6 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     )
   }
 
-  private func fileStatusText(_ changeType: String?) -> String {
-    switch changeType {
-    case "new":
-      return "A"
-    case "deleted":
-      return "D"
-    case "renamed":
-      return "R"
-    default:
-      return ""
-    }
-  }
-
   private func fileStatusColor(_ changeType: String?) -> UIColor {
     switch changeType {
     case "new":
@@ -1593,13 +1568,6 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     default:
       return theme.hunkText
     }
-  }
-
-  private func drawStatusPill(_ text: String, rect: CGRect, color: UIColor, font: UIFont) {
-    let path = UIBezierPath(roundedRect: rect, cornerRadius: rect.height / 2)
-    color.withAlphaComponent(0.12).setFill()
-    path.fill()
-    drawCenteredText(text, rect: rect, color: color, font: font)
   }
 
   private func drawFileIcon(rect: CGRect, changeType: String?) {
@@ -1719,17 +1687,6 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     color.setFill()
     context.fillEllipse(in: CGRect(x: rect.midX - 1, y: rect.maxY - rect.height * 0.30, width: 2, height: 2))
     context.restoreGState()
-  }
-
-  private func drawCenteredText(_ text: String, rect: CGRect, color: UIColor, font: UIFont) {
-    let paragraphStyle = NSMutableParagraphStyle()
-    paragraphStyle.alignment = .center
-    let attributes: [NSAttributedString.Key: Any] = [
-      .font: font,
-      .foregroundColor: color,
-      .paragraphStyle: paragraphStyle,
-    ]
-    (text as NSString).draw(in: rect, withAttributes: attributes)
   }
 
   private func drawHunkRow(_ row: ReviewDiffNativeRow, rect: CGRect, context: CGContext) {

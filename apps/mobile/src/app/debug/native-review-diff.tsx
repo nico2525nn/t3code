@@ -61,8 +61,6 @@ const NATIVE_DEBUG_STYLE = {
   fileHeaderMetaFontWeight: "semibold",
   fileHeaderSubtextFontSize: 11,
   fileHeaderSubtextFontWeight: "medium",
-  fileHeaderStatusFontSize: 9,
-  fileHeaderStatusFontWeight: "bold",
   emptyStateFontSize: 12,
   emptyStateFontWeight: "medium",
 } satisfies NativeReviewDiffStyle;
