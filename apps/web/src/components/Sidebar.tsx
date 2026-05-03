@@ -3,7 +3,6 @@ import {
   ArrowUpDownIcon,
   ChevronRightIcon,
   CloudIcon,
-  GitPullRequestIcon,
   FolderPlusIcon,
   SearchIcon,
   SettingsIcon,
@@ -12,6 +11,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import {
+  ChangeRequestStatusIcon,
   prStatusIndicator,
   PrStatusTooltipContent,
   resolveThreadPr,
@@ -372,7 +372,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     gitStatus: gitStatus.data,
     hasDedicatedWorktree: thread.worktreePath !== null,
   });
-  const prStatus = prStatusIndicator(pr);
+  const prStatus = prStatusIndicator(pr, gitStatus.data?.sourceControlProvider);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const isConfirmingArchive = confirmingArchiveThreadKey === threadKey && !isThreadRunning;
   const threadMetaClassName = isConfirmingArchive
@@ -563,7 +563,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     className={`inline-flex items-center justify-center ${prStatus.colorClass} cursor-pointer rounded-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring`}
                     onClick={handlePrClick}
                   >
-                    <GitPullRequestIcon className="size-3" />
+                    <ChangeRequestStatusIcon className="size-3" />
                   </button>
                 }
               />
@@ -1009,7 +1009,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Unable to open PR link",
+          title: "Unable to open pull request link",
           description: error instanceof Error ? error.message : "An error occurred.",
         }),
       );

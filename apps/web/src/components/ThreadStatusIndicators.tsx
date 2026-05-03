@@ -1,5 +1,5 @@
 import { scopeProjectRef, scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
-import type { GitStatusResult } from "@t3tools/contracts";
+import type { VcsStatusResult } from "@t3tools/contracts";
 import { CloudIcon, GitPullRequestIcon, TerminalIcon } from "lucide-react";
 import { useMemo } from "react";
 import { usePrimaryEnvironmentId } from "../environments/primary";
@@ -11,12 +11,13 @@ import { useGitStatus } from "../lib/gitStatusState";
 import { type AppState, selectProjectByRef, useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
+import { resolveChangeRequestPresentation } from "../sourceControlPresentation";
 import { resolveThreadStatusPill, type ThreadStatusPill } from "./Sidebar.logic";
 import type { SidebarThreadSummary } from "../types";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 export interface PrStatusIndicator {
-  label: "PR open" | "PR closed" | "PR merged";
+  label: string;
   colorClass: string;
   tooltip: string;
   tooltipLead: string;
@@ -30,25 +31,29 @@ export interface TerminalStatusIndicator {
   pulse: boolean;
 }
 
-export type ThreadPr = GitStatusResult["pr"];
+export type ThreadPr = VcsStatusResult["pr"];
 
 function formatPrState(state: NonNullable<ThreadPr>["state"]): string {
   return state.charAt(0).toUpperCase() + state.slice(1);
 }
 
-function formatPrStatusTooltip(pr: NonNullable<ThreadPr>): string {
-  return `PR #${pr.number} - ${formatPrState(pr.state)}: ${pr.title}`;
+function formatPrStatusTooltip(pr: NonNullable<ThreadPr>, shortName: string): string {
+  return `${shortName} #${pr.number} - ${formatPrState(pr.state)}: ${pr.title}`;
 }
 
-export function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
+export function prStatusIndicator(
+  pr: ThreadPr,
+  provider: VcsStatusResult["sourceControlProvider"] | null | undefined,
+): PrStatusIndicator | null {
   if (!pr) return null;
+  const presentation = resolveChangeRequestPresentation(provider);
 
-  const tooltip = formatPrStatusTooltip(pr);
-  const tooltipLead = `PR #${pr.number} - ${formatPrState(pr.state)}`;
+  const tooltip = formatPrStatusTooltip(pr, presentation.shortName);
+  const tooltipLead = `${presentation.shortName} #${pr.number} - ${formatPrState(pr.state)}`;
 
   if (pr.state === "open") {
     return {
-      label: "PR open",
+      label: `${presentation.shortName} open`,
       colorClass: "text-emerald-600 dark:text-emerald-300/90",
       tooltip,
       tooltipLead,
@@ -58,7 +63,7 @@ export function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   }
   if (pr.state === "closed") {
     return {
-      label: "PR closed",
+      label: `${presentation.shortName} closed`,
       colorClass: "text-zinc-500 dark:text-zinc-400/80",
       tooltip,
       tooltipLead,
@@ -68,7 +73,7 @@ export function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   }
   if (pr.state === "merged") {
     return {
-      label: "PR merged",
+      label: `${presentation.shortName} merged`,
       colorClass: "text-violet-600 dark:text-violet-300/90",
       tooltip,
       tooltipLead,
@@ -91,7 +96,7 @@ export function PrStatusTooltipContent({ status }: { status: PrStatusIndicator }
 
 export function resolveThreadPr(input: {
   threadBranch: string | null;
-  gitStatus: GitStatusResult | null;
+  gitStatus: VcsStatusResult | null;
   hasDedicatedWorktree: boolean;
 }): ThreadPr | null {
   const { threadBranch, gitStatus, hasDedicatedWorktree } = input;
@@ -103,11 +108,15 @@ export function resolveThreadPr(input: {
     return gitStatus.pr ?? null;
   }
 
-  if (threadBranch === null || gitStatus.branch !== threadBranch) {
+  if (threadBranch === null || gitStatus.refName !== threadBranch) {
     return null;
   }
 
   return gitStatus.pr ?? null;
+}
+
+export function ChangeRequestStatusIcon({ className }: { className?: string }) {
+  return <GitPullRequestIcon className={className} />;
 }
 
 export function terminalStatusFromRunningIds(
@@ -163,7 +172,7 @@ export function ThreadStatusLabel({
 
 /**
  * Non-interactive leading status icons for a thread row in compact contexts
- * like the command palette. Shows the PR state icon (if present) and the
+ * like the command palette. Shows the change request state icon (if present) and the
  * thread status dot, matching the sidebar's leading indicators.
  */
 export function ThreadRowLeadingStatus({ thread }: { thread: SidebarThreadSummary }) {
@@ -189,7 +198,7 @@ export function ThreadRowLeadingStatus({ thread }: { thread: SidebarThreadSummar
     gitStatus: gitStatus.data,
     hasDedicatedWorktree: thread.worktreePath !== null,
   });
-  const prStatus = prStatusIndicator(pr);
+  const prStatus = prStatusIndicator(pr, gitStatus.data?.sourceControlProvider);
   const threadStatus = resolveThreadStatusPill({
     thread: {
       ...thread,
@@ -213,7 +222,7 @@ export function ThreadRowLeadingStatus({ thread }: { thread: SidebarThreadSummar
               />
             }
           >
-            <GitPullRequestIcon className="size-3" />
+            <ChangeRequestStatusIcon className="size-3" />
           </TooltipTrigger>
           <TooltipPopup side="top">
             <PrStatusTooltipContent status={prStatus} />

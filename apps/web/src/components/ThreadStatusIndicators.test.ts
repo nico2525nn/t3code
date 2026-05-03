@@ -1,14 +1,14 @@
-import type { GitStatusResult } from "@t3tools/contracts";
+import type { VcsStatusResult } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import { prStatusIndicator, resolveThreadPr } from "./ThreadStatusIndicators";
 
-function status(overrides: Partial<GitStatusResult> = {}): GitStatusResult {
+function status(overrides: Partial<VcsStatusResult> = {}): VcsStatusResult {
   return {
     isRepo: true,
-    hasOriginRemote: true,
-    isDefaultBranch: false,
-    branch: "feature/current",
+    hasPrimaryRemote: true,
+    isDefaultRef: false,
+    refName: "feature/current",
     hasWorkingTreeChanges: false,
     workingTree: { files: [], insertions: 0, deletions: 0 },
     hasUpstream: true,
@@ -18,8 +18,8 @@ function status(overrides: Partial<GitStatusResult> = {}): GitStatusResult {
       number: 42,
       title: "PR branch",
       url: "https://github.com/pingdotgg/t3code/pull/42",
-      baseBranch: "main",
-      headBranch: "feature/current",
+      baseRef: "main",
+      headRef: "feature/current",
       state: "open",
     },
     ...overrides,
@@ -64,7 +64,7 @@ describe("resolveThreadPr", () => {
 
 describe("prStatusIndicator", () => {
   it("formats PR tooltips with number, uppercase status, and title", () => {
-    expect(prStatusIndicator(status().pr)).toMatchObject({
+    expect(prStatusIndicator(status().pr, undefined)).toMatchObject({
       tooltip: "PR #42 - Open: PR branch",
       tooltipLead: "PR #42 - Open",
       tooltipTitle: "PR branch",
