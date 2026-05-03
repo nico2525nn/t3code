@@ -2,17 +2,17 @@ import { EnvironmentId, type VcsRef } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 import {
   dedupeRemoteBranchesWithLocalMatches,
-  deriveLocalBranchNameFromRemoteRef,
   resolveEnvironmentOptionLabel,
-  resolveBranchSelectionTarget,
   resolveCurrentWorkspaceLabel,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
   resolveEnvModeLabel,
-  resolveBranchToolbarValue,
   resolveLockedWorkspaceLabel,
-  resolveLocalCheckoutBranchMismatch,
-  shouldIncludeBranchPickerItem,
+  resolveLocalCheckoutRefMismatch,
+  resolveLocalRefNameFromRemoteRef,
+  resolveRefSelectionTarget,
+  resolveRefToolbarValue,
+  shouldIncludeRefPickerItem,
 } from "./BranchToolbar.logic";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
@@ -50,85 +50,85 @@ describe("resolveDraftEnvModeAfterBranchChange", () => {
   });
 });
 
-describe("resolveBranchToolbarValue", () => {
-  it("defaults new-worktree mode to current git ref when no explicit base ref is set", () => {
+describe("resolveRefToolbarValue", () => {
+  it("defaults new-worktree mode to current ref when no explicit base ref is set", () => {
     expect(
-      resolveBranchToolbarValue({
+      resolveRefToolbarValue({
         envMode: "worktree",
         activeWorktreePath: null,
-        activeThreadBranch: null,
-        currentGitBranch: "main",
+        activeThreadRefName: null,
+        currentRefName: "main",
       }),
     ).toBe("main");
   });
 
   it("keeps an explicitly selected worktree base ref", () => {
     expect(
-      resolveBranchToolbarValue({
+      resolveRefToolbarValue({
         envMode: "worktree",
         activeWorktreePath: null,
-        activeThreadBranch: "feature/base",
-        currentGitBranch: "main",
+        activeThreadRefName: "feature/base",
+        currentRefName: "main",
       }),
     ).toBe("feature/base");
   });
 
   it("shows the actual checked-out ref when not selecting a new worktree base", () => {
     expect(
-      resolveBranchToolbarValue({
+      resolveRefToolbarValue({
         envMode: "local",
         activeWorktreePath: null,
-        activeThreadBranch: "feature/base",
-        currentGitBranch: "main",
+        activeThreadRefName: "feature/base",
+        currentRefName: "main",
       }),
     ).toBe("main");
   });
 });
 
-describe("resolveLocalCheckoutBranchMismatch", () => {
-  it("detects when a local thread is associated with a different branch than the checkout", () => {
+describe("resolveLocalCheckoutRefMismatch", () => {
+  it("detects when a local thread is associated with a different ref than the checkout", () => {
     expect(
-      resolveLocalCheckoutBranchMismatch({
+      resolveLocalCheckoutRefMismatch({
         effectiveEnvMode: "local",
         activeWorktreePath: null,
-        activeThreadBranch: "feature/thread",
-        currentGitBranch: "feature/current",
+        activeThreadRefName: "feature/thread",
+        currentRefName: "feature/current",
       }),
     ).toEqual({
-      threadBranch: "feature/thread",
-      currentBranch: "feature/current",
+      threadRefName: "feature/thread",
+      currentRefName: "feature/current",
     });
   });
 
   it("ignores matching local checkout state", () => {
     expect(
-      resolveLocalCheckoutBranchMismatch({
+      resolveLocalCheckoutRefMismatch({
         effectiveEnvMode: "local",
         activeWorktreePath: null,
-        activeThreadBranch: "feature/thread",
-        currentGitBranch: "feature/thread",
+        activeThreadRefName: "feature/thread",
+        currentRefName: "feature/thread",
       }),
     ).toBeNull();
   });
 
   it("ignores dedicated worktrees because their checkout is already thread-scoped", () => {
     expect(
-      resolveLocalCheckoutBranchMismatch({
+      resolveLocalCheckoutRefMismatch({
         effectiveEnvMode: "worktree",
         activeWorktreePath: "/repo/.t3/worktrees/feature-thread",
-        activeThreadBranch: "feature/thread",
-        currentGitBranch: "feature/current",
+        activeThreadRefName: "feature/thread",
+        currentRefName: "feature/current",
       }),
     ).toBeNull();
   });
 
   it("ignores new-worktree base selection before a worktree exists", () => {
     expect(
-      resolveLocalCheckoutBranchMismatch({
+      resolveLocalCheckoutRefMismatch({
         effectiveEnvMode: "worktree",
         activeWorktreePath: null,
-        activeThreadBranch: "feature/base",
-        currentGitBranch: "main",
+        activeThreadRefName: "feature/base",
+        currentRefName: "main",
       }),
     ).toBeNull();
   });
@@ -218,20 +218,46 @@ describe("resolveLockedWorkspaceLabel", () => {
   });
 });
 
-describe("deriveLocalBranchNameFromRemoteRef", () => {
-  it("strips the remote prefix from a remote ref", () => {
-    expect(deriveLocalBranchNameFromRemoteRef("origin/feature/demo")).toBe("feature/demo");
+describe("resolveLocalRefNameFromRemoteRef", () => {
+  it("strips the remote prefix from a remote ref using structured metadata", () => {
+    expect(
+      resolveLocalRefNameFromRemoteRef({
+        name: "origin/feature/demo",
+        remoteName: "origin",
+      }),
+    ).toBe("feature/demo");
   });
 
-  it("supports remote names that contain slashes", () => {
-    expect(deriveLocalBranchNameFromRemoteRef("my-org/upstream/feature/demo")).toBe(
-      "upstream/feature/demo",
-    );
+  it("supports remote names that contain slashes through the remoteName field", () => {
+    expect(
+      resolveLocalRefNameFromRemoteRef({
+        name: "my-org/upstream/feature/demo",
+        remoteName: "my-org/upstream",
+      }),
+    ).toBe("feature/demo");
   });
 
-  it("returns the original name when ref is malformed", () => {
-    expect(deriveLocalBranchNameFromRemoteRef("origin/")).toBe("origin/");
-    expect(deriveLocalBranchNameFromRemoteRef("/feature/demo")).toBe("/feature/demo");
+  it("returns the original name when remote metadata is unavailable", () => {
+    expect(
+      resolveLocalRefNameFromRemoteRef({
+        name: "origin/feature/demo",
+      }),
+    ).toBe("origin/feature/demo");
+  });
+
+  it("returns the original name when the remote prefix is malformed", () => {
+    expect(
+      resolveLocalRefNameFromRemoteRef({
+        name: "origin/",
+        remoteName: "origin",
+      }),
+    ).toBe("origin/");
+    expect(
+      resolveLocalRefNameFromRemoteRef({
+        name: "/feature/demo",
+        remoteName: "origin",
+      }),
+    ).toBe("/feature/demo");
   });
 });
 
@@ -341,13 +367,13 @@ describe("dedupeRemoteBranchesWithLocalMatches", () => {
   });
 });
 
-describe("resolveBranchSelectionTarget", () => {
+describe("resolveRefSelectionTarget", () => {
   it("reuses an existing secondary worktree for the selected ref", () => {
     expect(
-      resolveBranchSelectionTarget({
+      resolveRefSelectionTarget({
         activeProjectCwd: "/repo",
         activeWorktreePath: "/repo/.t3/worktrees/feature-a",
-        refName: {
+        ref: {
           isDefault: false,
           worktreePath: "/repo/.t3/worktrees/feature-b",
         },
@@ -361,10 +387,10 @@ describe("resolveBranchSelectionTarget", () => {
 
   it("switches back to the main repo when the ref already lives there", () => {
     expect(
-      resolveBranchSelectionTarget({
+      resolveRefSelectionTarget({
         activeProjectCwd: "/repo",
         activeWorktreePath: "/repo/.t3/worktrees/feature-a",
-        refName: {
+        ref: {
           isDefault: true,
           worktreePath: "/repo",
         },
@@ -378,10 +404,10 @@ describe("resolveBranchSelectionTarget", () => {
 
   it("checks out the default ref in the main repo when leaving a secondary worktree", () => {
     expect(
-      resolveBranchSelectionTarget({
+      resolveRefSelectionTarget({
         activeProjectCwd: "/repo",
         activeWorktreePath: "/repo/.t3/worktrees/feature-a",
-        refName: {
+        ref: {
           isDefault: true,
           worktreePath: null,
         },
@@ -395,10 +421,10 @@ describe("resolveBranchSelectionTarget", () => {
 
   it("keeps checkout in the current worktree for non-default refs", () => {
     expect(
-      resolveBranchSelectionTarget({
+      resolveRefSelectionTarget({
         activeProjectCwd: "/repo",
         activeWorktreePath: "/repo/.t3/worktrees/feature-a",
-        refName: {
+        ref: {
           isDefault: false,
           worktreePath: null,
         },
@@ -411,36 +437,36 @@ describe("resolveBranchSelectionTarget", () => {
   });
 });
 
-describe("shouldIncludeBranchPickerItem", () => {
-  it("keeps the synthetic checkout PR item visible for gh pr checkout input", () => {
+describe("shouldIncludeRefPickerItem", () => {
+  it("keeps the synthetic checkout change request item visible for change request input", () => {
     expect(
-      shouldIncludeBranchPickerItem({
+      shouldIncludeRefPickerItem({
         itemValue: "__checkout_pull_request__:1359",
         normalizedQuery: "gh pr checkout 1359",
-        createBranchItemValue: "__create_new_branch__:gh pr checkout 1359",
-        checkoutPullRequestItemValue: "__checkout_pull_request__:1359",
+        createRefItemValue: "__create_new_branch__:gh pr checkout 1359",
+        checkoutChangeRequestItemValue: "__checkout_pull_request__:1359",
       }),
     ).toBe(true);
   });
 
   it("keeps the synthetic create-ref item visible for arbitrary ref input", () => {
     expect(
-      shouldIncludeBranchPickerItem({
+      shouldIncludeRefPickerItem({
         itemValue: "__create_new_branch__:feature/demo",
         normalizedQuery: "feature/demo",
-        createBranchItemValue: "__create_new_branch__:feature/demo",
-        checkoutPullRequestItemValue: null,
+        createRefItemValue: "__create_new_branch__:feature/demo",
+        checkoutChangeRequestItemValue: null,
       }),
     ).toBe(true);
   });
 
   it("still filters ordinary ref items by query text", () => {
     expect(
-      shouldIncludeBranchPickerItem({
+      shouldIncludeRefPickerItem({
         itemValue: "main",
         normalizedQuery: "gh pr checkout 1359",
-        createBranchItemValue: "__create_new_branch__:gh pr checkout 1359",
-        checkoutPullRequestItemValue: "__checkout_pull_request__:1359",
+        createRefItemValue: "__create_new_branch__:gh pr checkout 1359",
+        checkoutChangeRequestItemValue: "__checkout_pull_request__:1359",
       }),
     ).toBe(false);
   });

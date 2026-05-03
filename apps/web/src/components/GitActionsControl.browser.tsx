@@ -136,6 +136,43 @@ vi.mock("~/lib/gitStatusState", () => ({
   })),
 }));
 
+vi.mock("~/lib/vcsStatusState", () => ({
+  refreshVcsStatus: refreshGitStatusSpy,
+  resetVcsStatusStateForTests: () => undefined,
+  useVcsStatus: vi.fn(() => ({
+    data: {
+      isRepo: true,
+      sourceControlProvider: {
+        kind: "github",
+        name: "GitHub",
+        baseUrl: "https://github.com",
+      },
+      hasPrimaryRemote: true,
+      isDefaultRef: false,
+      refName: BRANCH_NAME,
+      hasWorkingTreeChanges: false,
+      hasUpstream: true,
+      aheadCount: 1,
+      behindCount: 0,
+      aheadOfDefaultCount: 1,
+      workingTree: {
+        files: [
+          {
+            path: "src/example.ts",
+            insertions: 1,
+            deletions: 0,
+          },
+        ],
+        insertions: 1,
+        deletions: 0,
+      },
+      pr: null,
+    },
+    error: null,
+    isPending: false,
+  })),
+}));
+
 vi.mock("~/localApi", () => ({
   ensureLocalApi: vi.fn(() => {
     throw new Error("ensureLocalApi not implemented in browser test");

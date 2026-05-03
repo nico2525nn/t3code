@@ -15,61 +15,61 @@ import {
 } from "../environments/runtime";
 import type { WsRpcClient } from "~/rpc/wsRpcClient";
 
-interface GitStatusState {
+interface VcsStatusState {
   readonly data: VcsStatusResult | null;
   readonly error: GitManagerServiceError | null;
   readonly cause: Cause.Cause<GitManagerServiceError> | null;
   readonly isPending: boolean;
 }
 
-type GitStatusClient = Pick<WsRpcClient["vcs"], "onStatus" | "refreshStatus">;
-interface ResolvedGitStatusClient {
+type VcsStatusClient = Pick<WsRpcClient["vcs"], "onStatus" | "refreshStatus">;
+interface ResolvedVcsStatusClient {
   readonly clientIdentity: string;
-  readonly client: GitStatusClient;
+  readonly client: VcsStatusClient;
 }
 
-interface WatchedGitStatus {
+interface WatchedVcsStatus {
   refCount: number;
   unsubscribe: () => void;
 }
 
-interface GitStatusTarget {
+interface VcsStatusTarget {
   readonly environmentId: EnvironmentId | null;
   readonly cwd: string | null;
 }
 
-const EMPTY_GIT_STATUS_STATE = Object.freeze<GitStatusState>({
+const EMPTY_VCS_STATUS_STATE = Object.freeze<VcsStatusState>({
   data: null,
   error: null,
   cause: null,
   isPending: false,
 });
-const INITIAL_GIT_STATUS_STATE = Object.freeze<GitStatusState>({
-  ...EMPTY_GIT_STATUS_STATE,
+const INITIAL_VCS_STATUS_STATE = Object.freeze<VcsStatusState>({
+  ...EMPTY_VCS_STATUS_STATE,
   isPending: true,
 });
-const EMPTY_GIT_STATUS_ATOM = Atom.make(EMPTY_GIT_STATUS_STATE).pipe(
+const EMPTY_VCS_STATUS_ATOM = Atom.make(EMPTY_VCS_STATUS_STATE).pipe(
   Atom.keepAlive,
-  Atom.withLabel("git-status:null"),
+  Atom.withLabel("vcs-status:null"),
 );
 
 const NOOP: () => void = () => undefined;
-const watchedGitStatuses = new Map<string, WatchedGitStatus>();
-const knownGitStatusKeys = new Set<string>();
-const gitStatusRefreshInFlight = new Map<string, Promise<VcsStatusResult>>();
-const gitStatusLastRefreshAtByKey = new Map<string, number>();
+const watchedVcsStatuses = new Map<string, WatchedVcsStatus>();
+const knownVcsStatusKeys = new Set<string>();
+const vcsStatusRefreshInFlight = new Map<string, Promise<VcsStatusResult>>();
+const vcsStatusLastRefreshAtByKey = new Map<string, number>();
 
-const GIT_STATUS_REFRESH_DEBOUNCE_MS = 1_000;
+const VCS_STATUS_REFRESH_DEBOUNCE_MS = 1_000;
 
-const gitStatusStateAtom = Atom.family((key: string) => {
-  knownGitStatusKeys.add(key);
-  return Atom.make(INITIAL_GIT_STATUS_STATE).pipe(
+const vcsStatusStateAtom = Atom.family((key: string) => {
+  knownVcsStatusKeys.add(key);
+  return Atom.make(INITIAL_VCS_STATUS_STATE).pipe(
     Atom.keepAlive,
-    Atom.withLabel(`git-status:${key}`),
+    Atom.withLabel(`vcs-status:${key}`),
   );
 });
 
-function getGitStatusTargetKey(target: GitStatusTarget): string | null {
+function getVcsStatusTargetKey(target: VcsStatusTarget): string | null {
   if (target.environmentId === null || target.cwd === null) {
     return null;
   }
@@ -77,7 +77,7 @@ function getGitStatusTargetKey(target: GitStatusTarget): string | null {
   return `${target.environmentId}:${target.cwd}`;
 }
 
-function readResolvedGitStatusClient(target: GitStatusTarget): ResolvedGitStatusClient | null {
+function readResolvedVcsStatusClient(target: VcsStatusTarget): ResolvedVcsStatusClient | null {
   if (target.environmentId === null) {
     return null;
   }
@@ -87,96 +87,96 @@ function readResolvedGitStatusClient(target: GitStatusTarget): ResolvedGitStatus
     : null;
 }
 
-export function getGitStatusSnapshot(target: GitStatusTarget): GitStatusState {
-  const targetKey = getGitStatusTargetKey(target);
+export function getVcsStatusSnapshot(target: VcsStatusTarget): VcsStatusState {
+  const targetKey = getVcsStatusTargetKey(target);
   if (targetKey === null) {
-    return EMPTY_GIT_STATUS_STATE;
+    return EMPTY_VCS_STATUS_STATE;
   }
 
-  return appAtomRegistry.get(gitStatusStateAtom(targetKey));
+  return appAtomRegistry.get(vcsStatusStateAtom(targetKey));
 }
 
-export function watchGitStatus(target: GitStatusTarget, client?: GitStatusClient): () => void {
-  const targetKey = getGitStatusTargetKey(target);
+export function watchVcsStatus(target: VcsStatusTarget, client?: VcsStatusClient): () => void {
+  const targetKey = getVcsStatusTargetKey(target);
   if (targetKey === null) {
     return NOOP;
   }
 
-  const watched = watchedGitStatuses.get(targetKey);
+  const watched = watchedVcsStatuses.get(targetKey);
   if (watched) {
     watched.refCount += 1;
-    return () => unwatchGitStatus(targetKey);
+    return () => unwatchVcsStatus(targetKey);
   }
 
-  watchedGitStatuses.set(targetKey, {
+  watchedVcsStatuses.set(targetKey, {
     refCount: 1,
-    unsubscribe: subscribeToGitStatusTarget(targetKey, target, client),
+    unsubscribe: subscribeToVcsStatusTarget(targetKey, target, client),
   });
 
-  return () => unwatchGitStatus(targetKey);
+  return () => unwatchVcsStatus(targetKey);
 }
 
-export function refreshGitStatus(
-  target: GitStatusTarget,
-  client?: GitStatusClient,
+export function refreshVcsStatus(
+  target: VcsStatusTarget,
+  client?: VcsStatusClient,
 ): Promise<VcsStatusResult | null> {
-  const targetKey = getGitStatusTargetKey(target);
+  const targetKey = getVcsStatusTargetKey(target);
   if (targetKey === null || target.cwd === null) {
     return Promise.resolve(null);
   }
 
-  const resolvedClient = client ?? readResolvedGitStatusClient(target)?.client;
+  const resolvedClient = client ?? readResolvedVcsStatusClient(target)?.client;
   if (!resolvedClient) {
-    return Promise.resolve(getGitStatusSnapshot(target).data);
+    return Promise.resolve(getVcsStatusSnapshot(target).data);
   }
 
-  const currentInFlight = gitStatusRefreshInFlight.get(targetKey);
+  const currentInFlight = vcsStatusRefreshInFlight.get(targetKey);
   if (currentInFlight) {
     return currentInFlight;
   }
 
-  const lastRequestedAt = gitStatusLastRefreshAtByKey.get(targetKey) ?? 0;
-  if (Date.now() - lastRequestedAt < GIT_STATUS_REFRESH_DEBOUNCE_MS) {
-    return Promise.resolve(getGitStatusSnapshot(target).data);
+  const lastRequestedAt = vcsStatusLastRefreshAtByKey.get(targetKey) ?? 0;
+  if (Date.now() - lastRequestedAt < VCS_STATUS_REFRESH_DEBOUNCE_MS) {
+    return Promise.resolve(getVcsStatusSnapshot(target).data);
   }
 
-  gitStatusLastRefreshAtByKey.set(targetKey, Date.now());
+  vcsStatusLastRefreshAtByKey.set(targetKey, Date.now());
   const refreshPromise = resolvedClient.refreshStatus({ cwd: target.cwd }).finally(() => {
-    gitStatusRefreshInFlight.delete(targetKey);
+    vcsStatusRefreshInFlight.delete(targetKey);
   });
-  gitStatusRefreshInFlight.set(targetKey, refreshPromise);
+  vcsStatusRefreshInFlight.set(targetKey, refreshPromise);
   return refreshPromise;
 }
 
-export function resetGitStatusStateForTests(): void {
-  for (const watched of watchedGitStatuses.values()) {
+export function resetVcsStatusStateForTests(): void {
+  for (const watched of watchedVcsStatuses.values()) {
     watched.unsubscribe();
   }
-  watchedGitStatuses.clear();
-  gitStatusRefreshInFlight.clear();
-  gitStatusLastRefreshAtByKey.clear();
+  watchedVcsStatuses.clear();
+  vcsStatusRefreshInFlight.clear();
+  vcsStatusLastRefreshAtByKey.clear();
 
-  for (const key of knownGitStatusKeys) {
-    appAtomRegistry.set(gitStatusStateAtom(key), INITIAL_GIT_STATUS_STATE);
+  for (const key of knownVcsStatusKeys) {
+    appAtomRegistry.set(vcsStatusStateAtom(key), INITIAL_VCS_STATUS_STATE);
   }
-  knownGitStatusKeys.clear();
+  knownVcsStatusKeys.clear();
 }
 
-export function useGitStatus(target: GitStatusTarget): GitStatusState {
-  const targetKey = getGitStatusTargetKey(target);
+export function useVcsStatus(target: VcsStatusTarget): VcsStatusState {
+  const targetKey = getVcsStatusTargetKey(target);
   useEffect(
-    () => watchGitStatus({ environmentId: target.environmentId, cwd: target.cwd }),
+    () => watchVcsStatus({ environmentId: target.environmentId, cwd: target.cwd }),
     [target.environmentId, target.cwd],
   );
 
   const state = useAtomValue(
-    targetKey !== null ? gitStatusStateAtom(targetKey) : EMPTY_GIT_STATUS_ATOM,
+    targetKey !== null ? vcsStatusStateAtom(targetKey) : EMPTY_VCS_STATUS_ATOM,
   );
-  return targetKey === null ? EMPTY_GIT_STATUS_STATE : state;
+  return targetKey === null ? EMPTY_VCS_STATUS_STATE : state;
 }
 
-function unwatchGitStatus(targetKey: string): void {
-  const watched = watchedGitStatuses.get(targetKey);
+function unwatchVcsStatus(targetKey: string): void {
+  const watched = watchedVcsStatuses.get(targetKey);
   if (!watched) {
     return;
   }
@@ -187,13 +187,13 @@ function unwatchGitStatus(targetKey: string): void {
   }
 
   watched.unsubscribe();
-  watchedGitStatuses.delete(targetKey);
+  watchedVcsStatuses.delete(targetKey);
 }
 
-function subscribeToGitStatusTarget(
+function subscribeToVcsStatusTarget(
   targetKey: string,
-  target: GitStatusTarget,
-  providedClient?: GitStatusClient,
+  target: VcsStatusTarget,
+  providedClient?: VcsStatusClient,
 ): () => void {
   if (target.cwd === null) {
     return NOOP;
@@ -209,7 +209,7 @@ function subscribeToGitStatusTarget(
           clientIdentity: `provided:${targetKey}`,
           client: providedClient,
         }
-      : readResolvedGitStatusClient(target);
+      : readResolvedVcsStatusClient(target);
 
     if (!resolved) {
       if (currentClientIdentity !== null) {
@@ -217,7 +217,7 @@ function subscribeToGitStatusTarget(
         currentUnsubscribe = NOOP;
         currentClientIdentity = null;
       }
-      markGitStatusPending(targetKey);
+      markVcsStatusPending(targetKey);
       return;
     }
 
@@ -227,7 +227,7 @@ function subscribeToGitStatusTarget(
 
     currentUnsubscribe();
     currentClientIdentity = resolved.clientIdentity;
-    currentUnsubscribe = subscribeToGitStatus(targetKey, cwd, resolved.client);
+    currentUnsubscribe = subscribeToVcsStatus(targetKey, cwd, resolved.client);
   };
 
   const unsubscribeRegistry = providedClient
@@ -241,12 +241,12 @@ function subscribeToGitStatusTarget(
   };
 }
 
-function subscribeToGitStatus(targetKey: string, cwd: string, client: GitStatusClient): () => void {
-  markGitStatusPending(targetKey);
+function subscribeToVcsStatus(targetKey: string, cwd: string, client: VcsStatusClient): () => void {
+  markVcsStatusPending(targetKey);
   return client.onStatus(
     { cwd },
     (status: VcsStatusResult) => {
-      appAtomRegistry.set(gitStatusStateAtom(targetKey), {
+      appAtomRegistry.set(vcsStatusStateAtom(targetKey), {
         data: status,
         error: null,
         cause: null,
@@ -255,18 +255,18 @@ function subscribeToGitStatus(targetKey: string, cwd: string, client: GitStatusC
     },
     {
       onResubscribe: () => {
-        markGitStatusPending(targetKey);
+        markVcsStatusPending(targetKey);
       },
     },
   );
 }
 
-function markGitStatusPending(targetKey: string): void {
-  const atom = gitStatusStateAtom(targetKey);
+function markVcsStatusPending(targetKey: string): void {
+  const atom = vcsStatusStateAtom(targetKey);
   const current = appAtomRegistry.get(atom);
   const next =
     current.data === null
-      ? INITIAL_GIT_STATUS_STATE
+      ? INITIAL_VCS_STATUS_STATE
       : {
           ...current,
           error: null,
@@ -285,3 +285,9 @@ function markGitStatusPending(targetKey: string): void {
 
   appAtomRegistry.set(atom, next);
 }
+
+export const getGitStatusSnapshot = getVcsStatusSnapshot;
+export const watchGitStatus = watchVcsStatus;
+export const refreshGitStatus = refreshVcsStatus;
+export const resetGitStatusStateForTests = resetVcsStatusStateForTests;
+export const useGitStatus = useVcsStatus;

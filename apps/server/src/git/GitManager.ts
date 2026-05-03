@@ -301,11 +301,6 @@ export function matchesBranchHeadContext(
         return false;
       }
     }
-    if (expectedHead.ownerLogin && pullRequestHead.ownerLogin) {
-      if (expectedHead.ownerLogin !== pullRequestHead.ownerLogin) {
-        return false;
-      }
-    }
   }
 
   if (expectedHead.ownerLogin && pullRequestHead.ownerLogin) {

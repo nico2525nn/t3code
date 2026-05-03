@@ -13,16 +13,21 @@ import {
 import { ensureEnvironmentApi } from "../environmentApi";
 import { requireEnvironmentConnection } from "../environments/runtime";
 
-const GIT_BRANCHES_STALE_TIME_MS = 15_000;
-const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
-const GIT_BRANCHES_PAGE_SIZE = 100;
+const VCS_REFS_STALE_TIME_MS = 15_000;
+const VCS_REFS_REFETCH_INTERVAL_MS = 60_000;
+const VCS_REFS_PAGE_SIZE = 100;
+
+export const vcsQueryKeys = {
+  all: ["vcs"] as const,
+  refs: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["vcs", "refs", environmentId ?? null, cwd] as const,
+  refSearch: (environmentId: EnvironmentId | null, cwd: string | null, query: string) =>
+    ["vcs", "refs", environmentId ?? null, cwd, "search", query] as const,
+};
 
 export const gitQueryKeys = {
-  all: ["git"] as const,
-  refs: (environmentId: EnvironmentId | null, cwd: string | null) =>
-    ["git", "refs", environmentId ?? null, cwd] as const,
-  branchSearch: (environmentId: EnvironmentId | null, cwd: string | null, query: string) =>
-    ["git", "refs", environmentId ?? null, cwd, "search", query] as const,
+  ...vcsQueryKeys,
+  branchSearch: vcsQueryKeys.refSearch,
 };
 
 export const gitMutationKeys = {
@@ -45,13 +50,13 @@ export function invalidateGitQueries(
   const environmentId = input?.environmentId ?? null;
   const cwd = input?.cwd ?? null;
   if (cwd !== null) {
-    return queryClient.invalidateQueries({ queryKey: gitQueryKeys.refs(environmentId, cwd) });
+    return queryClient.invalidateQueries({ queryKey: vcsQueryKeys.refs(environmentId, cwd) });
   }
 
-  return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
+  return queryClient.invalidateQueries({ queryKey: vcsQueryKeys.all });
 }
 
-function invalidateGitBranchQueries(
+function invalidateVcsRefQueries(
   queryClient: QueryClient,
   environmentId: EnvironmentId | null,
   cwd: string | null,
@@ -60,13 +65,10 @@ function invalidateGitBranchQueries(
     return Promise.resolve();
   }
 
-  return queryClient.invalidateQueries({ queryKey: gitQueryKeys.refs(environmentId, cwd) });
+  return queryClient.invalidateQueries({ queryKey: vcsQueryKeys.refs(environmentId, cwd) });
 }
 
-/**
- * @deprecated Use a VCS-named query helper once the UI naming migration lands.
- */
-export function gitBranchSearchInfiniteQueryOptions(input: {
+export function vcsRefSearchInfiniteQueryOptions(input: {
   environmentId: EnvironmentId | null;
   cwd: string | null;
   query: string;
@@ -75,27 +77,29 @@ export function gitBranchSearchInfiniteQueryOptions(input: {
   const normalizedQuery = input.query.trim();
 
   return infiniteQueryOptions({
-    queryKey: gitQueryKeys.branchSearch(input.environmentId, input.cwd, normalizedQuery),
+    queryKey: vcsQueryKeys.refSearch(input.environmentId, input.cwd, normalizedQuery),
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
-      if (!input.cwd) throw new Error("Git refs are unavailable.");
-      if (!input.environmentId) throw new Error("Git refs are unavailable.");
+      if (!input.cwd) throw new Error("VCS refs are unavailable.");
+      if (!input.environmentId) throw new Error("VCS refs are unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
       return api.vcs.listRefs({
         cwd: input.cwd,
         ...(normalizedQuery.length > 0 ? { query: normalizedQuery } : {}),
         cursor: pageParam,
-        limit: GIT_BRANCHES_PAGE_SIZE,
+        limit: VCS_REFS_PAGE_SIZE,
       });
     },
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: input.cwd !== null && (input.enabled ?? true),
-    staleTime: GIT_BRANCHES_STALE_TIME_MS,
+    staleTime: VCS_REFS_STALE_TIME_MS,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    refetchInterval: GIT_BRANCHES_REFETCH_INTERVAL_MS,
+    refetchInterval: VCS_REFS_REFETCH_INTERVAL_MS,
   });
 }
+
+export const gitBranchSearchInfiniteQueryOptions = vcsRefSearchInfiniteQueryOptions;
 
 export function gitResolvePullRequestQueryOptions(input: {
   environmentId: EnvironmentId | null;
@@ -140,7 +144,7 @@ export function gitInitMutationOptions(input: {
       return api.vcs.init({ cwd: input.cwd });
     },
     onSettled: async () => {
-      await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
+      await invalidateVcsRefQueries(input.queryClient, input.environmentId, input.cwd);
     },
   });
 }
@@ -161,7 +165,7 @@ export function gitCheckoutMutationOptions(input: {
       return api.vcs.switchRef({ cwd: input.cwd, refName });
     },
     onSettled: async () => {
-      await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
+      await invalidateVcsRefQueries(input.queryClient, input.environmentId, input.cwd);
     },
   });
 }
@@ -202,7 +206,7 @@ export function gitRunStackedActionMutationOptions(input: {
       );
     },
     onSuccess: async () => {
-      await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
+      await invalidateVcsRefQueries(input.queryClient, input.environmentId, input.cwd);
     },
   });
 }
@@ -223,7 +227,7 @@ export function gitPullMutationOptions(input: {
       return api.vcs.pull({ cwd: input.cwd });
     },
     onSuccess: async () => {
-      await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
+      await invalidateVcsRefQueries(input.queryClient, input.environmentId, input.cwd);
     },
   });
 }
@@ -298,7 +302,7 @@ export function gitPreparePullRequestThreadMutationOptions(input: {
       });
     },
     onSuccess: async () => {
-      await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
+      await invalidateVcsRefQueries(input.queryClient, input.environmentId, input.cwd);
     },
   });
 }

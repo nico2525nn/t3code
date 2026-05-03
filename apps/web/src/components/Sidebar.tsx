@@ -83,7 +83,7 @@ import {
 } from "../keybindings";
 import { useModelPickerOpen } from "../modelPickerOpenState";
 import { useShortcutModifierState } from "../shortcutModifierState";
-import { useGitStatus } from "../lib/gitStatusState";
+import { useVcsStatus } from "../lib/vcsStatusState";
 import { readLocalApi } from "../localApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
@@ -343,8 +343,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     ? (remoteEnvLabel ?? remoteEnvSavedLabel ?? "Remote")
     : null;
   // For grouped projects, the thread may belong to a different environment
-  // than the representative project.  Look up the thread's own project cwd
-  // so git status (and thus PR detection) queries the correct path.
+  // than the representative project. Look up the thread's own project cwd
+  // so VCS status (and thus change request detection) queries the correct path.
   const threadProjectCwd = useStore(
     useMemo(
       () => (state: import("../store").AppState) =>
@@ -354,7 +354,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     ),
   );
   const gitCwd = thread.worktreePath ?? threadProjectCwd ?? props.projectCwd;
-  const gitStatus = useGitStatus({
+  const vcsStatus = useVcsStatus({
     environmentId: thread.environmentId,
     cwd: thread.branch != null || thread.worktreePath !== null ? gitCwd : null,
   });
@@ -369,10 +369,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   });
   const pr = resolveThreadPr({
     threadBranch: thread.branch,
-    gitStatus: gitStatus.data,
+    vcsStatus: vcsStatus.data,
     hasDedicatedWorktree: thread.worktreePath !== null,
   });
-  const prStatus = prStatusIndicator(pr, gitStatus.data?.sourceControlProvider);
+  const prStatus = prStatusIndicator(pr, vcsStatus.data?.sourceControlProvider);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const isConfirmingArchive = confirmingArchiveThreadKey === threadKey && !isThreadRunning;
   const threadMetaClassName = isConfirmingArchive

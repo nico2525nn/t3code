@@ -7,7 +7,7 @@ import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
-import { useGitStatus } from "../lib/gitStatusState";
+import { useVcsStatus } from "../lib/vcsStatusState";
 import { type AppState, selectProjectByRef, useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
@@ -96,23 +96,23 @@ export function PrStatusTooltipContent({ status }: { status: PrStatusIndicator }
 
 export function resolveThreadPr(input: {
   threadBranch: string | null;
-  gitStatus: VcsStatusResult | null;
+  vcsStatus: VcsStatusResult | null;
   hasDedicatedWorktree: boolean;
 }): ThreadPr | null {
-  const { threadBranch, gitStatus, hasDedicatedWorktree } = input;
-  if (gitStatus === null) {
+  const { threadBranch, vcsStatus, hasDedicatedWorktree } = input;
+  if (vcsStatus === null) {
     return null;
   }
 
   if (hasDedicatedWorktree) {
-    return gitStatus.pr ?? null;
+    return vcsStatus.pr ?? null;
   }
 
-  if (threadBranch === null || gitStatus.refName !== threadBranch) {
+  if (threadBranch === null || vcsStatus.refName !== threadBranch) {
     return null;
   }
 
-  return gitStatus.pr ?? null;
+  return vcsStatus.pr ?? null;
 }
 
 export function ChangeRequestStatusIcon({ className }: { className?: string }) {
@@ -189,16 +189,16 @@ export function ThreadRowLeadingStatus({ thread }: { thread: SidebarThreadSummar
     ),
   );
   const gitCwd = thread.worktreePath ?? threadProjectCwd;
-  const gitStatus = useGitStatus({
+  const vcsStatus = useVcsStatus({
     environmentId: thread.environmentId,
     cwd: thread.branch != null || thread.worktreePath !== null ? gitCwd : null,
   });
   const pr = resolveThreadPr({
     threadBranch: thread.branch,
-    gitStatus: gitStatus.data,
+    vcsStatus: vcsStatus.data,
     hasDedicatedWorktree: thread.worktreePath !== null,
   });
-  const prStatus = prStatusIndicator(pr, gitStatus.data?.sourceControlProvider);
+  const prStatus = prStatusIndicator(pr, vcsStatus.data?.sourceControlProvider);
   const threadStatus = resolveThreadStatusPill({
     thread: {
       ...thread,

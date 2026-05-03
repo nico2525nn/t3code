@@ -1,9 +1,6 @@
 import type { EnvironmentId, VcsRef, ProjectId } from "@t3tools/contracts";
 import { Schema } from "effect";
-export {
-  dedupeRemoteBranchesWithLocalMatches,
-  deriveLocalBranchNameFromRemoteRef,
-} from "@t3tools/shared/git";
+export { dedupeRemoteBranchesWithLocalMatches } from "@t3tools/shared/git";
 
 export interface EnvironmentOption {
   environmentId: EnvironmentId;
@@ -84,56 +81,55 @@ export function resolveDraftEnvModeAfterBranchChange(input: {
   return "local";
 }
 
-export function resolveBranchToolbarValue(input: {
+export function resolveRefToolbarValue(input: {
   envMode: EnvMode;
   activeWorktreePath: string | null;
-  activeThreadBranch: string | null;
-  currentGitBranch: string | null;
+  activeThreadRefName: string | null;
+  currentRefName: string | null;
 }): string | null {
-  const { envMode, activeWorktreePath, activeThreadBranch, currentGitBranch } = input;
+  const { envMode, activeWorktreePath, activeThreadRefName, currentRefName } = input;
   if (envMode === "worktree" && !activeWorktreePath) {
-    return activeThreadBranch ?? currentGitBranch;
+    return activeThreadRefName ?? currentRefName;
   }
-  return currentGitBranch ?? activeThreadBranch;
+  return currentRefName ?? activeThreadRefName;
 }
 
-export function resolveLocalCheckoutBranchMismatch(input: {
+export function resolveLocalCheckoutRefMismatch(input: {
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
-  activeThreadBranch: string | null;
-  currentGitBranch: string | null;
-}): { threadBranch: string; currentBranch: string } | null {
-  const { effectiveEnvMode, activeWorktreePath, activeThreadBranch, currentGitBranch } = input;
+  activeThreadRefName: string | null;
+  currentRefName: string | null;
+}): { threadRefName: string; currentRefName: string } | null {
+  const { effectiveEnvMode, activeWorktreePath, activeThreadRefName, currentRefName } = input;
   if (effectiveEnvMode !== "local" || activeWorktreePath !== null) {
     return null;
   }
-  if (!activeThreadBranch || !currentGitBranch || activeThreadBranch === currentGitBranch) {
+  if (!activeThreadRefName || !currentRefName || activeThreadRefName === currentRefName) {
     return null;
   }
-  return { threadBranch: activeThreadBranch, currentBranch: currentGitBranch };
+  return { threadRefName: activeThreadRefName, currentRefName };
 }
 
-export function resolveBranchSelectionTarget(input: {
+export function resolveRefSelectionTarget(input: {
   activeProjectCwd: string;
   activeWorktreePath: string | null;
-  refName: Pick<VcsRef, "isDefault" | "worktreePath">;
+  ref: Pick<VcsRef, "isDefault" | "worktreePath">;
 }): {
   checkoutCwd: string;
   nextWorktreePath: string | null;
   reuseExistingWorktree: boolean;
 } {
-  const { activeProjectCwd, activeWorktreePath, refName } = input;
+  const { activeProjectCwd, activeWorktreePath, ref } = input;
 
-  if (refName.worktreePath) {
+  if (ref.worktreePath) {
     return {
-      checkoutCwd: refName.worktreePath,
-      nextWorktreePath: refName.worktreePath === activeProjectCwd ? null : refName.worktreePath,
+      checkoutCwd: ref.worktreePath,
+      nextWorktreePath: ref.worktreePath === activeProjectCwd ? null : ref.worktreePath,
       reuseExistingWorktree: true,
     };
   }
 
-  const nextWorktreePath =
-    activeWorktreePath !== null && refName.isDefault ? null : activeWorktreePath;
+  const nextWorktreePath = activeWorktreePath !== null && ref.isDefault ? null : activeWorktreePath;
 
   return {
     checkoutCwd: nextWorktreePath ?? activeProjectCwd,
@@ -142,25 +138,91 @@ export function resolveBranchSelectionTarget(input: {
   };
 }
 
-export function shouldIncludeBranchPickerItem(input: {
+export function shouldIncludeRefPickerItem(input: {
   itemValue: string;
   normalizedQuery: string;
-  createBranchItemValue: string | null;
-  checkoutPullRequestItemValue: string | null;
+  createRefItemValue: string | null;
+  checkoutChangeRequestItemValue: string | null;
 }): boolean {
-  const { itemValue, normalizedQuery, createBranchItemValue, checkoutPullRequestItemValue } = input;
+  const { itemValue, normalizedQuery, createRefItemValue, checkoutChangeRequestItemValue } = input;
 
   if (normalizedQuery.length === 0) {
     return true;
   }
 
-  if (createBranchItemValue && itemValue === createBranchItemValue) {
+  if (createRefItemValue && itemValue === createRefItemValue) {
     return true;
   }
 
-  if (checkoutPullRequestItemValue && itemValue === checkoutPullRequestItemValue) {
+  if (checkoutChangeRequestItemValue && itemValue === checkoutChangeRequestItemValue) {
     return true;
   }
 
   return itemValue.toLowerCase().includes(normalizedQuery);
 }
+
+export function resolveLocalRefNameFromRemoteRef(ref: Pick<VcsRef, "name" | "remoteName">): string {
+  const remotePrefix = ref.remoteName ? `${ref.remoteName}/` : "";
+  if (remotePrefix.length > 0 && ref.name.startsWith(remotePrefix)) {
+    const localName = ref.name.slice(remotePrefix.length);
+    return localName.length > 0 ? localName : ref.name;
+  }
+  return ref.name;
+}
+
+export const resolveBranchToolbarValue = (input: {
+  envMode: EnvMode;
+  activeWorktreePath: string | null;
+  activeThreadBranch: string | null;
+  currentGitBranch: string | null;
+}) =>
+  resolveRefToolbarValue({
+    envMode: input.envMode,
+    activeWorktreePath: input.activeWorktreePath,
+    activeThreadRefName: input.activeThreadBranch,
+    currentRefName: input.currentGitBranch,
+  });
+
+export const resolveLocalCheckoutBranchMismatch = (input: {
+  effectiveEnvMode: EnvMode;
+  activeWorktreePath: string | null;
+  activeThreadBranch: string | null;
+  currentGitBranch: string | null;
+}) => {
+  const mismatch = resolveLocalCheckoutRefMismatch({
+    effectiveEnvMode: input.effectiveEnvMode,
+    activeWorktreePath: input.activeWorktreePath,
+    activeThreadRefName: input.activeThreadBranch,
+    currentRefName: input.currentGitBranch,
+  });
+  return mismatch
+    ? {
+        threadBranch: mismatch.threadRefName,
+        currentBranch: mismatch.currentRefName,
+      }
+    : null;
+};
+
+export const resolveBranchSelectionTarget = (input: {
+  activeProjectCwd: string;
+  activeWorktreePath: string | null;
+  refName: Pick<VcsRef, "isDefault" | "worktreePath">;
+}) =>
+  resolveRefSelectionTarget({
+    activeProjectCwd: input.activeProjectCwd,
+    activeWorktreePath: input.activeWorktreePath,
+    ref: input.refName,
+  });
+
+export const shouldIncludeBranchPickerItem = (input: {
+  itemValue: string;
+  normalizedQuery: string;
+  createBranchItemValue: string | null;
+  checkoutPullRequestItemValue: string | null;
+}) =>
+  shouldIncludeRefPickerItem({
+    itemValue: input.itemValue,
+    normalizedQuery: input.normalizedQuery,
+    createRefItemValue: input.createBranchItemValue,
+    checkoutChangeRequestItemValue: input.checkoutPullRequestItemValue,
+  });

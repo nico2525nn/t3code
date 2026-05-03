@@ -31,34 +31,34 @@ describe("resolveThreadPr", () => {
     expect(
       resolveThreadPr({
         threadBranch: "feature/other",
-        gitStatus: status(),
+        vcsStatus: status(),
         hasDedicatedWorktree: false,
       }),
     ).toBeNull();
   });
 
   it("shows PR indicators for dedicated worktree threads even when branch metadata is stale", () => {
-    const gitStatus = status();
+    const vcsStatus = status();
 
     expect(
       resolveThreadPr({
         threadBranch: "feature/old-name",
-        gitStatus,
+        vcsStatus,
         hasDedicatedWorktree: true,
       }),
-    ).toBe(gitStatus.pr);
+    ).toBe(vcsStatus.pr);
   });
 
   it("shows PR indicators for dedicated worktree threads even when branch metadata is missing", () => {
-    const gitStatus = status();
+    const vcsStatus = status();
 
     expect(
       resolveThreadPr({
         threadBranch: null,
-        gitStatus,
+        vcsStatus,
         hasDedicatedWorktree: true,
       }),
-    ).toBe(gitStatus.pr);
+    ).toBe(vcsStatus.pr);
   });
 });
 
