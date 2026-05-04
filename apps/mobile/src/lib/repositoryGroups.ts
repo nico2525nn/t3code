@@ -83,7 +83,7 @@ export function groupProjectsByRepository(input: {
     const threads = Arr.sortWith(
       threadsByProjectKey.get(projectKey) ?? [],
       (s) => new Date(s.updatedAt ?? s.createdAt),
-      Order.Date,
+      Order.flip(Order.Date),
     );
 
     const latestActivityAt = deriveProjectLatestActivity(project, threads);
@@ -123,10 +123,14 @@ export function groupProjectsByRepository(input: {
       projects: Arr.sortWith(
         [...existing.projects, projectGroup],
         (s) => new Date(s.latestActivityAt),
-        Order.Date,
+        Order.flip(Order.Date),
       ),
     });
   }
 
-  return Arr.sortWith([...grouped.values()], (s) => new Date(s.latestActivityAt), Order.Date);
+  return Arr.sortWith(
+    [...grouped.values()],
+    (s) => new Date(s.latestActivityAt),
+    Order.flip(Order.Date),
+  );
 }

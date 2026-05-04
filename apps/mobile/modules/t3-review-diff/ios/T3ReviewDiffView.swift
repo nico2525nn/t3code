@@ -737,6 +737,7 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     didSet {
       tokenColorsByHex.removeAll()
       tokenAttributedStringsByRowId.removeAll()
+      setNeedsDisplayForVisibleBounds()
     }
   }
   private(set) var contentHeight: CGFloat = 0
