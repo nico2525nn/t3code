@@ -493,6 +493,7 @@ const ThreadBranchCommand = Schema.Struct({
   type: Schema.Literal("thread.branch"),
   commandId: CommandId,
   sourceThreadId: ThreadId,
+  sourceMessageId: Schema.optional(MessageId),
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
   createdAt: IsoDateTime,

@@ -20,6 +20,7 @@ import {
   CheckIcon,
   CircleAlertIcon,
   EyeIcon,
+  GitBranchIcon,
   GlobeIcon,
   HammerIcon,
   type LucideIcon,
@@ -82,6 +83,7 @@ interface TimelineRowSharedState {
   workspaceRoot: string | undefined;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
+  onBranchAssistantMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
 }
@@ -106,6 +108,7 @@ interface MessagesTimelineProps {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
+  onBranchAssistantMessage: (messageId: MessageId) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   activeThreadEnvironmentId: EnvironmentId;
@@ -134,6 +137,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenTurnDiff,
   revertTurnCountByUserMessageId,
   onRevertUserMessage,
+  onBranchAssistantMessage,
   isRevertingCheckpoint,
   onImageExpand,
   activeThreadEnvironmentId,
@@ -205,6 +209,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       activeThreadEnvironmentId,
       onRevertUserMessage,
+      onBranchAssistantMessage,
       onImageExpand,
       onOpenTurnDiff,
     }),
@@ -221,6 +226,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       activeThreadEnvironmentId,
       onRevertUserMessage,
+      onBranchAssistantMessage,
       onImageExpand,
       onOpenTurnDiff,
     ],
@@ -390,6 +396,8 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
             showCopyButton: row.showAssistantCopyButton,
             streaming: row.message.streaming || assistantTurnStillInProgress,
           });
+          const showAssistantBranchButton =
+            row.showAssistantCopyButton && !row.message.streaming && !assistantTurnStillInProgress;
           return (
             <>
               {row.showCompletionDivider && (
@@ -429,14 +437,37 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
                       )
                     )}
                   </p>
-                  {assistantCopyState.visible ? (
-                    <div className="flex items-center opacity-0 transition-opacity duration-200  group-hover/assistant:opacity-100">
-                      <MessageCopyButton
-                        text={assistantCopyState.text ?? ""}
-                        size="icon-xs"
-                        variant="outline"
-                        className="border-border/50 bg-background/35 text-muted-foreground/45 shadow-none hover:border-border/70 hover:bg-background/55 hover:text-muted-foreground/70"
-                      />
+                  {assistantCopyState.visible || showAssistantBranchButton ? (
+                    <div className="flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/assistant:opacity-100">
+                      {assistantCopyState.visible ? (
+                        <MessageCopyButton
+                          text={assistantCopyState.text ?? ""}
+                          size="icon-xs"
+                          variant="outline"
+                          className="border-border/50 bg-background/35 text-muted-foreground/45 shadow-none hover:border-border/70 hover:bg-background/55 hover:text-muted-foreground/70"
+                        />
+                      ) : null}
+                      {showAssistantBranchButton ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                aria-label="Branch from message"
+                                onClick={() => ctx.onBranchAssistantMessage(row.message.id)}
+                                type="button"
+                                size="icon-xs"
+                                variant="outline"
+                                className="border-border/50 bg-background/35 text-muted-foreground/45 shadow-none hover:border-border/70 hover:bg-background/55 hover:text-muted-foreground/70"
+                              />
+                            }
+                          >
+                            <GitBranchIcon className="size-3" />
+                          </TooltipTrigger>
+                          <TooltipPopup>
+                            <p>Branch from this message</p>
+                          </TooltipPopup>
+                        </Tooltip>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

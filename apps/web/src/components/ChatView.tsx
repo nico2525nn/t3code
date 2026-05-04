@@ -3489,6 +3489,62 @@ export default function ChatView(props: ChatViewProps) {
     }
     void onRevertToTurnCountRef.current(targetTurnCount);
   }, []);
+  const activeThreadValueRef = useRef(activeThread);
+  activeThreadValueRef.current = activeThread;
+  const onBranchAssistantMessage = useCallback(
+    async (messageId: MessageId) => {
+      const thread = activeThreadValueRef.current;
+      if (!thread || !isServerThread) {
+        return;
+      }
+
+      if (activeEnvironmentUnavailable && activeEnvironmentUnavailableLabel) {
+        setThreadError(
+          thread.id,
+          `Reconnect ${activeEnvironmentUnavailableLabel} before branching this message.`,
+        );
+        return;
+      }
+
+      const api = readEnvironmentApi(thread.environmentId);
+      if (!api) {
+        setThreadError(thread.id, "Thread API unavailable.");
+        return;
+      }
+
+      const branchThreadId = newThreadId();
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "thread.branch",
+          commandId: newCommandId(),
+          sourceThreadId: thread.id,
+          sourceMessageId: messageId,
+          threadId: branchThreadId,
+          title: `${thread.title} (Branched)`,
+          createdAt: new Date().toISOString(),
+        });
+        await navigate({
+          to: "/$environmentId/$threadId",
+          params: {
+            environmentId: thread.environmentId,
+            threadId: branchThreadId,
+          },
+        });
+      } catch (error) {
+        setThreadError(
+          thread.id,
+          error instanceof Error ? error.message : "Failed to branch from this message.",
+        );
+      }
+    },
+    [
+      activeEnvironmentUnavailable,
+      activeEnvironmentUnavailableLabel,
+      isServerThread,
+      navigate,
+      setThreadError,
+    ],
+  );
 
   // Empty state: no active thread
   if (!activeThread) {
@@ -3568,6 +3624,7 @@ export default function ChatView(props: ChatViewProps) {
               onOpenTurnDiff={onOpenTurnDiff}
               revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
               onRevertUserMessage={onRevertUserMessage}
+              onBranchAssistantMessage={onBranchAssistantMessage}
               isRevertingCheckpoint={isRevertingCheckpoint}
               onImageExpand={onExpandTimelineImage}
               markdownCwd={gitCwd ?? undefined}

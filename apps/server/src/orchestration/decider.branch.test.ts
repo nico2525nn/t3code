@@ -172,7 +172,7 @@ async function seedReadModel(): Promise<OrchestrationReadModel> {
 }
 
 describe("decideOrchestrationCommand thread.branch", () => {
-  it("creates a branched thread and copies transcript messages as new frozen messages", async () => {
+  it("creates a branched thread and copies transcript messages and activities", async () => {
     const readModel = await seedReadModel();
     const decided = await Effect.runPromise(
       decideOrchestrationCommand({
@@ -257,6 +257,129 @@ describe("decideOrchestrationCommand thread.branch", () => {
     expect(branchedThread?.messages.every((message) => message.turnId === null)).toBe(true);
     expect(branchedThread?.messages.every((message) => !message.streaming)).toBe(true);
     expect(branchedThread?.activities.map((activity) => activity.summary)).toEqual(["Read file"]);
+    expect(branchedThread?.activities.every((activity) => activity.turnId === null)).toBe(true);
+  });
+
+  it("branches through a selected completed assistant message", async () => {
+    const readModel = await projectEvents(await seedReadModel(), [
+      {
+        eventId: asEventId("evt-message-assistant-complete"),
+        aggregateKind: "thread",
+        aggregateId: asThreadId("thread-source"),
+        type: "thread.message-sent",
+        occurredAt: "2026-01-01T00:02:30.000Z",
+        commandId: asCommandId("cmd-message-assistant-complete"),
+        causationEventId: null,
+        correlationId: asCommandId("cmd-message-assistant-complete"),
+        metadata: {},
+        payload: {
+          threadId: asThreadId("thread-source"),
+          messageId: asMessageId("message-assistant"),
+          role: "assistant",
+          text: "",
+          turnId: asTurnId("turn-source"),
+          streaming: false,
+          createdAt: "2026-01-01T00:02:30.000Z",
+          updatedAt: "2026-01-01T00:02:30.000Z",
+        },
+      },
+      {
+        eventId: asEventId("evt-later-message-user"),
+        aggregateKind: "thread",
+        aggregateId: asThreadId("thread-source"),
+        type: "thread.message-sent",
+        occurredAt: "2026-01-01T00:04:00.000Z",
+        commandId: asCommandId("cmd-later-message-user"),
+        causationEventId: null,
+        correlationId: asCommandId("cmd-later-message-user"),
+        metadata: {},
+        payload: {
+          threadId: asThreadId("thread-source"),
+          messageId: asMessageId("message-later-user"),
+          role: "user",
+          text: "later prompt",
+          turnId: null,
+          streaming: false,
+          createdAt: "2026-01-01T00:04:00.000Z",
+          updatedAt: "2026-01-01T00:04:00.000Z",
+        },
+      },
+      {
+        eventId: asEventId("evt-later-activity-tool"),
+        aggregateKind: "thread",
+        aggregateId: asThreadId("thread-source"),
+        type: "thread.activity-appended",
+        occurredAt: "2026-01-01T00:05:00.000Z",
+        commandId: asCommandId("cmd-later-activity-tool"),
+        causationEventId: null,
+        correlationId: asCommandId("cmd-later-activity-tool"),
+        metadata: {},
+        payload: {
+          threadId: asThreadId("thread-source"),
+          activity: {
+            id: asEventId("activity-later-tool"),
+            tone: "tool",
+            kind: "tool.completed",
+            summary: "Edited file",
+            payload: {
+              toolCallId: "tool-call-later",
+              detail: "edit src/index.ts",
+            },
+            turnId: asTurnId("turn-later"),
+            sequence: 20,
+            createdAt: "2026-01-01T00:05:00.000Z",
+          },
+        },
+      },
+      {
+        eventId: asEventId("evt-later-message-assistant"),
+        aggregateKind: "thread",
+        aggregateId: asThreadId("thread-source"),
+        type: "thread.message-sent",
+        occurredAt: "2026-01-01T00:06:00.000Z",
+        commandId: asCommandId("cmd-later-message-assistant"),
+        causationEventId: null,
+        correlationId: asCommandId("cmd-later-message-assistant"),
+        metadata: {},
+        payload: {
+          threadId: asThreadId("thread-source"),
+          messageId: asMessageId("message-later-assistant"),
+          role: "assistant",
+          text: "later response",
+          turnId: asTurnId("turn-later"),
+          streaming: false,
+          createdAt: "2026-01-01T00:06:00.000Z",
+          updatedAt: "2026-01-01T00:06:00.000Z",
+        },
+      },
+    ]);
+
+    const decided = await Effect.runPromise(
+      decideOrchestrationCommand({
+        readModel,
+        command: {
+          type: "thread.branch",
+          commandId: asCommandId("cmd-thread-branch-message"),
+          sourceThreadId: asThreadId("thread-source"),
+          sourceMessageId: asMessageId("message-assistant"),
+          threadId: asThreadId("thread-branch-message"),
+          createdAt: "2026-01-01T01:00:00.000Z",
+        },
+      }),
+    );
+
+    const events = Array.isArray(decided) ? decided : [decided];
+    const branchedReadModel = await projectEvents(readModel, events);
+    const branchedThread = branchedReadModel.threads.find(
+      (thread) => thread.id === asThreadId("thread-branch-message"),
+    );
+
+    expect(branchedThread?.messages.map((message) => message.text)).toEqual([
+      "hello",
+      "partial response",
+    ]);
+    expect(branchedThread?.activities.map((activity) => activity.summary)).toEqual(["Read file"]);
+    expect(branchedThread?.messages.every((message) => message.turnId === null)).toBe(true);
     expect(branchedThread?.activities.every((activity) => activity.turnId === null)).toBe(true);
   });
 });

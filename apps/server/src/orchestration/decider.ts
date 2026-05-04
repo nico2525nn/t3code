@@ -260,6 +260,30 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const sourceMessageIndex =
+        command.sourceMessageId === undefined
+          ? -1
+          : sourceThread.messages.findIndex((message) => message.id === command.sourceMessageId);
+      if (command.sourceMessageId !== undefined && sourceMessageIndex === -1) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Message '${command.sourceMessageId}' does not exist on source thread '${command.sourceThreadId}'.`,
+        });
+      }
+      const sourceMessage =
+        sourceMessageIndex >= 0 ? sourceThread.messages[sourceMessageIndex] : undefined;
+      if (sourceMessage !== undefined && sourceMessage.role !== "assistant") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Message '${sourceMessage.id}' is not an assistant message and cannot be used as a branch point.`,
+        });
+      }
+      if (sourceMessage !== undefined && sourceMessage.streaming) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Assistant message '${sourceMessage.id}' is still streaming and cannot be used as a branch point.`,
+        });
+      }
 
       const threadCreatedEvent: PlannedOrchestrationEvent = {
         ...withEventBase({
@@ -284,14 +308,30 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
 
       const copiedThreadEvents: PlannedOrchestrationEvent[] = [];
+      const sourceMessages =
+        sourceMessageIndex >= 0
+          ? sourceThread.messages.slice(0, sourceMessageIndex + 1)
+          : sourceThread.messages;
+      const includedTurnIds = new Set(
+        sourceMessages.flatMap((message) => (message.turnId === null ? [] : [message.turnId])),
+      );
+      const sourceActivities =
+        sourceMessage === undefined
+          ? sourceThread.activities
+          : sourceThread.activities.filter((activity) => {
+              if (activity.turnId !== null && includedTurnIds.has(activity.turnId)) {
+                return true;
+              }
+              return activity.createdAt <= sourceMessage.updatedAt;
+            });
       const sourceEntries = [
-        ...sourceThread.messages.map((message, sourceIndex) => ({
+        ...sourceMessages.map((message, sourceIndex) => ({
           kind: "message" as const,
           createdAt: message.createdAt,
           sourceIndex,
           message,
         })),
-        ...sourceThread.activities.map((activity, sourceIndex) => ({
+        ...sourceActivities.map((activity, sourceIndex) => ({
           kind: "activity" as const,
           createdAt: activity.createdAt,
           sourceIndex,
