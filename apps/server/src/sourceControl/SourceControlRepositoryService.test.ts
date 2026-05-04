@@ -3,10 +3,7 @@ import { assert, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import {
-  GitCommandError,
-  type SourceControlProviderError,
-} from "@t3tools/contracts";
+import { GitCommandError, type SourceControlProviderError } from "@t3tools/contracts";
 
 import { ServerConfig } from "../config.ts";
 import {
@@ -156,7 +153,7 @@ it.effect("clones a looked-up repository into the requested destination", () =>
 it.effect("publishes by creating the repository, adding a remote, and pushing upstream", () => {
   const createCalls: Array<{ cwd: string; repository: string; visibility: string }> = [];
   const remoteCalls: Array<{ cwd: string; preferredName: string; url: string }> = [];
-  const pushCalls: string[] = [];
+  const pushCalls: Array<{ cwd: string; remoteName: string | null | undefined }> = [];
   const provider = makeProvider({
     createRepository: (input) =>
       Effect.sync(() => {
@@ -194,7 +191,7 @@ it.effect("publishes by creating the repository, adding a remote, and pushing up
     assert.deepStrictEqual(remoteCalls, [
       { cwd: "/workspace", preferredName: "origin", url: CLONE_URLS.sshUrl },
     ]);
-    assert.deepStrictEqual(pushCalls, ["/workspace"]);
+    assert.deepStrictEqual(pushCalls, [{ cwd: "/workspace", remoteName: "origin" }]);
   }).pipe(
     Effect.provide(
       makeLayer({
@@ -205,13 +202,50 @@ it.effect("publishes by creating the repository, adding a remote, and pushing up
               remoteCalls.push(input);
               return "origin";
             }),
-          pushCurrentBranch: (cwd) =>
+          pushCurrentBranch: (cwd, _fallbackBranch, options) =>
             Effect.sync(() => {
-              pushCalls.push(cwd);
+              pushCalls.push({ cwd, remoteName: options?.remoteName });
               return {
                 status: "pushed" as const,
                 branch: "feature/remote-v1",
                 upstreamBranch: "origin/feature/remote-v1",
+                setUpstream: true,
+              };
+            }),
+        },
+      }),
+    ),
+  );
+});
+
+it.effect("publishes to the remote name returned by ensureRemote", () => {
+  const pushCalls: Array<{ cwd: string; remoteName: string | null | undefined }> = [];
+
+  return Effect.gen(function* () {
+    const service = yield* SourceControlRepositoryService;
+    const result = yield* service.publishRepository({
+      cwd: "/workspace",
+      provider: "github",
+      repository: "octocat/t3code",
+      visibility: "private",
+      remoteName: "origin",
+      protocol: "ssh",
+    });
+
+    assert.equal(result.remoteName, "origin-1");
+    assert.deepStrictEqual(pushCalls, [{ cwd: "/workspace", remoteName: "origin-1" }]);
+  }).pipe(
+    Effect.provide(
+      makeLayer({
+        git: {
+          ensureRemote: () => Effect.succeed("origin-1"),
+          pushCurrentBranch: (cwd, _fallbackBranch, options) =>
+            Effect.sync(() => {
+              pushCalls.push({ cwd, remoteName: options?.remoteName });
+              return {
+                status: "pushed" as const,
+                branch: "feature/remote-v1",
+                upstreamBranch: `${options?.remoteName ?? "missing"}/feature/remote-v1`,
                 setUpstream: true,
               };
             }),

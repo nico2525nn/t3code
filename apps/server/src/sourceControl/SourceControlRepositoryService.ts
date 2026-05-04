@@ -292,7 +292,7 @@ export const make = Effect.fn("makeSourceControlRepositoryService")(function* ()
         };
       }
 
-      const pushResult = yield* git.pushCurrentBranch(input.cwd, null);
+      const pushResult = yield* git.pushCurrentBranch(input.cwd, null, { remoteName });
 
       return {
         repository: toRepositoryInfo(providerKind, urls),
