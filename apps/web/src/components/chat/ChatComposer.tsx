@@ -785,13 +785,15 @@ export const ChatComposer = memo(
     const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
     const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
     const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
+    const [isComposerCompactMenuOpen, setIsComposerCompactMenuOpen] = useState(false);
     const isMobileViewport = useMediaQuery("max-sm");
+    const isMobileFloatingLayerOpen = isComposerModelPickerOpen || isComposerCompactMenuOpen;
     const mobileCollapsedOnlyClassName =
-      "sm:hidden max-sm:group-focus-within/composer:hidden max-sm:group-data-[mobile-focus-primed=true]/composer:hidden";
+      "sm:hidden max-sm:group-focus-within/composer:hidden max-sm:group-data-[mobile-focus-primed=true]/composer:hidden max-sm:group-data-[mobile-floating-open=true]/composer:hidden";
     const mobileExpandedOnlyClassName =
-      "max-sm:hidden max-sm:group-focus-within/composer:block max-sm:group-data-[mobile-focus-primed=true]/composer:block";
+      "max-sm:hidden max-sm:group-focus-within/composer:block max-sm:group-data-[mobile-focus-primed=true]/composer:block max-sm:group-data-[mobile-floating-open=true]/composer:block";
     const mobileExpandedFlexOnlyClassName =
-      "max-sm:hidden max-sm:group-focus-within/composer:flex max-sm:group-data-[mobile-focus-primed=true]/composer:flex";
+      "max-sm:hidden max-sm:group-focus-within/composer:flex max-sm:group-data-[mobile-focus-primed=true]/composer:flex max-sm:group-data-[mobile-floating-open=true]/composer:flex";
 
     // ------------------------------------------------------------------
     // Refs
@@ -1915,6 +1917,7 @@ export const ChatComposer = memo(
           <div
             ref={composerSurfaceRef}
             data-mobile-focus-primed="false"
+            data-mobile-floating-open={isMobileFloatingLayerOpen ? "true" : "false"}
             className={cn(
               "group/composer rounded-[20px] border bg-card transition-colors duration-200 has-focus-visible:border-ring/45",
               isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border",
@@ -2324,6 +2327,7 @@ export const ChatComposer = memo(
                       runtimeMode={runtimeMode}
                       showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
                       traitsMenuContent={providerTraitsMenuContent}
+                      onOpenChange={setIsComposerCompactMenuOpen}
                       onToggleInteractionMode={toggleInteractionMode}
                       onTogglePlanSidebar={togglePlanSidebar}
                       onRuntimeModeChange={handleRuntimeModeChange}
