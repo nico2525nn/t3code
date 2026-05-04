@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 
-import { EnvironmentId, ThreadId, type GitReviewDiffSection } from "@t3tools/contracts";
+import type { EnvironmentId, GitReviewDiffSection, ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
 import { scopedThreadKey } from "../../lib/scopedEntities";
@@ -79,11 +79,11 @@ const reviewParsedDiffBySectionCacheKeyAtom = Atom.family((cacheKey: string) =>
 );
 
 function buildThreadKey(input: {
-  readonly environmentId?: string;
-  readonly threadId?: string;
+  readonly environmentId?: EnvironmentId;
+  readonly threadId?: ThreadId;
 }): string | null {
   return input.environmentId && input.threadId
-    ? scopedThreadKey(EnvironmentId.make(input.environmentId), ThreadId.make(input.threadId))
+    ? scopedThreadKey(input.environmentId, input.threadId)
     : null;
 }
 
@@ -92,8 +92,8 @@ function buildSectionCacheKey(threadKey: string, sectionId: string): string {
 }
 
 export function useReviewCacheForThread(input: {
-  readonly environmentId?: string;
-  readonly threadId?: string;
+  readonly environmentId?: EnvironmentId;
+  readonly threadId?: ThreadId;
 }) {
   const threadKey = buildThreadKey(input);
   const gitSections = useAtomValue(

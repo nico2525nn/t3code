@@ -3,19 +3,19 @@ import {
   type SourceControlDiscoveryTarget,
   createSourceControlDiscoveryManager,
 } from "@t3tools/client-runtime";
-import { EnvironmentId, type SourceControlDiscoveryResult } from "@t3tools/contracts";
+import type { EnvironmentId, SourceControlDiscoveryResult } from "@t3tools/contracts";
 
 import { appAtomRegistry } from "./atom-registry";
 import { getEnvironmentClient } from "./environment-session-registry";
 
-export const sourceControlDiscoveryManager = createSourceControlDiscoveryManager({
+export const sourceControlDiscoveryManager = createSourceControlDiscoveryManager<EnvironmentId>({
   getRegistry: () => appAtomRegistry,
-  getClient: (key) => getEnvironmentClient(EnvironmentId.make(key))?.server ?? null,
+  getClient: (environmentId) => getEnvironmentClient(environmentId)?.server ?? null,
 });
 
 export function sourceControlDiscoveryTargetForEnvironment(
   environmentId: EnvironmentId | null,
-): SourceControlDiscoveryTarget {
+): SourceControlDiscoveryTarget<EnvironmentId> {
   return { key: environmentId ?? null };
 }
 

@@ -10,9 +10,13 @@ export interface PendingUserInputCardProps {
   readonly drafts: Record<string, PendingUserInputDraftAnswer>;
   readonly answers: Record<string, string> | null;
   readonly respondingUserInputId: ApprovalRequestId | null;
-  readonly onSelectOption: (requestId: string, questionId: string, label: string) => void;
+  readonly onSelectOption: (
+    requestId: ApprovalRequestId,
+    questionId: string,
+    label: string,
+  ) => void;
   readonly onChangeCustomAnswer: (
-    requestId: string,
+    requestId: ApprovalRequestId,
     questionId: string,
     customAnswer: string,
   ) => void;

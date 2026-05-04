@@ -1,19 +1,20 @@
 import type { Href, Router } from "expo-router";
+import type { EnvironmentScopedThreadShell } from "@t3tools/client-runtime";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import type { SelectedThreadRef } from "../state/remote-runtime-types";
-import { EnvironmentScopedThreadShell } from "@t3tools/client-runtime";
 
 type ThreadRouteInput =
   | Pick<SelectedThreadRef, "environmentId" | "threadId">
   | Pick<EnvironmentScopedThreadShell, "environmentId" | "id">;
 type PlainThreadRouteInput =
   | {
-      environmentId: string;
-      threadId: string;
+      environmentId: EnvironmentId;
+      threadId: ThreadId;
     }
   | {
-      environmentId: string;
-      id: string;
+      environmentId: EnvironmentId;
+      id: ThreadId;
     };
 
 export function buildThreadRoutePath(input: ThreadRouteInput | PlainThreadRouteInput): string {

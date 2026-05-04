@@ -2,6 +2,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { KeyboardAvoidingLegendList } from "@legendapp/list/keyboard";
 import { type LegendListRef } from "@legendapp/list/react-native";
+import type { ThreadId } from "@t3tools/contracts";
 import { SymbolView } from "expo-symbols";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -32,7 +33,7 @@ import { relativeTime } from "../../lib/time";
 import { messageImageUrl } from "./threadPresentation";
 
 export interface ThreadFeedProps {
-  readonly threadId: string;
+  readonly threadId: ThreadId;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
   readonly httpBaseUrl: string | null;
   readonly bearerToken: string | null;

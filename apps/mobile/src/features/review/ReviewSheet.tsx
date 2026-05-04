@@ -1,4 +1,4 @@
-import { EnvironmentId, ThreadId, type OrchestrationCheckpointSummary } from "@t3tools/contracts";
+import type { EnvironmentId, OrchestrationCheckpointSummary, ThreadId } from "@t3tools/contracts";
 import { useLocalSearchParams } from "expo-router";
 import Stack from "expo-router/stack";
 import { memo, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -360,7 +360,7 @@ export function ReviewSheet() {
       setError(null);
       try {
         const result = await client.orchestration.getTurnDiff({
-          threadId: ThreadId.make(threadId),
+          threadId,
           fromTurnCount: Math.max(0, checkpoint.checkpointTurnCount - 1),
           toTurnCount: checkpoint.checkpointTurnCount,
         });

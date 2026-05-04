@@ -6,7 +6,7 @@ import {
   type GitBranch,
   type GitActionRequestInput,
 } from "@t3tools/client-runtime";
-import { CommandId, type GitRunStackedActionResult, ThreadId } from "@t3tools/contracts";
+import { CommandId, type GitRunStackedActionResult } from "@t3tools/contracts";
 import {
   dedupeRemoteBranchesWithLocalMatches,
   sanitizeFeatureBranchName,
@@ -43,7 +43,7 @@ export function useSelectedThreadGitActions() {
       await client.orchestration.dispatchCommand({
         type: "thread.meta.update",
         commandId: CommandId.make(uuidv4()),
-        threadId: ThreadId.make(thread.id),
+        threadId: thread.id,
         ...(nextState.branch !== undefined ? { branch: nextState.branch } : {}),
         ...(nextState.worktreePath !== undefined ? { worktreePath: nextState.worktreePath } : {}),
       });

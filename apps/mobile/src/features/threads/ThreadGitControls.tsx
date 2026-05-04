@@ -1,4 +1,10 @@
-import type { GitRunStackedActionResult, ProjectScript, VcsStatusResult } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  GitRunStackedActionResult,
+  ProjectScript,
+  ThreadId,
+  VcsStatusResult,
+} from "@t3tools/contracts";
 import {
   type GitActionRequestInput,
   requiresDefaultBranchConfirmation,
@@ -73,8 +79,8 @@ export function ThreadGitControls(props: {
 }) {
   const router = useRouter();
   const { environmentId, threadId } = useLocalSearchParams<{
-    environmentId: string;
-    threadId: string;
+    environmentId: EnvironmentId;
+    threadId: ThreadId;
   }>();
   const { gitStatus, gitOperationLabel, onPull, onRunAction } = props;
 

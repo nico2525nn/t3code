@@ -1,5 +1,6 @@
 import { Link, Stack } from "expo-router";
 import { SymbolView } from "expo-symbols";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { useCallback, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,12 +20,12 @@ export default function ConnectionsRouteScreen() {
   } = useRemoteConnections();
   const insets = useSafeAreaInsets();
   const hasEnvironments = connectedEnvironments.length > 0;
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<EnvironmentId | null>(null);
 
   const primaryFg = useThemeColor("--color-primary-foreground");
   const accentColor = useThemeColor("--color-icon-muted");
 
-  const handleToggle = useCallback((environmentId: string) => {
+  const handleToggle = useCallback((environmentId: EnvironmentId) => {
     setExpandedId((prev) => (prev === environmentId ? null : environmentId));
   }, []);
 

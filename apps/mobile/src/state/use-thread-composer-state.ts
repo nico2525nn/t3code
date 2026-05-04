@@ -3,11 +3,11 @@ import { useCallback, useEffect, useMemo } from "react";
 
 import { EnvironmentScopedThreadShell } from "@t3tools/client-runtime";
 import {
-  ApprovalRequestId,
   CommandId,
-  EnvironmentId,
   MessageId,
-  ThreadId,
+  type ApprovalRequestId,
+  type EnvironmentId,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { deriveActiveWorkStartedAt } from "@t3tools/shared/orchestrationTiming";
 import { Atom } from "effect/unstable/reactivity";
@@ -90,15 +90,12 @@ function appendDraftMessage(threadKey: string, value: string): void {
 }
 
 export function appendReviewCommentToDraft(input: {
-  readonly environmentId: string;
-  readonly threadId: string;
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
   readonly text: string;
   readonly attachments?: ReadonlyArray<DraftComposerImageAttachment>;
 }): void {
-  const threadKey = scopedThreadKey(
-    EnvironmentId.make(input.environmentId),
-    ThreadId.make(input.threadId),
-  );
+  const threadKey = scopedThreadKey(input.environmentId, input.threadId);
   const current = appAtomRegistry.get(draftMessageByThreadKeyAtom);
   const existing = current[threadKey] ?? "";
   const separator = existing.trim().length > 0 && !existing.endsWith("\n") ? "\n\n" : "";
@@ -112,14 +109,14 @@ export function appendReviewCommentToDraft(input: {
 }
 
 export function useThreadDraftForThread(input: {
-  readonly environmentId?: string;
-  readonly threadId?: string;
+  readonly environmentId?: EnvironmentId;
+  readonly threadId?: ThreadId;
 }) {
   const draftMessageByThreadKey = useAtomValue(draftMessageByThreadKeyAtom);
   const draftAttachmentsByThreadKey = useAtomValue(draftAttachmentsByThreadKeyAtom);
   const threadKey =
     input.environmentId && input.threadId
-      ? scopedThreadKey(EnvironmentId.make(input.environmentId), ThreadId.make(input.threadId))
+      ? scopedThreadKey(input.environmentId, input.threadId)
       : null;
 
   return {
@@ -222,7 +219,7 @@ function setUserInputDraftCustomAnswer(
 }
 
 function useQueueDrain(input: {
-  readonly dispatchingQueuedMessageId: string | null;
+  readonly dispatchingQueuedMessageId: MessageId | null;
   readonly queuedMessagesByThreadKey: Record<string, ReadonlyArray<QueuedThreadMessage>>;
   readonly threads: ReadonlyArray<EnvironmentScopedThreadShell>;
   readonly environments: ReadonlyArray<ConnectedEnvironmentSummary>;
@@ -378,10 +375,10 @@ export function useThreadComposerState() {
       try {
         await client.orchestration.dispatchCommand({
           type: "thread.turn.start",
-          commandId: CommandId.make(queuedMessage.commandId),
-          threadId: ThreadId.make(queuedMessage.threadId),
+          commandId: queuedMessage.commandId,
+          threadId: queuedMessage.threadId,
           message: {
-            messageId: MessageId.make(queuedMessage.messageId),
+            messageId: queuedMessage.messageId,
             role: "user",
             text: queuedMessage.text,
             attachments: queuedMessage.attachments,
@@ -446,30 +443,24 @@ export function useThreadComposerState() {
   }, [draftAttachmentsByThreadKey, draftMessageByThreadKey, selectedThreadShell]);
 
   const onSelectUserInputOption = useCallback(
-    (requestId: string, questionId: string, label: string) => {
+    (requestId: ApprovalRequestId, questionId: string, label: string) => {
       if (!selectedThreadShell) {
         return;
       }
 
-      const requestKey = scopedRequestKey(
-        selectedThreadShell.environmentId,
-        requestId as ApprovalRequestId,
-      );
+      const requestKey = scopedRequestKey(selectedThreadShell.environmentId, requestId);
       setUserInputDraftOption(requestKey, questionId, label);
     },
     [selectedThreadShell],
   );
 
   const onChangeUserInputCustomAnswer = useCallback(
-    (requestId: string, questionId: string, customAnswer: string) => {
+    (requestId: ApprovalRequestId, questionId: string, customAnswer: string) => {
       if (!selectedThreadShell) {
         return;
       }
 
-      const requestKey = scopedRequestKey(
-        selectedThreadShell.environmentId,
-        requestId as ApprovalRequestId,
-      );
+      const requestKey = scopedRequestKey(selectedThreadShell.environmentId, requestId);
       setUserInputDraftCustomAnswer(requestKey, questionId, customAnswer);
     },
     [selectedThreadShell],

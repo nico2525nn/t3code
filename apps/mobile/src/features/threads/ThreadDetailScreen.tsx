@@ -7,6 +7,7 @@ import type {
   ProviderInteractionMode,
   RuntimeMode,
   ServerConfig as T3ServerConfig,
+  ThreadId,
 } from "@t3tools/contracts";
 import { formatElapsed } from "@t3tools/shared/orchestrationTiming";
 import * as Haptics from "expo-haptics";
@@ -77,9 +78,13 @@ export interface ThreadDetailScreenProps {
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
   ) => Promise<void>;
-  readonly onSelectUserInputOption: (requestId: string, questionId: string, label: string) => void;
+  readonly onSelectUserInputOption: (
+    requestId: ApprovalRequestId,
+    questionId: string,
+    label: string,
+  ) => void;
   readonly onChangeUserInputCustomAnswer: (
-    requestId: string,
+    requestId: ApprovalRequestId,
     questionId: string,
     customAnswer: string,
   ) => void;
@@ -107,7 +112,7 @@ function latestStreamingAssistantMessage(
   return null;
 }
 
-function useStreamingHaptics(threadId: string, feed: ReadonlyArray<ThreadFeedEntry>) {
+function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedEntry>) {
   const lastStreamingAssistantRef = useRef<{
     readonly id: string;
     readonly textLength: number;

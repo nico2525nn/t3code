@@ -61,7 +61,7 @@ type NewTaskFlowContextValue = {
     readonly key: string;
     readonly project: EnvironmentScopedProjectShell;
   }>;
-  readonly selectedEnvironmentId: EnvironmentId;
+  readonly selectedEnvironmentId: EnvironmentId | null;
   readonly selectedProjectKey: string | null;
   readonly selectedModelKey: string | null;
   readonly workspaceMode: WorkspaceMode;
@@ -144,8 +144,8 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     [repositoryGroups],
   );
 
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState(
-    projects[0]?.environmentId ?? "",
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<EnvironmentId | null>(
+    projects[0]?.environmentId ?? null,
   );
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
   const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
@@ -192,7 +192,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       defaultEnvironmentId: projects[0]?.environmentId ?? null,
       projectCount: projects.length,
     });
-    setSelectedEnvironmentId(projects[0]?.environmentId ?? "");
+    setSelectedEnvironmentId(projects[0]?.environmentId ?? null);
     setSelectedProjectKey(null);
     setSelectedModelKey(null);
     setWorkspaceMode("local");
@@ -211,7 +211,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   }, [clearAttachments, projects]);
 
   useEffect(() => {
-    if (selectedEnvironmentId || projects.length === 0) {
+    if (selectedEnvironmentId !== null || projects.length === 0) {
       return;
     }
 
