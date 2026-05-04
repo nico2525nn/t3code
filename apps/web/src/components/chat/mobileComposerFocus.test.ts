@@ -6,23 +6,12 @@ describe("expandMobileComposerForKeyboard", () => {
     const calls: string[] = [];
 
     expandMobileComposerForKeyboard({
-      cancelPendingBlur: vi.fn(() => calls.push("cancel-blur")),
-      cancelPendingExpandFocus: vi.fn(() => calls.push("cancel-expand-focus")),
       cancelPendingRelease: vi.fn(() => calls.push("cancel-release")),
-      setExpandInFlight: vi.fn((inFlight) => calls.push(`in-flight:${inFlight}`)),
-      commitExpandedState: vi.fn(() => calls.push("commit-expanded")),
+      primeExpandedState: vi.fn(() => calls.push("prime-expanded")),
       focusEditorAtEnd: vi.fn(() => calls.push("focus")),
       scheduleRelease: vi.fn(() => calls.push("schedule-release")),
     });
 
-    expect(calls).toEqual([
-      "cancel-blur",
-      "cancel-expand-focus",
-      "cancel-release",
-      "in-flight:true",
-      "commit-expanded",
-      "focus",
-      "schedule-release",
-    ]);
+    expect(calls).toEqual(["cancel-release", "prime-expanded", "focus", "schedule-release"]);
   });
 });
