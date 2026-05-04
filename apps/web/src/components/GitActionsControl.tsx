@@ -1327,8 +1327,11 @@ export default function GitActionsControl({
         onOpenChange={(open) => {
           setIsPublishDialogOpen(open);
           if (!open) {
+            setPublishProvider("github");
             setPublishRemoteName("origin");
             setPublishRepository("");
+            setPublishVisibility("private");
+            setPublishProtocol("ssh");
             setHasUserEditedPublishRepository(false);
             setPublishWizardStep(0);
             setPublishAdvancedOpen(false);
