@@ -33,6 +33,7 @@ export interface WsTransportOptions {
 interface SubscribeOptions {
   readonly retryDelay?: Duration.Input;
   readonly onResubscribe?: () => void;
+  readonly tag?: string;
 }
 
 const DEFAULT_SUBSCRIPTION_RETRY_DELAY = Duration.millis(250);
@@ -42,6 +43,12 @@ interface TransportSession {
   readonly clientPromise: Promise<WsRpcProtocolClient>;
   readonly clientScope: Scope.Closeable;
   readonly runtime: ManagedRuntime.ManagedRuntime<RpcClient.Protocol, never>;
+}
+
+interface StreamRequestStartInfo {
+  readonly id: string;
+  readonly tag: string;
+  readonly stream: boolean;
 }
 
 function formatErrorMessage(error: unknown): string {
@@ -58,10 +65,13 @@ export class WsTransport {
   private readonly options: WsTransportOptions | undefined;
   private disposed = false;
   private hasReportedTransportDisconnect = false;
+  private intentionalCloseDepth = 0;
   private reconnectChain: Promise<void> = Promise.resolve();
   private nextSessionId = 0;
   private activeSessionId = 0;
   private session: TransportSession;
+  private lastHeartbeatPongAt = 0;
+  private readonly streamRequestStartListeners = new Set<(info: StreamRequestStartInfo) => void>();
 
   constructor(
     url: WsRpcProtocolSocketUrlProvider,
@@ -133,18 +143,24 @@ export class WsTransport {
 
         const session = this.session;
         try {
-          if (hasReceivedValue) {
-            try {
-              options?.onResubscribe?.();
-            } catch {
-              // Ignore reconnect hook failures so the stream can recover.
-            }
-          }
-
           const runningStream = this.runStreamOnSession(
             session,
             connect,
             listener,
+            {
+              ...(options?.tag === undefined ? {} : { tag: options.tag }),
+              ...(hasReceivedValue
+                ? {
+                    onStarted: () => {
+                      try {
+                        options?.onResubscribe?.();
+                      } catch {
+                        // Ignore reconnect hook failures so the stream can recover.
+                      }
+                    },
+                  }
+                : {}),
+            },
             () => active,
             () => {
               this.hasReportedTransportDisconnect = false;
@@ -206,6 +222,7 @@ export class WsTransport {
         // Ignore hook failures so reconnect can proceed.
       }
 
+      this.lastHeartbeatPongAt = 0;
       const previousSession = this.session;
       this.session = this.createSession();
       await this.closeSession(previousSession);
@@ -224,8 +241,14 @@ export class WsTransport {
     await this.closeSession(this.session);
   }
 
+  isHeartbeatFresh(maxAgeMs = 15_000): boolean {
+    return this.lastHeartbeatPongAt > 0 && Date.now() - this.lastHeartbeatPongAt <= maxAgeMs;
+  }
+
   private closeSession(session: TransportSession) {
+    this.intentionalCloseDepth += 1;
     return session.runtime.runPromise(Scope.close(session.clientScope, Exit.void)).finally(() => {
+      this.intentionalCloseDepth -= 1;
       session.runtime.dispose();
     });
   }
@@ -238,6 +261,23 @@ export class WsTransport {
     const protocolLayer = protocolFactory(this.url, {
       ...this.lifecycleHandlers,
       isActive: () => !this.disposed && this.activeSessionId === sessionId,
+      isCloseIntentional: () =>
+        this.disposed ||
+        this.intentionalCloseDepth > 0 ||
+        this.lifecycleHandlers?.isCloseIntentional?.() === true,
+      onHeartbeatPong: () => {
+        this.lastHeartbeatPongAt = Date.now();
+        this.lifecycleHandlers?.onHeartbeatPong?.();
+      },
+      onRequestStart: (info) => {
+        this.lifecycleHandlers?.onRequestStart?.(info);
+        if (!info.stream) {
+          return;
+        }
+        for (const listener of this.streamRequestStartListeners) {
+          listener(info);
+        }
+      },
     });
     const rootLayer = this.options?.tracingLayer
       ? Layer.mergeAll(protocolLayer, this.options.tracingLayer)
@@ -255,6 +295,10 @@ export class WsTransport {
     session: TransportSession,
     connect: (client: WsRpcProtocolClient) => Stream.Stream<TValue, Error, never>,
     listener: (value: TValue) => void,
+    requestStart: {
+      readonly tag?: string;
+      readonly onStarted?: () => void;
+    },
     isActive: () => boolean,
     markValueReceived: () => void,
   ): {
@@ -267,6 +311,23 @@ export class WsTransport {
       resolveCompleted = resolve;
       rejectCompleted = reject;
     });
+    let requestStartListener: ((info: StreamRequestStartInfo) => void) | null = null;
+    if (requestStart.onStarted) {
+      requestStartListener = (info) => {
+        if (!isActive() || !info.stream) {
+          return;
+        }
+        if (requestStart.tag !== undefined && info.tag !== requestStart.tag) {
+          return;
+        }
+        requestStart.onStarted?.();
+        if (requestStartListener) {
+          this.streamRequestStartListeners.delete(requestStartListener);
+          requestStartListener = null;
+        }
+      };
+      this.streamRequestStartListeners.add(requestStartListener);
+    }
     const cancel = session.runtime.runCallback(
       Effect.promise(() => session.clientPromise).pipe(
         Effect.flatMap((client) =>
@@ -288,6 +349,10 @@ export class WsTransport {
       ),
       {
         onExit: (exit) => {
+          if (requestStartListener) {
+            this.streamRequestStartListeners.delete(requestStartListener);
+            requestStartListener = null;
+          }
           if (Exit.isSuccess(exit)) {
             resolveCompleted();
             return;

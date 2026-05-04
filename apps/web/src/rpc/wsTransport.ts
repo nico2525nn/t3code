@@ -1,10 +1,10 @@
 import {
+  createWsRpcProtocolLayer as createSharedWsRpcProtocolLayer,
   WsTransport as BaseWsTransport,
   type WsProtocolLifecycleHandlers,
   type WsRpcProtocolSocketUrlProvider,
   type WsTransportOptions,
 } from "@t3tools/client-runtime";
-import { createWsRpcProtocolLayer as createSharedWsRpcProtocolLayer } from "@t3tools/client-runtime";
 
 import { ClientTracingLive } from "../observability/clientTracing";
 import {
@@ -17,7 +17,15 @@ import {
   recordWsConnectionClosed,
   recordWsConnectionErrored,
   recordWsConnectionOpened,
+  type WsConnectionMetadata,
 } from "./wsConnectionState";
+
+function resolveConnectionMetadata(handlers?: WsProtocolLifecycleHandlers): WsConnectionMetadata {
+  return {
+    connectionLabel: handlers?.getConnectionLabel?.() ?? null,
+    versionMismatchHint: handlers?.getVersionMismatchHint?.() ?? null,
+  };
+}
 
 function createWsRpcProtocolLayer(
   url: WsRpcProtocolSocketUrlProvider,
@@ -25,15 +33,26 @@ function createWsRpcProtocolLayer(
 ) {
   return createSharedWsRpcProtocolLayer(url, handlers, {
     telemetryLifecycle: {
-      onAttempt: recordWsConnectionAttempt,
-      onOpen: recordWsConnectionOpened,
+      onAttempt: (socketUrl) =>
+        recordWsConnectionAttempt(socketUrl, resolveConnectionMetadata(handlers)),
+      onOpen: () => recordWsConnectionOpened(resolveConnectionMetadata(handlers)),
       onError: (message) => {
         clearAllTrackedRpcRequests();
-        recordWsConnectionErrored(message);
+        recordWsConnectionErrored(message, resolveConnectionMetadata(handlers));
       },
-      onClose: (details) => {
+      onClose: (details, context) => {
         clearAllTrackedRpcRequests();
-        recordWsConnectionClosed(details);
+        if (context.intentional) {
+          return;
+        }
+        recordWsConnectionClosed(details, resolveConnectionMetadata(handlers));
+      },
+      onHeartbeatTimeout: () => {
+        clearAllTrackedRpcRequests();
+        recordWsConnectionErrored(
+          "WebSocket heartbeat timed out.",
+          resolveConnectionMetadata(handlers),
+        );
       },
     },
     requestTelemetry: {

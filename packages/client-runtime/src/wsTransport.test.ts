@@ -200,10 +200,13 @@ describe("WsTransport", () => {
     socket.close(1012, "service restart");
 
     await waitFor(() => {
-      expect(onClose).toHaveBeenCalledWith({
-        code: 1012,
-        reason: "service restart",
-      });
+      expect(onClose).toHaveBeenCalledWith(
+        {
+          code: 1012,
+          reason: "service restart",
+        },
+        { intentional: false },
+      );
     });
 
     await transport.dispose();

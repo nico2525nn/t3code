@@ -131,10 +131,22 @@ export class RemoteEnvironmentAuthHttpError extends Error {
   }
 }
 
+export function isRemoteEnvironmentAuthHttpError(
+  error: unknown,
+): error is RemoteEnvironmentAuthHttpError {
+  return error instanceof RemoteEnvironmentAuthHttpError;
+}
+
 export interface ResolvedRemotePairingTarget {
   readonly credential: string;
   readonly httpBaseUrl: string;
   readonly wsBaseUrl: string;
+}
+
+export interface HostedPairingRequest {
+  readonly host: string;
+  readonly token: string;
+  readonly label: string;
 }
 
 export function getPairingTokenFromUrl(url: URL): string | null {
@@ -165,6 +177,18 @@ export function setPairingTokenOnUrl(url: URL, credential: string): URL {
   return next;
 }
 
+export function readHostedPairingRequest(url: URL): HostedPairingRequest | null {
+  const host = url.searchParams.get("host")?.trim() ?? "";
+  const token = getPairingTokenFromUrl(url)?.trim() ?? "";
+  const label = url.searchParams.get("label")?.trim() ?? "";
+
+  if (!host || !token) {
+    return null;
+  }
+
+  return { host, token, label };
+}
+
 export function resolveRemotePairingTarget(input: {
   readonly pairingUrl?: string;
   readonly host?: string;
@@ -173,6 +197,16 @@ export function resolveRemotePairingTarget(input: {
   const pairingUrl = input.pairingUrl?.trim() ?? "";
   if (pairingUrl.length > 0) {
     const url = new URL(pairingUrl);
+    const hostedPairingRequest = readHostedPairingRequest(url);
+    if (hostedPairingRequest) {
+      const hostedBackendUrl = normalizeRemoteBaseUrl(hostedPairingRequest.host);
+      return {
+        credential: hostedPairingRequest.token,
+        httpBaseUrl: toHttpBaseUrl(hostedBackendUrl),
+        wsBaseUrl: toWsBaseUrl(hostedBackendUrl),
+      };
+    }
+
     const credential = getPairingTokenFromUrl(url) ?? "";
     if (!credential) {
       throw new Error("Pairing URL is missing its token.");

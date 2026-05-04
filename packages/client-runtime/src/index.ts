@@ -1,3 +1,4 @@
+export * from "./advertisedEndpoint.ts";
 export * from "./knownEnvironment.ts";
 export * from "./reconnectBackoff.ts";
 export * from "./scoped.ts";
