@@ -30,6 +30,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
@@ -71,6 +72,7 @@ import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { searchSlashCommandItems } from "./composerSlashCommandSearch";
+import { expandMobileComposerForKeyboard } from "./mobileComposerFocus";
 import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
@@ -1627,25 +1629,42 @@ export const ChatComposer = memo(
       [blurMobileComposerAfterSend, onSend, shouldBlurMobileComposerOnSubmit],
     );
     const expandMobileComposer = useCallback(() => {
-      if (composerBlurFrameRef.current !== null) {
-        window.cancelAnimationFrame(composerBlurFrameRef.current);
-        composerBlurFrameRef.current = null;
-      }
-      if (mobileComposerExpandFrameRef.current !== null) {
-        window.cancelAnimationFrame(mobileComposerExpandFrameRef.current);
-      }
-      if (mobileComposerExpandReleaseFrameRef.current !== null) {
-        window.cancelAnimationFrame(mobileComposerExpandReleaseFrameRef.current);
-      }
-      mobileComposerExpandInFlightRef.current = true;
-      setIsComposerFocused(true);
-      mobileComposerExpandFrameRef.current = window.requestAnimationFrame(() => {
-        mobileComposerExpandFrameRef.current = null;
-        composerEditorRef.current?.focusAtEnd();
-        mobileComposerExpandReleaseFrameRef.current = window.requestAnimationFrame(() => {
-          mobileComposerExpandReleaseFrameRef.current = null;
-          mobileComposerExpandInFlightRef.current = false;
-        });
+      expandMobileComposerForKeyboard({
+        cancelPendingBlur: () => {
+          if (composerBlurFrameRef.current !== null) {
+            window.cancelAnimationFrame(composerBlurFrameRef.current);
+            composerBlurFrameRef.current = null;
+          }
+        },
+        cancelPendingExpandFocus: () => {
+          if (mobileComposerExpandFrameRef.current !== null) {
+            window.cancelAnimationFrame(mobileComposerExpandFrameRef.current);
+            mobileComposerExpandFrameRef.current = null;
+          }
+        },
+        cancelPendingRelease: () => {
+          if (mobileComposerExpandReleaseFrameRef.current !== null) {
+            window.cancelAnimationFrame(mobileComposerExpandReleaseFrameRef.current);
+            mobileComposerExpandReleaseFrameRef.current = null;
+          }
+        },
+        setExpandInFlight: (inFlight) => {
+          mobileComposerExpandInFlightRef.current = inFlight;
+        },
+        commitExpandedState: () => {
+          flushSync(() => {
+            setIsComposerFocused(true);
+          });
+        },
+        focusEditorAtEnd: () => {
+          composerEditorRef.current?.focusAtEnd();
+        },
+        scheduleRelease: () => {
+          mobileComposerExpandReleaseFrameRef.current = window.requestAnimationFrame(() => {
+            mobileComposerExpandReleaseFrameRef.current = null;
+            mobileComposerExpandInFlightRef.current = false;
+          });
+        },
       });
     }, []);
 
@@ -2063,7 +2082,10 @@ export const ChatComposer = memo(
                           : "text-muted-foreground/60",
                         !activePendingProgress?.activeQuestion?.multiSelect && "px-3 py-2",
                       )}
-                      onPointerDown={(event) => event.preventDefault()}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        expandMobileComposer();
+                      }}
                       onClick={expandMobileComposer}
                       aria-label="Write custom answer"
                     >
@@ -2102,7 +2124,10 @@ export const ChatComposer = memo(
                       ? "text-foreground"
                       : "text-muted-foreground/35",
                   )}
-                  onPointerDown={(event) => event.preventDefault()}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    expandMobileComposer();
+                  }}
                   onClick={expandMobileComposer}
                   aria-label="Expand composer"
                 >
