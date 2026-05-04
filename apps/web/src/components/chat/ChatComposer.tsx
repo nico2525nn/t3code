@@ -813,7 +813,6 @@ export const ChatComposer = memo(
     const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
     const activeComposerMenuItemRef = useRef<ComposerCommandItem | null>(null);
     const composerBlurFrameRef = useRef<number | null>(null);
-    const mobileComposerExpandFrameRef = useRef<number | null>(null);
     const mobileComposerExpandReleaseFrameRef = useRef<number | null>(null);
     const mobileComposerExpandInFlightRef = useRef(false);
     const dragDepthRef = useRef(0);
@@ -1636,12 +1635,6 @@ export const ChatComposer = memo(
             composerBlurFrameRef.current = null;
           }
         },
-        cancelPendingExpandFocus: () => {
-          if (mobileComposerExpandFrameRef.current !== null) {
-            window.cancelAnimationFrame(mobileComposerExpandFrameRef.current);
-            mobileComposerExpandFrameRef.current = null;
-          }
-        },
         cancelPendingRelease: () => {
           if (mobileComposerExpandReleaseFrameRef.current !== null) {
             window.cancelAnimationFrame(mobileComposerExpandReleaseFrameRef.current);
@@ -1843,9 +1836,6 @@ export const ChatComposer = memo(
       return () => {
         if (composerBlurFrameRef.current !== null) {
           window.cancelAnimationFrame(composerBlurFrameRef.current);
-        }
-        if (mobileComposerExpandFrameRef.current !== null) {
-          window.cancelAnimationFrame(mobileComposerExpandFrameRef.current);
         }
         if (mobileComposerExpandReleaseFrameRef.current !== null) {
           window.cancelAnimationFrame(mobileComposerExpandReleaseFrameRef.current);
