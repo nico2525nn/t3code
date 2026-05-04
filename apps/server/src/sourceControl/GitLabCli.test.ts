@@ -175,7 +175,7 @@ layer("GitLabCli.layer", (it) => {
 
       assert.deepStrictEqual(result, {
         nameWithOwner: "octocat/t3code",
-        url: "https://gitlab.com/octocat/t3code.git",
+        url: "https://gitlab.com/octocat/t3code",
         sshUrl: "git@gitlab.com:octocat/t3code.git",
       });
     }),
@@ -243,7 +243,7 @@ layer("GitLabCli.layer", (it) => {
 
       assert.deepStrictEqual(result, {
         nameWithOwner: "octocat/t3code",
-        url: "https://gitlab.com/octocat/t3code.git",
+        url: "https://gitlab.com/octocat/t3code",
         sshUrl: "git@gitlab.com:octocat/t3code.git",
       });
       expect(mockedRun).toHaveBeenNthCalledWith(
