@@ -911,7 +911,7 @@ export function ReviewSheet() {
       setError(null);
       try {
         const result = await client.orchestration.getTurnDiff({
-          threadId: ThreadId.make(threadId),
+          threadId,
           fromTurnCount: Math.max(0, checkpoint.checkpointTurnCount - 1),
           toTurnCount: checkpoint.checkpointTurnCount,
         });

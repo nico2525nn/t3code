@@ -1,6 +1,5 @@
-import { isToolLifecycleItemType } from "@t3tools/contracts";
+import { ApprovalRequestId, isToolLifecycleItemType } from "@t3tools/contracts";
 import type {
-  ApprovalRequestId,
   CommandId,
   EnvironmentId,
   MessageId,
@@ -128,6 +127,10 @@ function isStalePendingRequestFailureDetail(detail: string | undefined): boolean
     normalized.includes("unknown pending permission request") ||
     normalized.includes("unknown pending user-input request")
   );
+}
+
+function parseApprovalRequestId(value: unknown): ApprovalRequestId | null {
+  return typeof value === "string" && value.length > 0 ? ApprovalRequestId.make(value) : null;
 }
 
 function parseUserInputQuestions(
@@ -764,7 +767,7 @@ export function derivePendingApprovals(
       activity.payload && typeof activity.payload === "object"
         ? (activity.payload as Record<string, unknown>)
         : null;
-    const requestId = payload?.requestId;
+    const requestId = parseApprovalRequestId(payload?.requestId);
     const requestKind =
       payload?.requestKind === "command" ||
       payload?.requestKind === "file-read" ||
@@ -773,9 +776,9 @@ export function derivePendingApprovals(
         : requestKindFromRequestType(payload?.requestType);
     const detail = typeof payload?.detail === "string" ? payload.detail : undefined;
 
-    if (activity.kind === "approval.requested" && typeof requestId === "string" && requestKind) {
-      openByRequestId.set(requestId as ApprovalRequestId, {
-        requestId: requestId as ApprovalRequestId,
+    if (activity.kind === "approval.requested" && requestId && requestKind) {
+      openByRequestId.set(requestId, {
+        requestId,
         requestKind,
         createdAt: activity.createdAt,
         ...(detail ? { detail } : {}),
@@ -783,17 +786,17 @@ export function derivePendingApprovals(
       continue;
     }
 
-    if (activity.kind === "approval.resolved" && typeof requestId === "string") {
-      openByRequestId.delete(requestId as ApprovalRequestId);
+    if (activity.kind === "approval.resolved" && requestId) {
+      openByRequestId.delete(requestId);
       continue;
     }
 
     if (
       activity.kind === "provider.approval.respond.failed" &&
-      typeof requestId === "string" &&
+      requestId &&
       isStalePendingRequestFailureDetail(detail)
     ) {
-      openByRequestId.delete(requestId as ApprovalRequestId);
+      openByRequestId.delete(requestId);
     }
   }
 
@@ -811,33 +814,33 @@ export function derivePendingUserInputs(
       activity.payload && typeof activity.payload === "object"
         ? (activity.payload as Record<string, unknown>)
         : null;
-    const requestId = payload?.requestId;
+    const requestId = parseApprovalRequestId(payload?.requestId);
     const detail = typeof payload?.detail === "string" ? payload.detail : undefined;
 
-    if (activity.kind === "user-input.requested" && typeof requestId === "string") {
+    if (activity.kind === "user-input.requested" && requestId) {
       const questions = parseUserInputQuestions(payload);
       if (!questions) {
         continue;
       }
-      openByRequestId.set(requestId as ApprovalRequestId, {
-        requestId: requestId as ApprovalRequestId,
+      openByRequestId.set(requestId, {
+        requestId,
         createdAt: activity.createdAt,
         questions,
       });
       continue;
     }
 
-    if (activity.kind === "user-input.resolved" && typeof requestId === "string") {
-      openByRequestId.delete(requestId as ApprovalRequestId);
+    if (activity.kind === "user-input.resolved" && requestId) {
+      openByRequestId.delete(requestId);
       continue;
     }
 
     if (
       activity.kind === "provider.user-input.respond.failed" &&
-      typeof requestId === "string" &&
+      requestId &&
       isStalePendingRequestFailureDetail(detail)
     ) {
-      openByRequestId.delete(requestId as ApprovalRequestId);
+      openByRequestId.delete(requestId);
     }
   }
 

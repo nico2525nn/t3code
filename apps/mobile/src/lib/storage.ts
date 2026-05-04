@@ -1,6 +1,7 @@
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as SecureStore from "expo-secure-store";
+import type { EnvironmentId } from "@t3tools/contracts";
 
 import type { SavedRemoteConnection } from "./connection";
 
@@ -58,7 +59,7 @@ export async function saveConnection(connection: SavedRemoteConnection): Promise
   await writeStorageItem(CONNECTIONS_KEY, JSON.stringify({ connections: next }));
 }
 
-export async function clearSavedConnection(environmentId: string): Promise<void> {
+export async function clearSavedConnection(environmentId: EnvironmentId): Promise<void> {
   const current = await loadSavedConnections();
   const next = pipe(
     current,

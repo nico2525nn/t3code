@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { TextInputWrapper } from "expo-paste-input";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, View, useColorScheme, useWindowDimensions } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
@@ -47,8 +48,8 @@ export function ReviewCommentComposerSheet() {
   const iconTint = String(useThemeColor("--color-icon"));
   const target = useReviewCommentTarget();
   const { environmentId, threadId } = useLocalSearchParams<{
-    environmentId: string;
-    threadId: string;
+    environmentId: EnvironmentId;
+    threadId: ThreadId;
   }>();
   const [commentText, setCommentText] = useState("");
   const [highlightedLinesById, setHighlightedLinesById] = useState<

@@ -1,4 +1,10 @@
-import type { GitRunStackedActionResult, GitStatusResult, ProjectScript } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  GitRunStackedActionResult,
+  ProjectScript,
+  ThreadId,
+  VcsStatusResult,
+} from "@t3tools/contracts";
 import {
   type GitActionRequestInput,
   requiresDefaultBranchConfirmation,
@@ -31,7 +37,7 @@ function compactMenuBranchLabel(branch: string): string {
   return truncateMiddle(branch, 24);
 }
 
-function compactMenuStatus(gitStatus: GitStatusResult | null): string {
+function compactMenuStatus(gitStatus: VcsStatusResult | null): string {
   if (!gitStatus) {
     return "Checking status";
   }
@@ -60,7 +66,7 @@ function compactMenuStatus(gitStatus: GitStatusResult | null): string {
 
 export function ThreadGitControls(props: {
   readonly currentBranch: string | null;
-  readonly gitStatus: GitStatusResult | null;
+  readonly gitStatus: VcsStatusResult | null;
   readonly gitOperationLabel: string | null;
   readonly canOpenTerminal: boolean;
   readonly projectScripts: ReadonlyArray<ProjectScript>;
@@ -73,8 +79,8 @@ export function ThreadGitControls(props: {
 }) {
   const router = useRouter();
   const { environmentId, threadId } = useLocalSearchParams<{
-    environmentId: string;
-    threadId: string;
+    environmentId: EnvironmentId;
+    threadId: ThreadId;
   }>();
   const { gitStatus, gitOperationLabel, onPull, onRunAction } = props;
 

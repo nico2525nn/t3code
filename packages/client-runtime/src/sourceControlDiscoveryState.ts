@@ -9,8 +9,8 @@ export interface SourceControlDiscoveryState {
   readonly isPending: boolean;
 }
 
-export interface SourceControlDiscoveryTarget {
-  readonly key: string | null;
+export interface SourceControlDiscoveryTarget<TKey extends string = string> {
+  readonly key: TKey | null;
 }
 
 export interface SourceControlDiscoveryClient {
@@ -49,16 +49,16 @@ export const EMPTY_SOURCE_CONTROL_DISCOVERY_ATOM = Atom.make(
 
 /* --- Helpers -------------------------------------------------------- */
 
-export function getSourceControlDiscoveryTargetKey(
-  target: SourceControlDiscoveryTarget,
-): string | null {
-  const key = target.key?.trim();
+export function getSourceControlDiscoveryTargetKey<TKey extends string>(
+  target: SourceControlDiscoveryTarget<TKey>,
+): TKey | null {
+  const key = target.key;
   return key && key.length > 0 ? key : null;
 }
 
 /* --- Refresh manager ------------------------------------------------ */
 
-export interface SourceControlDiscoveryManagerConfig {
+export interface SourceControlDiscoveryManagerConfig<TKey extends string = string> {
   /**
    * Get the atom registry used to read/write source-control discovery snapshots.
    */
@@ -70,10 +70,12 @@ export interface SourceControlDiscoveryManagerConfig {
    * lets mobile or future multi-environment clients provide separate discovery
    * clients without changing the state primitive.
    */
-  readonly getClient: (key: string) => SourceControlDiscoveryClient | null;
+  readonly getClient: (key: TKey) => SourceControlDiscoveryClient | null;
 }
 
-export function createSourceControlDiscoveryManager(config: SourceControlDiscoveryManagerConfig) {
+export function createSourceControlDiscoveryManager<TKey extends string = string>(
+  config: SourceControlDiscoveryManagerConfig<TKey>,
+) {
   const refreshInFlight = new Map<string, Promise<SourceControlDiscoveryResult | null>>();
   const refreshVersions = new Map<string, number>();
 
@@ -144,7 +146,7 @@ export function createSourceControlDiscoveryManager(config: SourceControlDiscove
    * @param client Optional pre-resolved client, useful in tests.
    */
   function refresh(
-    target: SourceControlDiscoveryTarget,
+    target: SourceControlDiscoveryTarget<TKey>,
     client?: SourceControlDiscoveryClient,
   ): Promise<SourceControlDiscoveryResult | null> {
     const targetKey = getSourceControlDiscoveryTargetKey(target);
@@ -195,7 +197,7 @@ export function createSourceControlDiscoveryManager(config: SourceControlDiscove
    * refresh for that target. If no target is provided, every known target is
    * invalidated.
    */
-  function invalidate(target?: SourceControlDiscoveryTarget): void {
+  function invalidate(target?: SourceControlDiscoveryTarget<TKey>): void {
     if (!target) {
       reset();
       return;
@@ -217,7 +219,7 @@ export function createSourceControlDiscoveryManager(config: SourceControlDiscove
    * Invalid targets return the inert empty state rather than creating a new
    * family atom entry.
    */
-  function getSnapshot(target: SourceControlDiscoveryTarget): SourceControlDiscoveryState {
+  function getSnapshot(target: SourceControlDiscoveryTarget<TKey>): SourceControlDiscoveryState {
     const targetKey = getSourceControlDiscoveryTargetKey(target);
     if (targetKey === null) {
       return EMPTY_SOURCE_CONTROL_DISCOVERY_STATE;

@@ -10,7 +10,7 @@ import {
   EnvironmentConnectionState,
   WsTransport,
 } from "@t3tools/client-runtime";
-import { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { resolveRemoteWebSocketConnectionUrl } from "@t3tools/shared/remote";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
@@ -222,7 +222,7 @@ export async function connectSavedEnvironment(
           wsBaseUrl: connection.wsBaseUrl,
         },
       }),
-      environmentId: EnvironmentId.make(connection.environmentId),
+      environmentId: connection.environmentId,
     },
     client,
     applyShellEvent: (event, environmentId) => {
