@@ -61,7 +61,7 @@ import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { isMacPlatform, newCommandId } from "../lib/utils";
+import { isMacPlatform, newCommandId, newThreadId } from "../lib/utils";
 import {
   selectProjectByRef,
   selectProjectsAcrossEnvironments,
@@ -1905,6 +1905,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         [
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
+          { id: "branch", label: "Branch thread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
           { id: "delete", label: "Delete", destructive: true },
@@ -1916,6 +1917,45 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         setRenamingThreadKey(threadKey);
         setRenamingTitle(thread.title);
         renamingCommittedRef.current = false;
+        return;
+      }
+
+      if (clicked === "branch") {
+        const environmentApi = readEnvironmentApi(threadRef.environmentId);
+        if (!environmentApi) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to branch thread",
+              description: "Thread API unavailable.",
+            }),
+          );
+          return;
+        }
+
+        const branchThreadRef = scopeThreadRef(threadRef.environmentId, newThreadId());
+        try {
+          await environmentApi.orchestration.dispatchCommand({
+            type: "thread.branch",
+            commandId: newCommandId(),
+            sourceThreadId: threadRef.threadId,
+            threadId: branchThreadRef.threadId,
+            title: `${thread.title} (Branched)`,
+            createdAt: new Date().toISOString(),
+          });
+          await router.navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(branchThreadRef),
+          });
+        } catch (error) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to branch thread",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
         return;
       }
 
@@ -1963,6 +2003,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       markThreadUnread,
       memberProjectByScopedKey,
       project.cwd,
+      router,
     ],
   );
 
