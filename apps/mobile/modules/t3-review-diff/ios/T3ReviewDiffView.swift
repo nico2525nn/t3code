@@ -1315,6 +1315,13 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     }
   }
 
+  override func willMove(toWindow newWindow: UIWindow?) {
+    super.willMove(toWindow: newWindow)
+    if newWindow == nil {
+      stopHorizontalDeceleration()
+    }
+  }
+
   private func stopHorizontalDeceleration() {
     decelerationDisplayLink?.invalidate()
     decelerationDisplayLink = nil
