@@ -251,26 +251,29 @@ function listKnownSessionsFromMetadata(
   getBuffer: (target: KnownTerminalSessionTarget) => TerminalBufferState,
   filter?: Partial<KnownTerminalSessionTarget>,
 ): ReadonlyArray<KnownTerminalSession> {
-  return Object.values(metadata)
-    .filter(({ target }) => {
-      if (filter?.environmentId && target.environmentId !== filter.environmentId) {
-        return false;
-      }
-      if (filter?.threadId && target.threadId !== filter.threadId) {
-        return false;
-      }
-      if (filter?.terminalId && target.terminalId !== filter.terminalId) {
-        return false;
-      }
-      return true;
-    })
-    .map(({ target, summary }) => ({
-      target,
-      state: combineSessionState(summary, getBuffer(target)),
-    }))
-    .sort((left, right) =>
-      left.target.terminalId.localeCompare(right.target.terminalId, undefined, { numeric: true }),
-    );
+  return (
+    Object.values(metadata)
+      .filter(({ target }) => {
+        if (filter?.environmentId && target.environmentId !== filter.environmentId) {
+          return false;
+        }
+        if (filter?.threadId && target.threadId !== filter.threadId) {
+          return false;
+        }
+        if (filter?.terminalId && target.terminalId !== filter.terminalId) {
+          return false;
+        }
+        return true;
+      })
+      .map(({ target, summary }) => ({
+        target,
+        state: combineSessionState(summary, getBuffer(target)),
+      }))
+      // oxlint-disable-next-line unicorn/no-array-sort
+      .sort((left, right) =>
+        left.target.terminalId.localeCompare(right.target.terminalId, undefined, { numeric: true }),
+      )
+  );
 }
 
 export const terminalSessionStateAtom = Atom.family((target: KnownTerminalSessionTarget) =>
@@ -299,16 +302,19 @@ export const knownTerminalSessionsAtom = Atom.family((filter: KnownTerminalSessi
 
 export const runningTerminalIdsAtom = Atom.family((filter: KnownTerminalSessionListFilter) =>
   Atom.make((get) => {
-    return Object.values(get(terminalSessionMetadataAtom(filter.environmentId)))
-      .filter(
-        (entry) =>
-          entry.target.environmentId === filter.environmentId &&
-          (filter.threadId === null || entry.target.threadId === filter.threadId) &&
-          (filter.terminalId === null || entry.target.terminalId === filter.terminalId) &&
-          entry.summary.hasRunningSubprocess,
-      )
-      .map((entry) => entry.target.terminalId)
-      .sort();
+    return (
+      Object.values(get(terminalSessionMetadataAtom(filter.environmentId)))
+        .filter(
+          (entry) =>
+            entry.target.environmentId === filter.environmentId &&
+            (filter.threadId === null || entry.target.threadId === filter.threadId) &&
+            (filter.terminalId === null || entry.target.terminalId === filter.terminalId) &&
+            entry.summary.hasRunningSubprocess,
+        )
+        .map((entry) => entry.target.terminalId)
+        // oxlint-disable-next-line unicorn/no-array-sort
+        .sort()
+    );
   }).pipe(
     Atom.keepAlive,
     Atom.withLabel(`terminal-session:running-terminal-ids:${JSON.stringify(filter)}`),

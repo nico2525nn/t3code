@@ -420,7 +420,9 @@ function terminalIdListsEqual(left: readonly string[], right: readonly string[])
   if (left.length === 0) {
     return true;
   }
+  // oxlint-disable-next-line unicorn/no-array-sort
   const sortedLeft = [...left].sort((a, b) => a.localeCompare(b));
+  // oxlint-disable-next-line unicorn/no-array-sort
   const sortedRight = [...right].sort((a, b) => a.localeCompare(b));
   for (let index = 0; index < sortedLeft.length; index += 1) {
     if (sortedLeft[index] !== sortedRight[index]) {

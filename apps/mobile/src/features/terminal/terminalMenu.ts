@@ -101,6 +101,7 @@ export function buildTerminalMenuSessions(input: {
     sessionsById.set(input.currentSession.terminalId, input.currentSession);
   }
 
+  // oxlint-disable-next-line unicorn/no-array-sort
   return Array.from(sessionsById.values()).sort((left, right) =>
     left.terminalId.localeCompare(right.terminalId, undefined, { numeric: true }),
   );

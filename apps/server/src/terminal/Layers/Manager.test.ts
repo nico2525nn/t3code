@@ -860,6 +860,7 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
       const closedEvents = (yield* getEvents).filter(
         (event): event is Extract<TerminalEvent, { type: "closed" }> => event.type === "closed",
       );
+      // oxlint-disable-next-line unicorn/no-array-sort
       expect(closedEvents.map((event) => event.terminalId).sort()).toEqual(["default", "sidecar"]);
     }),
   );

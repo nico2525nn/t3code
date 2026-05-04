@@ -344,6 +344,7 @@ export function applyThreadDetailEvent(
         thread.proposedPlans,
         Arr.filter((entry) => entry.id !== proposedPlan.id),
         Arr.append(proposedPlan),
+        // oxlint-disable-next-line unicorn/no-array-sort
         Arr.sort(proposedPlanOrder),
         Arr.takeRight(limits.maxProposedPlans),
       );
@@ -376,6 +377,7 @@ export function applyThreadDetailEvent(
         thread.checkpoints,
         Arr.filter((entry) => entry.turnId !== checkpoint.turnId),
         Arr.append(checkpoint),
+        // oxlint-disable-next-line unicorn/no-array-sort
         Arr.sort(checkpointOrder),
         Arr.takeRight(limits.maxCheckpoints),
       );
@@ -407,6 +409,7 @@ export function applyThreadDetailEvent(
             entry.checkpointTurnCount !== undefined &&
             entry.checkpointTurnCount <= event.payload.turnCount,
         ),
+        // oxlint-disable-next-line unicorn/no-array-sort
         Arr.sort(checkpointOrder),
         Arr.takeRight(limits.maxCheckpoints),
       );
@@ -459,6 +462,7 @@ export function applyThreadDetailEvent(
         thread.activities,
         Arr.filter((activity) => activity.id !== event.payload.activity.id),
         Arr.append(event.payload.activity),
+        // oxlint-disable-next-line unicorn/no-array-sort
         Arr.sort(activityOrder),
         Arr.takeRight(limits.maxActivities),
       );

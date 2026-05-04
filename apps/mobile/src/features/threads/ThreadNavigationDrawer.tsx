@@ -65,6 +65,7 @@ export function ThreadNavigationDrawer(props: {
         title: group.projects[0]?.project.title ?? group.title,
         threads: group.projects
           .flatMap((projectGroup) => projectGroup.threads)
+          // oxlint-disable-next-line unicorn/no-array-sort
           .sort(compareThreadActivity),
       })),
     [repositoryGroups],

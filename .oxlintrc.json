@@ -16,7 +16,6 @@
     "perf": "warn"
   },
   "rules": {
-    "unicorn/no-array-sort": "off",
     "react-in-jsx-scope": "off",
     "eslint/no-shadow": "off",
     "eslint/no-await-in-loop": "off"
