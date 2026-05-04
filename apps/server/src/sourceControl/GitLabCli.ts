@@ -176,7 +176,7 @@ function normalizeRepositoryCloneUrls(
 ): GitLabRepositoryCloneUrls {
   return {
     nameWithOwner: raw.path_with_namespace,
-    url: raw.http_url_to_repo || raw.web_url,
+    url: raw.web_url,
     sshUrl: raw.ssh_url_to_repo,
   };
 }
