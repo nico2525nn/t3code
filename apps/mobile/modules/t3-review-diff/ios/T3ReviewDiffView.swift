@@ -1150,7 +1150,7 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
       let midpoint = (lowerBound + upperBound) / 2
       let rowEnd = rowOffsets[midpoint] + height(for: rows[midpoint])
 
-      if rowEnd < absoluteY {
+      if rowEnd <= absoluteY {
         lowerBound = midpoint + 1
       } else {
         upperBound = midpoint
