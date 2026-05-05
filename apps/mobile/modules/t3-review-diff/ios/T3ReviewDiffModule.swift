@@ -29,6 +29,14 @@ public class T3ReviewDiffModule: Module {
         view.setViewedFileIdsJson(viewedFileIdsJson)
       }
 
+      Prop("selectedRowIdsJson") { (view: T3ReviewDiffView, selectedRowIdsJson: String) in
+        view.setSelectedRowIdsJson(selectedRowIdsJson)
+      }
+
+      Prop("collapsedCommentIdsJson") { (view: T3ReviewDiffView, collapsedCommentIdsJson: String) in
+        view.setCollapsedCommentIdsJson(collapsedCommentIdsJson)
+      }
+
       Prop("appearanceScheme") { (view: T3ReviewDiffView, appearanceScheme: String) in
         view.setAppearanceScheme(appearanceScheme)
       }
@@ -49,7 +57,7 @@ public class T3ReviewDiffModule: Module {
         view.setContentWidth(CGFloat(contentWidth))
       }
 
-      Events("onDebug", "onToggleFile", "onToggleViewedFile")
+      Events("onDebug", "onToggleFile", "onToggleViewedFile", "onPressLine", "onToggleComment")
     }
   }
 }

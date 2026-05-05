@@ -16,6 +16,9 @@ private struct ReviewDiffNativeRow: Decodable {
   let oldLineNumber: Int?
   let newLineNumber: Int?
   let wordDiffRanges: [ReviewDiffNativeWordDiffRange]?
+  let commentText: String?
+  let commentRangeLabel: String?
+  let commentSectionTitle: String?
 }
 
 private struct ReviewDiffNativeWordDiffRange: Decodable {
@@ -317,6 +320,8 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
   let onDebug = EventDispatcher()
   let onToggleFile = EventDispatcher()
   let onToggleViewedFile = EventDispatcher()
+  let onPressLine = EventDispatcher()
+  let onToggleComment = EventDispatcher()
 
   public required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -339,6 +344,12 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
     }
     contentView.onToggleViewedFile = { [weak self] fileId in
       self?.onToggleViewedFile(["fileId": fileId])
+    }
+    contentView.onPressLine = { [weak self] payload in
+      self?.onPressLine(payload)
+    }
+    contentView.onToggleComment = { [weak self] commentId in
+      self?.onToggleComment(["commentId": commentId])
     }
     contentView.onDrawMetrics = { [weak self] metrics in
       self?.emitDebug("draw-metrics", metrics)
@@ -485,6 +496,15 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
 
   func setViewedFileIdsJson(_ viewedFileIdsJson: String) {
     contentView.viewedFileIds = decodeFileIdSet(viewedFileIdsJson)
+  }
+
+  func setSelectedRowIdsJson(_ selectedRowIdsJson: String) {
+    contentView.selectedRowIds = decodeFileIdSet(selectedRowIdsJson)
+  }
+
+  func setCollapsedCommentIdsJson(_ collapsedCommentIdsJson: String) {
+    contentView.collapsedCommentIds = decodeFileIdSet(collapsedCommentIdsJson)
+    updateContentMetrics()
   }
 
   private func decodeFileIdSet(_ json: String) -> Set<String> {
@@ -718,6 +738,17 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
       setNeedsDisplayForVisibleBounds()
     }
   }
+  var selectedRowIds: Set<String> = [] {
+    didSet {
+      setNeedsDisplayForVisibleBounds()
+    }
+  }
+  var collapsedCommentIds: Set<String> = [] {
+    didSet {
+      rebuildRowLayout()
+      setNeedsDisplayForVisibleBounds()
+    }
+  }
   var style = ReviewDiffNativeStyle.resolve(nil) {
     didSet {
       tokenAttributedStringsByRowId.removeAll()
@@ -760,6 +791,8 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
   var isVerticalScrollActive = false
   var onToggleFile: ((String) -> Void)?
   var onToggleViewedFile: ((String) -> Void)?
+  var onPressLine: (([String: Any]) -> Void)?
+  var onToggleComment: ((String) -> Void)?
   var onDrawMetrics: (([String: Any]) -> Void)?
 
   private var stickyWidth: CGFloat {
@@ -779,6 +812,9 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     }
     if row.kind == "notice" {
       return max(style.rowHeight * 2, 44)
+    }
+    if row.kind == "comment" {
+      return collapsedCommentIds.contains(row.id) ? 44 : 124
     }
     return style.rowHeight
   }
@@ -871,12 +907,22 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     return gesture
   }()
 
+  private lazy var longPressGesture: UILongPressGestureRecognizer = {
+    let gesture = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+    gesture.delegate = self
+    gesture.cancelsTouchesInView = false
+    gesture.minimumPressDuration = 0.28
+    return gesture
+  }()
+
   override init(frame: CGRect) {
     super.init(frame: frame)
     isOpaque = true
     contentMode = .redraw
     addGestureRecognizer(horizontalPanGesture)
     addGestureRecognizer(tapGesture)
+    addGestureRecognizer(longPressGesture)
+    tapGesture.require(toFail: longPressGesture)
   }
 
   func invalidateVisibleViewport() {
@@ -893,6 +939,8 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     contentMode = .redraw
     addGestureRecognizer(horizontalPanGesture)
     addGestureRecognizer(tapGesture)
+    addGestureRecognizer(longPressGesture)
+    tapGesture.require(toFail: longPressGesture)
   }
 
   override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -934,6 +982,16 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     }
 
     let row = rows[rowIndex]
+    if row.kind == "comment" {
+      onToggleComment?(row.id)
+      return
+    }
+
+    if row.kind == "line" {
+      onPressLine?(linePressPayload(for: row, gesture: "tap"))
+      return
+    }
+
     guard row.kind == "file" else {
       return
     }
@@ -941,6 +999,45 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     let rowY = rowOffsets[rowIndex] - verticalOffset
     let rect = CGRect(x: 0, y: rowY, width: max(bounds.width, viewportWidth), height: height(for: row))
     handleFileHeaderTap(row: row, rect: rect, point: point)
+  }
+
+  @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+    guard gesture.state == .began else {
+      return
+    }
+
+    let point = gesture.location(in: self)
+    guard let rowIndex = rowIndex(at: verticalOffset + point.y),
+          rows.indices.contains(rowIndex) else {
+      return
+    }
+
+    let row = rows[rowIndex]
+    guard row.kind == "line" else {
+      return
+    }
+
+    onPressLine?(linePressPayload(for: row, gesture: "longPress"))
+  }
+
+  private func linePressPayload(for row: ReviewDiffNativeRow, gesture: String) -> [String: Any] {
+    var payload: [String: Any] = [
+      "rowId": row.id,
+      "fileId": resolvedFileId(for: row),
+      "gesture": gesture
+    ]
+
+    if let oldLineNumber = row.oldLineNumber {
+      payload["oldLineNumber"] = oldLineNumber
+    }
+    if let newLineNumber = row.newLineNumber {
+      payload["newLineNumber"] = newLineNumber
+    }
+    if let change = row.change {
+      payload["change"] = change
+    }
+
+    return payload
   }
 
   private func handleFileHeaderTap(row: ReviewDiffNativeRow, rect: CGRect, point: CGPoint) {
@@ -1418,6 +1515,8 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
       drawHunkRow(row, rect: fullRect, context: context)
     case "notice":
       drawNoticeRow(row, rect: fullRect, context: context)
+    case "comment":
+      drawCommentRow(row, rect: fullRect, context: context)
     default:
       drawCodeRow(row, rect: fullRect, context: context)
     }
@@ -1521,6 +1620,59 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
       ),
       color: theme.mutedText,
       font: fileHeaderSubtextFont
+    )
+  }
+
+  private func drawCommentRow(_ row: ReviewDiffNativeRow, rect: CGRect, context: CGContext) {
+    guard !collapsedFileIds.contains(resolvedFileId(for: row)) else {
+      return
+    }
+
+    theme.background.setFill()
+    context.fill(rect)
+
+    let isCollapsed = collapsedCommentIds.contains(row.id)
+    let cardInset = CGFloat(8)
+    let cardRect = rect.insetBy(dx: cardInset, dy: 5)
+    let cardPath = UIBezierPath(roundedRect: cardRect, cornerRadius: 10)
+    theme.headerBackground.setFill()
+    cardPath.fill()
+    theme.border.withAlphaComponent(0.85).setStroke()
+    cardPath.lineWidth = 1
+    cardPath.stroke()
+
+    let chevronRect = CGRect(x: cardRect.minX + 10, y: cardRect.minY + 11, width: 16, height: 16)
+    drawDisclosureChevron(rect: chevronRect, color: theme.mutedText, collapsed: isCollapsed)
+
+    let title = "Comment on \(row.commentRangeLabel ?? "line")"
+    drawSingleLineText(
+      title,
+      rect: CGRect(
+        x: chevronRect.maxX + 10,
+        y: cardRect.minY + 8,
+        width: max(24, cardRect.width - chevronRect.maxX - 28),
+        height: fileHeaderSubtextFont.lineHeight + 4
+      ),
+      color: theme.mutedText,
+      font: fileHeaderSubtextFont
+    )
+
+    guard !isCollapsed else {
+      return
+    }
+
+    let body = row.commentText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    drawMultilineText(
+      body.isEmpty ? "Comment" : body,
+      rect: CGRect(
+        x: cardRect.minX + 18,
+        y: cardRect.minY + 42,
+        width: max(24, cardRect.width - 36),
+        height: max(20, cardRect.height - 56)
+      ),
+      color: theme.text,
+      font: fileHeaderSubtextFont,
+      maximumLineCount: 3
     )
   }
 
@@ -1762,6 +1914,7 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     let change = row.change ?? "context"
     rowBackground(for: change).setFill()
     context.fill(rect)
+    drawSelectionOverlay(row, rect: rect, context: context)
 
     if change == "add" {
       theme.addBar.setFill()
@@ -1809,6 +1962,23 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
       drawText(row.content ?? "", rect: codeTextRect, color: theme.text, font: codeFont)
     }
     context.restoreGState()
+  }
+
+  private func drawSelectionOverlay(
+    _ row: ReviewDiffNativeRow,
+    rect: CGRect,
+    context: CGContext
+  ) {
+    guard selectedRowIds.contains(row.id) else {
+      return
+    }
+
+    let selectionColor = theme.hunkText.withAlphaComponent(0.22)
+    selectionColor.setFill()
+    context.fill(rect)
+
+    theme.hunkText.withAlphaComponent(0.95).setFill()
+    context.fill(CGRect(x: 0, y: rect.minY, width: style.changeBarWidth, height: rect.height))
   }
 
   private func drawWordDiffRanges(
@@ -1889,6 +2059,30 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
       .ligature: 0,
     ]
     (text as NSString).draw(in: rect, withAttributes: attributes)
+  }
+
+  private func drawMultilineText(
+    _ text: String,
+    rect: CGRect,
+    color: UIColor,
+    font: UIFont,
+    maximumLineCount: Int
+  ) {
+    let paragraphStyle = NSMutableParagraphStyle()
+    paragraphStyle.lineBreakMode = .byTruncatingTail
+    paragraphStyle.lineSpacing = 2
+
+    let attributes: [NSAttributedString.Key: Any] = [
+      .font: font,
+      .foregroundColor: color,
+      .paragraphStyle: paragraphStyle,
+      .ligature: 0,
+    ]
+    let maxHeight = CGFloat(maximumLineCount) * (font.lineHeight + paragraphStyle.lineSpacing)
+    (text as NSString).draw(
+      in: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: min(rect.height, maxHeight)),
+      withAttributes: attributes
+    )
   }
 
   private func centeredTextY(in rect: CGRect, font: UIFont) -> CGFloat {

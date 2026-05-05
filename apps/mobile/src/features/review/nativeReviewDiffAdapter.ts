@@ -14,6 +14,7 @@ import {
   type ReviewRenderableFile,
   type ReviewRenderableLineRow,
 } from "./reviewModel";
+import type { ReviewInlineComment } from "./reviewCommentSelection";
 
 const NATIVE_REVIEW_MAX_WORD_DIFF_RANGE_COUNT = 4;
 const NATIVE_REVIEW_MAX_WORD_DIFF_COVERAGE = 0.45;
@@ -57,8 +58,21 @@ export const NATIVE_REVIEW_DIFF_STYLE = {
 export interface NativeReviewDiffData {
   readonly rows: ReadonlyArray<NativeReviewDiffRow>;
   readonly files: ReadonlyArray<NativeReviewDiffFile>;
+  readonly commentTargetsByRowId: ReadonlyMap<string, NativeReviewDiffCommentTarget>;
+  readonly rowIdByCommentLineId: ReadonlyMap<string, string>;
   readonly additions: number;
   readonly deletions: number;
+}
+
+export interface NativeReviewDiffCommentTarget {
+  readonly filePath: string;
+  readonly lines: ReadonlyArray<ReviewRenderableLineRow>;
+  readonly lineIndex: number;
+}
+
+export interface BuildNativeReviewDiffDataInput {
+  readonly parsedDiff: ReviewParsedDiff;
+  readonly comments?: ReadonlyArray<ReviewInlineComment>;
 }
 
 export function createNativeReviewDiffTheme(
@@ -294,7 +308,12 @@ function mapLineRow(
   };
 }
 
-function mapFileRows(file: ReviewRenderableFile): ReadonlyArray<NativeReviewDiffRow> {
+function mapFileRows(
+  file: ReviewRenderableFile,
+  comments: ReadonlyArray<ReviewInlineComment>,
+  commentTargetsByRowId: Map<string, NativeReviewDiffCommentTarget>,
+  rowIdByCommentLineId: Map<string, string>,
+): ReadonlyArray<NativeReviewDiffRow> {
   const rows: NativeReviewDiffRow[] = [
     {
       kind: "file",
@@ -308,6 +327,24 @@ function mapFileRows(file: ReviewRenderableFile): ReadonlyArray<NativeReviewDiff
     },
   ];
 
+  const lineRows = file.rows.filter((row): row is ReviewRenderableLineRow => row.kind === "line");
+  const commentsByEndIndex = new Map<number, ReviewInlineComment[]>();
+  comments.forEach((comment) => {
+    if (comment.filePath !== file.path) {
+      return;
+    }
+    const endIndex = Math.min(comment.endIndex, lineRows.length - 1);
+    if (endIndex < 0) {
+      return;
+    }
+    const existing = commentsByEndIndex.get(endIndex);
+    if (existing) {
+      existing.push(comment);
+      return;
+    }
+    commentsByEndIndex.set(endIndex, [comment]);
+  });
+  let lineIndex = 0;
   file.rows.forEach((row, rowIndex) => {
     if (row.kind === "hunk") {
       rows.push({
@@ -319,18 +356,48 @@ function mapFileRows(file: ReviewRenderableFile): ReadonlyArray<NativeReviewDiff
       return;
     }
 
-    rows.push(mapLineRow(file, row, rowIndex));
+    const nativeRow = mapLineRow(file, row, rowIndex);
+    rows.push(nativeRow);
+    rowIdByCommentLineId.set(row.id, nativeRow.id);
+    commentTargetsByRowId.set(nativeRow.id, {
+      filePath: file.path,
+      lines: lineRows,
+      lineIndex,
+    });
+    const commentsForLine = commentsByEndIndex.get(lineIndex) ?? [];
+    for (const comment of commentsForLine) {
+      rows.push({
+        kind: "comment",
+        id: comment.id,
+        fileId: file.id,
+        filePath: file.path,
+        commentText: comment.text,
+        commentRangeLabel: comment.rangeLabel,
+        commentSectionTitle: comment.sectionTitle,
+      });
+    }
+    lineIndex += 1;
   });
 
   rows.push(...noticeRowsForFile(file));
   return rows;
 }
 
-export function buildNativeReviewDiffData(parsedDiff: ReviewParsedDiff): NativeReviewDiffData {
+export function buildNativeReviewDiffData(
+  input: BuildNativeReviewDiffDataInput,
+): NativeReviewDiffData;
+export function buildNativeReviewDiffData(parsedDiff: ReviewParsedDiff): NativeReviewDiffData;
+export function buildNativeReviewDiffData(
+  input: ReviewParsedDiff | BuildNativeReviewDiffDataInput,
+): NativeReviewDiffData {
+  const parsedDiff = "parsedDiff" in input ? input.parsedDiff : input;
+  const comments = "parsedDiff" in input ? (input.comments ?? []) : [];
   if (parsedDiff.kind !== "files") {
     return {
       rows: [],
       files: [],
+      commentTargetsByRowId: new Map(),
+      rowIdByCommentLineId: new Map(),
       additions: 0,
       deletions: 0,
     };
@@ -343,11 +410,19 @@ export function buildNativeReviewDiffData(parsedDiff: ReviewParsedDiff): NativeR
     additions: file.additions,
     deletions: file.deletions,
   }));
-  const rows = addNativeWordDiffRanges(parsedDiff.files.flatMap(mapFileRows));
+  const commentTargetsByRowId = new Map<string, NativeReviewDiffCommentTarget>();
+  const rowIdByCommentLineId = new Map<string, string>();
+  const rows = addNativeWordDiffRanges(
+    parsedDiff.files.flatMap((file) =>
+      mapFileRows(file, comments, commentTargetsByRowId, rowIdByCommentLineId),
+    ),
+  );
 
   return {
     rows,
     files,
+    commentTargetsByRowId,
+    rowIdByCommentLineId,
     additions: parsedDiff.additions,
     deletions: parsedDiff.deletions,
   };

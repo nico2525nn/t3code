@@ -27,7 +27,21 @@ describe("buildNativeReviewDiffData", () => {
       "native-adapter-test",
     );
 
-    const data = buildNativeReviewDiffData(parsed);
+    const data = buildNativeReviewDiffData({
+      parsedDiff: parsed,
+      comments: [
+        {
+          id: "comment-1",
+          sectionId: "dirty",
+          sectionTitle: "Working tree",
+          filePath: "apps/demo/src/main.ts",
+          startIndex: 1,
+          endIndex: 1,
+          rangeLabel: "+2",
+          text: "Please keep this configurable.",
+        },
+      ],
+    });
 
     expect(data.additions).toBe(1);
     expect(data.deletions).toBe(1);
@@ -71,6 +85,13 @@ describe("buildNativeReviewDiffData", () => {
           wordDiffRanges: [{ start: 19, end: 20 }],
         }),
         expect.objectContaining({
+          kind: "comment",
+          id: "comment-1",
+          filePath: "apps/demo/src/main.ts",
+          commentText: "Please keep this configurable.",
+          commentRangeLabel: "+2",
+        }),
+        expect.objectContaining({
           kind: "file",
           filePath: "apps/demo/src/new.ts",
           previousPath: "apps/demo/src/old.ts",
@@ -86,5 +107,22 @@ describe("buildNativeReviewDiffData", () => {
         }),
       ]),
     );
+
+    const changedLine = data.rows.find(
+      (row) =>
+        row.kind === "line" && row.change === "add" && row.content === "const retryLimit = 4;",
+    );
+    expect(changedLine?.id).toBeTruthy();
+    const changedTarget = data.commentTargetsByRowId.get(changedLine?.id ?? "");
+    expect(changedTarget).toMatchObject({
+      filePath: "apps/demo/src/main.ts",
+      lineIndex: 1,
+      lines: expect.arrayContaining([
+        expect.objectContaining({ content: "const retryLimit = 2;" }),
+        expect.objectContaining({ content: "const retryLimit = 4;" }),
+      ]),
+    });
+    const changedCommentLine = changedTarget?.lines[changedTarget.lineIndex];
+    expect(data.rowIdByCommentLineId.get(changedCommentLine?.id ?? "")).toBe(changedLine?.id);
   });
 });

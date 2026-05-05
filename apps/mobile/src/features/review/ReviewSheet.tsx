@@ -1,9 +1,11 @@
 import type { EnvironmentId, OrchestrationCheckpointSummary, ThreadId } from "@t3tools/contracts";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import Stack from "expo-router/stack";
+import { SymbolView } from "expo-symbols";
 import { memo, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Pressable,
   ScrollView,
   type NativeSyntheticEvent,
   Text as NativeText,
@@ -36,7 +38,16 @@ import {
   type ReviewParsedDiff,
   type ReviewRenderableFile,
 } from "./reviewModel";
-import { countReviewCommentContexts } from "./reviewCommentSelection";
+import {
+  buildReviewCommentTarget,
+  clearReviewCommentTarget,
+  countReviewCommentContexts,
+  formatReviewSelectedRangeLabel,
+  getSelectedReviewCommentLines,
+  parseReviewInlineComments,
+  setReviewCommentTarget,
+  useReviewCommentTarget,
+} from "./reviewCommentSelection";
 import { markReviewEvent, measureReviewWork } from "./reviewPerf";
 import {
   highlightNativeReviewDiffVisibleRows,
@@ -49,10 +60,17 @@ import {
   NATIVE_REVIEW_DIFF_CONTENT_WIDTH,
   NATIVE_REVIEW_DIFF_ROW_HEIGHT,
   NATIVE_REVIEW_DIFF_STYLE,
+  type NativeReviewDiffCommentTarget,
 } from "./nativeReviewDiffAdapter";
 
 const IOS_NAV_BAR_HEIGHT = 44;
 const REVIEW_HEADER_SPACING = 0;
+
+interface PendingNativeCommentSelection extends NativeReviewDiffCommentTarget {
+  readonly sectionId: string;
+  readonly sectionTitle: string;
+  readonly rowId: string;
+}
 
 function isReviewDiffDebugLoggingEnabled(): boolean {
   return typeof __DEV__ !== "undefined" ? __DEV__ : false;
@@ -116,6 +134,20 @@ function getValidReviewExpandedFileIds(
   return cachedExpandedFileIds.filter((id) => fileIdSet.has(id));
 }
 
+function areStringArraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 const ReviewNotice = memo(function ReviewNotice(props: { readonly notice: string }) {
   return (
     <View className="border-b border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/60 dark:bg-amber-950/40">
@@ -129,7 +161,66 @@ const ReviewNotice = memo(function ReviewNotice(props: { readonly notice: string
   );
 });
 
+function ReviewSelectionActionBar(props: {
+  readonly bottomInset: number;
+  readonly title: string | null;
+  readonly onOpenComment: (() => void) | null;
+  readonly onClear: () => void;
+}) {
+  if (!props.title) {
+    return null;
+  }
+
+  const content = (
+    <>
+      <SymbolView
+        name={props.onOpenComment ? "text.bubble" : "line.3.horizontal.decrease.circle"}
+        size={16}
+        tintColor="#ffffff"
+        type="monochrome"
+      />
+      <Text className="text-[15px] font-t3-bold text-white">{props.title}</Text>
+    </>
+  );
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={{
+        position: "absolute",
+        left: 18,
+        right: 18,
+        bottom: Math.max(props.bottomInset, 10) + 18,
+        flexDirection: "row",
+        justifyContent: "center",
+        gap: 10,
+      }}
+    >
+      {props.onOpenComment ? (
+        <Pressable
+          className="min-h-[48px] flex-1 flex-row items-center justify-center gap-2 rounded-full bg-blue-600 px-5"
+          onPress={props.onOpenComment}
+        >
+          {content}
+        </Pressable>
+      ) : (
+        <View className="min-h-[48px] flex-1 flex-row items-center justify-center gap-2 rounded-full bg-blue-600 px-5">
+          {content}
+        </View>
+      )}
+
+      <Pressable
+        className="h-12 w-12 items-center justify-center rounded-full bg-blue-600"
+        onPress={props.onClear}
+      >
+        <SymbolView name="xmark" size={16} tintColor="#ffffff" type="monochrome" />
+      </Pressable>
+    </View>
+  );
+}
+
 export function ReviewSheet() {
+  const { push } = useRouter();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const headerForeground = String(useThemeColor("--color-foreground"));
@@ -151,7 +242,12 @@ export function ReviewSheet() {
   const [localViewedFileIdsBySection, setLocalViewedFileIdsBySection] = useState<
     Record<string, ReadonlyArray<string>>
   >({});
-  const [nativeTokensPatchJson, setNativeTokensPatchJson] = useState(
+  const [pendingNativeCommentSelection, setPendingNativeCommentSelection] =
+    useState<PendingNativeCommentSelection | null>(null);
+  const [collapsedCommentIds, setCollapsedCommentIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [nativeTokensPatchJson, setNativeTokensPatchJson] = useState(() =>
     JSON.stringify({ resetKey: "", tokensByRowId: {} }),
   );
   const selectedTheme = colorScheme === "dark" ? "dark" : "light";
@@ -159,6 +255,7 @@ export function ReviewSheet() {
   const nativeVisibleRangeRef = useRef({ firstRowIndex: 0, lastRowIndex: 80 });
   const nativeVisibleChunkIndexRef = useRef(0);
   const [nativeVisibleHighlightRequest, setNativeVisibleHighlightRequest] = useState(0);
+  const activeCommentTarget = useReviewCommentTarget();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
 
   const cwd = selectedThreadCwd;
@@ -205,9 +302,26 @@ export function ReviewSheet() {
   );
   const headerDiffSummary = useMemo(() => formatHeaderDiffSummary(parsedDiff), [parsedDiff]);
   const NativeReviewDiffView = resolveNativeReviewDiffView()!;
+  const inlineReviewComments = useMemo(
+    () => parseReviewInlineComments(draftMessage),
+    [draftMessage],
+  );
+  const selectedSectionInlineComments = useMemo(
+    () =>
+      selectedSection
+        ? inlineReviewComments.filter((comment) => comment.sectionId === selectedSection.id)
+        : [],
+    [inlineReviewComments, selectedSection],
+  );
   const nativeReviewDiffData = useMemo(
-    () => measureReviewWork("build-native-diff-data", () => buildNativeReviewDiffData(parsedDiff)),
-    [parsedDiff],
+    () =>
+      measureReviewWork("build-native-diff-data", () =>
+        buildNativeReviewDiffData({
+          parsedDiff,
+          comments: selectedSectionInlineComments,
+        }),
+      ),
+    [parsedDiff, selectedSectionInlineComments],
   );
   const nativeReviewDiffTheme = useMemo(
     () => createNativeReviewDiffTheme(selectedTheme),
@@ -216,6 +330,10 @@ export function ReviewSheet() {
   const nativeRowsJson = useMemo(
     () => JSON.stringify(nativeReviewDiffData.rows),
     [nativeReviewDiffData.rows],
+  );
+  const collapsedCommentIdsJson = useMemo(
+    () => JSON.stringify(Array.from(collapsedCommentIds)),
+    [collapsedCommentIds],
   );
   const nativeThemeJson = useMemo(
     () => JSON.stringify(nativeReviewDiffTheme),
@@ -301,15 +419,80 @@ export function ReviewSheet() {
     }
 
     const expandedFileIdSet = new Set(expandedFileIds);
-    return parsedDiff.files
-      .filter((file) => !expandedFileIdSet.has(file.id))
-      .map((file) => file.id);
+    return parsedDiff.files.reduce<string[]>((fileIds, file) => {
+      if (!expandedFileIdSet.has(file.id)) {
+        fileIds.push(file.id);
+      }
+      return fileIds;
+    }, []);
   }, [expandedFileIds, parsedDiff]);
   const nativeCollapsedFileIdsJson = useMemo(
     () => JSON.stringify(nativeCollapsedFileIds),
     [nativeCollapsedFileIds],
   );
   const nativeViewedFileIdsJson = useMemo(() => JSON.stringify(viewedFileIds), [viewedFileIds]);
+  const openReviewCommentSheet = useCallback(() => {
+    if (!environmentId || !threadId) {
+      return;
+    }
+
+    push({
+      pathname: "/threads/[environmentId]/[threadId]/review-comment",
+      params: { environmentId, threadId },
+    });
+  }, [environmentId, push, threadId]);
+  const selectedNativeRowIds = useMemo(() => {
+    if (
+      activeCommentTarget &&
+      activeCommentTarget.sectionTitle === selectedSection?.title &&
+      activeCommentTarget.startIndex !== activeCommentTarget.endIndex
+    ) {
+      return getSelectedReviewCommentLines(activeCommentTarget).flatMap((line) => {
+        const rowId = nativeReviewDiffData.rowIdByCommentLineId.get(line.id);
+        return rowId ? [rowId] : [];
+      });
+    }
+
+    return pendingNativeCommentSelection ? [pendingNativeCommentSelection.rowId] : [];
+  }, [
+    activeCommentTarget,
+    nativeReviewDiffData.rowIdByCommentLineId,
+    pendingNativeCommentSelection,
+    selectedSection?.title,
+  ]);
+  const selectedNativeRowIdsJson = useMemo(
+    () => JSON.stringify(selectedNativeRowIds),
+    [selectedNativeRowIds],
+  );
+  const selectionAction = useMemo(() => {
+    if (
+      activeCommentTarget &&
+      activeCommentTarget.sectionTitle === selectedSection?.title &&
+      activeCommentTarget.startIndex !== activeCommentTarget.endIndex
+    ) {
+      return {
+        title: `Comment on ${formatReviewSelectedRangeLabel(activeCommentTarget)}`,
+        onOpenComment: openReviewCommentSheet,
+      };
+    }
+
+    if (
+      pendingNativeCommentSelection &&
+      pendingNativeCommentSelection.sectionTitle === selectedSection?.title
+    ) {
+      return {
+        title: "Select range end",
+        onOpenComment: null,
+      };
+    }
+
+    return null;
+  }, [
+    activeCommentTarget,
+    openReviewCommentSheet,
+    pendingNativeCommentSelection,
+    selectedSection?.title,
+  ]);
   const loadGitDiffs = useCallback(async () => {
     if (!cwd) {
       return;
@@ -431,11 +614,7 @@ export function ReviewSheet() {
 
     updateReviewExpandedFileIds(reviewCache.threadKey, selectedSection.id, (existing) => {
       const validIds = getValidReviewExpandedFileIds(parsedDiff.files, existing);
-      if (
-        existing !== undefined &&
-        validIds.length === existing.length &&
-        validIds.every((id, index) => id === existing[index])
-      ) {
+      if (existing !== undefined && areStringArraysEqual(validIds, existing)) {
         return existing;
       }
       return validIds;
@@ -451,6 +630,17 @@ export function ReviewSheet() {
       setNativeVisibleHighlightRequest((request) => request + 1);
     }
   }, [nativeReviewDiffData.rows.length, nativeTokensResetKey]);
+
+  useEffect(() => {
+    clearReviewCommentTarget();
+    setPendingNativeCommentSelection(null);
+  }, [selectedSection?.id]);
+
+  useEffect(() => {
+    if (activeCommentTarget === null) {
+      setPendingNativeCommentSelection(null);
+    }
+  }, [activeCommentTarget]);
 
   useEffect(() => {
     if (parsedDiff.kind !== "files" || nativeReviewDiffData.rows.length === 0) {
@@ -676,6 +866,97 @@ export function ReviewSheet() {
     [handleToggleViewedFile],
   );
 
+  const handleNativePressLine = useCallback(
+    (
+      event: NativeSyntheticEvent<{
+        readonly rowId?: string;
+        readonly gesture?: "tap" | "longPress";
+      }>,
+    ) => {
+      if (!selectedSection) {
+        return;
+      }
+
+      const { rowId, gesture } = event.nativeEvent;
+      if (!rowId) {
+        return;
+      }
+
+      const target = nativeReviewDiffData.commentTargetsByRowId.get(rowId);
+      if (!target) {
+        return;
+      }
+
+      if (gesture === "longPress") {
+        clearReviewCommentTarget();
+        setPendingNativeCommentSelection({
+          ...target,
+          sectionId: selectedSection.id,
+          sectionTitle: selectedSection.title,
+          rowId,
+        });
+        return;
+      }
+
+      if (
+        pendingNativeCommentSelection &&
+        pendingNativeCommentSelection.sectionTitle === selectedSection.title &&
+        pendingNativeCommentSelection.filePath === target.filePath
+      ) {
+        setReviewCommentTarget(
+          buildReviewCommentTarget(
+            {
+              sectionTitle: pendingNativeCommentSelection.sectionTitle,
+              sectionId: pendingNativeCommentSelection.sectionId,
+              filePath: pendingNativeCommentSelection.filePath,
+              lines: pendingNativeCommentSelection.lines,
+            },
+            pendingNativeCommentSelection.lineIndex,
+            target.lineIndex,
+          ),
+        );
+        return;
+      }
+
+      setPendingNativeCommentSelection(null);
+      setReviewCommentTarget({
+        sectionTitle: selectedSection.title,
+        sectionId: selectedSection.id,
+        filePath: target.filePath,
+        lines: target.lines,
+        startIndex: target.lineIndex,
+        endIndex: target.lineIndex,
+      });
+      openReviewCommentSheet();
+    },
+    [
+      nativeReviewDiffData.commentTargetsByRowId,
+      openReviewCommentSheet,
+      pendingNativeCommentSelection,
+      selectedSection,
+    ],
+  );
+
+  const handleNativeToggleComment = useCallback(
+    (event: NativeSyntheticEvent<{ readonly commentId?: string }>) => {
+      const { commentId } = event.nativeEvent;
+      if (!commentId) {
+        return;
+      }
+
+      setCollapsedCommentIds((current) => {
+        const next = new Set(current);
+        if (next.has(commentId)) {
+          next.delete(commentId);
+        } else {
+          next.add(commentId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
   const parsedDiffNotice =
     parsedDiff.kind === "files" || parsedDiff.kind === "raw" ? parsedDiff.notice : null;
 
@@ -851,15 +1132,19 @@ export function ReviewSheet() {
                 style={StyleSheet.absoluteFillObject}
                 appearanceScheme={selectedTheme}
                 collapsedFileIdsJson={nativeCollapsedFileIdsJson}
+                collapsedCommentIdsJson={collapsedCommentIdsJson}
                 contentWidth={NATIVE_REVIEW_DIFF_CONTENT_WIDTH}
                 rowHeight={NATIVE_REVIEW_DIFF_ROW_HEIGHT}
                 rowsJson={nativeRowsJson}
+                selectedRowIdsJson={selectedNativeRowIdsJson}
                 styleJson={nativeStyleJson}
                 themeJson={nativeThemeJson}
                 tokensPatchJson={nativeTokensPatchJson}
                 tokensResetKey={nativeTokensResetKey}
                 viewedFileIdsJson={nativeViewedFileIdsJson}
                 onDebug={handleNativeDebug}
+                onPressLine={handleNativePressLine}
+                onToggleComment={handleNativeToggleComment}
                 onToggleFile={handleNativeToggleFile}
                 onToggleViewedFile={handleNativeToggleViewedFile}
               />
@@ -868,14 +1153,16 @@ export function ReviewSheet() {
         ) : (
           <ScrollView
             contentInsetAdjustmentBehavior="never"
-            contentInset={{ top: topContentInset }}
+            contentInset={{ top: topContentInset, bottom: Math.max(insets.bottom, 18) + 18 }}
             contentOffset={{ x: 0, y: -topContentInset }}
-            scrollIndicatorInsets={{ top: topContentInset }}
+            scrollIndicatorInsets={{
+              top: topContentInset,
+              bottom: Math.max(insets.bottom, 18) + 18,
+            }}
             showsVerticalScrollIndicator={false}
             style={{ flex: 1 }}
             contentContainerStyle={{
               paddingTop: REVIEW_HEADER_SPACING,
-              paddingBottom: Math.max(insets.bottom, 18) + 18,
             }}
           >
             {listHeader}
@@ -912,6 +1199,15 @@ export function ReviewSheet() {
             ) : null}
           </ScrollView>
         )}
+        <ReviewSelectionActionBar
+          bottomInset={insets.bottom}
+          title={selectionAction?.title ?? null}
+          onOpenComment={selectionAction?.onOpenComment ?? null}
+          onClear={() => {
+            clearReviewCommentTarget();
+            setPendingNativeCommentSelection(null);
+          }}
+        />
       </View>
     </>
   );

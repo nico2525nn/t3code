@@ -62,18 +62,23 @@
       --color-status-bar: #f2f2f7;
 
       /* Markdown */
-      --color-md-body: #262626;
-      --color-md-strong: #171717;
+      --color-md-body: #111111;
+      --color-md-strong: #000000;
       --color-md-link: #2563eb;
       --color-md-blockquote-border: rgba(0, 0, 0, 0.08);
       --color-md-blockquote-bg: rgba(0, 0, 0, 0.02);
       --color-md-code-bg: rgba(0, 0, 0, 0.04);
       --color-md-code-text: #262626;
-      --color-md-user-code-bg: rgba(255, 255, 255, 0.55);
-      --color-md-user-code-text: #262626;
-      --color-md-user-fence-bg: rgba(0, 0, 0, 0.04);
-      --color-md-user-fence-text: #1e3a5f;
+      --color-md-user-code-bg: rgba(255, 255, 255, 0.22);
+      --color-md-user-code-text: #ffffff;
+      --color-md-user-fence-bg: rgba(0, 0, 0, 0.16);
+      --color-md-user-fence-text: #ffffff;
       --color-md-hr: rgba(0, 0, 0, 0.08);
+
+      /* iMessage-style user bubble */
+      --color-user-bubble: #007aff;
+      --color-user-bubble-foreground: #ffffff;
+      --color-user-bubble-foreground-muted: rgba(255, 255, 255, 0.78);
 
       /* Drawer / modal backdrop */
       --color-backdrop: rgba(0, 0, 0, 0.22);
@@ -151,11 +156,16 @@
       --color-md-blockquote-bg: rgba(255, 255, 255, 0.03);
       --color-md-code-bg: rgba(255, 255, 255, 0.06);
       --color-md-code-text: #e5e5e5;
-      --color-md-user-code-bg: rgba(255, 255, 255, 0.1);
-      --color-md-user-code-text: #e5e5e5;
-      --color-md-user-fence-bg: rgba(255, 255, 255, 0.08);
-      --color-md-user-fence-text: #e5e5e5;
+      --color-md-user-code-bg: rgba(255, 255, 255, 0.18);
+      --color-md-user-code-text: #ffffff;
+      --color-md-user-fence-bg: rgba(0, 0, 0, 0.28);
+      --color-md-user-fence-text: #ffffff;
       --color-md-hr: rgba(255, 255, 255, 0.08);
+
+      /* iMessage-style user bubble */
+      --color-user-bubble: #0a84ff;
+      --color-user-bubble-foreground: #ffffff;
+      --color-user-bubble-foreground-muted: rgba(255, 255, 255, 0.78);
 
       /* Drawer / modal backdrop */
       --color-backdrop: rgba(0, 0, 0, 0.48);

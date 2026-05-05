@@ -110,6 +110,7 @@ function useMarkdownStyles(): MarkdownStyleSets {
   const codeBg = useThemeColor("--color-md-code-bg");
   const codeText = useThemeColor("--color-md-code-text");
   const hrColor = useThemeColor("--color-md-hr");
+  const userBodyColor = useThemeColor("--color-user-bubble-foreground");
   const userCodeBg = useThemeColor("--color-md-user-code-bg");
   const userCodeText = useThemeColor("--color-md-user-code-text");
   const userFenceBg = useThemeColor("--color-md-user-fence-bg");
@@ -124,6 +125,7 @@ function useMarkdownStyles(): MarkdownStyleSets {
     const markdownCodeBg = toMarkdownThemeColor(codeBg);
     const markdownCodeText = toMarkdownThemeColor(codeText);
     const markdownHrColor = toMarkdownThemeColor(hrColor);
+    const markdownUserBodyColor = toMarkdownThemeColor(userBodyColor);
     const markdownUserCodeBg = toMarkdownThemeColor(userCodeBg);
     const markdownUserCodeText = toMarkdownThemeColor(userCodeText);
     const markdownUserFenceBg = toMarkdownThemeColor(userFenceBg);
@@ -181,9 +183,17 @@ function useMarkdownStyles(): MarkdownStyleSets {
       list: { marginTop: 4, marginBottom: 4 },
       list_item: { marginTop: 0, marginBottom: 4 },
       task_list_item: { marginTop: 0, marginBottom: 4 },
-      bold: { fontWeight: "700", color: markdownStrongColor, fontFamily: "DMSans_700Bold" },
+      text: { lineHeight: 22 },
+      bold: {
+        fontWeight: "700",
+        color: markdownStrongColor,
+        fontFamily: "DMSans_700Bold",
+      },
       italic: { fontStyle: "italic" },
-      link: { color: markdownLinkColor, textDecorationLine: "underline" as const },
+      link: {
+        color: markdownLinkColor,
+        textDecorationLine: "underline" as const,
+      },
       blockquote: {
         borderLeftWidth: 3,
         borderLeftColor: markdownBlockquoteBorder,
@@ -258,6 +268,9 @@ function useMarkdownStyles(): MarkdownStyleSets {
       ...baseTheme,
       colors: {
         ...baseTheme.colors,
+        text: markdownUserBodyColor,
+        heading: markdownUserBodyColor,
+        link: markdownUserBodyColor,
         code: markdownUserCodeText,
         codeBackground: markdownUserCodeBg,
         border: markdownUserFenceBg,
@@ -266,6 +279,19 @@ function useMarkdownStyles(): MarkdownStyleSets {
     const userStyles: NodeStyleOverrides = {
       ...baseStyles,
       paragraph: { marginTop: 0, marginBottom: 0 },
+      bold: {
+        fontWeight: "700",
+        color: markdownUserBodyColor,
+        fontFamily: "DMSans_700Bold",
+      },
+      heading: {
+        ...baseStyles.heading,
+        color: markdownUserBodyColor,
+      },
+      link: {
+        color: markdownUserBodyColor,
+        textDecorationLine: "underline" as const,
+      },
     };
 
     const assistantTheme: PartialMarkdownTheme = {
@@ -312,6 +338,7 @@ function useMarkdownStyles(): MarkdownStyleSets {
     hrColor,
     linkColor,
     strongColor,
+    userBodyColor,
     userCodeBg,
     userCodeText,
     userFenceBg,
@@ -328,11 +355,12 @@ function renderFeedEntry(
     readonly onToggleWorkGroup: (groupId: string) => void;
     readonly onPressImage: (uri: string, headers?: Record<string, string>) => void;
     readonly iconSubtleColor: string | import("react-native").ColorValue;
+    readonly userBubbleColor: string | import("react-native").ColorValue;
     readonly markdownStyles: MarkdownStyleSets;
   },
 ) {
   const entry = info.item;
-  const { markdownStyles, iconSubtleColor } = props;
+  const { markdownStyles, iconSubtleColor, userBubbleColor } = props;
 
   if (entry.type === "message") {
     const { message } = entry;
@@ -344,7 +372,10 @@ function renderFeedEntry(
     if (isUser) {
       return (
         <View className="mb-3.5 items-end gap-1.5">
-          <View className="max-w-[85%] gap-2 rounded-[22px] rounded-br-[10px] border border-blue-300/50 bg-blue-50/80 px-4 py-4 dark:border-blue-400/20 dark:bg-blue-500/12">
+          <View
+            className="max-w-[85%] gap-2 rounded-[22px] rounded-br-[6px] px-3.5 py-2.5"
+            style={{ backgroundColor: userBubbleColor }}
+          >
             {message.text.trim().length > 0 ? (
               <Markdown
                 options={{ gfm: true }}
@@ -372,14 +403,14 @@ function renderFeedEntry(
                 >
                   <Image
                     source={{ uri, ...(headers ? { headers } : {}) }}
-                    className="aspect-[1.3] w-full rounded-[18px] bg-neutral-200 dark:bg-neutral-800"
+                    className="aspect-[1.3] w-full rounded-[14px] bg-white/15"
                     resizeMode="cover"
                   />
                 </TouchableOpacity>
               );
             })}
           </View>
-          <Text className="px-1 text-right font-t3-medium text-xs text-neutral-500 dark:text-neutral-500">
+          <Text className="px-1 text-right font-t3-medium text-xs text-neutral-600 dark:text-neutral-400">
             {timestampLabel}
           </Text>
         </View>
@@ -427,7 +458,7 @@ function renderFeedEntry(
             </TouchableOpacity>
           );
         })}
-        <Text className="font-t3-medium text-xs text-neutral-500 dark:text-neutral-500">
+        <Text className="font-t3-medium text-xs text-neutral-600 dark:text-neutral-400">
           {timestampLabel}
         </Text>
       </View>
@@ -437,18 +468,21 @@ function renderFeedEntry(
   if (entry.type === "queued-message") {
     return (
       <View className="mb-3.5 gap-1.5 items-end">
-        <View className="max-w-[85%] gap-2 rounded-[22px] rounded-br-[10px] border border-sky-300/60 bg-sky-100/75 px-4 py-4 dark:border-sky-300/20 dark:bg-sky-400/10">
-          <Text className="font-sans text-[15px] leading-[22px] text-neutral-950 dark:text-neutral-50">
+        <View
+          className="max-w-[85%] gap-2 rounded-[22px] rounded-br-[6px] px-3.5 py-2.5 opacity-60"
+          style={{ backgroundColor: userBubbleColor }}
+        >
+          <Text className="font-sans text-[15px] leading-[22px] text-white">
             {entry.queuedMessage.text}
           </Text>
           {entry.queuedMessage.attachments.length > 0 ? (
-            <Text className="font-t3-medium text-xs text-neutral-500 dark:text-neutral-500">
+            <Text className="font-t3-medium text-xs text-white/75">
               {entry.queuedMessage.attachments.length} image
               {entry.queuedMessage.attachments.length === 1 ? "" : "s"} attached
             </Text>
           ) : null}
         </View>
-        <Text className="px-1 text-right font-t3-medium text-xs text-neutral-500 dark:text-neutral-500">
+        <Text className="px-1 text-right font-t3-medium text-xs text-neutral-600 dark:text-neutral-400">
           {entry.sending ? "dispatching" : `${relativeTime(entry.createdAt)} • pending`}
         </Text>
       </View>
@@ -537,6 +571,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const topContentInset = insets.top + IOS_NAV_BAR_HEIGHT;
 
   const iconSubtleColor = useThemeColor("--color-icon-subtle");
+  const userBubbleColor = useThemeColor("--color-user-bubble");
   const markdownStyles = useMarkdownStyles();
 
   useEffect(() => {
@@ -599,12 +634,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         onToggleWorkGroup,
         onPressImage,
         iconSubtleColor,
+        userBubbleColor,
         markdownStyles,
       }),
     [
       copiedRowId,
       expandedWorkGroups,
       iconSubtleColor,
+      userBubbleColor,
       markdownStyles,
       onCopyWorkRow,
       onPressImage,
@@ -652,7 +689,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         keyboardShouldPersistTaps="handled"
         estimatedItemSize={80}
         initialScrollAtEnd
-        maintainScrollAtEnd={{ on: { layout: true, itemLayout: true, dataChange: true } }}
+        maintainScrollAtEnd={{
+          on: { layout: true, itemLayout: true, dataChange: true },
+        }}
         maintainScrollAtEndThreshold={0.1}
         refreshing={props.refreshing ?? false}
         onRefresh={props.onRefresh}
