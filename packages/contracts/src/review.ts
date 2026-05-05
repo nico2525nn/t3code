@@ -26,7 +26,7 @@ export type ReviewDiffPreviewSource = typeof ReviewDiffPreviewSource.Type;
 
 export const ReviewDiffPreviewResult = Schema.Struct({
   cwd: TrimmedNonEmptyString,
-  generatedAt: Schema.String,
+  generatedAt: Schema.DateTimeUtc,
   sources: Schema.Array(ReviewDiffPreviewSource),
 });
 export type ReviewDiffPreviewResult = typeof ReviewDiffPreviewResult.Type;

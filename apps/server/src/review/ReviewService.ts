@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, DateTime, Effect, Layer } from "effect";
 
 import {
   VcsUnsupportedOperationError,
@@ -7,7 +7,7 @@ import {
   type ReviewDiffPreviewResult,
 } from "@t3tools/contracts";
 
-import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
 export interface ReviewServiceShape {
@@ -20,24 +20,20 @@ export class ReviewService extends Context.Service<ReviewService, ReviewServiceS
   "t3/review/ReviewService",
 ) {}
 
-function emptyDiffPreview(input: ReviewDiffPreviewInput): ReviewDiffPreviewResult {
-  return {
-    cwd: input.cwd,
-    generatedAt: new Date().toISOString(),
-    sources: [],
-  };
-}
-
 export const make = Effect.fn("makeReviewService")(function* () {
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
-  const git = yield* GitVcsDriver;
+  const git = yield* GitVcsDriver.GitVcsDriver;
 
   const getDiffPreview: ReviewServiceShape["getDiffPreview"] = Effect.fn(
     "ReviewService.getDiffPreview",
   )(function* (input) {
     const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
     if (!handle) {
-      return emptyDiffPreview(input);
+      return {
+        cwd: input.cwd,
+        generatedAt: yield* DateTime.now,
+        sources: [],
+      };
     }
 
     const getDriverDiffPreview = handle.driver.getDiffPreview;

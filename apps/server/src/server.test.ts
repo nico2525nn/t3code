@@ -2739,7 +2739,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             getDiffPreview: (input) =>
               Effect.succeed({
                 cwd: input.cwd,
-                generatedAt: new Date(0).toISOString(),
+                generatedAt: DateTime.nowUnsafe(),
                 sources: [
                   {
                     id: "working-tree",
