@@ -39,6 +39,7 @@ describe("buildNativeReviewDiffData", () => {
           endIndex: 1,
           rangeLabel: "+2",
           text: "Please keep this configurable.",
+          diff: "",
         },
       ],
     });

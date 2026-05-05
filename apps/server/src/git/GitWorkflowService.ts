@@ -15,8 +15,6 @@ import {
   type GitPreparePullRequestThreadInput,
   type GitPreparePullRequestThreadResult,
   type GitPullRequestRefInput,
-  type GitReviewDiffsInput,
-  type GitReviewDiffsResult,
   type VcsPullResult,
   type VcsRemoveWorktreeInput,
   type GitResolvePullRequestResult,
@@ -56,9 +54,6 @@ export interface GitWorkflowServiceShape {
   readonly preparePullRequestThread: (
     input: GitPreparePullRequestThreadInput,
   ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
-  readonly getReviewDiffs: (
-    input: GitReviewDiffsInput,
-  ) => Effect.Effect<GitReviewDiffsResult, GitCommandError>;
   readonly listRefs: (input: VcsListRefsInput) => Effect.Effect<VcsListRefsResult, GitCommandError>;
   readonly createWorktree: (
     input: VcsCreateWorktreeInput,
@@ -287,10 +282,6 @@ export const make = Effect.fn("makeGitWorkflowService")(function* () {
       "GitWorkflowService.preparePullRequestThread",
       gitManager.preparePullRequestThread,
     ),
-    getReviewDiffs: (input) =>
-      ensureGitCommand("GitWorkflowService.getReviewDiffs", input.cwd).pipe(
-        Effect.andThen(git.getReviewDiffs(input)),
-      ),
     listRefs: (input) =>
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>

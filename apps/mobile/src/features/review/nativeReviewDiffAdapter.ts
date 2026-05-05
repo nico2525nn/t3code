@@ -1,11 +1,8 @@
-import type {
-  NativeReviewDiffRow,
-  NativeReviewDiffTheme,
-} from "../debug/native-review-diff/nativeReviewDiffModule";
+import type { NativeReviewDiffRow, NativeReviewDiffTheme } from "../diffs/nativeReviewDiffSurface";
 import type {
   NativeReviewDiffFile,
   NativeReviewDiffLanguage,
-} from "../debug/native-review-diff/nativeReviewDiffParser";
+} from "../diffs/nativeReviewDiffTypes";
 import { getPierreTerminalTheme, type TerminalAppearanceScheme } from "../terminal/terminalTheme";
 import { computeWordAltDiffRanges } from "./reviewWordDiffs";
 import {

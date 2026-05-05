@@ -52,8 +52,8 @@ import { markReviewEvent, measureReviewWork } from "./reviewPerf";
 import {
   highlightNativeReviewDiffVisibleRows,
   type NativeReviewDiffHighlightEngine,
-} from "../debug/native-review-diff/nativeReviewDiffHighlighter";
-import { resolveNativeReviewDiffView } from "../debug/native-review-diff/nativeReviewDiffModule";
+} from "../diffs/nativeReviewDiffHighlighter";
+import { resolveNativeReviewDiffView } from "../diffs/nativeReviewDiffSurface";
 import {
   buildNativeReviewDiffData,
   createNativeReviewDiffTheme,
@@ -507,9 +507,9 @@ export function ReviewSheet() {
     setLoadingGitDiffs(true);
     setError(null);
     try {
-      const result = await client.git.getReviewDiffs({ cwd });
+      const result = await client.review.getDiffPreview({ cwd });
       if (reviewCache.threadKey) {
-        setReviewGitSections(reviewCache.threadKey, result.sections);
+        setReviewGitSections(reviewCache.threadKey, result.sources);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to load review diffs.");

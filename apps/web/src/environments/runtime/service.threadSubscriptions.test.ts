@@ -127,7 +127,9 @@ vi.mock("@t3tools/client-runtime", async (importOriginal) => {
       runStackedAction: vi.fn(),
       resolvePullRequest: vi.fn(),
       preparePullRequestThread: vi.fn(),
-      getReviewDiffs: vi.fn(),
+    },
+    review: {
+      getDiffPreview: vi.fn(),
     },
     server: {
       getConfig: vi.fn(),

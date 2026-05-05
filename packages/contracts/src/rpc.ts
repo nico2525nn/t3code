@@ -26,8 +26,6 @@ import {
   GitPreparePullRequestThreadResult,
   VcsPullInput,
   GitPullRequestRefInput,
-  GitReviewDiffsInput,
-  GitReviewDiffsResult,
   VcsPullResult,
   VcsRemoveWorktreeInput,
   GitResolvePullRequestResult,
@@ -36,6 +34,11 @@ import {
   VcsStatusResult,
   VcsStatusStreamEvent,
 } from "./git.ts";
+import {
+  ReviewDiffPreviewError,
+  ReviewDiffPreviewInput,
+  ReviewDiffPreviewResult,
+} from "./review.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
   ClientOrchestrationCommand,
@@ -122,7 +125,9 @@ export const WS_METHODS = {
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
-  gitGetReviewDiffs: "git.getReviewDiffs",
+
+  // Review methods
+  reviewGetDiffPreview: "review.getDiffPreview",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -316,10 +321,15 @@ export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
   error: VcsError,
 });
 
-export const WsGitGetReviewDiffsRpc = Rpc.make(WS_METHODS.gitGetReviewDiffs, {
-  payload: GitReviewDiffsInput,
-  success: GitReviewDiffsResult,
-  error: GitCommandError,
+/**
+ * Ephemeral live diff preview for compact/mobile surfaces.
+ * Not the persisted T3 Review model. Future review sessions should use
+ * review.open* + review.getSnapshot.
+ */
+export const WsReviewGetDiffPreviewRpc = Rpc.make(WS_METHODS.reviewGetDiffPreview, {
+  payload: ReviewDiffPreviewInput,
+  success: ReviewDiffPreviewResult,
+  error: ReviewDiffPreviewError,
 });
 
 export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
@@ -465,7 +475,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsCreateRefRpc,
   WsVcsSwitchRefRpc,
   WsVcsInitRpc,
-  WsGitGetReviewDiffsRpc,
+  WsReviewGetDiffPreviewRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,
