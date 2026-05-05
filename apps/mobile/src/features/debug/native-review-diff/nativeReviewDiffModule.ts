@@ -11,7 +11,7 @@ interface ExpoGlobalWithViewConfig {
 }
 
 export interface NativeReviewDiffRow {
-  readonly kind: "file" | "hunk" | "line" | "notice";
+  readonly kind: "file" | "hunk" | "line" | "notice" | "comment";
   readonly id: string;
   readonly fileId?: string;
   readonly filePath?: string;
@@ -31,6 +31,9 @@ export interface NativeReviewDiffRow {
   readonly oldLineNumber?: number | null;
   readonly newLineNumber?: number | null;
   readonly wordDiffRanges?: ReadonlyArray<NativeReviewDiffWordDiffRange>;
+  readonly commentText?: string;
+  readonly commentRangeLabel?: string;
+  readonly commentSectionTitle?: string;
 }
 
 export interface NativeReviewDiffWordDiffRange {
@@ -100,6 +103,8 @@ export interface NativeReviewDiffViewProps extends ViewProps {
   readonly tokensResetKey?: string;
   readonly collapsedFileIdsJson?: string;
   readonly viewedFileIdsJson?: string;
+  readonly selectedRowIdsJson?: string;
+  readonly collapsedCommentIdsJson?: string;
   readonly appearanceScheme: "light" | "dark";
   readonly themeJson: string;
   readonly styleJson?: string;
@@ -108,6 +113,17 @@ export interface NativeReviewDiffViewProps extends ViewProps {
   readonly onDebug?: (event: NativeSyntheticEvent<Record<string, unknown>>) => void;
   readonly onToggleFile?: (event: NativeSyntheticEvent<{ readonly fileId?: string }>) => void;
   readonly onToggleViewedFile?: (event: NativeSyntheticEvent<{ readonly fileId?: string }>) => void;
+  readonly onPressLine?: (
+    event: NativeSyntheticEvent<{
+      readonly rowId?: string;
+      readonly fileId?: string;
+      readonly gesture?: "tap" | "longPress";
+      readonly oldLineNumber?: number;
+      readonly newLineNumber?: number;
+      readonly change?: "context" | "add" | "delete";
+    }>,
+  ) => void;
+  readonly onToggleComment?: (event: NativeSyntheticEvent<{ readonly commentId?: string }>) => void;
 }
 
 let cachedNativeReviewDiffView: ComponentType<NativeReviewDiffViewProps> | undefined;

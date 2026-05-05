@@ -171,6 +171,7 @@ async function mountTerminalViewport(props: {
   threadRef: ReturnType<typeof scopeThreadRef>;
   drawerBackgroundColor?: string;
   drawerTextColor?: string;
+  runtimeEnv?: Record<string, string>;
 }) {
   const drawer = document.createElement("div");
   drawer.className = "thread-terminal-drawer";
@@ -194,6 +195,7 @@ async function mountTerminalViewport(props: {
       terminalId="term-1"
       terminalLabel="Terminal"
       cwd="/repo/project"
+      {...(props.runtimeEnv ? { runtimeEnv: props.runtimeEnv } : {})}
       onSessionExited={() => undefined}
       onAddTerminalContext={() => undefined}
       focusRequestId={0}
@@ -206,7 +208,10 @@ async function mountTerminalViewport(props: {
   );
 
   return {
-    rerender: async (nextProps: { threadRef: ReturnType<typeof scopeThreadRef> }) => {
+    rerender: async (nextProps: {
+      threadRef: ReturnType<typeof scopeThreadRef>;
+      runtimeEnv?: Record<string, string>;
+    }) => {
       await screen.rerender(
         <TerminalViewport
           threadRef={nextProps.threadRef}
@@ -214,6 +219,7 @@ async function mountTerminalViewport(props: {
           terminalId="term-1"
           terminalLabel="Terminal"
           cwd="/repo/project"
+          {...(nextProps.runtimeEnv ? { runtimeEnv: nextProps.runtimeEnv } : {})}
           onSessionExited={() => undefined}
           onAddTerminalContext={() => undefined}
           focusRequestId={0}
@@ -254,6 +260,47 @@ describe("TerminalViewport", () => {
       await vi.waitFor(() => {
         expect(terminalConstructorSpy).not.toHaveBeenCalled();
       });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders and attaches the terminal without the desktop local API", async () => {
+    const environment = createEnvironmentApi();
+    environmentApiById.set("environment-a", environment);
+    readLocalApiMock.mockReturnValueOnce(undefined);
+
+    const mounted = await mountTerminalViewport({
+      threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(environment.terminal.attach).toHaveBeenCalledTimes(1);
+      });
+      expect(terminalConstructorSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the terminal mounted when xterm fit runs before dimensions are ready", async () => {
+    const environment = createEnvironmentApi();
+    environmentApiById.set("environment-a", environment);
+    fitAddonFitSpy.mockImplementationOnce(() => {
+      throw new TypeError("Cannot read properties of undefined (reading 'dimensions')");
+    });
+
+    const mounted = await mountTerminalViewport({
+      threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(environment.terminal.attach).toHaveBeenCalledTimes(1);
+      });
+      expect(terminalConstructorSpy).toHaveBeenCalledTimes(1);
+      expect(fitAddonFitSpy).toHaveBeenCalled();
     } finally {
       await mounted.cleanup();
     }
@@ -302,6 +349,34 @@ describe("TerminalViewport", () => {
 
       await mounted.rerender({
         threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+      });
+
+      await vi.waitFor(() => {
+        expect(environment.terminal.attach).toHaveBeenCalledTimes(1);
+      });
+      expect(terminalDisposeSpy).not.toHaveBeenCalled();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("does not reattach when runtime env contents are unchanged but object identity changes", async () => {
+    const environment = createEnvironmentApi();
+    environmentApiById.set("environment-a", environment);
+
+    const mounted = await mountTerminalViewport({
+      threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+      runtimeEnv: { PATH: "/usr/bin", T3: "1" },
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(environment.terminal.attach).toHaveBeenCalledTimes(1);
+      });
+
+      await mounted.rerender({
+        threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+        runtimeEnv: { T3: "1", PATH: "/usr/bin" },
       });
 
       await vi.waitFor(() => {

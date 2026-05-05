@@ -75,6 +75,24 @@ function writeTerminalSnapshot(terminal: Terminal, snapshot: TerminalSessionSnap
   }
 }
 
+function fitTerminalSafely(fitAddon: FitAddon): boolean {
+  try {
+    fitAddon.fit();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function runtimeEnvSignature(runtimeEnv: Record<string, string> | undefined): string {
+  if (!runtimeEnv) return "";
+  return JSON.stringify(
+    Object.entries(runtimeEnv)
+      .filter(([key, value]) => key.length > 0 && typeof value === "string")
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
+  );
+}
+
 function normalizeComputedColor(value: string | null | undefined, fallback: string): string {
   const normalizedValue = value?.trim().toLowerCase();
   if (
@@ -283,6 +301,7 @@ export function TerminalViewport({
   const selectionActionOpenRef = useRef(false);
   const selectionActionTimerRef = useRef<number | null>(null);
   const keybindingsRef = useRef(keybindings);
+  const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
   const handleSessionExited = useEffectEvent(() => {
     onSessionExited();
   });
@@ -302,7 +321,7 @@ export function TerminalViewport({
     let disposed = false;
     const api = readEnvironmentApi(environmentId);
     const localApi = readLocalApi();
-    if (!api || !localApi) return;
+    if (!api) return;
 
     const fitAddon = new FitAddon();
     const terminal = new Terminal({
@@ -315,7 +334,7 @@ export function TerminalViewport({
     });
     terminal.loadAddon(fitAddon);
     terminal.open(mount);
-    fitAddon.fit();
+    fitTerminalSafely(fitAddon);
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -369,6 +388,10 @@ export function TerminalViewport({
     };
 
     const showSelectionAction = async () => {
+      if (!localApi) {
+        clearSelectionAction();
+        return;
+      }
       if (selectionActionOpenRef.current) {
         return;
       }
@@ -479,6 +502,10 @@ export function TerminalViewport({
 
               const latestTerminal = terminalRef.current;
               if (!latestTerminal) return;
+              if (!localApi) {
+                writeSystemMessage(latestTerminal, "Opening links is unavailable in this browser.");
+                return;
+              }
 
               if (match.kind === "url") {
                 void localApi.shell.openExternal(match.text).catch((error: unknown) => {
@@ -630,7 +657,7 @@ export function TerminalViewport({
       const activeTerminal = terminalRef.current;
       const activeFitAddon = fitAddonRef.current;
       if (!activeTerminal || !activeFitAddon) return;
-      activeFitAddon.fit();
+      fitTerminalSafely(activeFitAddon);
       unsubscribeAttach = attachTerminalSession({
         environmentId,
         client: api,
@@ -664,7 +691,7 @@ export function TerminalViewport({
       if (!activeTerminal || !activeFitAddon) return;
       const wasAtBottom =
         activeTerminal.buffer.active.viewportY >= activeTerminal.buffer.active.baseY;
-      activeFitAddon.fit();
+      fitTerminalSafely(activeFitAddon);
       if (wasAtBottom) {
         activeTerminal.scrollToBottom();
       }
@@ -700,7 +727,7 @@ export function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, environmentId, runtimeEnv, terminalId, threadId, worktreePath]);
+  }, [cwd, environmentId, runtimeEnvKey, terminalId, threadId, worktreePath]);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -721,7 +748,7 @@ export function TerminalViewport({
     if (!api || !terminal || !fitAddon) return;
     const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
     const frame = window.requestAnimationFrame(() => {
-      fitAddon.fit();
+      fitTerminalSafely(fitAddon);
       if (wasAtBottom) {
         terminal.scrollToBottom();
       }

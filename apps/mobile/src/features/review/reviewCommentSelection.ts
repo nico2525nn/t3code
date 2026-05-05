@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 import type { ReviewRenderableLineRow } from "./reviewModel";
 
 export interface ReviewCommentTarget {
+  readonly sectionId: string;
   readonly sectionTitle: string;
   readonly filePath: string;
   readonly lines: ReadonlyArray<ReviewRenderableLineRow>;
@@ -10,8 +11,21 @@ export interface ReviewCommentTarget {
   readonly endIndex: number;
 }
 
+export interface ReviewInlineComment {
+  readonly id: string;
+  readonly sectionId: string;
+  readonly sectionTitle: string;
+  readonly filePath: string;
+  readonly startIndex: number;
+  readonly endIndex: number;
+  readonly rangeLabel: string;
+  readonly text: string;
+}
+
 let currentTarget: ReviewCommentTarget | null = null;
 const listeners = new Set<() => void>();
+const REVIEW_COMMENT_BLOCK_PATTERN = /<review_comment\b([^>]*)>\s*([\s\S]*?)<\/review_comment>/g;
+const REVIEW_COMMENT_ATTRIBUTE_PATTERN = /([a-zA-Z][a-zA-Z0-9_-]*)="([^"]*)"/g;
 
 function emitChange() {
   listeners.forEach((listener) => listener());
@@ -73,11 +87,12 @@ export function getReviewChangeMarker(change: ReviewRenderableLineRow["change"])
 }
 
 export function buildReviewCommentTarget(
-  target: Pick<ReviewCommentTarget, "sectionTitle" | "filePath" | "lines">,
+  target: Pick<ReviewCommentTarget, "sectionId" | "sectionTitle" | "filePath" | "lines">,
   anchorIndex: number,
   lineIndex: number,
 ): ReviewCommentTarget {
   return {
+    sectionId: target.sectionId,
     sectionTitle: target.sectionTitle,
     filePath: target.filePath,
     lines: target.lines,
@@ -142,9 +157,51 @@ function formatReviewSelectedDiff(target: ReviewCommentTarget): string {
   ].join("\n");
 }
 
+function escapeReviewCommentAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+function unescapeReviewCommentAttribute(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&");
+}
+
+function readReviewCommentAttributes(rawAttributes: string): Record<string, string> {
+  const attributes: Record<string, string> = {};
+  for (const match of rawAttributes.matchAll(REVIEW_COMMENT_ATTRIBUTE_PATTERN)) {
+    attributes[match[1]!] = unescapeReviewCommentAttribute(match[2] ?? "");
+  }
+  return attributes;
+}
+
+function readNonNegativeInteger(value: string | undefined): number | null {
+  if (value === undefined || !/^\d+$/.test(value)) {
+    return null;
+  }
+  return Number(value);
+}
+
+function extractReviewCommentText(rawBody: string): string {
+  const fenceIndex = rawBody.indexOf("```diff");
+  const commentBody = fenceIndex >= 0 ? rawBody.slice(0, fenceIndex) : rawBody;
+  return commentBody.trim();
+}
+
 export function formatReviewCommentContext(target: ReviewCommentTarget, comment: string): string {
+  const rangeLabel = formatReviewSelectedRangeLabel(target);
   return [
-    "<review_comment>",
+    [
+      "<review_comment",
+      ` sectionId="${escapeReviewCommentAttribute(target.sectionId)}"`,
+      ` sectionTitle="${escapeReviewCommentAttribute(target.sectionTitle)}"`,
+      ` filePath="${escapeReviewCommentAttribute(target.filePath)}"`,
+      ` startIndex="${target.startIndex}"`,
+      ` endIndex="${target.endIndex}"`,
+      ` rangeLabel="${escapeReviewCommentAttribute(rangeLabel)}"`,
+      ">",
+    ].join(""),
     comment.trim(),
     "```diff",
     formatReviewSelectedDiff(target),
@@ -154,5 +211,31 @@ export function formatReviewCommentContext(target: ReviewCommentTarget, comment:
 }
 
 export function countReviewCommentContexts(value: string): number {
-  return Array.from(value.matchAll(/<review_comment>/g)).length;
+  return Array.from(value.matchAll(/<review_comment\b/g)).length;
+}
+
+export function parseReviewInlineComments(value: string): ReadonlyArray<ReviewInlineComment> {
+  const comments: ReviewInlineComment[] = [];
+  for (const [index, match] of Array.from(value.matchAll(REVIEW_COMMENT_BLOCK_PATTERN)).entries()) {
+    const attributes = readReviewCommentAttributes(match[1] ?? "");
+    const startIndex = readNonNegativeInteger(attributes.startIndex);
+    const endIndex = readNonNegativeInteger(attributes.endIndex);
+    const filePath = attributes.filePath?.trim();
+    const sectionId = attributes.sectionId?.trim();
+    if (!filePath || !sectionId || startIndex === null || endIndex === null) {
+      continue;
+    }
+
+    comments.push({
+      id: `review-comment:${index}:${sectionId}:${filePath}:${startIndex}:${endIndex}`,
+      sectionId,
+      sectionTitle: attributes.sectionTitle?.trim() || "Review",
+      filePath,
+      startIndex: Math.min(startIndex, endIndex),
+      endIndex: Math.max(startIndex, endIndex),
+      rangeLabel: attributes.rangeLabel?.trim() || "line",
+      text: extractReviewCommentText(match[2] ?? ""),
+    });
+  }
+  return comments;
 }
