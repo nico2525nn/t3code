@@ -28,3 +28,4 @@ export {
   startEnvironmentConnectionService,
   subscribeEnvironmentConnections,
 } from "./service";
+export type { EnvironmentConnection } from "./connection";

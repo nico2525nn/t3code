@@ -63,10 +63,15 @@ import {
 } from "~/store";
 import { useTerminalStateStore } from "~/terminalStateStore";
 import { useUiStateStore } from "~/uiStateStore";
-import type { WsProtocolCloseContext } from "../../rpc/protocol";
+import type {
+  WsProtocolCloseContext,
+  WsProtocolLifecycleHandlers,
+  WsRpcProtocolSocketUrlProvider,
+} from "../../rpc/protocol";
 import { getServerConfig } from "../../rpc/serverState";
 import { WsTransport } from "../../rpc/wsTransport";
 import { createWsRpcClient, type WsRpcClient } from "../../rpc/wsRpcClient";
+import { createEnvironmentAtomRpcClient } from "../../rpc/environmentAtomRpc";
 import { appendVersionMismatchHint, resolveServerConfigVersionMismatch } from "../../versionSkew";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -1130,15 +1135,38 @@ function createPrimaryEnvironmentClient(
       `Unable to resolve websocket URL for ${knownEnvironment?.label ?? "primary environment"}.`,
     );
   }
-  const connectionLabel = knownEnvironment?.label ?? null;
 
   return createWsRpcClient(
-    new WsTransport(wsBaseUrl, {
-      getConnectionLabel: () => connectionLabel,
-      getVersionMismatchHint: () =>
-        resolveServerConfigVersionMismatch(getServerConfig())?.hint ?? null,
-    }),
+    new WsTransport(wsBaseUrl, createPrimaryEnvironmentLifecycleHandlers(knownEnvironment)),
   );
+}
+
+function createPrimaryEnvironmentAtomRpcClient(
+  knownEnvironment: ReturnType<typeof getPrimaryKnownEnvironment>,
+) {
+  const wsBaseUrl = getKnownEnvironmentWsBaseUrl(knownEnvironment);
+  if (!wsBaseUrl || !knownEnvironment?.environmentId) {
+    throw new Error(
+      `Unable to resolve websocket URL for ${knownEnvironment?.label ?? "primary environment"}.`,
+    );
+  }
+
+  return createEnvironmentAtomRpcClient({
+    environmentId: knownEnvironment.environmentId,
+    url: wsBaseUrl,
+    lifecycleHandlers: createPrimaryEnvironmentLifecycleHandlers(knownEnvironment),
+  });
+}
+
+function createPrimaryEnvironmentLifecycleHandlers(
+  knownEnvironment: ReturnType<typeof getPrimaryKnownEnvironment>,
+): WsProtocolLifecycleHandlers {
+  const connectionLabel = knownEnvironment?.label ?? null;
+  return {
+    getConnectionLabel: () => connectionLabel,
+    getVersionMismatchHint: () =>
+      resolveServerConfigVersionMismatch(getServerConfig())?.hint ?? null,
+  };
 }
 
 function createSavedEnvironmentClient(
@@ -1149,65 +1177,88 @@ function createSavedEnvironmentClient(
 
   return createWsRpcClient(
     new WsTransport(
-      async () => {
-        const record = getSavedEnvironmentRecord(environmentId);
-        if (!record) {
-          throw new Error(`Saved environment ${environmentId} not found.`);
-        }
-        return record.desktopSsh
-          ? await resolveDesktopSshWebSocketConnectionUrl(
-              record.wsBaseUrl,
-              record.httpBaseUrl,
-              bearerToken,
-            )
-          : await resolveRemoteWebSocketConnectionUrl({
-              wsBaseUrl: record.wsBaseUrl,
-              httpBaseUrl: record.httpBaseUrl,
-              bearerToken,
-            });
-      },
-      {
-        getConnectionLabel: () => getSavedEnvironmentRecord(environmentId)?.label ?? null,
-        getVersionMismatchHint: () =>
-          resolveServerConfigVersionMismatch(
-            useSavedEnvironmentRuntimeStore.getState().byId[environmentId]?.serverConfig,
-          )?.hint ?? null,
-        onAttempt: () => {
-          setRuntimeConnecting(environmentId);
-        },
-        onOpen: () => {
-          setRuntimeConnected(environmentId);
-        },
-        onError: (message: string) => {
-          const mismatch = resolveServerConfigVersionMismatch(
-            useSavedEnvironmentRuntimeStore.getState().byId[environmentId]?.serverConfig,
-          );
-          useSavedEnvironmentRuntimeStore.getState().patch(environmentId, {
-            connectionState: "error",
-            lastError: appendVersionMismatchHint(message, mismatch),
-            lastErrorAt: isoNow(),
-          });
-        },
-        onClose: (
-          details: { readonly code: number; readonly reason: string },
-          context: WsProtocolCloseContext,
-        ) => {
-          if (context.intentional) {
-            return;
-          }
-          setRuntimeDisconnected(
-            environmentId,
-            appendVersionMismatchHint(
-              details.reason,
-              resolveServerConfigVersionMismatch(
-                useSavedEnvironmentRuntimeStore.getState().byId[environmentId]?.serverConfig,
-              ),
-            ),
-          );
-        },
-      },
+      createSavedEnvironmentSocketUrlProvider(environmentId, bearerToken),
+      createSavedEnvironmentLifecycleHandlers(environmentId),
     ),
   );
+}
+
+function createSavedEnvironmentAtomRpcClient(environmentId: EnvironmentId, bearerToken: string) {
+  useSavedEnvironmentRuntimeStore.getState().ensure(environmentId);
+
+  return createEnvironmentAtomRpcClient({
+    environmentId,
+    url: createSavedEnvironmentSocketUrlProvider(environmentId, bearerToken),
+    lifecycleHandlers: createSavedEnvironmentLifecycleHandlers(environmentId),
+  });
+}
+
+function createSavedEnvironmentSocketUrlProvider(
+  environmentId: EnvironmentId,
+  bearerToken: string,
+): WsRpcProtocolSocketUrlProvider {
+  return async () => {
+    const record = getSavedEnvironmentRecord(environmentId);
+    if (!record) {
+      throw new Error(`Saved environment ${environmentId} not found.`);
+    }
+    return record.desktopSsh
+      ? await resolveDesktopSshWebSocketConnectionUrl(
+          record.wsBaseUrl,
+          record.httpBaseUrl,
+          bearerToken,
+        )
+      : await resolveRemoteWebSocketConnectionUrl({
+          wsBaseUrl: record.wsBaseUrl,
+          httpBaseUrl: record.httpBaseUrl,
+          bearerToken,
+        });
+  };
+}
+
+function createSavedEnvironmentLifecycleHandlers(
+  environmentId: EnvironmentId,
+): WsProtocolLifecycleHandlers {
+  return {
+    getConnectionLabel: () => getSavedEnvironmentRecord(environmentId)?.label ?? null,
+    getVersionMismatchHint: () =>
+      resolveServerConfigVersionMismatch(
+        useSavedEnvironmentRuntimeStore.getState().byId[environmentId]?.serverConfig,
+      )?.hint ?? null,
+    onAttempt: () => {
+      setRuntimeConnecting(environmentId);
+    },
+    onOpen: () => {
+      setRuntimeConnected(environmentId);
+    },
+    onError: (message: string) => {
+      const mismatch = resolveServerConfigVersionMismatch(
+        useSavedEnvironmentRuntimeStore.getState().byId[environmentId]?.serverConfig,
+      );
+      useSavedEnvironmentRuntimeStore.getState().patch(environmentId, {
+        connectionState: "error",
+        lastError: appendVersionMismatchHint(message, mismatch),
+        lastErrorAt: isoNow(),
+      });
+    },
+    onClose: (
+      details: { readonly code: number; readonly reason: string },
+      context: WsProtocolCloseContext,
+    ) => {
+      if (context.intentional) {
+        return;
+      }
+      setRuntimeDisconnected(
+        environmentId,
+        appendVersionMismatchHint(
+          details.reason,
+          resolveServerConfigVersionMismatch(
+            useSavedEnvironmentRuntimeStore.getState().byId[environmentId]?.serverConfig,
+          ),
+        ),
+      );
+    },
+  };
 }
 
 async function refreshSavedEnvironmentMetadata(
@@ -1284,6 +1335,7 @@ function createPrimaryEnvironmentConnection(): EnvironmentConnection {
       kind: "primary",
       knownEnvironment,
       client: createPrimaryEnvironmentClient(knownEnvironment),
+      atomRpc: createPrimaryEnvironmentAtomRpcClient(knownEnvironment),
       ...createEnvironmentConnectionHandlers(),
     }),
   );
@@ -1344,6 +1396,10 @@ async function ensureSavedEnvironmentConnection(
       const client =
         options?.client ??
         createSavedEnvironmentClient(activeRecord.environmentId, activeBearerToken);
+      const atomRpc =
+        options?.client === undefined
+          ? createSavedEnvironmentAtomRpcClient(activeRecord.environmentId, activeBearerToken)
+          : undefined;
       const initialConfigSnapshot = createDeferredPromise<ServerConfig>();
       const knownEnvironment = createKnownEnvironment({
         id: activeRecord.environmentId,
@@ -1361,6 +1417,7 @@ async function ensureSavedEnvironmentConnection(
           environmentId: activeRecord.environmentId,
         },
         client,
+        ...(atomRpc ? { atomRpc } : {}),
         refreshMetadata: async () => {
           await refreshSavedEnvironmentMetadata(
             activeRecord.environmentId,

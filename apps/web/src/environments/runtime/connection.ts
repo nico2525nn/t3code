@@ -9,12 +9,14 @@ import type {
 import type { KnownEnvironment } from "@t3tools/client-runtime";
 
 import type { WsRpcClient } from "~/rpc/wsRpcClient";
+import type { EnvironmentAtomRpcClient } from "~/rpc/environmentAtomRpc";
 
 export interface EnvironmentConnection {
   readonly kind: "primary" | "saved";
   readonly environmentId: EnvironmentId;
   readonly knownEnvironment: KnownEnvironment;
   readonly client: WsRpcClient;
+  readonly atomRpc?: EnvironmentAtomRpcClient;
   readonly ensureBootstrapped: () => Promise<void>;
   readonly reconnect: () => Promise<void>;
   readonly dispose: () => Promise<void>;
@@ -36,6 +38,7 @@ interface EnvironmentConnectionInput extends OrchestrationHandlers {
   readonly kind: "primary" | "saved";
   readonly knownEnvironment: KnownEnvironment;
   readonly client: WsRpcClient;
+  readonly atomRpc?: EnvironmentAtomRpcClient;
   readonly refreshMetadata?: () => Promise<void>;
   readonly onConfigSnapshot?: (config: ServerConfig) => void;
   readonly onWelcome?: (payload: ServerLifecycleWelcomePayload) => void;
@@ -162,9 +165,11 @@ export function createEnvironmentConnection(
     environmentId,
     knownEnvironment: input.knownEnvironment,
     client: input.client,
+    ...(input.atomRpc ? { atomRpc: input.atomRpc } : {}),
     ensureBootstrapped: () => bootstrapGate.wait(),
     reconnect: async () => {
       bootstrapGate.reset();
+      input.atomRpc?.reset();
       try {
         await input.client.reconnect();
         await input.refreshMetadata?.();
@@ -176,7 +181,11 @@ export function createEnvironmentConnection(
     },
     dispose: async () => {
       cleanup();
-      await input.client.dispose();
+      try {
+        await input.client.dispose();
+      } finally {
+        input.atomRpc?.dispose();
+      }
     },
   };
 }
