@@ -42,12 +42,14 @@ export function sortModelsForProviderInstance<T extends ModelSlugItem>(
 ): T[] {
   const modelOrder = options?.modelOrder ?? [];
   const favoriteModels = toSet(options?.favoriteModels);
+  const shouldGroupFavorites = options?.groupFavorites === true && favoriteModels.size > 0;
+  if (modelOrder.length === 0 && !shouldGroupFavorites) {
+    return [...models];
+  }
   const orderBySlug = rankByValue(modelOrder);
   const originalOrder = rankByValue(Arr.map(models, (model) => model.slug));
   const orders: Array<Order.Order<T>> = [
-    ...(options?.groupFavorites === true
-      ? [byTrueFirst<T>((model) => favoriteModels.has(model.slug))]
-      : []),
+    ...(shouldGroupFavorites ? [byTrueFirst<T>((model) => favoriteModels.has(model.slug))] : []),
     byOptionalRank((model) => orderBySlug.get(model.slug)),
     byOptionalRank((model) => originalOrder.get(model.slug)),
   ];
@@ -64,14 +66,19 @@ export function sortProviderModelItems<T extends ProviderModelItem>(
   },
 ): T[] {
   const favoriteModelKeys = toSet(options?.favoriteModelKeys);
+  const instanceOrderValues = options?.instanceOrder ?? [];
+  const shouldGroupFavorites = options?.groupFavorites === true && favoriteModelKeys.size > 0;
+  if (instanceOrderValues.length === 0 && !shouldGroupFavorites) {
+    return [...items];
+  }
   const instanceOrder = new Map(
-    Arr.map(options?.instanceOrder ?? [], (instanceId, index) => [instanceId, index] as const),
+    Arr.map(instanceOrderValues, (instanceId, index) => [instanceId, index] as const),
   );
   const originalOrder = rankByValue(
     Arr.map(items, (item) => providerModelKey(item.instanceId, item.slug)),
   );
   const orders: Array<Order.Order<T>> = [
-    ...(options?.groupFavorites === true
+    ...(shouldGroupFavorites
       ? [
           byTrueFirst<T>((item) =>
             favoriteModelKeys.has(providerModelKey(item.instanceId, item.slug)),

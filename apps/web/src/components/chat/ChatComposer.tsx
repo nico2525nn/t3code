@@ -33,6 +33,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
+import { ensureLocalApi } from "../../localApi";
 import {
   clampCollapsedComposerCursor,
   type ComposerTrigger,
@@ -720,6 +721,8 @@ export const ChatComposer = memo(
       () => selectedProviderEntry?.models ?? [],
       [selectedProviderEntry],
     );
+    const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
+    const [isModelPickerOptionsHydrated, setIsModelPickerOptionsHydrated] = useState(false);
 
     const composerProviderState = useMemo(
       () =>
@@ -754,21 +757,55 @@ export const ChatComposer = memo(
     // instance (built-in + custom) as a first-class sidebar entry. The
     // options are server-reported models plus that exact instance's
     // configured custom models; selected slugs are not injected into lists.
+    // Keep the closed/first-open path scoped to the active instance so large
+    // dynamic provider catalogs don't block the composer or popover paint.
     const modelOptionsByInstance = useMemo<
       ReadonlyMap<ProviderInstanceId, ReadonlyArray<AppModelOption>>
     >(() => {
       const out = new Map<ProviderInstanceId, ReadonlyArray<AppModelOption>>();
-      for (const entry of providerInstanceEntries) {
+      const entries = isModelPickerOptionsHydrated
+        ? providerInstanceEntries
+        : selectedProviderEntry
+          ? [selectedProviderEntry]
+          : [];
+      for (const entry of entries) {
         out.set(entry.instanceId, getAppModelOptionsForInstance(settings, entry));
       }
       return out;
-    }, [providerInstanceEntries, settings]);
+    }, [isModelPickerOptionsHydrated, providerInstanceEntries, selectedProviderEntry, settings]);
     const selectedModelForPickerWithCustomFallback = useMemo(() => {
       const currentOptions = modelOptionsByInstance.get(selectedInstanceId) ?? [];
       return currentOptions.some((option) => option.slug === selectedModelForPicker)
         ? selectedModelForPicker
         : (normalizeModelSlug(selectedModelForPicker, selectedProvider) ?? selectedModelForPicker);
     }, [modelOptionsByInstance, selectedInstanceId, selectedModelForPicker, selectedProvider]);
+
+    useEffect(() => {
+      if (!isComposerModelPickerOpen) {
+        setIsModelPickerOptionsHydrated(false);
+        return;
+      }
+
+      const frame = window.requestAnimationFrame(() => {
+        setIsModelPickerOptionsHydrated(true);
+      });
+      return () => {
+        window.cancelAnimationFrame(frame);
+      };
+    }, [isComposerModelPickerOpen]);
+
+    useEffect(() => {
+      if (!isComposerModelPickerOpen) {
+        return;
+      }
+
+      void ensureLocalApi()
+        .server.refreshProviders({ instanceId: selectedInstanceId })
+        .catch(() => {
+          // The existing provider snapshot remains usable if this background
+          // probe fails; the settings page exposes manual refresh status.
+        });
+    }, [isComposerModelPickerOpen, selectedInstanceId]);
 
     // ------------------------------------------------------------------
     // Context window
@@ -794,7 +831,6 @@ export const ChatComposer = memo(
     const [isDragOverComposer, setIsDragOverComposer] = useState(false);
     const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
     const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
-    const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
     const [isComposerFocused, setIsComposerFocused] = useState(false);
     const isMobileViewport = useMediaQuery("max-sm");
     const isComposerCollapsedMobile = isMobileViewport && !isComposerFocused;

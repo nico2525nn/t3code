@@ -37,6 +37,8 @@ type ModelPickerItem = {
 };
 
 const EMPTY_MODEL_JUMP_LABELS = new Map<string, string>();
+const INITIAL_RENDERED_MODEL_COUNT = 80;
+const MODEL_RENDER_INCREMENT = 160;
 
 // Split a `${instanceId}:${slug}` combobox key back into its pieces. Slugs
 // can contain colons (e.g. some vendor model ids), so we only split on the
@@ -93,6 +95,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listRegionRef = useRef<HTMLDivElement>(null);
   const highlightedModelKeyRef = useRef<string | null>(null);
+  const [renderedModelLimit, setRenderedModelLimit] = useState(INITIAL_RENDERED_MODEL_COUNT);
   const favorites = useSettings((s) => s.favorites ?? []);
   const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | "favorites">(
     () => {
@@ -328,6 +331,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     selectedInstanceId,
   ]);
 
+  useEffect(() => {
+    setRenderedModelLimit(INITIAL_RENDERED_MODEL_COUNT);
+  }, [props.activeInstanceId, props.lockedProvider, searchQuery, selectedInstanceId]);
+
   const handleModelSelect = useCallback(
     (modelSlug: string, instanceId: ProviderInstanceId) => {
       const options = modelOptionsByInstance.get(instanceId);
@@ -382,12 +389,37 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     props.activeInstanceId,
     instanceEntries,
   ]);
+  const renderedModels = useMemo(() => {
+    const models = filteredModels.slice(0, renderedModelLimit);
+    if (
+      models.some(
+        (model) => model.instanceId === props.activeInstanceId && model.slug === props.model,
+      )
+    ) {
+      return models;
+    }
+    const activeModel = filteredModels.find(
+      (model) => model.instanceId === props.activeInstanceId && model.slug === props.model,
+    );
+    return activeModel ? [...models, activeModel] : models;
+  }, [filteredModels, props.activeInstanceId, props.model, renderedModelLimit]);
+  const renderedModelKeys = useMemo(
+    (): string[] => renderedModels.map((model) => `${model.instanceId}:${model.slug}`),
+    [renderedModels],
+  );
+  const renderedModelByKey = useMemo(
+    (): ReadonlyMap<string, ModelPickerItem> =>
+      new Map(renderedModels.map((model) => [`${model.instanceId}:${model.slug}`, model] as const)),
+    [renderedModels],
+  );
+  const hasMoreRenderedModels = renderedModels.length < filteredModels.length;
+
   const modelJumpCommandByKey = useMemo(() => {
     const mapping = new Map<
       string,
       NonNullable<ReturnType<typeof modelPickerJumpCommandForIndex>>
     >();
-    for (const [visibleModelIndex, model] of filteredModels.entries()) {
+    for (const [visibleModelIndex, model] of renderedModels.entries()) {
       const jumpCommand = modelPickerJumpCommandForIndex(visibleModelIndex);
       if (!jumpCommand) {
         return mapping;
@@ -395,23 +427,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       mapping.set(`${model.instanceId}:${model.slug}`, jumpCommand);
     }
     return mapping;
-  }, [filteredModels]);
+  }, [renderedModels]);
   const modelJumpModelKeys = useMemo(
     () => [...modelJumpCommandByKey.keys()],
     [modelJumpCommandByKey],
-  );
-  const allModelKeys = useMemo(
-    (): string[] => flatModels.map((model) => `${model.instanceId}:${model.slug}`),
-    [flatModels],
-  );
-  const filteredModelKeys = useMemo(
-    (): string[] => filteredModels.map((model) => `${model.instanceId}:${model.slug}`),
-    [filteredModels],
-  );
-  const filteredModelByKey = useMemo(
-    (): ReadonlyMap<string, ModelPickerItem> =>
-      new Map(filteredModels.map((model) => [`${model.instanceId}:${model.slug}`, model] as const)),
-    [filteredModels],
   );
   const modelJumpShortcutContext = useMemo(
     () =>
@@ -472,6 +491,35 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     };
   }, [handleModelSelect, keybindings, modelJumpModelKeys, modelJumpShortcutContext]);
 
+  useEffect(() => {
+    if (!hasMoreRenderedModels) {
+      return;
+    }
+    const viewport = listRegionRef.current?.querySelector<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]',
+    );
+    if (!viewport) {
+      return;
+    }
+
+    const onScroll = () => {
+      const remainingScrollDistance =
+        viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+      if (remainingScrollDistance > 96) {
+        return;
+      }
+      setRenderedModelLimit((currentLimit) =>
+        Math.min(currentLimit + MODEL_RENDER_INCREMENT, filteredModels.length),
+      );
+    };
+
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => {
+      viewport.removeEventListener("scroll", onScroll);
+    };
+  }, [filteredModels.length, hasMoreRenderedModels]);
+
   useLayoutEffect(() => {
     const listRegion = listRegionRef.current;
     if (!listRegion) {
@@ -513,7 +561,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       window.cancelAnimationFrame(nestedFrame);
       window.clearTimeout(timeout);
     };
-  }, [filteredModelKeys]);
+  }, [renderedModelKeys]);
 
   return (
     <TooltipProvider delay={0}>
@@ -545,8 +593,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         {/* Main content area */}
         <Combobox
           inline
-          items={allModelKeys}
-          filteredItems={filteredModelKeys}
+          items={renderedModelKeys}
+          filteredItems={renderedModelKeys}
           filter={null}
           autoHighlight
           open
@@ -612,8 +660,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               className="relative min-h-0 flex-1 before:pointer-events-none before:absolute before:inset-0 before:bg-muted/40"
             >
               <ComboboxList className="model-picker-list size-full divide-y px-2 py-1">
-                {filteredModelKeys.map((modelKey, index) => {
-                  const model = filteredModelByKey.get(modelKey);
+                {renderedModelKeys.map((modelKey, index) => {
+                  const model = renderedModelByKey.get(modelKey);
                   if (!model) {
                     return null;
                   }

@@ -512,6 +512,62 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
         ]);
       });
 
+      it("prunes models that disappear from a non-empty refreshed provider snapshot", () => {
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("pi"),
+          driver: ProviderDriverKind.make("pi"),
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          checkedAt: "2026-04-14T00:00:00.000Z",
+          version: "0.73.0",
+          models: [
+            {
+              slug: "openai/gpt-5.5",
+              name: "GPT-5.5",
+              isCustom: false,
+              capabilities: createModelCapabilities({
+                optionDescriptors: [
+                  selectDescriptor("reasoning", "Reasoning", [
+                    { id: "medium", label: "Medium", isDefault: true },
+                  ]),
+                ],
+              }),
+            },
+            {
+              slug: "openrouter/anthropic/claude-opus-4.6",
+              name: "Claude Opus 4.6",
+              subProvider: "openrouter",
+              isCustom: false,
+              capabilities: createModelCapabilities({
+                optionDescriptors: [],
+              }),
+            },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        const refreshedProvider = {
+          ...previousProvider,
+          checkedAt: "2026-04-14T00:01:00.000Z",
+          models: [
+            {
+              slug: "openai/gpt-5.5",
+              name: "GPT-5.5",
+              isCustom: false,
+              capabilities: createModelCapabilities({
+                optionDescriptors: [],
+              }),
+            },
+          ],
+        } satisfies ServerProvider;
+
+        assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
+          previousProvider.models[0],
+        ]);
+      });
+
       it("persists merged provider snapshots for the providers that were refreshed", () => {
         const previousProviders = [
           {
@@ -1231,6 +1287,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
                 "codex",
                 "cursor",
                 "opencode",
+                "pi",
               ]);
               assert.strictEqual(cursorProvider?.enabled, false);
               assert.strictEqual(cursorProvider?.status, "disabled");

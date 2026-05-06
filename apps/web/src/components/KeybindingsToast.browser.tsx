@@ -125,6 +125,12 @@ function createBaseServerConfig(): ServerConfig {
           serverPassword: "",
           customModels: [],
         },
+        pi: {
+          enabled: true,
+          agentDir: "",
+          sessionDir: "",
+          customModels: [],
+        },
       },
     },
   };

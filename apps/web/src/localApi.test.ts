@@ -517,6 +517,12 @@ describe("wsApi", () => {
 
     await expect(api.server.refreshProviders()).resolves.toEqual({ providers: nextProviders });
     expect(rpcClientMock.server.refreshProviders).toHaveBeenCalledWith();
+
+    const instanceId = ProviderInstanceId.make("pi");
+    await expect(api.server.refreshProviders({ instanceId })).resolves.toEqual({
+      providers: nextProviders,
+    });
+    expect(rpcClientMock.server.refreshProviders).toHaveBeenLastCalledWith({ instanceId });
   });
 
   it("forwards provider updates directly to the RPC client", async () => {

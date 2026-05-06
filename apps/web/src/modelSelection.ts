@@ -105,9 +105,15 @@ function applyInstanceModelPreferences(
     readonly modelOrder: ReadonlyArray<string>;
   },
 ): AppModelOption[] {
-  const hiddenModels = new Set(preferences.hiddenModels);
+  if (preferences.hiddenModels.length === 0 && preferences.modelOrder.length === 0) {
+    return [...options];
+  }
+  const hiddenModels =
+    preferences.hiddenModels.length > 0 ? new Set(preferences.hiddenModels) : null;
   return sortModelsForProviderInstance(
-    options.filter((option) => option.isCustom || !hiddenModels.has(option.slug)),
+    hiddenModels
+      ? options.filter((option) => option.isCustom || !hiddenModels.has(option.slug))
+      : options,
     { modelOrder: preferences.modelOrder },
   );
 }
