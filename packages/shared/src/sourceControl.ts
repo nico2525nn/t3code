@@ -1,4 +1,5 @@
 import type { SourceControlProviderInfo, SourceControlProviderKind } from "@t3tools/contracts";
+import { Option } from "effect";
 
 export interface ChangeRequestPresentation {
   readonly icon: "github" | "gitlab" | "azure-devops" | "bitbucket" | "change-request";
@@ -133,26 +134,34 @@ export function getChangeRequestTerminologyForKind(
   };
 }
 
-function parseRemoteHost(remoteUrl: string): string | null {
+function parseRemoteHostOption(remoteUrl: string): Option.Option<string> {
   const trimmed = remoteUrl.trim();
   if (trimmed.length === 0) {
-    return null;
+    return Option.none();
   }
 
   if (trimmed.startsWith("git@")) {
     const hostWithPath = trimmed.slice("git@".length);
     const separatorIndex = hostWithPath.search(/[:/]/);
     if (separatorIndex <= 0) {
-      return null;
+      return Option.none();
     }
-    return hostWithPath.slice(0, separatorIndex).toLowerCase();
+    return Option.some(hostWithPath.slice(0, separatorIndex).toLowerCase());
   }
 
   try {
-    return new URL(trimmed).hostname.toLowerCase();
+    return Option.some(new URL(trimmed).hostname.toLowerCase());
   } catch {
-    return null;
+    return Option.none();
   }
+}
+
+function parseRemoteHost(remoteUrl: string): string | null {
+  return Option.getOrNull(parseRemoteHostOption(remoteUrl));
+}
+
+export function parseRemoteHostForSourceControl(remoteUrl: string): Option.Option<string> {
+  return parseRemoteHostOption(remoteUrl);
 }
 
 function toBaseUrl(host: string): string {

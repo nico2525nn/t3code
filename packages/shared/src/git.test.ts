@@ -1,5 +1,7 @@
 import type { VcsStatusRemoteResult, VcsStatusResult } from "@t3tools/contracts";
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
+import { Effect } from "effect";
+import * as Random from "effect/Random";
 
 import {
   applyGitStatusStreamEvent,
@@ -9,6 +11,20 @@ import {
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
+
+function deterministicRandom(seed = 0x1234_5678): Random.Random {
+  let state = seed >>> 0;
+  const nextIntUnsafe = (): number => {
+    state = (Math.imul(1_664_525, state) + 1_013_904_223) >>> 0;
+    return state;
+  };
+
+  return {
+    nextIntUnsafe,
+    nextDoubleUnsafe: () => nextIntUnsafe() / 0x1_0000_0000,
+    shuffle: (elements) => Effect.succeed(elements),
+  };
+}
 
 describe("normalizeGitRemoteUrl", () => {
   it("canonicalizes equivalent GitHub remotes across protocol variants", () => {
@@ -54,9 +70,26 @@ describe("parseGitHubRepositoryNameWithOwnerFromRemoteUrl", () => {
 });
 
 describe("isTemporaryWorktreeBranch", () => {
-  it("matches the generated temporary worktree refName format", () => {
-    expect(isTemporaryWorktreeBranch(buildTemporaryWorktreeBranchName())).toBe(true);
-  });
+  it.effect("matches the generated temporary worktree refName format", () =>
+    Effect.gen(function* () {
+      const branch = yield* buildTemporaryWorktreeBranchName;
+      assert.equal(isTemporaryWorktreeBranch(branch), true);
+    }),
+  );
+
+  it.effect("uses the Effect Random service for deterministic temporary refs", () =>
+    Effect.gen(function* () {
+      const firstBranch = yield* buildTemporaryWorktreeBranchName.pipe(
+        Effect.provideService(Random.Random, deterministicRandom()),
+      );
+      const secondBranch = yield* buildTemporaryWorktreeBranchName.pipe(
+        Effect.provideService(Random.Random, deterministicRandom()),
+      );
+
+      assert.equal(firstBranch, secondBranch);
+      assert.equal(isTemporaryWorktreeBranch(firstBranch), true);
+    }),
+  );
 
   it("matches generated temporary worktree refs", () => {
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/deadbeef`)).toBe(true);

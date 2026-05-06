@@ -7,6 +7,7 @@ import type {
   VcsStatusStreamEvent,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Random from "effect/Random";
 import { detectSourceControlProviderFromRemoteUrl } from "./sourceControl.ts";
 
@@ -86,10 +87,12 @@ export function deriveLocalBranchNameFromRemoteRef(branchName: string): string {
   return branchName.slice(firstSeparatorIndex + 1);
 }
 
-export function buildTemporaryWorktreeBranchName(): string {
-  const token = Effect.runSync(Random.nextUUIDv4).replace(/-/g, "").slice(0, 8).toLowerCase();
-  return `${WORKTREE_BRANCH_PREFIX}/${token}`;
-}
+export const buildTemporaryWorktreeBranchName = Random.nextUUIDv4.pipe(
+  Effect.map((uuid) => {
+    const token = uuid.replace(/-/g, "").slice(0, 8).toLowerCase();
+    return `${WORKTREE_BRANCH_PREFIX}/${token}`;
+  }),
+);
 
 export function isTemporaryWorktreeBranch(refName: string): boolean {
   return TEMP_WORKTREE_BRANCH_PATTERN.test(refName.trim().toLowerCase());
@@ -131,10 +134,12 @@ export function normalizeGitRemoteUrl(value: string): string {
 /**
  * Best-effort parse of a GitHub `owner/repo` identifier from common remote URL shapes.
  */
-export function parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url: string | null): string | null {
+export function parseGitHubRepositoryNameWithOwnerFromRemoteUrlOption(
+  url: string | null,
+): Option.Option<string> {
   const trimmed = url?.trim() ?? "";
   if (trimmed.length === 0) {
-    return null;
+    return Option.none();
   }
 
   const match =
@@ -142,7 +147,13 @@ export function parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url: string | nu
       trimmed,
     );
   const repositoryNameWithOwner = match?.[1]?.trim() ?? "";
-  return repositoryNameWithOwner.length > 0 ? repositoryNameWithOwner : null;
+  return repositoryNameWithOwner.length > 0
+    ? Option.some(repositoryNameWithOwner)
+    : Option.none();
+}
+
+export function parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url: string | null): string | null {
+  return Option.getOrNull(parseGitHubRepositoryNameWithOwnerFromRemoteUrlOption(url));
 }
 
 function deriveLocalBranchNameCandidatesFromRemoteRef(
