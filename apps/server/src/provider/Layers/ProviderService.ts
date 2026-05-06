@@ -780,6 +780,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         "provider.request_id": input.requestId,
       });
       yield* routed.adapter.respondToUserInput(routed.threadId, input.requestId, input.answers);
+      yield* analytics.record("provider.user_input.responded", {
+        provider: routed.adapter.provider,
+        answerCount: Object.keys(input.answers).length,
+      });
     }).pipe(
       withMetrics({
         counter: providerTurnsTotal,
