@@ -3,10 +3,7 @@ import { Effect } from "effect";
 import { loadDesktopIpcPocSnapshot } from "./browser-client.ts";
 
 const program = Effect.gen(function* () {
-  const snapshot = yield* loadDesktopIpcPocSnapshot({
-    echoText: "hello from the renderer",
-    ticks: 5,
-  });
+  const snapshot = yield* loadDesktopIpcPocSnapshot;
 
   const root = document.querySelector("#root");
   if (root) {

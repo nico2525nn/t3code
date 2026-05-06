@@ -11,6 +11,7 @@ import { EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY } from "effect-electron-ipc/ipc
 import type {
   EffectElectronIpcMainFrame,
   EffectElectronIpcMainSource,
+  EffectElectronIpcRendererBridge,
   EffectElectronIpcRendererFrame,
 } from "effect-electron-ipc/ipc";
 
@@ -28,11 +29,10 @@ describe("effect RPC over Electron IPC proof of concept", () => {
             now: () => new Date("2026-05-06T12:00:00.000Z"),
           });
 
-          return yield* loadDesktopIpcPocSnapshot({
-            globalObject: ipc.rendererGlobal,
-            echoText: "hello ipc",
-            ticks: 3,
-          });
+          return yield* withEffectElectronIpcRendererBridge(
+            ipc.rendererPort,
+            loadDesktopIpcPocSnapshot,
+          );
         }),
       ),
     );
@@ -44,7 +44,7 @@ describe("effect RPC over Electron IPC proof of concept", () => {
         ipcTransport: "electron-ipc",
       },
       echo: {
-        text: "hello ipc",
+        text: "hello from the renderer",
         echoedAt: "2026-05-06T12:00:00.000Z",
       },
       ticks: [
@@ -67,13 +67,16 @@ describe("effect RPC over Electron IPC proof of concept", () => {
             platform: "test-os",
           });
 
-          const client = yield* makeDesktopIpcPocBrowserClient({
-            globalObject: ipc.rendererGlobal,
-          });
+          return yield* withEffectElectronIpcRendererBridge(
+            ipc.rendererPort,
+            Effect.gen(function* () {
+              const client = yield* makeDesktopIpcPocBrowserClient;
 
-          return yield* client[DESKTOP_IPC_POC_METHODS.subscribeTicks]({ take: 3 }).pipe(
-            Stream.runCollect,
-            Effect.map((chunk) => Array.from(chunk)),
+              return yield* client[DESKTOP_IPC_POC_METHODS.subscribeTicks]({ take: 3 }).pipe(
+                Stream.runCollect,
+                Effect.map((chunk) => Array.from(chunk)),
+              );
+            }),
           );
         }),
       ),
@@ -143,10 +146,6 @@ class InMemoryEffectElectronIpc {
     },
   };
 
-  readonly rendererGlobal = {
-    [EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY]: this.rendererPort,
-  };
-
   close(): void {
     this.closed = true;
     for (const listener of this.closeListeners) {
@@ -154,3 +153,27 @@ class InMemoryEffectElectronIpc {
     }
   }
 }
+
+const withEffectElectronIpcRendererBridge = <A, E, R>(
+  bridge: EffectElectronIpcRendererBridge,
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const globalObject = globalThis as Partial<
+        Record<typeof EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY, EffectElectronIpcRendererBridge>
+      >;
+      const previousBridge = globalObject[EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY];
+      globalObject[EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY] = bridge;
+
+      return () => {
+        if (previousBridge !== undefined) {
+          globalObject[EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY] = previousBridge;
+        } else {
+          delete globalObject[EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY];
+        }
+      };
+    }),
+    () => effect,
+    (restore) => Effect.sync(restore),
+  );
