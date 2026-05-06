@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import type {
   DesktopTheme,
   DiscoveredColorTheme,
@@ -30,6 +30,10 @@ const DYNAMIC_THEME_COLOR_SELECTOR = `meta[name="${THEME_COLOR_META_NAME}"][data
 let listeners: Array<() => void> = [];
 let lastSnapshot: ThemeSnapshot | null = null;
 let lastDesktopTheme: DesktopTheme | null = null;
+let themeRuntimeRefCount = 0;
+let stopThemeRuntime: (() => void) | null = null;
+let refreshThemesPromise: Promise<void> | null = null;
+const preferenceLoadPromises = new Map<string, Promise<void>>();
 let state: ThemeSnapshot = {
   preference: DEFAULT_THEME_PREFERENCE,
   systemDark: false,
@@ -121,6 +125,19 @@ function isSamePreference(a: ThemePreference, b: ThemePreference) {
   return true;
 }
 
+function themePreferenceKey(preference: ThemePreference) {
+  switch (preference.mode) {
+    case "builtin":
+      return `builtin:${preference.theme}`;
+    case "external":
+      return `external:${preference.themeId}`;
+    case "follow-editor":
+      return `follow-editor:${preference.source}`;
+    case "system":
+      return "system";
+  }
+}
+
 function ensureThemeColorMetaTag(): HTMLMetaElement {
   let element = document.querySelector<HTMLMetaElement>(DYNAMIC_THEME_COLOR_SELECTOR);
   if (element) return element;
@@ -177,7 +194,7 @@ function clearExternalThemeVariables(root: HTMLElement) {
 function syncDesktopTheme(theme: DesktopTheme) {
   if (typeof window === "undefined") return;
   const bridge = window.desktopBridge;
-  if (!bridge || lastDesktopTheme === theme) return;
+  if (!bridge?.setTheme || lastDesktopTheme === theme) return;
 
   lastDesktopTheme = theme;
   void bridge.setTheme(theme).catch(() => {
@@ -188,7 +205,7 @@ function syncDesktopTheme(theme: DesktopTheme) {
 function syncDesktopWindowColors(theme: ResolvedColorTheme | null) {
   if (typeof window === "undefined") return;
   const bridge = window.desktopBridge;
-  if (!bridge || !theme) return;
+  if (!bridge?.setWindowThemeColors || !theme) return;
   const backgroundColor =
     theme.appVariables["--app-chrome-background"] ??
     theme.appVariables["--background"] ??
@@ -275,7 +292,7 @@ function recomputeSnapshot(next: Partial<ThemeSnapshot> = {}) {
 async function loadPreference(preference: ThemePreference, suppressTransitions = true) {
   if (preference.mode === "external") {
     const bridge = window.desktopBridge;
-    if (!bridge) {
+    if (!bridge?.loadColorTheme) {
       recomputeSnapshot({
         preference,
         resolvedColorTheme: null,
@@ -325,9 +342,27 @@ async function loadPreference(preference: ThemePreference, suppressTransitions =
   applyResolvedTheme(null, suppressTransitions);
 }
 
-async function refreshThemes() {
+function loadThemePreference(preference: ThemePreference, suppressTransitions = true) {
+  const key = themePreferenceKey(preference);
+  const existing = preferenceLoadPromises.get(key);
+  if (existing) return existing;
+
+  const promise = loadPreference(preference, suppressTransitions).finally(() => {
+    if (preferenceLoadPromises.get(key) === promise) {
+      preferenceLoadPromises.delete(key);
+    }
+  });
+  preferenceLoadPromises.set(key, promise);
+  return promise;
+}
+
+function loadStoredPreference(suppressTransitions = true) {
+  return loadThemePreference(getStoredPreference(), suppressTransitions);
+}
+
+async function refreshThemesNow() {
   const bridge = typeof window !== "undefined" ? window.desktopBridge : null;
-  if (!bridge) {
+  if (!bridge?.discoverColorThemes) {
     recomputeSnapshot({
       discoveredThemes: [],
       status: "ready",
@@ -342,6 +377,15 @@ async function refreshThemes() {
   } catch {
     recomputeSnapshot({ status: "error", message: "Could not refresh editor themes." });
   }
+}
+
+export function refreshThemes() {
+  if (refreshThemesPromise) return refreshThemesPromise;
+
+  refreshThemesPromise = refreshThemesNow().finally(() => {
+    refreshThemesPromise = null;
+  });
+  return refreshThemesPromise;
 }
 
 function bootstrapCachedTheme() {
@@ -380,6 +424,12 @@ function subscribe(listener: () => void): () => void {
   if (typeof window === "undefined") return () => {};
   listeners.push(listener);
 
+  return () => {
+    listeners = listeners.filter((l) => l !== listener);
+  };
+}
+
+function startThemeRuntimeUnsafe() {
   const mq = window.matchMedia(MEDIA_QUERY);
   const handleChange = () => {
     recomputeSnapshot();
@@ -389,15 +439,38 @@ function subscribe(listener: () => void): () => void {
 
   const handleStorage = (e: StorageEvent) => {
     if (e.key === STORAGE_KEY || e.key === PREFERENCE_STORAGE_KEY) {
-      void loadPreference(getStoredPreference(), true);
+      void loadStoredPreference(true);
     }
   };
   window.addEventListener("storage", handleStorage);
 
+  void loadStoredPreference(false).finally(() => {
+    void refreshThemes();
+  });
+
   return () => {
-    listeners = listeners.filter((l) => l !== listener);
     mq.removeEventListener("change", handleChange);
     window.removeEventListener("storage", handleStorage);
+  };
+}
+
+export function startThemeRuntime() {
+  if (typeof window === "undefined") return () => {};
+
+  themeRuntimeRefCount += 1;
+  if (themeRuntimeRefCount === 1) {
+    stopThemeRuntime = startThemeRuntimeUnsafe();
+  }
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    themeRuntimeRefCount = Math.max(0, themeRuntimeRefCount - 1);
+    if (themeRuntimeRefCount === 0) {
+      stopThemeRuntime?.();
+      stopThemeRuntime = null;
+    }
   };
 }
 
@@ -406,7 +479,7 @@ export function useTheme() {
 
   const setThemePreference = useCallback((preference: ThemePreference) => {
     setStoredPreference(preference);
-    void loadPreference(preference, true);
+    void loadThemePreference(preference, true);
   }, []);
 
   const setTheme = useCallback(
@@ -415,11 +488,6 @@ export function useTheme() {
     },
     [setThemePreference],
   );
-
-  useEffect(() => {
-    void refreshThemes();
-    void loadPreference(getStoredPreference(), false);
-  }, []);
 
   return {
     theme: preferenceToBuiltInTheme(snapshot.preference),
