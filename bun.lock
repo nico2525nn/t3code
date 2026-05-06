@@ -20,7 +20,7 @@
       "dependencies": {
         "@effect/platform-node": "catalog:",
         "effect": "catalog:",
-        "effect-electron-rpc": "workspace:*",
+        "effect-electron-ipc": "workspace:*",
         "electron": "40.9.3",
         "electron-updater": "^6.6.2",
       },
@@ -191,8 +191,8 @@
         "vitest": "catalog:",
       },
     },
-    "packages/effect-electron-rpc": {
-      "name": "effect-electron-rpc",
+    "packages/effect-electron-ipc": {
+      "name": "effect-electron-ipc",
       "dependencies": {
         "effect": "catalog:",
       },
@@ -1163,7 +1163,7 @@
 
     "effect-codex-app-server": ["effect-codex-app-server@workspace:packages/effect-codex-app-server"],
 
-    "effect-electron-rpc": ["effect-electron-rpc@workspace:packages/effect-electron-rpc"],
+    "effect-electron-ipc": ["effect-electron-ipc@workspace:packages/effect-electron-ipc"],
 
     "electron": ["electron@40.9.3", "", { "dependencies": { "@electron/get": "^2.0.0", "@types/node": "^24.9.0", "extract-zip": "^2.0.1" }, "bin": { "electron": "cli.js" } }, "sha512-rDcJOT6BBE689Ada+4jD3rVr05pMv9MZOgT0x/rIMVDF9c4ttx4RTb6lVARTyxZC7uqpirttCtcli1eg1DX5qg=="],
 

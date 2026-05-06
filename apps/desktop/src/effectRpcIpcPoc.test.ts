@@ -7,16 +7,16 @@ import {
 } from "./effectRpcIpcPoc/example/browser-client.ts";
 import { runDesktopIpcPocRpcServer } from "./effectRpcIpcPoc/example/rpc-server.ts";
 import { DESKTOP_IPC_POC_METHODS } from "./effectRpcIpcPoc/example/protocol.ts";
-import { EFFECT_ELECTRON_RPC_RENDERER_BRIDGE_KEY } from "effect-electron-rpc/ipc";
+import { EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY } from "effect-electron-ipc/ipc";
 import type {
-  EffectElectronRpcMainFrame,
-  EffectElectronRpcMainSource,
-  EffectElectronRpcRendererFrame,
-} from "effect-electron-rpc/ipc";
+  EffectElectronIpcMainFrame,
+  EffectElectronIpcMainSource,
+  EffectElectronIpcRendererFrame,
+} from "effect-electron-ipc/ipc";
 
 describe("effect RPC over Electron IPC proof of concept", () => {
   it("runs the end-to-end consumer example over the Electron IPC transport", async () => {
-    const ipc = new InMemoryEffectElectronRpc();
+    const ipc = new InMemoryEffectElectronIpc();
 
     const result = await Effect.runPromise(
       Effect.scoped(
@@ -56,7 +56,7 @@ describe("effect RPC over Electron IPC proof of concept", () => {
   });
 
   it("lets browser code consume the generated Effect RPC client directly", async () => {
-    const ipc = new InMemoryEffectElectronRpc();
+    const ipc = new InMemoryEffectElectronIpc();
 
     const ticks = await Effect.runPromise(
       Effect.scoped(
@@ -87,15 +87,15 @@ describe("effect RPC over Electron IPC proof of concept", () => {
   });
 });
 
-class InMemoryEffectElectronRpc {
+class InMemoryEffectElectronIpc {
   private readonly mainListeners = new Set<
-    (source: EffectElectronRpcMainSource, frame: EffectElectronRpcRendererFrame) => void
+    (source: EffectElectronIpcMainSource, frame: EffectElectronIpcRendererFrame) => void
   >();
-  private readonly rendererListeners = new Set<(frame: EffectElectronRpcMainFrame) => void>();
+  private readonly rendererListeners = new Set<(frame: EffectElectronIpcMainFrame) => void>();
   private readonly closeListeners = new Set<() => void>();
   private closed = false;
 
-  readonly source: EffectElectronRpcMainSource = {
+  readonly source: EffectElectronIpcMainSource = {
     id: 1,
     send: (frame) => {
       queueMicrotask(() => {
@@ -116,8 +116,8 @@ class InMemoryEffectElectronRpc {
   readonly mainPort = {
     subscribe: (
       listener: (
-        source: EffectElectronRpcMainSource,
-        frame: EffectElectronRpcRendererFrame,
+        source: EffectElectronIpcMainSource,
+        frame: EffectElectronIpcRendererFrame,
       ) => void,
     ) => {
       this.mainListeners.add(listener);
@@ -128,14 +128,14 @@ class InMemoryEffectElectronRpc {
   };
 
   readonly rendererPort = {
-    send: (frame: EffectElectronRpcRendererFrame) => {
+    send: (frame: EffectElectronIpcRendererFrame) => {
       queueMicrotask(() => {
         for (const listener of this.mainListeners) {
           listener(this.source, frame);
         }
       });
     },
-    subscribe: (listener: (frame: EffectElectronRpcMainFrame) => void) => {
+    subscribe: (listener: (frame: EffectElectronIpcMainFrame) => void) => {
       this.rendererListeners.add(listener);
       return () => {
         this.rendererListeners.delete(listener);
@@ -144,7 +144,7 @@ class InMemoryEffectElectronRpc {
   };
 
   readonly rendererGlobal = {
-    [EFFECT_ELECTRON_RPC_RENDERER_BRIDGE_KEY]: this.rendererPort,
+    [EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY]: this.rendererPort,
   };
 
   close(): void {

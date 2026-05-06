@@ -1,14 +1,14 @@
 import {
-  EFFECT_ELECTRON_RPC_CHANNELS,
-  EFFECT_ELECTRON_RPC_RENDERER_BRIDGE_KEY,
-  type EffectElectronRpcRendererBridge,
-  type EffectElectronRpcRendererFrame,
-  isEffectElectronRpcMainFrame,
-  isEffectElectronRpcRendererFrame,
+  EFFECT_ELECTRON_IPC_CHANNELS,
+  EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY,
+  type EffectElectronIpcRendererBridge,
+  type EffectElectronIpcRendererFrame,
+  isEffectElectronIpcMainFrame,
+  isEffectElectronIpcRendererFrame,
 } from "./ipc.ts";
 
 export interface ElectronLikeIpcRenderer {
-  readonly send: (channel: string, frame: EffectElectronRpcRendererFrame) => void;
+  readonly send: (channel: string, frame: EffectElectronIpcRendererFrame) => void;
   readonly on: (
     channel: string,
     listener: (event: unknown, frame: unknown) => void,
@@ -24,23 +24,23 @@ export interface ElectronLikeIpcRenderer {
 }
 
 export interface ElectronLikeContextBridge {
-  readonly exposeInMainWorld: (apiKey: string, api: EffectElectronRpcRendererBridge) => void;
+  readonly exposeInMainWorld: (apiKey: string, api: EffectElectronIpcRendererBridge) => void;
 }
 
-export function makeEffectElectronRpcPreloadBridge(
+export function makeEffectElectronIpcPreloadBridge(
   electronIpcRenderer: ElectronLikeIpcRenderer,
-  channels = EFFECT_ELECTRON_RPC_CHANNELS,
-): EffectElectronRpcRendererBridge {
+  channels = EFFECT_ELECTRON_IPC_CHANNELS,
+): EffectElectronIpcRendererBridge {
   return {
     send: (frame) => {
-      if (!isEffectElectronRpcRendererFrame(frame)) {
+      if (!isEffectElectronIpcRendererFrame(frame)) {
         throw new TypeError("Invalid Effect RPC renderer frame");
       }
       electronIpcRenderer.send(channels.rendererToMain, frame);
     },
     subscribe: (listener) => {
       const wrapped = (_event: unknown, frame: unknown) => {
-        if (isEffectElectronRpcMainFrame(frame)) {
+        if (isEffectElectronIpcMainFrame(frame)) {
           listener(frame);
         }
       };
@@ -53,15 +53,15 @@ export function makeEffectElectronRpcPreloadBridge(
   };
 }
 
-export function exposeEffectElectronRpcPreloadBridge(options: {
+export function exposeEffectElectronIpcPreloadBridge(options: {
   readonly contextBridge: ElectronLikeContextBridge;
   readonly ipcRenderer: ElectronLikeIpcRenderer;
   readonly globalKey?: string;
-  readonly channels?: typeof EFFECT_ELECTRON_RPC_CHANNELS;
+  readonly channels?: typeof EFFECT_ELECTRON_IPC_CHANNELS;
 }): void {
   options.contextBridge.exposeInMainWorld(
-    options.globalKey ?? EFFECT_ELECTRON_RPC_RENDERER_BRIDGE_KEY,
-    makeEffectElectronRpcPreloadBridge(options.ipcRenderer, options.channels),
+    options.globalKey ?? EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY,
+    makeEffectElectronIpcPreloadBridge(options.ipcRenderer, options.channels),
   );
 }
 

@@ -1,5 +1,5 @@
 {
-  "name": "effect-electron-rpc",
+  "name": "effect-electron-ipc",
   "private": true,
   "type": "module",
   "exports": {

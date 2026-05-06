@@ -4,7 +4,7 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { Effect } from "effect";
 import { app, BrowserWindow, ipcMain } from "electron";
 
-import { makeElectronIpcMainPort } from "effect-electron-rpc/main";
+import { makeElectronIpcMainPort } from "effect-electron-ipc/main";
 import { runDesktopIpcPocRpcServer } from "./rpc-server.ts";
 
 const isMac = process.platform === "darwin";

@@ -5,37 +5,37 @@ import * as Scope from "effect/Scope";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
 
 import {
-  EFFECT_ELECTRON_RPC_RENDERER_BRIDGE_KEY,
-  type EffectElectronRpcMainFrame,
-  type EffectElectronRpcRendererBridge,
-  type EffectElectronRpcRendererPort,
+  EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY,
+  type EffectElectronIpcMainFrame,
+  type EffectElectronIpcRendererBridge,
+  type EffectElectronIpcRendererPort,
 } from "./ipc.ts";
 
-export interface EffectElectronRpcBrowserGlobal {
-  readonly [EFFECT_ELECTRON_RPC_RENDERER_BRIDGE_KEY]?: EffectElectronRpcRendererBridge;
+export interface EffectElectronIpcBrowserGlobal {
+  readonly [EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY]?: EffectElectronIpcRendererBridge;
 }
 
-export function getEffectElectronRpcRendererBridge(
-  globalObject: EffectElectronRpcBrowserGlobal = globalThis as EffectElectronRpcBrowserGlobal,
-): EffectElectronRpcRendererBridge {
-  const bridge = globalObject[EFFECT_ELECTRON_RPC_RENDERER_BRIDGE_KEY];
+export function getEffectElectronIpcRendererBridge(
+  globalObject: EffectElectronIpcBrowserGlobal = globalThis as EffectElectronIpcBrowserGlobal,
+): EffectElectronIpcRendererBridge {
+  const bridge = globalObject[EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY];
   if (!bridge) {
-    throw new Error(`Missing preload bridge: window.${EFFECT_ELECTRON_RPC_RENDERER_BRIDGE_KEY}`);
+    throw new Error(`Missing preload bridge: window.${EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY}`);
   }
   return bridge;
 }
 
-export const makeEffectElectronRpcRendererPort = (
-  bridge: EffectElectronRpcRendererBridge,
-): EffectElectronRpcRendererPort => bridge;
+export const makeEffectElectronIpcRendererPort = (
+  bridge: EffectElectronIpcRendererBridge,
+): EffectElectronIpcRendererPort => bridge;
 
-export const makeEffectElectronRpcRendererProtocol = (
-  port: EffectElectronRpcRendererPort,
+export const makeEffectElectronIpcRendererProtocol = (
+  port: EffectElectronIpcRendererPort,
 ): Effect.Effect<RpcClient.Protocol["Service"], never, Scope.Scope> =>
   RpcClient.Protocol.make((writeResponse) =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope;
-      const responses = yield* Queue.make<EffectElectronRpcMainFrame>();
+      const responses = yield* Queue.make<EffectElectronIpcMainFrame>();
       const unsubscribe = port.subscribe((frame) => {
         Queue.offerUnsafe(responses, frame);
       });
@@ -66,5 +66,5 @@ export const makeEffectElectronRpcRendererProtocol = (
     }),
   );
 
-export const layerEffectElectronRpcRendererProtocol = (port: EffectElectronRpcRendererPort) =>
-  Layer.effect(RpcClient.Protocol, makeEffectElectronRpcRendererProtocol(port));
+export const layerEffectElectronIpcRendererProtocol = (port: EffectElectronIpcRendererPort) =>
+  Layer.effect(RpcClient.Protocol, makeEffectElectronIpcRendererProtocol(port));

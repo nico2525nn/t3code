@@ -1,8 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-import { exposeEffectElectronRpcPreloadBridge } from "effect-electron-rpc/preload";
+import { exposeEffectElectronIpcPreloadBridge } from "effect-electron-ipc/preload";
 
-exposeEffectElectronRpcPreloadBridge({
+exposeEffectElectronIpcPreloadBridge({
   contextBridge,
   ipcRenderer,
 });

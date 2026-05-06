@@ -8,48 +8,48 @@ import type { FromClientEncoded, FromServerEncoded } from "effect/unstable/rpc/R
  * them in JSON-RPC text.
  */
 
-export const EFFECT_ELECTRON_RPC_CHANNELS = {
-  rendererToMain: "effect-electron-rpc:renderer-to-main",
-  mainToRenderer: "effect-electron-rpc:main-to-renderer",
+export const EFFECT_ELECTRON_IPC_CHANNELS = {
+  rendererToMain: "effect-electron-ipc:renderer-to-main",
+  mainToRenderer: "effect-electron-ipc:main-to-renderer",
 } as const;
 
-export const EFFECT_ELECTRON_RPC_RENDERER_BRIDGE_KEY = "effectElectronRpc" as const;
+export const EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY = "effectElectronIpc" as const;
 
-export interface EffectElectronRpcRendererFrame {
+export interface EffectElectronIpcRendererFrame {
   readonly version: 1;
   readonly rendererClientId: number;
   readonly message: FromClientEncoded;
 }
 
-export interface EffectElectronRpcMainFrame {
+export interface EffectElectronIpcMainFrame {
   readonly version: 1;
   readonly rendererClientId: number;
   readonly message: FromServerEncoded;
 }
 
-export interface EffectElectronRpcRendererPort {
-  readonly send: (frame: EffectElectronRpcRendererFrame) => void;
-  readonly subscribe: (listener: (frame: EffectElectronRpcMainFrame) => void) => () => void;
+export interface EffectElectronIpcRendererPort {
+  readonly send: (frame: EffectElectronIpcRendererFrame) => void;
+  readonly subscribe: (listener: (frame: EffectElectronIpcMainFrame) => void) => () => void;
 }
 
-export type EffectElectronRpcRendererBridge = EffectElectronRpcRendererPort;
+export type EffectElectronIpcRendererBridge = EffectElectronIpcRendererPort;
 
-export interface EffectElectronRpcMainSource {
+export interface EffectElectronIpcMainSource {
   readonly id: number;
-  readonly send: (frame: EffectElectronRpcMainFrame) => void;
+  readonly send: (frame: EffectElectronIpcMainFrame) => void;
   readonly isClosed?: () => boolean;
   readonly onClose?: (listener: () => void) => () => void;
 }
 
-export interface EffectElectronRpcMainPort {
+export interface EffectElectronIpcMainPort {
   readonly subscribe: (
-    listener: (source: EffectElectronRpcMainSource, frame: EffectElectronRpcRendererFrame) => void,
+    listener: (source: EffectElectronIpcMainSource, frame: EffectElectronIpcRendererFrame) => void,
   ) => () => void;
 }
 
-export function isEffectElectronRpcRendererFrame(
+export function isEffectElectronIpcRendererFrame(
   value: unknown,
-): value is EffectElectronRpcRendererFrame {
+): value is EffectElectronIpcRendererFrame {
   return (
     isRecord(value) &&
     value.version === 1 &&
@@ -58,7 +58,7 @@ export function isEffectElectronRpcRendererFrame(
   );
 }
 
-export function isEffectElectronRpcMainFrame(value: unknown): value is EffectElectronRpcMainFrame {
+export function isEffectElectronIpcMainFrame(value: unknown): value is EffectElectronIpcMainFrame {
   return (
     isRecord(value) &&
     value.version === 1 &&

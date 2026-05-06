@@ -7,18 +7,18 @@ import * as RpcServer from "effect/unstable/rpc/RpcServer";
 import { describe, expect, it } from "vitest";
 
 import type {
-  EffectElectronRpcMainFrame,
-  EffectElectronRpcMainSource,
-  EffectElectronRpcRendererFrame,
+  EffectElectronIpcMainFrame,
+  EffectElectronIpcMainSource,
+  EffectElectronIpcRendererFrame,
 } from "./ipc.ts";
 import {
-  makeEffectElectronRpcRendererPort,
-  makeEffectElectronRpcRendererProtocol,
+  makeEffectElectronIpcRendererPort,
+  makeEffectElectronIpcRendererProtocol,
 } from "./client.ts";
-import { makeEffectElectronRpcMainProtocol } from "./main.ts";
+import { makeEffectElectronIpcMainProtocol } from "./main.ts";
 
 const TEST_METHODS = {
-  echo: "effect-electron-rpc.test.echo",
+  echo: "effect-electron-ipc.test.echo",
 } as const;
 
 const EchoInput = Schema.Struct({
@@ -48,12 +48,12 @@ const TestHandlersLive = TestRpcGroup.toLayer(
 
 describe("Effect Electron RPC transport", () => {
   it("round-trips an Effect RPC through renderer and main ports", async () => {
-    const transport = new InMemoryEffectElectronRpc();
+    const transport = new InMemoryEffectElectronIpc();
 
     const result = await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const mainProtocol = yield* makeEffectElectronRpcMainProtocol(transport.mainPort);
+          const mainProtocol = yield* makeEffectElectronIpcMainProtocol(transport.mainPort);
 
           yield* RpcServer.make(TestRpcGroup).pipe(
             Effect.provideService(RpcServer.Protocol, mainProtocol),
@@ -61,8 +61,8 @@ describe("Effect Electron RPC transport", () => {
             Effect.forkScoped,
           );
 
-          const rendererProtocol = yield* makeEffectElectronRpcRendererProtocol(
-            makeEffectElectronRpcRendererPort(transport.rendererPort),
+          const rendererProtocol = yield* makeEffectElectronIpcRendererProtocol(
+            makeEffectElectronIpcRendererPort(transport.rendererPort),
           );
           const client = yield* makeTestClient.pipe(
             Effect.provideService(RpcClient.Protocol, rendererProtocol),
@@ -81,13 +81,13 @@ describe("Effect Electron RPC transport", () => {
   });
 });
 
-class InMemoryEffectElectronRpc {
+class InMemoryEffectElectronIpc {
   private readonly mainListeners = new Set<
-    (source: EffectElectronRpcMainSource, frame: EffectElectronRpcRendererFrame) => void
+    (source: EffectElectronIpcMainSource, frame: EffectElectronIpcRendererFrame) => void
   >();
-  private readonly rendererListeners = new Set<(frame: EffectElectronRpcMainFrame) => void>();
+  private readonly rendererListeners = new Set<(frame: EffectElectronIpcMainFrame) => void>();
 
-  readonly source: EffectElectronRpcMainSource = {
+  readonly source: EffectElectronIpcMainSource = {
     id: 1,
     send: (frame) => {
       queueMicrotask(() => {
@@ -101,8 +101,8 @@ class InMemoryEffectElectronRpc {
   readonly mainPort = {
     subscribe: (
       listener: (
-        source: EffectElectronRpcMainSource,
-        frame: EffectElectronRpcRendererFrame,
+        source: EffectElectronIpcMainSource,
+        frame: EffectElectronIpcRendererFrame,
       ) => void,
     ) => {
       this.mainListeners.add(listener);
@@ -113,14 +113,14 @@ class InMemoryEffectElectronRpc {
   };
 
   readonly rendererPort = {
-    send: (frame: EffectElectronRpcRendererFrame) => {
+    send: (frame: EffectElectronIpcRendererFrame) => {
       queueMicrotask(() => {
         for (const listener of this.mainListeners) {
           listener(this.source, frame);
         }
       });
     },
-    subscribe: (listener: (frame: EffectElectronRpcMainFrame) => void) => {
+    subscribe: (listener: (frame: EffectElectronIpcMainFrame) => void) => {
       this.rendererListeners.add(listener);
       return () => {
         this.rendererListeners.delete(listener);

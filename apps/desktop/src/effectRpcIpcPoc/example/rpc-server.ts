@@ -1,12 +1,12 @@
 import { Effect, Stream } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
 
-import type { EffectElectronRpcMainPort } from "effect-electron-rpc/ipc";
-import { makeEffectElectronRpcMainProtocol } from "effect-electron-rpc/main";
+import type { EffectElectronIpcMainPort } from "effect-electron-ipc/ipc";
+import { makeEffectElectronIpcMainProtocol } from "effect-electron-ipc/main";
 import { DESKTOP_IPC_POC_METHODS, DesktopIpcPocRpcGroup } from "./protocol.ts";
 
 export interface DesktopIpcPocMainOptions {
-  readonly port: EffectElectronRpcMainPort;
+  readonly port: EffectElectronIpcMainPort;
   readonly appVersion?: string;
   readonly platform?: string;
   readonly now?: () => Date;
@@ -41,7 +41,7 @@ export const makeDesktopIpcPocHandlersLayer = (options: DesktopIpcPocMainOptions
 
 export const runDesktopIpcPocRpcServer = (options: DesktopIpcPocMainOptions) =>
   Effect.gen(function* () {
-    const mainProtocol = yield* makeEffectElectronRpcMainProtocol(options.port);
+    const mainProtocol = yield* makeEffectElectronIpcMainProtocol(options.port);
 
     yield* RpcServer.make(DesktopIpcPocRpcGroup).pipe(
       Effect.provideService(RpcServer.Protocol, mainProtocol),
