@@ -147,9 +147,7 @@ export function parseGitHubRepositoryNameWithOwnerFromRemoteUrlOption(
       trimmed,
     );
   const repositoryNameWithOwner = match?.[1]?.trim() ?? "";
-  return repositoryNameWithOwner.length > 0
-    ? Option.some(repositoryNameWithOwner)
-    : Option.none();
+  return repositoryNameWithOwner.length > 0 ? Option.some(repositoryNameWithOwner) : Option.none();
 }
 
 export function parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url: string | null): string | null {

@@ -12,7 +12,10 @@ import {
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
 
-function deterministicRandom(seed = 0x1234_5678): Random.Random {
+function deterministicRandom(seed = 0x1234_5678): {
+  nextIntUnsafe: () => number;
+  nextDoubleUnsafe: () => number;
+} {
   let state = seed >>> 0;
   const nextIntUnsafe = (): number => {
     state = (Math.imul(1_664_525, state) + 1_013_904_223) >>> 0;
@@ -22,7 +25,6 @@ function deterministicRandom(seed = 0x1234_5678): Random.Random {
   return {
     nextIntUnsafe,
     nextDoubleUnsafe: () => nextIntUnsafe() / 0x1_0000_0000,
-    shuffle: (elements) => Effect.succeed(elements),
   };
 }
 
