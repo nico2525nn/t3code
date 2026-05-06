@@ -30,11 +30,12 @@ import {
   ModelSelection,
   ProviderApprovalDecision,
   ProviderInteractionMode,
-  ProviderKind,
   ProviderRequestKind,
   ProviderUserInputAnswers,
   RuntimeMode,
 } from "./orchestration.ts";
+export const ProviderKind = TrimmedNonEmptyString;
+export type ProviderKind = typeof ProviderKind.Type;
 
 export const OrchestrationV2NativeRefStrength = Schema.Literals(["strong", "weak", "none"]);
 export type OrchestrationV2NativeRefStrength = typeof OrchestrationV2NativeRefStrength.Type;

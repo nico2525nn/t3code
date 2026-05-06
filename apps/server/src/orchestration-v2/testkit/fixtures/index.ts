@@ -207,7 +207,7 @@ export const ORCHESTRATOR_REPLAY_FIXTURES = [
       {
         provider: "codex",
         transcriptFile: new URL("./plan_questions/codex_transcript.ndjson", import.meta.url),
-        modelSelection: { provider: "codex", model: "gpt-5.4" },
+        modelSelection: CODEX_MODEL_SELECTION,
         runtimePolicyOverride: CODEX_READ_ONLY_NEVER_POLICY,
         assertOutput: assertPlanQuestionsOutput,
       },
@@ -220,7 +220,7 @@ export const ORCHESTRATOR_REPLAY_FIXTURES = [
       {
         provider: "codex",
         transcriptFile: new URL("./proposed_plan/codex_transcript.ndjson", import.meta.url),
-        modelSelection: { provider: "codex", model: "gpt-5.4" },
+        modelSelection: CODEX_MODEL_SELECTION,
         runtimePolicyOverride: CODEX_READ_ONLY_NEVER_POLICY,
         assertOutput: assertProposedPlanOutput,
       },

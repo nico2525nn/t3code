@@ -1,4 +1,5 @@
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProviderReplayEntry,
   type ModelSelection,
@@ -8,15 +9,18 @@ import { Effect, Layer, Random, Schema, Stream } from "effect";
 
 import {
   CLAUDE_PROVIDER,
+  CLAUDE_DEFAULT_INSTANCE_ID,
+  CLAUDE_DRIVER_KIND,
+  ClaudeAdapterV2Driver,
   ClaudeAgentSdkQueryRunner,
   ClaudeAgentSdkQueryRunnerError,
-  layer as claudeAdapterLayer,
   makeClaudeQueryOptions,
   type ClaudeAgentSdkQueryInput,
   type ClaudeAgentSdkQueryOptions,
 } from "./ClaudeAdapterV2.ts";
 import { layer as idAllocatorLayer } from "../IdAllocator.ts";
-import { layerFromProviderAdapter } from "../ProviderAdapterRegistry.ts";
+import { ProviderAdapterDriverCreateError } from "../ProviderAdapterDriver.ts";
+import { makeDriverLayer as makeProviderAdapterRegistryDriverLayer } from "../ProviderAdapterRegistry.ts";
 import type { OrchestratorV2ProviderReplayHarness } from "../testkit/ProviderReplayHarness.ts";
 
 export const CLAUDE_AGENT_SDK_REPLAY_PROTOCOL = "claude-agent-sdk.query" as const;
@@ -136,6 +140,11 @@ export const ClaudeAgentSdkReplayError = Schema.Union([
   ClaudeReplayDriverError,
 ]);
 export type ClaudeAgentSdkReplayError = typeof ClaudeAgentSdkReplayError.Type;
+export const ClaudeOrchestratorReplayHarnessError = Schema.Union([
+  ClaudeAgentSdkReplayError,
+  ProviderAdapterDriverCreateError,
+]);
+export type ClaudeOrchestratorReplayHarnessError = typeof ClaudeOrchestratorReplayHarnessError.Type;
 
 interface ClaudeQueryFrame {
   readonly type: "query";
@@ -366,11 +375,18 @@ export function makeClaudeAgentSdkReplayQueryRunnerLayer(
 export function makeClaudeProviderAdapterRegistryReplayLayer(
   transcript: ClaudeAgentSdkReplayTranscript,
 ) {
-  const adapterLayer = claudeAdapterLayer.pipe(
+  return makeProviderAdapterRegistryDriverLayer({
+    drivers: [ClaudeAdapterV2Driver],
+    configMap: {
+      [CLAUDE_DEFAULT_INSTANCE_ID]: {
+        driver: CLAUDE_DRIVER_KIND,
+      },
+    },
+  }).pipe(
     Layer.provide(makeClaudeAgentSdkReplayQueryRunnerLayer(transcript)),
     Layer.provide(idAllocatorLayer),
+    Layer.provide(NodeServices.layer),
   );
-  return layerFromProviderAdapter.pipe(Layer.provide(adapterLayer));
 }
 
 export async function replayClaudeAgentSdkTranscript(input: {
@@ -468,7 +484,7 @@ export async function recordClaudeAgentSdkReplayTranscript(input: {
 
 export const ClaudeOrchestratorReplayHarness: OrchestratorV2ProviderReplayHarness<
   ClaudeAgentSdkReplayTranscript,
-  ClaudeAgentSdkReplayError
+  ClaudeOrchestratorReplayHarnessError
 > = {
   provider: CLAUDE_PROVIDER,
   decodeTranscript: (transcript) =>

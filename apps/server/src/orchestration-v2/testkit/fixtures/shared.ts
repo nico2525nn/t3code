@@ -12,8 +12,9 @@ import {
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
   type OrchestrationV2UserMessageInputIntent,
-  type ProviderKind,
+  ProviderInstanceId,
   type ProviderInteractionMode,
+  type ProviderKind,
   type ProviderReplayTranscript,
   type ProviderUserInputAnswers,
 } from "@t3tools/contracts";
@@ -129,7 +130,7 @@ export interface FixtureIds {
 }
 
 export const CODEX_MODEL_SELECTION = {
-  provider: "codex",
+  instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5.4",
 } satisfies ModelSelection;
 
@@ -303,7 +304,7 @@ export function materializeFixtureInput(input: {
               }),
               threadId: ids.threadId,
               requestId: yield* idAllocator.allocate.runtimeRequest({
-                provider: input.modelSelection.provider,
+                provider: input.modelSelection.instanceId,
                 nativeRequestId: `fixture-placeholder-${messageIndex}`,
               }),
               answers: step.answers,
@@ -329,7 +330,7 @@ export function materializeFixtureInput(input: {
               }),
               threadId: ids.threadId,
               requestId: yield* idAllocator.allocate.runtimeRequest({
-                provider: input.modelSelection.provider,
+                provider: input.modelSelection.instanceId,
                 nativeRequestId: `fixture-placeholder-${messageIndex}`,
               }),
               decision: step.decision ?? "accept",

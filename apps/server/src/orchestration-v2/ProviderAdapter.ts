@@ -17,6 +17,7 @@ import {
   ProviderApprovalDecision,
   ProviderInteractionMode,
   ProviderKind,
+  ProviderInstanceId,
   ProviderUserInputAnswers,
   ProviderSessionId,
   ProviderThreadId,
@@ -400,6 +401,7 @@ export interface ProviderAdapterV2ForkThreadInput {
 }
 
 export interface ProviderAdapterV2SessionRuntime {
+  readonly instanceId: ProviderInstanceId;
   readonly provider: ProviderKind;
   readonly providerSessionId: ProviderSessionId;
   readonly providerSession: OrchestrationV2ProviderSession;
@@ -435,6 +437,7 @@ export interface ProviderAdapterV2SessionRuntime {
 }
 
 export interface ProviderAdapterV2Shape {
+  readonly instanceId: ProviderInstanceId;
   readonly provider: ProviderKind;
   readonly getCapabilities: () => Effect.Effect<
     OrchestrationV2ProviderCapabilities,

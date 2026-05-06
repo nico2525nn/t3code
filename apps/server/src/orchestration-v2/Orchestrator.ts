@@ -451,11 +451,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
 
       const modelSelection = projection.thread.modelSelection;
-      if (modelSelection.provider !== queuedRun.provider) {
+      if (modelSelection.instanceId !== queuedRun.provider) {
         return yield* new OrchestratorDispatchError({
           commandId: CommandId.make(`command:system:start-queued:${queuedRun.id}`),
           commandType: "message.dispatch",
-          cause: `Queued provider ${queuedRun.provider} does not match thread model provider ${modelSelection.provider}.`,
+          cause: `Queued provider ${queuedRun.provider} does not match thread model provider ${modelSelection.instanceId}.`,
         });
       }
 
@@ -624,7 +624,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       "orchestration_v2.command_id": command.commandId,
       "orchestration_v2.command_type": command.type,
       "orchestration_v2.thread_id": command.threadId,
-      "orchestration_v2.provider": command.modelSelection.provider,
+      "orchestration_v2.provider": command.modelSelection.instanceId,
     });
 
     const now = yield* DateTime.now;
@@ -633,7 +633,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       id: command.threadId,
       projectId: command.projectId,
       title: command.title,
-      defaultProvider: command.modelSelection.provider,
+      defaultProvider: command.modelSelection.instanceId,
       modelSelection: command.modelSelection,
       runtimeMode: command.runtimeMode,
       interactionMode: command.interactionMode,
@@ -655,7 +655,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     yield* emitEvent({
       type: "thread.created",
       threadId: command.threadId,
-      provider: command.modelSelection.provider,
+      provider: command.modelSelection.instanceId,
       occurredAt: now,
       payload: thread,
     });
@@ -870,7 +870,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       sourcePoint: contextSourcePointForRun(sourceProjection, sourceRun),
       basePoint: forkTransfer.sourcePoint,
       sourceProvider: sourceRun.provider,
-      targetProvider: targetProjection.thread.modelSelection.provider,
+      targetProvider: targetProjection.thread.modelSelection.instanceId,
       targetRunId: null,
       status: "pending",
       resolution: null,
@@ -1363,11 +1363,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             cause: `Active run ${activeRun.id} has no provider thread for queued dispatch.`,
           });
         }
-        if (modelSelection.provider !== queueProviderThread.provider) {
+        if (modelSelection.instanceId !== queueProviderThread.provider) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
-            cause: `Queued dispatch for provider ${modelSelection.provider} cannot run behind active provider ${queueProviderThread.provider}.`,
+            cause: `Queued dispatch for provider ${modelSelection.instanceId} cannot run behind active provider ${queueProviderThread.provider}.`,
           });
         }
         const existingProviderSession =
@@ -1381,7 +1381,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             commandPolicy.ensureQueuedMessages({
               commandId: command.commandId,
               threadId: command.threadId,
-              provider: modelSelection.provider,
+              provider: modelSelection.instanceId,
               capabilities: existingProviderSession.capabilities,
             }),
           );
@@ -1431,7 +1431,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           id: runId,
           threadId: command.threadId,
           ordinal,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           providerThreadId: queueProviderThread.id,
           userMessageId: command.messageId,
           rootNodeId,
@@ -1455,7 +1455,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           runId,
           attemptOrdinal: 1,
           rootNodeId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           providerThreadId: queueProviderThread.id,
           providerTurnId: null,
           reason: "initial",
@@ -1519,7 +1519,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId: command.threadId,
           runId,
           nodeId: rootNodeId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: run,
         });
@@ -1528,7 +1528,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId: command.threadId,
           runId,
           nodeId: rootNodeId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: attempt,
         });
@@ -1537,7 +1537,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId: command.threadId,
           runId,
           nodeId: rootNodeId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: rootNode,
         });
@@ -1546,7 +1546,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId: command.threadId,
           runId,
           nodeId: rootNodeId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: yield* checkpointService.ensureScope(checkpointScope).pipe(
             Effect.mapError(
@@ -1564,7 +1564,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId: command.threadId,
           runId,
           nodeId: rootNodeId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: message,
         });
@@ -1573,7 +1573,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId: command.threadId,
           runId,
           nodeId: rootNodeId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: turnItem,
         });
@@ -1633,12 +1633,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (pendingForkTransfer !== undefined) {
         if (
           pendingForkTransfer.sourceProvider === null ||
-          pendingForkTransfer.sourceProvider !== modelSelection.provider
+          pendingForkTransfer.sourceProvider !== modelSelection.instanceId
         ) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
-            cause: `Pending fork transfer ${pendingForkTransfer.id} requires portable context for provider ${modelSelection.provider}, which is not implemented yet.`,
+            cause: `Pending fork transfer ${pendingForkTransfer.id} requires portable context for provider ${modelSelection.instanceId}, which is not implemented yet.`,
           });
         }
         if (sourceRun === null || sourceProviderThread === undefined) {
@@ -1661,7 +1661,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         activeProviderThread?.providerSessionId ??
         (yield* mapDispatchError(command)(
           idAllocator.allocate.providerSession({
-            provider: modelSelection.provider,
+            provider: modelSelection.instanceId,
             threadId: command.threadId,
           }),
         ));
@@ -1686,7 +1686,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           (cause) =>
             new OrchestratorProviderAdapterError({
               commandId: command.commandId,
-              provider: modelSelection.provider,
+              provider: modelSelection.instanceId,
               cause,
             }),
         ),
@@ -1706,7 +1706,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             (cause) =>
               new OrchestratorProviderAdapterError({
                 commandId: command.commandId,
-                provider: modelSelection.provider,
+                provider: modelSelection.instanceId,
                 cause,
               }),
           ),
@@ -1716,7 +1716,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           commandPolicy.ensureNativeFork({
             commandId: command.commandId,
             threadId: command.threadId,
-            provider: modelSelection.provider,
+            provider: modelSelection.instanceId,
             capabilities: session.providerSession.capabilities,
             fromSpecificTurn: sourceRun !== null,
           }),
@@ -1741,7 +1741,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   (cause) =>
                     new OrchestratorProviderAdapterError({
                       commandId: command.commandId,
-                      provider: modelSelection.provider,
+                      provider: modelSelection.instanceId,
                       cause,
                     }),
                 ),
@@ -1759,7 +1759,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                     (cause) =>
                       new OrchestratorProviderAdapterError({
                         commandId: command.commandId,
-                        provider: modelSelection.provider,
+                        provider: modelSelection.instanceId,
                         cause,
                       }),
                   ),
@@ -1775,7 +1775,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                       (cause) =>
                         new OrchestratorProviderAdapterError({
                           commandId: command.commandId,
-                          provider: modelSelection.provider,
+                          provider: modelSelection.instanceId,
                           cause,
                         }),
                     ),
@@ -1835,7 +1835,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           commandPolicy.ensureContextHandoff({
             commandId: command.commandId,
             threadId: command.threadId,
-            provider: modelSelection.provider,
+            provider: modelSelection.instanceId,
             capabilities: session.providerSession.capabilities,
             strategy: "fork_delta_context",
           }),
@@ -1868,7 +1868,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 fromProviderThreadIds: [mergeBackSourceProviderThread.id],
                 toProviderThreadId: providerThread.id,
                 fromProvider: mergeBackSourceRun.provider,
-                toProvider: modelSelection.provider,
+                toProvider: modelSelection.instanceId,
                 coveredRunOrdinals: visibleDeltaRunOrdinals(
                   mergeBackSourceProjection,
                   mergeBackDeltaItems,
@@ -1909,7 +1909,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         id: runId,
         threadId: command.threadId,
         ordinal,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         providerThreadId: providerThread.id,
         userMessageId: command.messageId,
         rootNodeId,
@@ -1927,7 +1927,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         runId,
         attemptOrdinal: 1,
         rootNodeId,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         providerThreadId: providerThread.id,
         providerTurnId: null,
         reason: "initial",
@@ -2011,7 +2011,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               fromProviderThreadIds: mergeBackHandoff.fromProviderThreadIds,
               toProviderThreadId: mergeBackHandoff.toProviderThreadId,
               fromProviders: mergeBackSourceRun === null ? [] : [mergeBackSourceRun.provider],
-              toProvider: modelSelection.provider,
+              toProvider: modelSelection.instanceId,
               strategy: "fork_delta_summary",
               summary: mergeBackHandoff.summaryText,
             };
@@ -2035,11 +2035,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           type: "context-transfer.updated",
           threadId: command.threadId,
           runId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: {
             ...pendingForkTransfer,
-            targetProvider: modelSelection.provider,
+            targetProvider: modelSelection.instanceId,
             targetRunId: runId,
             status: "resolved_native",
             resolution: nativeForkResolution,
@@ -2051,14 +2051,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       yield* emitEvent({
         type: "provider-session.updated",
         threadId: command.threadId,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         occurredAt: now,
         payload: session.providerSession,
       });
       yield* emitEvent({
         type: "provider-thread.updated",
         threadId: command.threadId,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         occurredAt: now,
         payload: providerThread,
       });
@@ -2067,7 +2067,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           type: "context-handoff.updated",
           threadId: command.threadId,
           runId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: mergeBackHandoff,
         });
@@ -2077,7 +2077,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           type: "context-transfer.updated",
           threadId: command.threadId,
           runId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: {
             ...supersededTransfer,
@@ -2095,11 +2095,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           type: "context-transfer.updated",
           threadId: command.threadId,
           runId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: {
             ...pendingMergeBackTransfer,
-            targetProvider: modelSelection.provider,
+            targetProvider: modelSelection.instanceId,
             targetRunId: runId,
             status: "consumed",
             resolution: mergeBackResolution,
@@ -2114,7 +2114,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: command.threadId,
         runId,
         nodeId: rootNodeId,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         occurredAt: now,
         payload: run,
       });
@@ -2123,7 +2123,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: command.threadId,
         runId,
         nodeId: rootNodeId,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         occurredAt: now,
         payload: attempt,
       });
@@ -2132,7 +2132,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: command.threadId,
         runId,
         nodeId: rootNodeId,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         occurredAt: now,
         payload: rootNode,
       });
@@ -2141,7 +2141,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: command.threadId,
         runId,
         nodeId: rootNodeId,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         occurredAt: now,
         payload: yield* checkpointService.ensureScope(checkpointScope).pipe(
           Effect.mapError(
@@ -2160,7 +2160,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId: command.threadId,
           runId,
           nodeId: rootNodeId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: handoffTurnItem,
         });
@@ -2170,7 +2170,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: command.threadId,
         runId,
         nodeId: rootNodeId,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         occurredAt: now,
         payload: message,
       });
@@ -2179,7 +2179,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: command.threadId,
         runId,
         nodeId: rootNodeId,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         occurredAt: now,
         payload: turnItem,
       });
@@ -2188,11 +2188,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           type: "context-transfer.updated",
           threadId: command.threadId,
           runId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: {
             ...pendingForkTransfer,
-            targetProvider: modelSelection.provider,
+            targetProvider: modelSelection.instanceId,
             targetRunId: runId,
             status: "consumed",
             resolution: nativeForkResolution,
@@ -2776,7 +2776,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             (cause) =>
               new OrchestratorProviderAdapterError({
                 commandId: command.commandId,
-                provider: modelSelection.provider,
+                provider: modelSelection.instanceId,
                 cause,
               }),
           ),
@@ -2785,7 +2785,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         commandPolicy.ensureRollback({
           commandId: command.commandId,
           threadId: command.threadId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           capabilities: session.providerSession.capabilities,
         }),
       );
@@ -2843,7 +2843,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   (cause) =>
                     new OrchestratorProviderAdapterError({
                       commandId: command.commandId,
-                      provider: modelSelection.provider,
+                      provider: modelSelection.instanceId,
                       cause,
                     }),
                 ),
@@ -2878,7 +2878,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       yield* emitEvent({
         type: "provider-thread.updated",
         threadId: command.threadId,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         occurredAt: now,
         payload: {
           ...snapshot.providerThread,
@@ -2892,7 +2892,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId: command.threadId,
           ...(checkpoint.runId === null ? {} : { runId: checkpoint.runId }),
           nodeId: checkpoint.nodeId,
-          provider: modelSelection.provider,
+          provider: modelSelection.instanceId,
           occurredAt: now,
           payload: {
             ...checkpoint,

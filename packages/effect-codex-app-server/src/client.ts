@@ -83,12 +83,9 @@ type ServerNotificationHandler = (
   payload: unknown,
 ) => Effect.Effect<void, CodexError.CodexAppServerError>;
 
-// TODO: Remove this patch when the generated `V2TurnStartParams` schema includes
-// `collaborationMode` directly. The upstream protocol already accepts it, but the
-// generated schema currently strips it during request encoding.
 const V2TurnStartParamsWithCollaborationMode = CodexSchema.V2TurnStartParams.pipe(
   Schema.fieldsAssign({
-    collaborationMode: Schema.optionalKey(CodexSchema.V2TurnStartParams__CollaborationMode),
+    collaborationMode: Schema.optionalKey(CodexSchema.ClientRequest__CollaborationMode),
   }),
 );
 

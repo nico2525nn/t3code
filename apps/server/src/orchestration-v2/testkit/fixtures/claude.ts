@@ -1,11 +1,11 @@
-import type { ModelSelection } from "@t3tools/contracts";
+import { ProviderInstanceId, type ModelSelection } from "@t3tools/contracts";
 
 import { assertSimpleClaudeOutput } from "./simple/claude_output.ts";
 import { simpleInput } from "./simple/input.ts";
 import type { OrchestratorReplayFixture } from "./shared.ts";
 
 export const CLAUDE_MODEL_SELECTION = {
-  provider: "claudeAgent",
+  instanceId: ProviderInstanceId.make("claudeAgent"),
   model: "claude-sonnet-4-6",
 } satisfies ModelSelection;
 

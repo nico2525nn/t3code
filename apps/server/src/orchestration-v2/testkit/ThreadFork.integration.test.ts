@@ -4,6 +4,7 @@ import {
   CommandId,
   MessageId,
   type OrchestrationV2Command,
+  ProviderInstanceId,
   type ProviderReplayEntry,
   type ProviderReplayTranscript,
   ThreadId,
@@ -17,7 +18,10 @@ import { provideDeterministicTestRuntime } from "./DeterministicRuntime.ts";
 import { runOrchestratorV2ProviderReplayScenario } from "./ProviderReplayHarness.ts";
 import { decodeProviderReplayNdjson } from "./ReplayTranscriptNdjson.ts";
 
-const CODEX_MODEL_SELECTION = { provider: "codex", model: "gpt-5.4" } as const;
+const CODEX_MODEL_SELECTION = {
+  instanceId: ProviderInstanceId.make("codex"),
+  model: "gpt-5.4",
+} as const;
 const TRANSCRIPT_PATH = `${import.meta.dirname}/fixtures/thread_fork_native/codex_transcript.ndjson`;
 const PRIOR_TURN_TRANSCRIPT_PATH = `${import.meta.dirname}/fixtures/thread_fork_native_prior_turn/codex_transcript.ndjson`;
 const CODEX_READ_ONLY_NEVER_POLICY = {

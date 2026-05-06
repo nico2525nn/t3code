@@ -10,8 +10,9 @@ import path from "node:path";
 
 import { CheckpointStoreLive } from "../../checkpointing/Layers/CheckpointStore.ts";
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
-import { GitCoreLive } from "../../git/Layers/GitCore.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
+import * as VcsProcess from "../../vcs/VcsProcess.ts";
 import { layer as checkpointServiceLayer } from "../CheckpointService.ts";
 import { layer as commandPolicyLayer } from "../CommandPolicy.ts";
 import { layer as commandReceiptStoreLayer } from "../CommandReceiptStore.ts";
@@ -81,6 +82,8 @@ function makeReplayServerConfig(scenario: string): ServerConfigShape {
     devUrl: undefined,
     noBrowser: false,
     startupPresentation: "browser",
+    tailscaleServeEnabled: false,
+    tailscaleServePort: 443,
     desktopBootstrapToken: undefined,
     autoBootstrapProjectFromCwd: false,
     logWebSocketEvents: false,
@@ -183,12 +186,13 @@ export function makeOrchestratorV2ProviderReplayLayer<
   const providerEventIngestorProvided = providerEventIngestorLayer.pipe(
     Layer.provide(Layer.mergeAll(storesLayer, eventSinkProvided, idAllocatorLayer)),
   );
-  const gitCoreLayer = GitCoreLive.pipe(
+  const vcsDriverRegistryLayer = VcsDriverRegistry.layer.pipe(
+    Layer.provide(VcsProcess.layer),
     Layer.provide(serverConfigLayer),
     Layer.provide(NodeServices.layer),
   );
   const checkpointStoreLayer = CheckpointStoreLive.pipe(
-    Layer.provide(gitCoreLayer),
+    Layer.provide(vcsDriverRegistryLayer),
     Layer.provide(NodeServices.layer),
   );
   const checkpointServiceProvided = checkpointServiceLayer.pipe(

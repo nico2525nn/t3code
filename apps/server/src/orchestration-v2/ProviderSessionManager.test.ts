@@ -6,6 +6,7 @@ import {
   type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
+  ProviderInstanceId,
   type ProviderSessionId,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -59,7 +60,7 @@ const emptyState: TestProviderRuntimeState = {
 };
 
 const modelSelection = {
-  provider: "codex",
+  instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5.4",
 } satisfies ModelSelection;
 
@@ -177,6 +178,7 @@ function makeProviderAdapter(
   } = {},
 ): ProviderAdapterV2Shape {
   return {
+    instanceId: ProviderInstanceId.make("codex"),
     provider: "codex",
     getCapabilities: () => Effect.succeed(CodexCapabilities),
     openSession: (input) =>
@@ -204,6 +206,7 @@ function makeProviderAdapter(
         );
 
         return {
+          instanceId: ProviderInstanceId.make("codex"),
           provider: "codex",
           providerSessionId: input.providerSessionId,
           providerSession: session,

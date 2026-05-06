@@ -45,7 +45,7 @@ describe("orchestrator replay fixture contract", () => {
 
         assert.equal(transcript.scenario, fixture.name);
         assert.equal(transcript.provider, provider.provider);
-        assert.equal(provider.modelSelection.provider, provider.provider);
+        assert.equal(provider.modelSelection.instanceId, provider.provider);
         assert.isDefined(materialized.projectionThreadIds[0]);
         assert.equal(firstCommand?.type, "thread.create");
         if (firstCommand?.type !== "thread.create") {

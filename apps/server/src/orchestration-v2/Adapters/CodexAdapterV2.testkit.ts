@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import type { ProviderReplayTranscript } from "@t3tools/contracts";
+import { type ProviderReplayTranscript } from "@t3tools/contracts";
 import * as CodexClient from "effect-codex-app-server/client";
 import * as CodexReplay from "effect-codex-app-server/replay";
 import { Effect, Layer, Schema } from "effect";
@@ -10,9 +10,15 @@ import path from "node:path";
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
 import { layer as idAllocatorLayer } from "../IdAllocator.ts";
 import { ProviderAdapterOpenSessionError } from "../ProviderAdapter.ts";
-import { layerFromProviderAdapter } from "../ProviderAdapterRegistry.ts";
+import { ProviderAdapterDriverCreateError } from "../ProviderAdapterDriver.ts";
+import { makeDriverLayer as makeProviderAdapterRegistryDriverLayer } from "../ProviderAdapterRegistry.ts";
 import type { OrchestratorV2ProviderReplayHarness } from "../testkit/ProviderReplayHarness.ts";
-import { CodexAppServerClientFactory, layer as codexAdapterLayer } from "./CodexAdapterV2.ts";
+import {
+  CODEX_DEFAULT_INSTANCE_ID,
+  CODEX_DRIVER_KIND,
+  CodexAdapterV2Driver,
+  CodexAppServerClientFactory,
+} from "./CodexAdapterV2.ts";
 
 export class CodexReplayTranscriptDecodeError extends Schema.TaggedErrorClass<CodexReplayTranscriptDecodeError>()(
   "CodexReplayTranscriptDecodeError",
@@ -31,6 +37,7 @@ export class CodexReplayTranscriptDecodeError extends Schema.TaggedErrorClass<Co
 export const CodexOrchestratorReplayHarnessError = Schema.Union([
   CodexReplayTranscriptDecodeError,
   CodexReplay.CodexAppServerReplayError,
+  ProviderAdapterDriverCreateError,
 ]);
 export type CodexOrchestratorReplayHarnessError = typeof CodexOrchestratorReplayHarnessError.Type;
 
@@ -88,6 +95,8 @@ function makeReplayServerConfig(scenario: string): ServerConfigShape {
     devUrl: undefined,
     noBrowser: false,
     startupPresentation: "browser",
+    tailscaleServeEnabled: false,
+    tailscaleServePort: 443,
     desktopBootstrapToken: undefined,
     autoBootstrapProjectFromCwd: false,
     logWebSocketEvents: false,
@@ -141,7 +150,14 @@ export function makeCodexProviderAdapterRegistryReplayLayer(input: {
     ServerConfig,
     makeReplayServerConfig(input.transcript.scenario),
   );
-  const adapterLayer = codexAdapterLayer.pipe(
+  const registryLayer = makeProviderAdapterRegistryDriverLayer({
+    drivers: [CodexAdapterV2Driver],
+    configMap: {
+      [CODEX_DEFAULT_INSTANCE_ID]: {
+        driver: CODEX_DRIVER_KIND,
+      },
+    },
+  }).pipe(
     Layer.provide(
       Layer.mergeAll(
         replayClientFactoryLayer,
@@ -152,7 +168,7 @@ export function makeCodexProviderAdapterRegistryReplayLayer(input: {
     ),
   );
 
-  return layerFromProviderAdapter.pipe(Layer.provide(adapterLayer));
+  return registryLayer;
 }
 
 export const CodexOrchestratorReplayHarness: OrchestratorV2ProviderReplayHarness<

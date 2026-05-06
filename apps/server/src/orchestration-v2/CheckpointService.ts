@@ -381,6 +381,7 @@ export const layer: Layer.Layer<CheckpointServiceV2, never, CheckpointStore | Id
                     fromCheckpointRef: previousCheckpointRef,
                     toCheckpointRef: checkpointRef,
                     fallbackFromToHead: false,
+                    ignoreWhitespace: false,
                   })
                   .pipe(
                     Effect.map((diff) =>

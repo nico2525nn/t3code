@@ -275,7 +275,7 @@ const decideMessageDispatch: CommandPolicyV2Shape["decideMessageDispatch"] = (in
             commandId: input.commandId,
             threadId: input.projection.thread.id,
             requestedMode: input.requestedMode.type,
-            provider: modelSelection.provider,
+            provider: modelSelection.instanceId,
           }),
         );
       }
@@ -307,7 +307,7 @@ const decideMessageDispatch: CommandPolicyV2Shape["decideMessageDispatch"] = (in
             commandId: input.commandId,
             threadId: input.projection.thread.id,
             requestedMode: input.requestedMode.type,
-            provider: modelSelection.provider,
+            provider: modelSelection.instanceId,
           }),
         );
       }
@@ -334,7 +334,7 @@ const decideMessageDispatch: CommandPolicyV2Shape["decideMessageDispatch"] = (in
         : ensureQueuedMessages({
             commandId: input.commandId,
             threadId: input.projection.thread.id,
-            provider: modelSelection.provider,
+            provider: modelSelection.instanceId,
             capabilities: input.capabilities,
           }).pipe(Effect.as({ type: "queue_after_active", activeRunId: activeRun.id }));
     case "start_immediately":
@@ -344,7 +344,7 @@ const decideMessageDispatch: CommandPolicyV2Shape["decideMessageDispatch"] = (in
       return ensureQueuedMessages({
         commandId: input.commandId,
         threadId: input.projection.thread.id,
-        provider: modelSelection.provider,
+        provider: modelSelection.instanceId,
         capabilities: input.capabilities,
       }).pipe(Effect.as({ type: "queue_after_active", activeRunId: activeRun.id }));
   }

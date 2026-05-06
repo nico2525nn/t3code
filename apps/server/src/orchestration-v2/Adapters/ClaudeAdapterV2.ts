@@ -4,7 +4,10 @@ import {
   type SDKAssistantMessage,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { parseCliArgs } from "@t3tools/shared/cliArgs";
 import {
+  ClaudeSettings,
+  defaultInstanceIdForDriver,
   type ModelSelection,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2ExecutionNode,
@@ -13,9 +16,13 @@ import {
   type OrchestrationV2ProviderThread,
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2TurnItem,
+  ProviderDriverKind,
+  type ProviderInstanceId,
 } from "@t3tools/contracts";
-import { Context, DateTime, Effect, Layer, Queue, Random, Schema, Stream } from "effect";
+import { Context, DateTime, Effect, Layer, Path, Queue, Random, Schema, Stream } from "effect";
 
+import { makeClaudeEnvironment } from "../../provider/Drivers/ClaudeHome.ts";
+import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
 import { IdAllocatorV2, type IdAllocatorV2Shape } from "../IdAllocator.ts";
 import {
   ProviderAdapterEnsureThreadError,
@@ -30,11 +37,18 @@ import {
   ProviderAdapterTurnStartError,
   ProviderAdapterV2,
   type ProviderAdapterV2Event,
+  type ProviderAdapterV2Shape,
   type ProviderAdapterV2SessionRuntime,
   type ProviderAdapterV2TurnInput,
 } from "../ProviderAdapter.ts";
+import {
+  ProviderAdapterDriverCreateError,
+  type ProviderAdapterDriver,
+} from "../ProviderAdapterDriver.ts";
 
 export const CLAUDE_PROVIDER = "claudeAgent" as const;
+export const CLAUDE_DRIVER_KIND = ProviderDriverKind.make(CLAUDE_PROVIDER);
+export const CLAUDE_DEFAULT_INSTANCE_ID = defaultInstanceIdForDriver(CLAUDE_DRIVER_KIND);
 
 export const ClaudeProviderCapabilitiesV2 = {
   sessions: {
@@ -127,14 +141,13 @@ export const ClaudeProviderCapabilitiesV2 = {
   },
 } satisfies OrchestrationV2ProviderCapabilities;
 
-export interface ClaudeAgentSdkQueryOptions {
+export type ClaudeAgentSdkQueryOptions = ClaudeQueryOptions & {
   readonly model: string;
   readonly tools: NonNullable<ClaudeQueryOptions["tools"]>;
   readonly maxTurns: number;
   readonly permissionMode: NonNullable<ClaudeQueryOptions["permissionMode"]>;
   readonly sessionId: string;
-  readonly cwd?: string;
-}
+};
 
 export interface ClaudeAgentSdkQueryInput {
   readonly prompt: string;
@@ -192,13 +205,22 @@ export function makeClaudeQueryOptions(input: {
   readonly modelSelection: ModelSelection;
   readonly sessionId: string;
   readonly cwd: string | null;
+  readonly settings?: ClaudeSettings;
+  readonly environment?: NodeJS.ProcessEnv;
 }): ClaudeAgentSdkQueryOptions {
+  const extraArgs =
+    input.settings === undefined ? {} : parseCliArgs(input.settings.launchArgs).flags;
   const options: ClaudeAgentSdkQueryOptions = {
     model: input.modelSelection.model,
     tools: [],
     maxTurns: 1,
     permissionMode: "default",
     sessionId: input.sessionId,
+    ...(input.settings?.binaryPath
+      ? { pathToClaudeCodeExecutable: input.settings.binaryPath }
+      : {}),
+    ...(input.environment === undefined ? {} : { env: input.environment }),
+    ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
   return input.cwd === null ? options : { ...options, cwd: input.cwd };
 }
@@ -388,6 +410,311 @@ function collectAssistantOutput(
   return collected;
 }
 
+export interface ClaudeAdapterV2Options {
+  readonly instanceId: ProviderInstanceId;
+  readonly settings: ClaudeSettings;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly idAllocator: IdAllocatorV2Shape;
+  readonly queryRunner: ClaudeAgentSdkQueryRunnerShape;
+}
+
+export function makeClaudeAdapterV2(
+  adapterOptions: ClaudeAdapterV2Options,
+): ProviderAdapterV2Shape {
+  const { idAllocator, queryRunner } = adapterOptions;
+
+  return ProviderAdapterV2.of({
+    instanceId: adapterOptions.instanceId,
+    provider: CLAUDE_PROVIDER,
+    getCapabilities: () => Effect.succeed(ClaudeProviderCapabilitiesV2),
+    openSession: (input) =>
+      Effect.gen(function* () {
+        const now = yield* DateTime.now;
+        const session = providerSession({
+          providerSessionId: input.providerSessionId,
+          cwd: input.runtimePolicy.cwd,
+          model: input.modelSelection.model,
+          now,
+        });
+        const events = yield* Queue.unbounded<ProviderAdapterV2Event>();
+        const nativeThreadId = yield* queryRunner.allocateSessionId;
+
+        const emitProviderEvent = (event: ProviderAdapterV2Event) =>
+          Queue.offer(events, event).pipe(Effect.asVoid);
+
+        const startTurn = (turnInput: ProviderAdapterV2TurnInput) =>
+          Effect.gen(function* () {
+            const startedAt = yield* DateTime.now;
+            const nativeTurnId = `turn:${turnInput.runId}`;
+            const providerTurnId = idAllocator.derive.providerTurn({
+              provider: CLAUDE_PROVIDER,
+              nativeTurnId,
+            });
+            yield* emitProviderEvent({
+              type: "provider_turn.updated",
+              provider: CLAUDE_PROVIDER,
+              providerTurn: {
+                id: providerTurnId,
+                providerThreadId: turnInput.providerThread.id,
+                nodeId: turnInput.rootNodeId,
+                runAttemptId: turnInput.attemptId,
+                nativeTurnRef: {
+                  provider: CLAUDE_PROVIDER,
+                  nativeId: nativeTurnId,
+                  strength: "weak",
+                },
+                ordinal: turnInput.runOrdinal,
+                status: "running",
+                startedAt,
+                completedAt: null,
+              },
+            });
+
+            const assistant = yield* queryRunner
+              .run({
+                prompt: turnInput.message.text,
+                options: makeClaudeQueryOptions({
+                  modelSelection: turnInput.modelSelection,
+                  sessionId: nativeThreadId,
+                  cwd: turnInput.runtimePolicy.cwd,
+                  settings: adapterOptions.settings,
+                  environment: adapterOptions.environment,
+                }),
+              })
+              .pipe(
+                Stream.runFold(
+                  () => ({
+                    text: "",
+                    nativeItemId: `assistant:${turnInput.runId}`,
+                  }),
+                  collectAssistantOutput,
+                ),
+              );
+            yield* queryRunner.assertComplete;
+
+            const completedAt = yield* DateTime.now;
+            if (assistant.text.length > 0) {
+              const artifacts = buildAssistantArtifacts({
+                idAllocator,
+                turnInput,
+                providerTurnId,
+                nativeItemId: assistant.nativeItemId,
+                text: assistant.text,
+                startedAt,
+                completedAt,
+              });
+              yield* Effect.all(
+                [
+                  emitProviderEvent({
+                    type: "node.updated",
+                    provider: CLAUDE_PROVIDER,
+                    node: artifacts.node,
+                  }),
+                  emitProviderEvent({
+                    type: "message.updated",
+                    provider: CLAUDE_PROVIDER,
+                    message: artifacts.message,
+                  }),
+                  emitProviderEvent({
+                    type: "turn_item.updated",
+                    provider: CLAUDE_PROVIDER,
+                    turnItem: artifacts.turnItem,
+                  }),
+                ],
+                { concurrency: 1 },
+              );
+            }
+
+            yield* Effect.all(
+              [
+                emitProviderEvent({
+                  type: "provider_turn.updated",
+                  provider: CLAUDE_PROVIDER,
+                  providerTurn: {
+                    id: providerTurnId,
+                    providerThreadId: turnInput.providerThread.id,
+                    nodeId: turnInput.rootNodeId,
+                    runAttemptId: turnInput.attemptId,
+                    nativeTurnRef: {
+                      provider: CLAUDE_PROVIDER,
+                      nativeId: nativeTurnId,
+                      strength: "weak",
+                    },
+                    ordinal: turnInput.runOrdinal,
+                    status: "completed",
+                    startedAt,
+                    completedAt,
+                  },
+                }),
+                emitProviderEvent({
+                  type: "turn.terminal",
+                  provider: CLAUDE_PROVIDER,
+                  providerTurnId,
+                  status: "completed",
+                }),
+              ],
+              { concurrency: 1 },
+            );
+          }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterTurnStartError({
+                  provider: CLAUDE_PROVIDER,
+                  threadId: turnInput.threadId,
+                  providerThreadId: turnInput.providerThread.id,
+                  runId: turnInput.runId,
+                  cause,
+                }),
+            ),
+          );
+
+        const runtime: ProviderAdapterV2SessionRuntime = {
+          instanceId: adapterOptions.instanceId,
+          provider: CLAUDE_PROVIDER,
+          providerSessionId: input.providerSessionId,
+          providerSession: session,
+          rawEvents: Stream.empty,
+          events: Stream.fromQueue(events),
+          ensureThread: (threadInput) =>
+            Effect.gen(function* () {
+              const createdAt = yield* DateTime.now;
+              return makeProviderThread({
+                idAllocator,
+                appThreadId: threadInput.threadId,
+                providerSessionId: input.providerSessionId,
+                nativeThreadId,
+                now: createdAt,
+              });
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapterEnsureThreadError({
+                    provider: CLAUDE_PROVIDER,
+                    threadId: threadInput.threadId,
+                    cause,
+                  }),
+              ),
+            ),
+          resumeThread: (threadInput) =>
+            Effect.gen(function* () {
+              const updatedAt = yield* DateTime.now;
+              return {
+                ...threadInput.providerThread,
+                providerSessionId: input.providerSessionId,
+                status: "idle" as const,
+                updatedAt,
+              };
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapterResumeThreadError({
+                    provider: CLAUDE_PROVIDER,
+                    providerSessionId: input.providerSessionId,
+                    providerThreadId: threadInput.providerThread.id,
+                    cause,
+                  }),
+              ),
+            ),
+          startTurn,
+          steerTurn: (turnInput) =>
+            Effect.fail(
+              new ProviderAdapterSteerRunUnsupportedError({
+                provider: CLAUDE_PROVIDER,
+                providerThreadId: turnInput.providerThread.id,
+              }),
+            ),
+          interruptTurn: (turnInput) =>
+            Effect.fail(
+              new ProviderAdapterInterruptError({
+                provider: CLAUDE_PROVIDER,
+                providerThreadId: turnInput.providerThread.id,
+                providerTurnId: turnInput.providerTurnId,
+                cause: "Claude V2 adapter does not implement interrupts.",
+              }),
+            ),
+          respondToRuntimeRequest: (requestInput) =>
+            Effect.fail(
+              new ProviderAdapterRuntimeRequestResponseError({
+                provider: CLAUDE_PROVIDER,
+                requestId: requestInput.requestId,
+                cause: "Claude V2 adapter does not implement runtime requests.",
+              }),
+            ),
+          readThreadSnapshot: (snapshotInput) =>
+            Effect.fail(
+              new ProviderAdapterReadThreadSnapshotError({
+                provider: CLAUDE_PROVIDER,
+                providerThreadId: snapshotInput.providerThread.id,
+                cause: "Claude V2 adapter does not implement snapshots.",
+              }),
+            ),
+          rollbackThread: (rollbackInput) =>
+            Effect.fail(
+              new ProviderAdapterRollbackThreadError({
+                provider: CLAUDE_PROVIDER,
+                providerThreadId: rollbackInput.providerThread.id,
+                cause: "Claude V2 adapter does not implement rollback.",
+              }),
+            ),
+          forkThread: (forkInput) =>
+            Effect.fail(
+              new ProviderAdapterForkThreadError({
+                provider: CLAUDE_PROVIDER,
+                providerThreadId: forkInput.sourceProviderThread.id,
+                cause: "Claude V2 adapter does not implement forks.",
+              }),
+            ),
+        };
+
+        return runtime;
+      }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderAdapterOpenSessionError({
+              provider: CLAUDE_PROVIDER,
+              providerSessionId: input.providerSessionId,
+              cause,
+            }),
+        ),
+      ),
+  });
+}
+
+export type ClaudeAdapterV2DriverEnv = ClaudeAgentSdkQueryRunner | IdAllocatorV2 | Path.Path;
+
+export const ClaudeAdapterV2Driver: ProviderAdapterDriver<
+  ClaudeSettings,
+  ClaudeAdapterV2DriverEnv
+> = {
+  driverKind: CLAUDE_DRIVER_KIND,
+  configSchema: ClaudeSettings,
+  defaultConfig: (): ClaudeSettings => Schema.decodeSync(ClaudeSettings)({}),
+  create: ({ instanceId, environment, enabled, config }) =>
+    Effect.gen(function* () {
+      const idAllocator = yield* IdAllocatorV2;
+      const queryRunner = yield* ClaudeAgentSdkQueryRunner;
+      const baseEnvironment = mergeProviderInstanceEnvironment(environment);
+      const claudeEnvironment = yield* makeClaudeEnvironment(config, baseEnvironment);
+      return makeClaudeAdapterV2({
+        instanceId,
+        settings: { ...config, enabled },
+        environment: claudeEnvironment,
+        idAllocator,
+        queryRunner,
+      });
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProviderAdapterDriverCreateError({
+            driver: CLAUDE_DRIVER_KIND,
+            instanceId,
+            detail: "Failed to create Claude Agent SDK adapter.",
+            cause,
+          }),
+      ),
+    ),
+};
+
 export const layer: Layer.Layer<
   ProviderAdapterV2,
   never,
@@ -398,256 +725,12 @@ export const layer: Layer.Layer<
     const idAllocator = yield* IdAllocatorV2;
     const queryRunner = yield* ClaudeAgentSdkQueryRunner;
 
-    return ProviderAdapterV2.of({
-      provider: CLAUDE_PROVIDER,
-      getCapabilities: () => Effect.succeed(ClaudeProviderCapabilitiesV2),
-      openSession: (input) =>
-        Effect.gen(function* () {
-          const now = yield* DateTime.now;
-          const session = providerSession({
-            providerSessionId: input.providerSessionId,
-            cwd: input.runtimePolicy.cwd,
-            model: input.modelSelection.model,
-            now,
-          });
-          const events = yield* Queue.unbounded<ProviderAdapterV2Event>();
-          const nativeThreadId = yield* queryRunner.allocateSessionId;
-
-          const emitProviderEvent = (event: ProviderAdapterV2Event) =>
-            Queue.offer(events, event).pipe(Effect.asVoid);
-
-          const startTurn = (turnInput: ProviderAdapterV2TurnInput) =>
-            Effect.gen(function* () {
-              const startedAt = yield* DateTime.now;
-              const nativeTurnId = `turn:${turnInput.runId}`;
-              const providerTurnId = idAllocator.derive.providerTurn({
-                provider: CLAUDE_PROVIDER,
-                nativeTurnId,
-              });
-              yield* emitProviderEvent({
-                type: "provider_turn.updated",
-                provider: CLAUDE_PROVIDER,
-                providerTurn: {
-                  id: providerTurnId,
-                  providerThreadId: turnInput.providerThread.id,
-                  nodeId: turnInput.rootNodeId,
-                  runAttemptId: turnInput.attemptId,
-                  nativeTurnRef: {
-                    provider: CLAUDE_PROVIDER,
-                    nativeId: nativeTurnId,
-                    strength: "weak",
-                  },
-                  ordinal: turnInput.runOrdinal,
-                  status: "running",
-                  startedAt,
-                  completedAt: null,
-                },
-              });
-
-              const assistant = yield* queryRunner
-                .run({
-                  prompt: turnInput.message.text,
-                  options: makeClaudeQueryOptions({
-                    modelSelection: turnInput.modelSelection,
-                    sessionId: nativeThreadId,
-                    cwd: turnInput.runtimePolicy.cwd,
-                  }),
-                })
-                .pipe(
-                  Stream.runFold(
-                    () => ({
-                      text: "",
-                      nativeItemId: `assistant:${turnInput.runId}`,
-                    }),
-                    collectAssistantOutput,
-                  ),
-                );
-              yield* queryRunner.assertComplete;
-
-              const completedAt = yield* DateTime.now;
-              if (assistant.text.length > 0) {
-                const artifacts = buildAssistantArtifacts({
-                  idAllocator,
-                  turnInput,
-                  providerTurnId,
-                  nativeItemId: assistant.nativeItemId,
-                  text: assistant.text,
-                  startedAt,
-                  completedAt,
-                });
-                yield* Effect.all(
-                  [
-                    emitProviderEvent({
-                      type: "node.updated",
-                      provider: CLAUDE_PROVIDER,
-                      node: artifacts.node,
-                    }),
-                    emitProviderEvent({
-                      type: "message.updated",
-                      provider: CLAUDE_PROVIDER,
-                      message: artifacts.message,
-                    }),
-                    emitProviderEvent({
-                      type: "turn_item.updated",
-                      provider: CLAUDE_PROVIDER,
-                      turnItem: artifacts.turnItem,
-                    }),
-                  ],
-                  { concurrency: 1 },
-                );
-              }
-
-              yield* Effect.all(
-                [
-                  emitProviderEvent({
-                    type: "provider_turn.updated",
-                    provider: CLAUDE_PROVIDER,
-                    providerTurn: {
-                      id: providerTurnId,
-                      providerThreadId: turnInput.providerThread.id,
-                      nodeId: turnInput.rootNodeId,
-                      runAttemptId: turnInput.attemptId,
-                      nativeTurnRef: {
-                        provider: CLAUDE_PROVIDER,
-                        nativeId: nativeTurnId,
-                        strength: "weak",
-                      },
-                      ordinal: turnInput.runOrdinal,
-                      status: "completed",
-                      startedAt,
-                      completedAt,
-                    },
-                  }),
-                  emitProviderEvent({
-                    type: "turn.terminal",
-                    provider: CLAUDE_PROVIDER,
-                    providerTurnId,
-                    status: "completed",
-                  }),
-                ],
-                { concurrency: 1 },
-              );
-            }).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderAdapterTurnStartError({
-                    provider: CLAUDE_PROVIDER,
-                    threadId: turnInput.threadId,
-                    providerThreadId: turnInput.providerThread.id,
-                    runId: turnInput.runId,
-                    cause,
-                  }),
-              ),
-            );
-
-          const runtime: ProviderAdapterV2SessionRuntime = {
-            provider: CLAUDE_PROVIDER,
-            providerSessionId: input.providerSessionId,
-            providerSession: session,
-            rawEvents: Stream.empty,
-            events: Stream.fromQueue(events),
-            ensureThread: (threadInput) =>
-              Effect.gen(function* () {
-                const createdAt = yield* DateTime.now;
-                return makeProviderThread({
-                  idAllocator,
-                  appThreadId: threadInput.threadId,
-                  providerSessionId: input.providerSessionId,
-                  nativeThreadId,
-                  now: createdAt,
-                });
-              }).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderAdapterEnsureThreadError({
-                      provider: CLAUDE_PROVIDER,
-                      threadId: threadInput.threadId,
-                      cause,
-                    }),
-                ),
-              ),
-            resumeThread: (threadInput) =>
-              Effect.gen(function* () {
-                const updatedAt = yield* DateTime.now;
-                return {
-                  ...threadInput.providerThread,
-                  providerSessionId: input.providerSessionId,
-                  status: "idle" as const,
-                  updatedAt,
-                };
-              }).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderAdapterResumeThreadError({
-                      provider: CLAUDE_PROVIDER,
-                      providerSessionId: input.providerSessionId,
-                      providerThreadId: threadInput.providerThread.id,
-                      cause,
-                    }),
-                ),
-              ),
-            startTurn,
-            steerTurn: (turnInput) =>
-              Effect.fail(
-                new ProviderAdapterSteerRunUnsupportedError({
-                  provider: CLAUDE_PROVIDER,
-                  providerThreadId: turnInput.providerThread.id,
-                }),
-              ),
-            interruptTurn: (turnInput) =>
-              Effect.fail(
-                new ProviderAdapterInterruptError({
-                  provider: CLAUDE_PROVIDER,
-                  providerThreadId: turnInput.providerThread.id,
-                  providerTurnId: turnInput.providerTurnId,
-                  cause: "Claude V2 adapter does not implement interrupts.",
-                }),
-              ),
-            respondToRuntimeRequest: (requestInput) =>
-              Effect.fail(
-                new ProviderAdapterRuntimeRequestResponseError({
-                  provider: CLAUDE_PROVIDER,
-                  requestId: requestInput.requestId,
-                  cause: "Claude V2 adapter does not implement runtime requests.",
-                }),
-              ),
-            readThreadSnapshot: (snapshotInput) =>
-              Effect.fail(
-                new ProviderAdapterReadThreadSnapshotError({
-                  provider: CLAUDE_PROVIDER,
-                  providerThreadId: snapshotInput.providerThread.id,
-                  cause: "Claude V2 adapter does not implement snapshots.",
-                }),
-              ),
-            rollbackThread: (rollbackInput) =>
-              Effect.fail(
-                new ProviderAdapterRollbackThreadError({
-                  provider: CLAUDE_PROVIDER,
-                  providerThreadId: rollbackInput.providerThread.id,
-                  cause: "Claude V2 adapter does not implement rollback.",
-                }),
-              ),
-            forkThread: (forkInput) =>
-              Effect.fail(
-                new ProviderAdapterForkThreadError({
-                  provider: CLAUDE_PROVIDER,
-                  providerThreadId: forkInput.sourceProviderThread.id,
-                  cause: "Claude V2 adapter does not implement forks.",
-                }),
-              ),
-          };
-
-          return runtime;
-        }).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ProviderAdapterOpenSessionError({
-                provider: CLAUDE_PROVIDER,
-                providerSessionId: input.providerSessionId,
-                cause,
-              }),
-          ),
-        ),
+    return makeClaudeAdapterV2({
+      instanceId: CLAUDE_DEFAULT_INSTANCE_ID,
+      settings: Schema.decodeSync(ClaudeSettings)({}),
+      environment: process.env,
+      idAllocator,
+      queryRunner,
     });
   }),
 );

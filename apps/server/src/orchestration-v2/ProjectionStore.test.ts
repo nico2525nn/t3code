@@ -1,5 +1,11 @@
 import { assert, it } from "@effect/vitest";
-import { EventId, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  EventId,
+  type ModelSelection,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { DateTime, Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -10,6 +16,10 @@ const TestLayer = Layer.mergeAll(
   projectionStoreLayer.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
   SqlitePersistenceMemory,
 );
+const modelSelection = {
+  instanceId: ProviderInstanceId.make("codex"),
+  model: "gpt-5.4",
+} satisfies ModelSelection;
 
 it.layer(TestLayer)("ProjectionStoreV2", (it) => {
   it.effect("builds shell snapshots without decoding full turn item payloads", () =>
@@ -31,10 +41,7 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           projectId,
           title: "Projection shell",
           defaultProvider: "codex",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5.4",
-          },
+          modelSelection: modelSelection,
           runtimeMode: "full-access",
           interactionMode: "default",
           branch: null,

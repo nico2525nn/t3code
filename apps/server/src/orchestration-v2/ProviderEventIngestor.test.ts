@@ -1,8 +1,10 @@
 import { assert, it } from "@effect/vitest";
 import {
+  type ModelSelection,
   type OrchestrationV2AppThread,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ProviderThread,
+  ProviderInstanceId,
 } from "@t3tools/contracts";
 import { DateTime, Effect, Layer, Stream } from "effect";
 
@@ -37,6 +39,10 @@ const TestLayer = Layer.mergeAll(
     Layer.provide(Layer.mergeAll(TestStoresLayer, TestEventSinkLayer, idAllocatorLayer)),
   ),
 );
+const modelSelection = {
+  instanceId: ProviderInstanceId.make("codex"),
+  model: "gpt-5.4",
+} satisfies ModelSelection;
 
 function threadCreatedEvent(
   now: DateTime.Utc,
@@ -59,10 +65,7 @@ function threadCreatedEvent(
       projectId,
       title: "Provider event ingestor",
       defaultProvider: "codex",
-      modelSelection: {
-        provider: "codex",
-        model: "gpt-5.4",
-      },
+      modelSelection: modelSelection,
       runtimeMode: "full-access",
       interactionMode: "default",
       branch: null,

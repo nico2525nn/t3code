@@ -15,6 +15,7 @@ import { layer as idAllocatorLayer } from "../IdAllocator.ts";
 import { makeSqlitePersistenceLive } from "../../persistence/Layers/Sqlite.ts";
 import { provideDeterministicTestRuntime } from "./DeterministicRuntime.ts";
 import {
+  CODEX_MODEL_SELECTION,
   materializeFixtureInput,
   type MaterializedOrchestratorFixtureInput,
 } from "./fixtures/shared.ts";
@@ -80,10 +81,7 @@ describe("orchestrator replay recovery", () => {
               { type: "message", text: SECOND_PROMPT },
             ],
           },
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5.4",
-          },
+          modelSelection: CODEX_MODEL_SELECTION,
         });
         const { phase1Commands, phase1Steps, phase2Commands, phase2Steps } =
           splitAfterFirstIdle(materialized);

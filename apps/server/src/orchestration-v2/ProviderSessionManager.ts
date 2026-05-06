@@ -3,7 +3,7 @@ import {
   OrchestrationV2DomainEvent,
   OrchestrationV2ProviderSession,
   OrchestrationV2RuntimeRequest,
-  ProviderKind,
+  ProviderInstanceId,
   ProviderSessionId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -62,13 +62,13 @@ export type ProviderSessionReleaseReason = typeof ProviderSessionReleaseReason.T
 export class ProviderSessionOpenError extends Schema.TaggedErrorClass<ProviderSessionOpenError>()(
   "ProviderSessionOpenError",
   {
-    provider: ProviderKind,
+    instanceId: ProviderInstanceId,
     providerSessionId: ProviderSessionId,
     cause: Schema.optional(Schema.Defect),
   },
 ) {
   override get message(): string {
-    return `Failed to open ${this.provider} provider session ${this.providerSessionId}.`;
+    return `Failed to open provider instance ${this.instanceId} session ${this.providerSessionId}.`;
   }
 }
 
@@ -648,11 +648,11 @@ export const layerWithOptions = (
               return existing.exposedRuntime;
             }
 
-            const adapter = yield* registry.get(input.modelSelection.provider).pipe(
+            const adapter = yield* registry.get(input.modelSelection.instanceId).pipe(
               Effect.mapError(
                 (cause) =>
                   new ProviderSessionOpenError({
-                    provider: input.modelSelection.provider,
+                    instanceId: input.modelSelection.instanceId,
                     providerSessionId: input.providerSessionId,
                     cause,
                   }),
@@ -675,7 +675,7 @@ export const layerWithOptions = (
                 Effect.mapError(
                   (cause) =>
                     new ProviderSessionOpenError({
-                      provider: input.modelSelection.provider,
+                      instanceId: input.modelSelection.instanceId,
                       providerSessionId: input.providerSessionId,
                       cause,
                     }),

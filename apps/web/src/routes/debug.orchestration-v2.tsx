@@ -1,21 +1,22 @@
-import type {
-  OrchestrationV2DomainEvent,
-  ModelSelection,
-  CheckpointId,
-  CheckpointScopeId,
-  OrchestrationV2PlanStep,
-  OrchestrationV2Run,
-  OrchestrationV2RunStatus,
-  OrchestrationV2Checkpoint,
-  OrchestrationV2ThreadProjection,
-  OrchestrationV2ThreadShell,
-  OrchestrationV2ThreadStreamItem,
-  OrchestrationV2TurnItem,
-  OrchestrationV2TurnItemStatus,
-  OrchestrationV2UserInputQuestion,
-  RunId,
-  RuntimeMode,
-  ThreadId,
+import {
+  ProviderInstanceId,
+  type CheckpointId,
+  type CheckpointScopeId,
+  type ModelSelection,
+  type OrchestrationV2Checkpoint,
+  type OrchestrationV2DomainEvent,
+  type OrchestrationV2PlanStep,
+  type OrchestrationV2Run,
+  type OrchestrationV2RunStatus,
+  type OrchestrationV2ThreadProjection,
+  type OrchestrationV2ThreadShell,
+  type OrchestrationV2ThreadStreamItem,
+  type OrchestrationV2TurnItem,
+  type OrchestrationV2TurnItemStatus,
+  type OrchestrationV2UserInputQuestion,
+  type RunId,
+  type RuntimeMode,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 import type { CSSProperties, DragEvent, ReactNode } from "react";
@@ -31,7 +32,7 @@ export const Route = createFileRoute("/debug/orchestration-v2")({
 
 const DEFAULT_PROMPT = "Respond with the following text: fixture simple ok";
 const DEFAULT_MODEL_SELECTION = {
-  provider: "codex",
+  instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5.4",
 } satisfies ModelSelection;
 
@@ -205,7 +206,7 @@ function buildProjectionTimeline(
       key: `thread:${projection.thread.id}`,
       eyebrow: "Thread",
       title: projection.thread.title,
-      subtitle: `${projection.thread.modelSelection.provider} / ${projection.thread.modelSelection.model}`,
+      subtitle: `${projection.thread.modelSelection.instanceId} / ${projection.thread.modelSelection.model}`,
       status: projection.thread.archivedAt ? "archived" : "active",
       timestamp: formatTimestamp(projection.thread.createdAt),
       raw: projection.thread,
@@ -1125,7 +1126,7 @@ function ThreadTreeRow(props: {
   const thread = props.node.thread;
   const active = props.node.threadId === props.activeThreadId;
   const relationship = thread.lineage.relationshipToParent ?? "source";
-  const provider = thread.modelSelection.provider;
+  const instanceId = thread.modelSelection.instanceId;
   const model = thread.modelSelection.model;
   const itemCount = thread.visibleItemCount;
   const createdAt = formatTimestamp(thread.createdAt);
@@ -1175,7 +1176,7 @@ function ThreadTreeRow(props: {
           >
             <span>{compactId(props.node.threadId) ?? props.node.threadId}</span>
             <span>
-              {provider}/{model}
+              {instanceId}/{model}
             </span>
             <span>{itemCount} items</span>
             {createdAt === undefined ? null : <span>{createdAt.slice(11, 16)}</span>}
