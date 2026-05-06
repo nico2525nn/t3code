@@ -287,7 +287,19 @@ async function loadPreference(preference: ThemePreference, suppressTransitions =
     }
 
     recomputeSnapshot({ preference, status: "loading", message: null });
-    const theme = await bridge.loadColorTheme(preference.themeId);
+    let theme: ResolvedColorTheme | null;
+    try {
+      theme = await bridge.loadColorTheme(preference.themeId);
+    } catch {
+      if (!isSamePreference(state.preference, preference)) return;
+      recomputeSnapshot({
+        resolvedColorTheme: null,
+        status: "error",
+        message: "Could not load selected editor theme.",
+      });
+      applyResolvedTheme(null, suppressTransitions);
+      return;
+    }
     if (!isSamePreference(state.preference, preference)) return;
     if (!theme) {
       setStoredPreference(DEFAULT_THEME_PREFERENCE);
