@@ -198,17 +198,6 @@ export function makeDriverLayerFromSettings<R>(input: {
   return Layer.unwrap(
     Effect.gen(function* () {
       const settingsService = yield* ServerSettingsService;
-      yield* settingsService.ready.pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderAdapterDriverCreateError({
-              driver: ProviderDriverKindSchema.make("settings"),
-              instanceId: ProviderInstanceId.make("settings"),
-              detail: "Server settings were not ready before building provider adapters.",
-              cause,
-            }),
-        ),
-      );
       const settings = yield* settingsService.getSettings.pipe(
         Effect.mapError(
           (cause) =>
