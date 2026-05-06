@@ -111,6 +111,16 @@ function setStoredPreference(preference: ThemePreference) {
   localStorage.setItem(STORAGE_KEY, preferenceToBuiltInTheme(preference));
 }
 
+function isSamePreference(a: ThemePreference, b: ThemePreference) {
+  if (a.mode !== b.mode) return false;
+  if (a.mode === "builtin") return a.theme === (b.mode === "builtin" ? b.theme : null);
+  if (a.mode === "external") return a.themeId === (b.mode === "external" ? b.themeId : null);
+  if (a.mode === "follow-editor") {
+    return a.source === (b.mode === "follow-editor" ? b.source : null);
+  }
+  return true;
+}
+
 function ensureThemeColorMetaTag(): HTMLMetaElement {
   let element = document.querySelector<HTMLMetaElement>(DYNAMIC_THEME_COLOR_SELECTOR);
   if (element) return element;
@@ -278,6 +288,7 @@ async function loadPreference(preference: ThemePreference, suppressTransitions =
 
     recomputeSnapshot({ preference, status: "loading", message: null });
     const theme = await bridge.loadColorTheme(preference.themeId);
+    if (!isSamePreference(state.preference, preference)) return;
     if (!theme) {
       setStoredPreference(DEFAULT_THEME_PREFERENCE);
       recomputeSnapshot({
