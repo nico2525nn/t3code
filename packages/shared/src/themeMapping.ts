@@ -140,6 +140,12 @@ export function mapVscodeColorsToAppVariables(input: {
       "list.hoverBackground",
       "toolbar.hoverBackground",
     ]) ?? mix(background, foreground, 92);
+  const destructive =
+    firstColor(colors, [
+      "errorForeground",
+      "editorError.foreground",
+      "notificationsErrorIcon.foreground",
+    ]) ?? fallback.destructive;
 
   return {
     "--background": background,
@@ -180,15 +186,10 @@ export function mapVscodeColorsToAppVariables(input: {
     "--accent": accent,
     "--accent-foreground":
       firstColor(colors, ["list.activeSelectionForeground", "list.hoverForeground"]) ?? foreground,
-    "--destructive":
-      firstColor(colors, [
-        "errorForeground",
-        "editorError.foreground",
-        "notificationsErrorIcon.foreground",
-      ]) ?? fallback.destructive,
+    "--destructive": destructive,
     "--destructive-foreground":
       firstColor(colors, ["errorForeground", "editorError.foreground"]) ??
-      readableForeground(fallback.destructive),
+      readableForeground(destructive),
     "--border": border,
     "--input":
       firstColor(colors, [

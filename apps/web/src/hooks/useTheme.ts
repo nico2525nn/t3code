@@ -279,6 +279,7 @@ async function loadPreference(preference: ThemePreference, suppressTransitions =
     recomputeSnapshot({ preference, status: "loading", message: null });
     const theme = await bridge.loadColorTheme(preference.themeId);
     if (!theme) {
+      setStoredPreference(DEFAULT_THEME_PREFERENCE);
       recomputeSnapshot({
         preference: DEFAULT_THEME_PREFERENCE,
         resolvedColorTheme: null,
