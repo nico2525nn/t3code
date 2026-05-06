@@ -4,6 +4,10 @@ import type { ReactNode } from "react";
 
 export let appAtomRegistry = AtomRegistry.make();
 
+export function getAppAtomRegistry(): AtomRegistry.AtomRegistry {
+  return appAtomRegistry;
+}
+
 export function AppAtomRegistryProvider({ children }: { readonly children: ReactNode }) {
   return <RegistryContext.Provider value={appAtomRegistry}>{children}</RegistryContext.Provider>;
 }

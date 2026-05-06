@@ -19,9 +19,14 @@ import {
   UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { ensureLocalApi } from "~/localApi";
-import { Struct } from "effect";
+import { Cause, Effect, Exit, Option, Struct } from "effect";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/serverState";
+import {
+  RpcAtomRuntimeUnavailableError,
+  usePrimaryServerSettingsRpcResult,
+  useUpdatePrimaryServerSettingsRpc,
+} from "~/rpc/useEnvironmentRpcAtoms";
 
 const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
 
@@ -168,12 +173,17 @@ export function useClientSettingsHydrated(): boolean {
 }
 
 export function useSettings<T = UnifiedSettings>(selector?: (s: UnifiedSettings) => T): T {
-  const serverSettings = useServerSettings();
+  const legacyServerSettings = useServerSettings();
+  const serverSettingsRpcResult = usePrimaryServerSettingsRpcResult();
   const clientSettings = useSyncExternalStore(
     subscribeClientSettings,
     getClientSettingsSnapshot,
     () => DEFAULT_CLIENT_SETTINGS,
   );
+  const serverSettings =
+    serverSettingsRpcResult._tag === "Success"
+      ? serverSettingsRpcResult.value
+      : legacyServerSettings;
 
   const merged = useMemo<UnifiedSettings>(
     () => ({
@@ -193,25 +203,44 @@ export function useSettings<T = UnifiedSettings>(selector?: (s: UnifiedSettings)
  * persisted via RPC. Client keys go through client persistence.
  */
 export function useUpdateSettings() {
-  const updateSettings = useCallback((patch: Partial<UnifiedSettings>) => {
-    const { serverPatch, clientPatch } = splitPatch(patch);
+  const updatePrimaryServerSettingsRpc = useUpdatePrimaryServerSettingsRpc();
+  const updateSettings = useCallback(
+    (patch: Partial<UnifiedSettings>) => {
+      const { serverPatch, clientPatch } = splitPatch(patch);
 
-    if (Object.keys(serverPatch).length > 0) {
-      const currentServerConfig = getServerConfig();
-      if (currentServerConfig) {
-        applySettingsUpdated(applyServerSettingsPatch(currentServerConfig.settings, serverPatch));
+      if (Object.keys(serverPatch).length > 0) {
+        const currentServerConfig = getServerConfig();
+        if (currentServerConfig) {
+          applySettingsUpdated(applyServerSettingsPatch(currentServerConfig.settings, serverPatch));
+        }
+        void Effect.runPromiseExit(updatePrimaryServerSettingsRpc(serverPatch)).then((exit) => {
+          if (Exit.isSuccess(exit)) {
+            applySettingsUpdated(exit.value);
+            return;
+          }
+
+          const typedError = Cause.findErrorOption(exit.cause);
+          if (
+            Option.isSome(typedError) &&
+            typedError.value instanceof RpcAtomRuntimeUnavailableError
+          ) {
+            void ensureLocalApi().server.updateSettings(serverPatch);
+            return;
+          }
+
+          console.error("[SERVER_SETTINGS] AtomRpc update failed", Cause.pretty(exit.cause));
+        });
       }
-      // Fire-and-forget RPC — push will reconcile on success
-      void ensureLocalApi().server.updateSettings(serverPatch);
-    }
 
-    if (Object.keys(clientPatch).length > 0) {
-      persistClientSettings({
-        ...getClientSettingsSnapshot(),
-        ...clientPatch,
-      });
-    }
-  }, []);
+      if (Object.keys(clientPatch).length > 0) {
+        persistClientSettings({
+          ...getClientSettingsSnapshot(),
+          ...clientPatch,
+        });
+      }
+    },
+    [updatePrimaryServerSettingsRpc],
+  );
 
   const resetSettings = useCallback(() => {
     updateSettings(DEFAULT_UNIFIED_SETTINGS);

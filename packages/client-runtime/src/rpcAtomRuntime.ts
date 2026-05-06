@@ -18,7 +18,6 @@ export type T3RpcAtomProtocol = Layer.Layer<RpcClient.Protocol, never, never>;
 
 export interface T3RpcAtomRuntime {
   readonly environmentId: EnvironmentId;
-  readonly registry: AtomRegistry.AtomRegistry;
   readonly rpc: T3RpcAtomService;
   readonly query: T3RpcAtomService["query"];
   readonly mutation: T3RpcAtomService["mutation"];
@@ -42,11 +41,11 @@ export interface T3RpcAtomRuntime {
 export interface T3RpcAtomRuntimeInput {
   readonly environmentId: EnvironmentId;
   readonly protocol: T3RpcAtomProtocol;
+  readonly getRegistry: () => AtomRegistry.AtomRegistry;
   readonly spanPrefix?: string;
 }
 
 export function createT3RpcAtomRuntime(input: T3RpcAtomRuntimeInput): T3RpcAtomRuntime {
-  const registry = AtomRegistry.make();
   const runtime = Atom.context({ memoMap: Layer.makeMemoMapUnsafe() });
   const rpc = AtomRpc.Service<T3RpcAtomService>()(
     `t3tools/runtime/environment-rpc/${input.environmentId}`,
@@ -60,24 +59,24 @@ export function createT3RpcAtomRuntime(input: T3RpcAtomRuntimeInput): T3RpcAtomR
 
   return {
     environmentId: input.environmentId,
-    registry,
     rpc,
     query: rpc.query,
     mutation: rpc.mutation,
-    getResult: (atom, options) => AtomRegistry.getResult(registry, atom, options),
+    getResult: (atom, options) => AtomRegistry.getResult(input.getRegistry(), atom, options),
     runMutation: (atom, arg, options) =>
       Effect.gen(function* () {
         yield* Effect.sync(() => {
-          registry.set(atom, arg);
+          input.getRegistry().set(atom, arg);
         });
 
-        return yield* AtomRegistry.getResult(registry, atom, options);
+        return yield* AtomRegistry.getResult(input.getRegistry(), atom, options);
       }),
     reset: () => {
-      registry.reset();
+      // Registry ownership stays with the host app. Environment teardown can
+      // invalidate specific atoms, but it must not reset the app registry.
     },
     dispose: () => {
-      registry.dispose();
+      // Registry ownership stays with the host app.
     },
   };
 }

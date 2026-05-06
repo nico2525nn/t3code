@@ -6,6 +6,7 @@ import {
   type WsProtocolLifecycleHandlers,
   type WsRpcProtocolSocketUrlProvider,
 } from "./protocol";
+import { getAppAtomRegistry } from "./atomRegistry";
 
 export type EnvironmentAtomRpcClient = T3RpcAtomRuntime;
 
@@ -20,6 +21,7 @@ export function createEnvironmentAtomRpcClient(
 ): EnvironmentAtomRpcClient {
   return createT3RpcAtomRuntime({
     environmentId: input.environmentId,
+    getRegistry: getAppAtomRegistry,
     protocol: createWsRpcProtocolLayer(input.url, input.lifecycleHandlers),
     spanPrefix: `EnvironmentRpc:${input.environmentId}`,
   });
