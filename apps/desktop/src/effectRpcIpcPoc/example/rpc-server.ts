@@ -7,7 +7,7 @@ import {
   DESKTOP_IPC_POC_METHODS,
   DesktopIpcPocEchoError,
   DesktopIpcPocRpcGroup,
-} from "./protocol.ts";
+} from "@t3tools/contracts/effectElectronIpcPoc";
 
 export interface DesktopIpcPocMainOptions {
   readonly port: EffectElectronIpcMainPort;

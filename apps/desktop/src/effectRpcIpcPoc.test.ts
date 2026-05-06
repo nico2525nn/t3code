@@ -1,12 +1,17 @@
 import { Effect, Stream } from "effect";
+import { RpcClient } from "effect/unstable/rpc";
 import { describe, expect, it } from "vitest";
 
 import {
-  loadDesktopIpcPocSnapshot,
-  makeDesktopIpcPocBrowserClient,
-} from "./effectRpcIpcPoc/example/browser-client.ts";
+  DESKTOP_IPC_POC_METHODS,
+  DesktopIpcPocRpcGroup,
+} from "@t3tools/contracts/effectElectronIpcPoc";
 import { runDesktopIpcPocRpcServer } from "./effectRpcIpcPoc/example/rpc-server.ts";
-import { DESKTOP_IPC_POC_METHODS } from "./effectRpcIpcPoc/example/protocol.ts";
+import {
+  getEffectElectronIpcRendererBridge,
+  makeEffectElectronIpcRendererPort,
+  makeEffectElectronIpcRendererProtocol,
+} from "effect-electron-ipc/client";
 import { EFFECT_ELECTRON_IPC_RENDERER_BRIDGE_KEY } from "effect-electron-ipc/ipc";
 import type {
   EffectElectronIpcMainFrame,
@@ -14,6 +19,8 @@ import type {
   EffectElectronIpcRendererBridge,
   EffectElectronIpcRendererFrame,
 } from "effect-electron-ipc/ipc";
+
+const makeDesktopIpcPocClient = RpcClient.make(DesktopIpcPocRpcGroup);
 
 describe("effect RPC over Electron IPC proof of concept", () => {
   it("runs the end-to-end consumer example over the Electron IPC transport", async () => {
@@ -31,7 +38,25 @@ describe("effect RPC over Electron IPC proof of concept", () => {
 
           return yield* withEffectElectronIpcRendererBridge(
             ipc.rendererPort,
-            loadDesktopIpcPocSnapshot,
+            Effect.gen(function* () {
+              const client = yield* makeTestDesktopIpcPocClient;
+              const runtimeInfo = yield* client[DESKTOP_IPC_POC_METHODS.getRuntimeInfo]({});
+              const echo = yield* client[DESKTOP_IPC_POC_METHODS.echo]({
+                text: "hello from the renderer",
+              });
+              const ticks = yield* client[DESKTOP_IPC_POC_METHODS.subscribeTicks]({
+                take: 3,
+              }).pipe(
+                Stream.runCollect,
+                Effect.map((chunk) => Array.from(chunk)),
+              );
+
+              return {
+                runtimeInfo,
+                echo,
+                ticks,
+              };
+            }),
           );
         }),
       ),
@@ -70,7 +95,7 @@ describe("effect RPC over Electron IPC proof of concept", () => {
           return yield* withEffectElectronIpcRendererBridge(
             ipc.rendererPort,
             Effect.gen(function* () {
-              const client = yield* makeDesktopIpcPocBrowserClient;
+              const client = yield* makeTestDesktopIpcPocClient;
 
               return yield* client[DESKTOP_IPC_POC_METHODS.subscribeTicks]({ take: 3 }).pipe(
                 Stream.runCollect,
@@ -104,7 +129,7 @@ describe("effect RPC over Electron IPC proof of concept", () => {
           return yield* withEffectElectronIpcRendererBridge(
             ipc.rendererPort,
             Effect.gen(function* () {
-              const client = yield* makeDesktopIpcPocBrowserClient;
+              const client = yield* makeTestDesktopIpcPocClient;
 
               return yield* client[DESKTOP_IPC_POC_METHODS.echo]({ text: "" }).pipe(Effect.flip);
             }),
@@ -208,3 +233,13 @@ const withEffectElectronIpcRendererBridge = <A, E, R>(
     () => effect,
     (restore) => Effect.sync(restore),
   );
+
+const makeTestDesktopIpcPocClient = Effect.gen(function* () {
+  const bridge = yield* Effect.sync(() => getEffectElectronIpcRendererBridge());
+  const rendererPort = makeEffectElectronIpcRendererPort(bridge);
+  const rendererProtocol = yield* makeEffectElectronIpcRendererProtocol(rendererPort);
+
+  return yield* makeDesktopIpcPocClient.pipe(
+    Effect.provideService(RpcClient.Protocol, rendererProtocol),
+  );
+});

@@ -29,7 +29,7 @@ export const makeMainWindow = Effect.sync(() => {
           <title>Effect RPC Electron IPC POC</title>
         </head>
         <body>
-          <main id="root">Renderer bundle would call example/renderer.ts here.</main>
+          <main id="root">Renderer bundle would mount apps/web/src/examples/effectElectronIpcPoc.tsx here.</main>
         </body>
       </html>
     `)}`,
