@@ -378,6 +378,7 @@ const createDesktopBridgeStub = (overrides?: {
     showContextMenu: vi.fn().mockResolvedValue(null),
     openExternal: vi.fn().mockResolvedValue(true),
     onMenuAction: () => () => {},
+    onOpenWorkspace: () => () => {},
     getUpdateState: vi.fn().mockResolvedValue(idleUpdateState),
     setUpdateChannel:
       overrides?.setUpdateChannel ??

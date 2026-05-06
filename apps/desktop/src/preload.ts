@@ -7,6 +7,7 @@ const SET_THEME_CHANNEL = "desktop:set-theme";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
+const OPEN_WORKSPACE_CHANNEL = "desktop:open-workspace";
 const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_SET_CHANNEL_CHANNEL = "desktop:update-set-channel";
@@ -126,6 +127,17 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(MENU_ACTION_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(MENU_ACTION_CHANNEL, wrappedListener);
+    };
+  },
+  onOpenWorkspace: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, workspacePath: unknown) => {
+      if (typeof workspacePath !== "string" || workspacePath.length === 0) return;
+      listener(workspacePath);
+    };
+
+    ipcRenderer.on(OPEN_WORKSPACE_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(OPEN_WORKSPACE_CHANNEL, wrappedListener);
     };
   },
   getUpdateState: () => ipcRenderer.invoke(UPDATE_GET_STATE_CHANNEL),

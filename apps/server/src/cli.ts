@@ -65,6 +65,7 @@ import {
 } from "./serverRuntimeState.ts";
 import { WorkspacePaths } from "./workspace/Services/WorkspacePaths.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import { openDesktopAppOrPrompt } from "./desktopAppLauncher.ts";
 
 const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
 
@@ -138,6 +139,10 @@ const tailscaleServePortFlag = Flag.integer("tailscale-serve-port").pipe(
   Flag.withSchema(PortSchema),
   Flag.withDescription("HTTPS port for Tailscale Serve when --tailscale-serve is enabled."),
   Flag.optional,
+);
+const appFlag = Flag.boolean("app").pipe(
+  Flag.withDescription("Open or focus the installed T3 Code desktop app."),
+  Flag.withDefault(false),
 );
 
 const EnvServerConfig = Config.all({
@@ -1150,11 +1155,21 @@ const runServerCommand = (
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
   },
 ) =>
-  Effect.gen(function* () {
-    const logLevel = yield* GlobalFlag.LogLevel;
-    const config = yield* resolveServerConfig(flags, logLevel, options);
-    return yield* runServer.pipe(Effect.provideService(ServerConfig, config));
-  });
+  Effect.service(GlobalFlag.LogLevel).pipe(
+    Effect.flatMap((logLevel) => resolveServerConfig(flags, logLevel, options)),
+    Effect.flatMap((config) => Effect.provideService(ServerConfig, config)(runServer)),
+  );
+
+const runDesktopCommand = (flags: CliServerFlags) =>
+  Effect.service(GlobalFlag.LogLevel).pipe(
+    Effect.flatMap((logLevel) =>
+      resolveServerConfig(flags, logLevel, { forceAutoBootstrapProjectFromCwd: true }),
+    ),
+    Effect.flatMap((config) => openDesktopAppOrPrompt(process.platform, config.cwd)),
+    Effect.flatMap((result) =>
+      result._tag === "use-web-ui" ? runServerCommand(flags) : Effect.void,
+    ),
+  );
 
 const startCommand = Command.make("start", { ...sharedServerCommandFlags }).pipe(
   Command.withDescription("Run the T3 Code server."),
@@ -1173,8 +1188,8 @@ const serveCommand = Command.make("serve", { ...sharedServerCommandFlags }).pipe
   ),
 );
 
-export const cli = Command.make("t3", { ...sharedServerCommandFlags }).pipe(
+export const cli = Command.make("t3", { ...sharedServerCommandFlags, app: appFlag }).pipe(
   Command.withDescription("Run the T3 Code server."),
-  Command.withHandler((flags) => runServerCommand(flags)),
+  Command.withHandler((flags) => (flags.app ? runDesktopCommand(flags) : runServerCommand(flags))),
   Command.withSubcommands([startCommand, serveCommand, authCommand, projectCommand]),
 );

@@ -93,6 +93,7 @@ const SET_THEME_CHANNEL = "desktop:set-theme";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
+const OPEN_WORKSPACE_CHANNEL = "desktop:open-workspace";
 const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_SET_CHANNEL_CHANNEL = "desktop:update-set-channel";
@@ -118,6 +119,7 @@ const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
 const CLIENT_SETTINGS_PATH = Path.join(STATE_DIR, "client-settings.json");
 const SAVED_ENVIRONMENT_REGISTRY_PATH = Path.join(STATE_DIR, "saved-environments.json");
 const DESKTOP_SCHEME = "t3";
+const OPEN_WORKSPACE_ARG = "--t3-open-path";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 // Dev-only SSH launcher override. Set this to an absolute path on the SSH host
@@ -239,6 +241,7 @@ let restoreStdIoCapture: (() => void) | null = null;
 let backendObservabilitySettings = readPersistedBackendObservabilitySettings();
 let desktopSettings = readDesktopSettings(DESKTOP_SETTINGS_PATH, app.getVersion());
 let desktopServerExposureMode: DesktopServerExposureMode = desktopSettings.serverExposureMode;
+let pendingOpenWorkspacePath = resolveOpenWorkspaceArg(process.argv.slice(1));
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
 const expectedBackendExitChildren = new WeakSet<ChildProcess.ChildProcess>();
@@ -471,6 +474,23 @@ function formatErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function resolveOpenWorkspaceArg(argv: ReadonlyArray<string>): string | null {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === OPEN_WORKSPACE_ARG) {
+      const workspacePath = argv[index + 1]?.trim();
+      return workspacePath ? Path.resolve(workspacePath) : null;
+    }
+
+    if (arg?.startsWith(`${OPEN_WORKSPACE_ARG}=`)) {
+      const workspacePath = arg.slice(OPEN_WORKSPACE_ARG.length + 1).trim();
+      return workspacePath ? Path.resolve(workspacePath) : null;
+    }
+  }
+
+  return null;
+}
+
 function getSafeExternalUrl(rawUrl: unknown): string | null {
   if (typeof rawUrl !== "string" || rawUrl.length === 0) {
     return null;
@@ -565,6 +585,32 @@ function ensureInitialBackendWindowOpen(): void {
     });
 
   backendInitialWindowOpenInFlight = nextOpen;
+}
+
+function sendOpenWorkspace(window: BrowserWindow, workspacePath: string): void {
+  const send = () => {
+    if (window.isDestroyed()) return;
+    window.webContents.send(OPEN_WORKSPACE_CHANNEL, workspacePath);
+    revealWindow(window);
+  };
+
+  if (window.webContents.isLoadingMainFrame()) {
+    window.webContents.once("did-finish-load", send);
+    return;
+  }
+
+  send();
+}
+
+function dispatchOpenWorkspace(workspacePath: string): void {
+  const existingWindow = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
+  if (existingWindow) {
+    sendOpenWorkspace(existingWindow, workspacePath);
+    return;
+  }
+
+  pendingOpenWorkspacePath = workspacePath;
+  ensureInitialBackendWindowOpen();
 }
 
 function writeDesktopStreamChunk(
@@ -1464,6 +1510,8 @@ function startBackend(): void {
     return;
   }
 
+  const bootstrapWorkspacePath = pendingOpenWorkspacePath;
+  pendingOpenWorkspacePath = null;
   const captureBackendLogs = !isDevelopment;
   const child = ChildProcess.spawn(process.execPath, [backendEntry, "--bootstrap-fd", "3"], {
     cwd: resolveBackendCwd(),
@@ -1487,6 +1535,9 @@ function startBackend(): void {
         t3Home: BASE_DIR,
         host: backendBindHost,
         desktopBootstrapToken: backendBootstrapToken,
+        ...(bootstrapWorkspacePath
+          ? { cwd: bootstrapWorkspacePath, autoBootstrapProjectFromCwd: true }
+          : {}),
         tailscaleServeEnabled: desktopSettings.tailscaleServeEnabled,
         tailscaleServePort: desktopSettings.tailscaleServePort,
         ...(backendObservabilitySettings.otlpTracesUrl
@@ -2135,6 +2186,12 @@ function createWindow(): BrowserWindow {
     void window.loadURL(backendHttpUrl);
   }
 
+  if (pendingOpenWorkspacePath) {
+    const workspacePath = pendingOpenWorkspacePath;
+    pendingOpenWorkspacePath = null;
+    sendOpenWorkspace(window, workspacePath);
+  }
+
   window.on("closed", () => {
     desktopSshEnvironmentBridge.cancelPendingPasswordPrompts(
       "SSH authentication was cancelled because the app window closed.",
@@ -2234,37 +2291,58 @@ app.on("before-quit", () => {
   restoreStdIoCapture?.();
 });
 
-app
-  .whenReady()
-  .then(() => {
-    writeDesktopLogHeader("app ready");
-    configureAppIdentity();
-    configureApplicationMenu();
-    registerDesktopProtocol();
-    configureAutoUpdater();
-    void bootstrap().catch((error) => {
-      if (isBackendReadinessAborted(error) && isQuitting) {
-        return;
-      }
-      handleFatalStartupError("bootstrap", error);
-    });
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, commandLine) => {
+    const workspacePath = resolveOpenWorkspaceArg(commandLine);
+    if (workspacePath) {
+      dispatchOpenWorkspace(workspacePath);
+      return;
+    }
 
-    app.on("activate", () => {
-      const existingWindow = mainWindow ?? BrowserWindow.getAllWindows()[0];
-      if (existingWindow) {
-        revealWindow(existingWindow);
-        return;
-      }
-      if (isDevelopment) {
-        mainWindow = createWindow();
-        return;
-      }
-      ensureInitialBackendWindowOpen();
-    });
-  })
-  .catch((error) => {
-    handleFatalStartupError("whenReady", error);
+    const existingWindow = mainWindow ?? BrowserWindow.getAllWindows()[0];
+    if (existingWindow) {
+      revealWindow(existingWindow);
+      return;
+    }
+
+    ensureInitialBackendWindowOpen();
   });
+
+  app
+    .whenReady()
+    .then(() => {
+      writeDesktopLogHeader("app ready");
+      configureAppIdentity();
+      configureApplicationMenu();
+      registerDesktopProtocol();
+      configureAutoUpdater();
+      void bootstrap().catch((error) => {
+        if (isBackendReadinessAborted(error) && isQuitting) {
+          return;
+        }
+        handleFatalStartupError("bootstrap", error);
+      });
+
+      app.on("activate", () => {
+        const existingWindow = mainWindow ?? BrowserWindow.getAllWindows()[0];
+        if (existingWindow) {
+          revealWindow(existingWindow);
+          return;
+        }
+        if (isDevelopment) {
+          mainWindow = createWindow();
+          return;
+        }
+        ensureInitialBackendWindowOpen();
+      });
+    })
+    .catch((error) => {
+      handleFatalStartupError("whenReady", error);
+    });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin" && !isQuitting) {

@@ -1,5 +1,11 @@
-import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
-import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  ProviderInstanceId,
+  type ServerLifecycleWelcomePayload,
+} from "@t3tools/contracts";
+import { scopedProjectKey, scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -28,7 +34,9 @@ import {
 } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { readLocalApi } from "../localApi";
+import { readEnvironmentApi } from "../environmentApi";
 import { useSettings } from "../hooks/useSettings";
+import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKeyFromPath,
@@ -41,8 +49,12 @@ import {
   useServerConfigUpdatedSubscription,
   useServerWelcomeSubscription,
 } from "../rpc/serverState";
-import { useStore } from "../store";
+import { selectSidebarThreadsForProjectRef, useStore } from "../store";
 import { useUiStateStore } from "../uiStateStore";
+import { getLatestThreadForProject } from "../lib/threadSort";
+import { inferProjectTitleFromPath, findProjectByPath } from "../lib/projectPaths";
+import { newCommandId, newProjectId, newThreadId } from "../lib/utils";
+import { buildThreadRouteParams } from "../threadRoutes";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import {
   ensureEnvironmentConnectionBootstrapped,
@@ -136,6 +148,7 @@ function RootRouteView() {
         <SshPasswordPromptDialog />
         <HostedStaticEnvironmentBootstrap />
         {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
+        {primaryEnvironmentAuthenticated ? <DesktopOpenWorkspaceBootstrap /> : null}
         {primaryEnvironmentAuthenticated ? <WebSocketConnectionCoordinator /> : null}
         {primaryEnvironmentAuthenticated ? <SlowRpcAckToastCoordinator /> : null}
         {primaryEnvironmentAuthenticated ? (
@@ -146,6 +159,112 @@ function RootRouteView() {
       </AnchoredToastProvider>
     </ToastProvider>
   );
+}
+
+function DesktopOpenWorkspaceBootstrap() {
+  const navigate = useNavigate();
+  const serverConfig = useServerConfig();
+  const sidebarThreadSortOrder = useSettings((settings) => settings.sidebarThreadSortOrder);
+  const defaultThreadEnvMode = useSettings((settings) => settings.defaultThreadEnvMode);
+  const { handleNewThread } = useNewThreadHandler();
+
+  const openWorkspace = useEffectEvent(async (rawWorkspacePath: string) => {
+    const workspacePath = rawWorkspacePath.trim();
+    if (!workspacePath) return;
+
+    const environmentId =
+      serverConfig?.environment.environmentId ?? getPrimaryKnownEnvironment()?.environmentId;
+    if (!environmentId) return;
+
+    await ensureEnvironmentConnectionBootstrapped(environmentId);
+    const api = readEnvironmentApi(environmentId);
+    if (!api) return;
+
+    const environmentState = useStore.getState().environmentStateById[environmentId];
+    const projects = Object.values(environmentState?.projectById ?? {});
+    const existingProject = findProjectByPath(projects, workspacePath);
+
+    const openThread = async (projectId: (typeof projects)[number]["id"]) => {
+      const projectRef = scopeProjectRef(environmentId, projectId);
+      const latestThread = getLatestThreadForProject(
+        selectSidebarThreadsForProjectRef(useStore.getState(), projectRef),
+        projectId,
+        sidebarThreadSortOrder,
+      );
+      if (latestThread) {
+        await navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(
+            scopeThreadRef(latestThread.environmentId, latestThread.id),
+          ),
+        });
+        return;
+      }
+
+      await handleNewThread(projectRef, {
+        envMode: defaultThreadEnvMode,
+      });
+    };
+
+    if (existingProject) {
+      await openThread(existingProject.id);
+      return;
+    }
+
+    const createdAt = new Date().toISOString();
+    const projectId = newProjectId();
+    const threadId = newThreadId();
+    const defaultModelSelection = {
+      instanceId: ProviderInstanceId.make("codex"),
+      model: DEFAULT_MODEL,
+    };
+
+    await api.orchestration.dispatchCommand({
+      type: "project.create",
+      commandId: newCommandId(),
+      projectId,
+      title: inferProjectTitleFromPath(workspacePath),
+      workspaceRoot: workspacePath,
+      createWorkspaceRootIfMissing: true,
+      defaultModelSelection,
+      createdAt,
+    });
+    await api.orchestration.dispatchCommand({
+      type: "thread.create",
+      commandId: newCommandId(),
+      threadId,
+      projectId,
+      title: "New thread",
+      modelSelection: defaultModelSelection,
+      runtimeMode: DEFAULT_RUNTIME_MODE,
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      branch: null,
+      worktreePath: null,
+      createdAt,
+    });
+    await navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
+    });
+  });
+
+  useEffect(() => {
+    const unsubscribe = window.desktopBridge?.onOpenWorkspace?.((workspacePath) => {
+      void openWorkspace(workspacePath).catch((error) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Unable to open workspace",
+            description: error instanceof Error ? error.message : "Unknown error.",
+          }),
+        );
+      });
+    });
+
+    return unsubscribe ?? undefined;
+  }, []);
+
+  return null;
 }
 
 function HostedStaticEnvironmentBootstrap() {
