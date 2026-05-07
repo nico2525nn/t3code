@@ -82,6 +82,8 @@ interface TimelineRowSharedState {
 }
 
 interface TimelineRowActivityState {
+  activeTurnInProgress: boolean;
+  activeTurnId: TurnId | null;
   isWorking: boolean;
   isRevertingCheckpoint: boolean;
   completionSummary: string | null;
@@ -153,8 +155,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         timelineEntries,
         completionDividerBeforeEntryId,
         isWorking,
-        activeTurnInProgress,
-        activeTurnId,
         activeTurnStartedAt,
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
@@ -163,8 +163,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       timelineEntries,
       completionDividerBeforeEntryId,
       isWorking,
-      activeTurnInProgress,
-      activeTurnId,
       activeTurnStartedAt,
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
@@ -223,11 +221,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   const activityState = useMemo<TimelineRowActivityState>(
     () => ({
+      activeTurnInProgress,
+      activeTurnId: activeTurnId ?? null,
       isWorking,
       isRevertingCheckpoint,
       completionSummary,
     }),
-    [completionSummary, isRevertingCheckpoint, isWorking],
+    [activeTurnInProgress, activeTurnId, completionSummary, isRevertingCheckpoint, isWorking],
   );
 
   // Stable renderItem — no closure deps. Row components read shared state
@@ -450,10 +450,15 @@ function AssistantCompletionDivider() {
 }
 
 function AssistantCopyButton({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+  const activity = use(TimelineRowActivityCtx);
+  const assistantTurnStillInProgress =
+    activity.activeTurnInProgress &&
+    activity.activeTurnId !== null &&
+    row.message.turnId === activity.activeTurnId;
   const assistantCopyState = resolveAssistantMessageCopyState({
     text: row.message.text ?? null,
     showCopyButton: row.showAssistantCopyButton,
-    streaming: row.message.streaming || row.assistantTurnStillInProgress,
+    streaming: row.message.streaming || assistantTurnStillInProgress,
   });
 
   if (!assistantCopyState.visible) {
