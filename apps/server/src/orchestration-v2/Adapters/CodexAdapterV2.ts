@@ -1213,7 +1213,8 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
         const buildCommandExecutionArtifacts = (
           context: ActiveCodexTurnContext,
           item: Extract<
-            CodexSchema.V2ItemCompletedNotification__ThreadItem,
+            | CodexSchema.V2ItemStartedNotification__ThreadItem
+            | CodexSchema.V2ItemCompletedNotification__ThreadItem,
             { type: "commandExecution" }
           >,
         ) =>
@@ -1817,7 +1818,26 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
         yield* client.handleServerNotification("item/started", (payload) =>
           Effect.gen(function* () {
             const context = (yield* Ref.get(activeTurns)).get(payload.turnId);
-            if (context === undefined || payload.item.type !== "webSearch") {
+            if (context === undefined) {
+              return;
+            }
+
+            if (payload.item.type === "commandExecution") {
+              const artifacts = yield* buildCommandExecutionArtifacts(context, payload.item);
+              yield* emitProviderEvent({
+                type: "node.updated",
+                provider: CODEX_PROVIDER,
+                node: artifacts.node,
+              });
+              yield* emitProviderEvent({
+                type: "turn_item.updated",
+                provider: CODEX_PROVIDER,
+                turnItem: artifacts.turnItem,
+              });
+              return;
+            }
+
+            if (payload.item.type !== "webSearch") {
               return;
             }
 
