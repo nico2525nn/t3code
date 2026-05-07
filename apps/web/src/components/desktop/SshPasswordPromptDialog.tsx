@@ -2,11 +2,11 @@ import type { DesktopSshPasswordPromptRequest } from "@t3tools/contracts";
 import {
   useEffect,
   useId,
+  useReducer,
   useRef,
   useState,
   type Dispatch,
   type RefObject,
-  type SetStateAction,
 } from "react";
 
 import { Button } from "../ui/button";
@@ -38,6 +38,40 @@ function getPromptErrorMessage(error: unknown): string {
 
 const EXPIRED_PROMPT_MESSAGE = "This SSH password prompt expired. Try connecting again.";
 
+type PromptDraftState = {
+  password: string;
+  responseError: string | null;
+  now: number;
+};
+
+type PromptDraftAction =
+  | { type: "prompt.reset"; now: number }
+  | { type: "clock.tick"; now: number }
+  | { type: "password.set"; password: string }
+  | { type: "error.set"; error: string | null };
+
+function promptDraftReducer(
+  state: PromptDraftState,
+  action: PromptDraftAction,
+): PromptDraftState {
+  switch (action.type) {
+    case "prompt.reset":
+      return {
+        password: "",
+        responseError: null,
+        now: action.now,
+      };
+    case "clock.tick":
+      return state.now === action.now ? state : { ...state, now: action.now };
+    case "password.set":
+      return state.password === action.password ? state : { ...state, password: action.password };
+    case "error.set":
+      return state.responseError === action.error
+        ? state
+        : { ...state, responseError: action.error };
+  }
+}
+
 function useSshPasswordPromptQueue() {
   const [queue, setQueue] = useState<readonly DesktopSshPasswordPromptRequest[]>([]);
 
@@ -58,19 +92,14 @@ function useSshPasswordPromptQueue() {
 function useCurrentPromptLifecycle(
   currentRequest: DesktopSshPasswordPromptRequest | null,
   inputRef: RefObject<HTMLInputElement | null>,
-  setPassword: Dispatch<SetStateAction<string>>,
-  setResponseError: Dispatch<SetStateAction<string | null>>,
+  dispatch: Dispatch<PromptDraftAction>,
 ) {
-  const [now, setNow] = useState(() => Date.now());
-
   useEffect(() => {
-    setPassword("");
-    setResponseError(null);
+    dispatch({ type: "prompt.reset", now: Date.now() });
     if (!currentRequest) {
       return;
     }
 
-    setNow(Date.now());
     const frame = window.requestAnimationFrame(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
@@ -78,7 +107,7 @@ function useCurrentPromptLifecycle(
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [currentRequest, inputRef, setPassword, setResponseError]);
+  }, [currentRequest, dispatch, inputRef]);
 
   useEffect(() => {
     if (!currentRequest) {
@@ -86,41 +115,41 @@ function useCurrentPromptLifecycle(
     }
 
     const interval = window.setInterval(() => {
-      setNow(Date.now());
+      dispatch({ type: "clock.tick", now: Date.now() });
     }, 1_000);
     return () => {
       window.clearInterval(interval);
     };
-  }, [currentRequest]);
-
-  return now;
+  }, [currentRequest, dispatch]);
 }
 
 export function SshPasswordPromptDialog() {
   const [queue, setQueue] = useSshPasswordPromptQueue();
-  const [password, setPassword] = useState("");
   const [isResponding, setIsResponding] = useState(false);
-  const [responseError, setResponseError] = useState<string | null>(null);
+  const [draft, dispatchDraft] = useReducer(promptDraftReducer, undefined, () => ({
+    password: "",
+    responseError: null,
+    now: Date.now(),
+  }));
   const currentRequest = queue[0] ?? null;
   const inputRef = useRef<HTMLInputElement | null>(null);
   const isRespondingRef = useRef(false);
   const formId = useId();
-  const now = useCurrentPromptLifecycle(currentRequest, inputRef, setPassword, setResponseError);
+  useCurrentPromptLifecycle(currentRequest, inputRef, dispatchDraft);
 
   const expiresAtMs = currentRequest ? Date.parse(currentRequest.expiresAt) : Number.NaN;
-  const remainingMs = Number.isFinite(expiresAtMs) ? Math.max(0, expiresAtMs - now) : null;
+  const remainingMs = Number.isFinite(expiresAtMs) ? Math.max(0, expiresAtMs - draft.now) : null;
   const isExpired = remainingMs !== null && remainingMs <= 0;
   const remainingSeconds = remainingMs === null ? null : Math.ceil(remainingMs / 1_000);
   const remainingLabel =
     remainingSeconds === null ? null : formatRemainingSeconds(remainingSeconds);
-  const visibleResponseError = isExpired ? EXPIRED_PROMPT_MESSAGE : responseError;
+  const visibleResponseError = isExpired ? EXPIRED_PROMPT_MESSAGE : draft.responseError;
 
   const removeCurrentPrompt = (requestId: string) => {
     setQueue((currentQueue) =>
       currentQueue[0]?.requestId === requestId ? currentQueue.slice(1) : currentQueue,
     );
-    setPassword("");
-    setResponseError(null);
+    dispatchDraft({ type: "prompt.reset", now: Date.now() });
   };
 
   const respond = async (nextPassword: string | null) => {
@@ -130,13 +159,13 @@ export function SshPasswordPromptDialog() {
 
     const requestId = currentRequest.requestId;
     if (nextPassword !== null && isExpired) {
-      setResponseError(EXPIRED_PROMPT_MESSAGE);
+      dispatchDraft({ type: "error.set", error: EXPIRED_PROMPT_MESSAGE });
       return;
     }
 
     isRespondingRef.current = true;
     setIsResponding(true);
-    setResponseError(null);
+    dispatchDraft({ type: "error.set", error: null });
     try {
       await window.desktopBridge?.resolveSshPasswordPrompt(requestId, nextPassword);
       removeCurrentPrompt(requestId);
@@ -144,7 +173,7 @@ export function SshPasswordPromptDialog() {
       if (nextPassword === null) {
         removeCurrentPrompt(requestId);
       } else {
-        setResponseError(getPromptErrorMessage(error));
+        dispatchDraft({ type: "error.set", error: getPromptErrorMessage(error) });
       }
     } finally {
       isRespondingRef.current = false;
@@ -192,7 +221,7 @@ export function SshPasswordPromptDialog() {
             id={formId}
             onSubmit={(event) => {
               event.preventDefault();
-              void respond(password);
+              void respond(draft.password);
             }}
           >
             <div className="space-y-2">
@@ -216,8 +245,10 @@ export function SshPasswordPromptDialog() {
                 disabled={isResponding || isExpired}
                 name="ssh-password"
                 type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                value={draft.password}
+                onChange={(event) =>
+                  dispatchDraft({ type: "password.set", password: event.target.value })
+                }
               />
             </div>
             {visibleResponseError ? (
