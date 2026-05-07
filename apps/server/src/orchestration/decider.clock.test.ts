@@ -44,15 +44,17 @@ it.effect("uses the Effect clock for generated project update timestamps", () =>
       },
       readModel,
     });
-    if (Array.isArray(result)) {
-      assert.fail("expected a single project meta-updated event");
+    const events = Array.isArray(result) ? [...result] : [result];
+    assert.lengthOf(events, 1);
+    const event = events[0];
+    if (!event) {
+      assert.fail("expected a project meta-updated event");
       return;
     }
-    if (result.type !== "project.meta-updated") {
-      assert.fail(`expected project.meta-updated, received ${result.type}`);
+    if (event.type !== "project.meta-updated") {
+      assert.fail(`expected project.meta-updated, received ${event.type}`);
       return;
     }
-    const event = result;
 
     assert.equal(event.occurredAt, expectedNow);
     assert.equal(event.payload.updatedAt, expectedNow);
