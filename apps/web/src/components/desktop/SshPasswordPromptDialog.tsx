@@ -1,5 +1,13 @@
 import type { DesktopSshPasswordPromptRequest } from "@t3tools/contracts";
-import { useEffect, useId, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from "react";
 
 import { Button } from "../ui/button";
 import {
@@ -47,26 +55,22 @@ function useSshPasswordPromptQueue() {
   return [queue, setQueue] as const;
 }
 
-function usePromptDraftReset(
+function useCurrentPromptLifecycle(
   currentRequest: DesktopSshPasswordPromptRequest | null,
+  inputRef: RefObject<HTMLInputElement | null>,
   setPassword: Dispatch<SetStateAction<string>>,
   setResponseError: Dispatch<SetStateAction<string | null>>,
 ) {
+  const [now, setNow] = useState(() => Date.now());
+
   useEffect(() => {
     setPassword("");
     setResponseError(null);
-  }, [currentRequest, setPassword, setResponseError]);
-}
-
-function usePromptInputAutoFocus(
-  currentRequest: DesktopSshPasswordPromptRequest | null,
-  inputRef: React.RefObject<HTMLInputElement | null>,
-) {
-  useEffect(() => {
     if (!currentRequest) {
       return;
     }
 
+    setNow(Date.now());
     const frame = window.requestAnimationFrame(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
@@ -74,19 +78,7 @@ function usePromptInputAutoFocus(
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [currentRequest, inputRef]);
-}
-
-function usePromptNow(currentRequest: DesktopSshPasswordPromptRequest | null) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (!currentRequest) {
-      return;
-    }
-
-    setNow(Date.now());
-  }, [currentRequest]);
+  }, [currentRequest, inputRef, setPassword, setResponseError]);
 
   useEffect(() => {
     if (!currentRequest) {
@@ -113,9 +105,7 @@ export function SshPasswordPromptDialog() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const isRespondingRef = useRef(false);
   const formId = useId();
-  const now = usePromptNow(currentRequest);
-  usePromptDraftReset(currentRequest, setPassword, setResponseError);
-  usePromptInputAutoFocus(currentRequest, inputRef);
+  const now = useCurrentPromptLifecycle(currentRequest, inputRef, setPassword, setResponseError);
 
   const expiresAtMs = currentRequest ? Date.parse(currentRequest.expiresAt) : Number.NaN;
   const remainingMs = Number.isFinite(expiresAtMs) ? Math.max(0, expiresAtMs - now) : null;
