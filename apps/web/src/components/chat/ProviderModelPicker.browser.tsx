@@ -254,6 +254,7 @@ async function mountPicker(props: {
   lockedContinuationGroupKey?: string | null;
   providers?: ReadonlyArray<ServerProvider>;
   settings?: UnifiedSettings;
+  modelOptionsByInstance?: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>;
   triggerVariant?: "ghost" | "outline";
 }) {
   const host = document.createElement("div");
@@ -262,12 +263,14 @@ async function mountPicker(props: {
   const providers = props.providers ?? TEST_PROVIDERS;
   const instanceEntries = sortProviderInstanceEntries(deriveProviderInstanceEntries(providers));
   const activeInstanceId = props.activeInstanceId ?? CODEX_INSTANCE_ID;
-  const modelOptionsByInstance = getCustomModelOptionsByInstance(
-    props.settings ?? DEFAULT_UNIFIED_SETTINGS,
-    providers,
-    activeInstanceId,
-    props.model,
-  );
+  const modelOptionsByInstance =
+    props.modelOptionsByInstance ??
+    getCustomModelOptionsByInstance(
+      props.settings ?? DEFAULT_UNIFIED_SETTINGS,
+      providers,
+      activeInstanceId,
+      props.model,
+    );
   const screen = await render(
     <ProviderModelPicker
       activeInstanceId={activeInstanceId}
@@ -368,6 +371,43 @@ describe("ProviderModelPicker", () => {
         ]);
       });
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("falls back to the active instance when favorites are not in the loaded option slice", async () => {
+    localStorage.setItem(
+      "t3code:client-settings:v1",
+      JSON.stringify({
+        ...DEFAULT_CLIENT_SETTINGS,
+        favorites: [{ provider: "codex", model: "gpt-5-codex" }],
+      }),
+    );
+    const allOptions = getCustomModelOptionsByInstance(
+      DEFAULT_UNIFIED_SETTINGS,
+      TEST_PROVIDERS,
+      CLAUDE_INSTANCE_ID,
+      "claude-opus-4-6",
+    );
+    const mounted = await mountPicker({
+      activeInstanceId: CLAUDE_INSTANCE_ID,
+      model: "claude-opus-4-6",
+      lockedProvider: null,
+      modelOptionsByInstance: new Map([
+        [CLAUDE_INSTANCE_ID, allOptions.get(CLAUDE_INSTANCE_ID) ?? []],
+      ]),
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await vi.waitFor(() => {
+        const text = document.body.textContent ?? "";
+        expect(text).not.toContain("No models found");
+        expect(text).toContain("Claude Opus 4.6");
+      });
+    } finally {
+      localStorage.removeItem("t3code:client-settings:v1");
       await mounted.cleanup();
     }
   });

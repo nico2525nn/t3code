@@ -512,12 +512,32 @@ export function deriveWorkLogEntries(
     .filter((activity) => activity.kind !== "tool.started")
     .filter((activity) => activity.kind !== "task.started")
     .filter((activity) => activity.kind !== "context-window.updated")
+    .filter((activity) => !isPiPanelOnlyActivity(activity))
     .filter((activity) => activity.summary !== "Checkpoint captured")
     .filter((activity) => !isPlanBoundaryToolActivity(activity))
     .map(toDerivedWorkLogEntry);
   return collapseDerivedWorkLogEntries(entries).map(
     ({ activityKind: _activityKind, collapseKey: _collapseKey, ...entry }) => entry,
   );
+}
+
+function isPiPanelOnlyActivity(activity: OrchestrationThreadActivity): boolean {
+  if (
+    activity.kind === "pi.ui.state.updated" ||
+    activity.kind === "pi.extension.configured" ||
+    activity.kind === "pi.extension.diagnostic"
+  ) {
+    return true;
+  }
+  if (activity.kind !== "extension.activity") {
+    return false;
+  }
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  const visibility = payload?.visibility;
+  return visibility === "pi-panel" || visibility === "debug" || visibility === "hidden";
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {

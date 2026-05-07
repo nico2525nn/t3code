@@ -42,7 +42,13 @@ import {
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import { parsePiSlashCommand, PI_BUILT_IN_SLASH_COMMANDS } from "../pi/PiSlashCommands.ts";
 import { makePiExtensionUiBridge, type PiExtensionUiBridge } from "../pi/PiExtensionUiBridge.ts";
-import { resolvePiAgentDir, resolvePiSessionDir } from "./PiProvider.ts";
+import { toPiJsonValue } from "../pi/jsonSafe.ts";
+import {
+  getPiExtensionInventoryFromRunner,
+  piModelToServerModel,
+  resolvePiAgentDir,
+  resolvePiSessionDir,
+} from "./PiProvider.ts";
 
 const PROVIDER = ProviderDriverKind.make("pi");
 const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
@@ -648,34 +654,44 @@ async function publishPiRuntimeWarning(input: {
   readonly message: string;
   readonly detail?: unknown;
 }) {
+  const detail = toPiJsonValue(input.detail);
   await input.publishRuntimeEvent({
     ...makeContextEventBase(input.context, input.turnId),
     type: "runtime.warning",
     payload: {
       message: input.message,
-      ...(input.detail !== undefined ? { detail: input.detail } : {}),
+      ...(detail !== undefined ? { detail } : {}),
     },
   });
 }
 
-async function publishPiExtensionActivity(input: {
+async function publishPiExtensionDiagnostic(input: {
   readonly context: PiSessionContext;
   readonly publishRuntimeEvent: PiRuntimeEventPublisher;
   readonly message: string;
   readonly severity?: "info" | "warning" | "error";
+  readonly event?: string;
+  readonly diagnosticKey?: string;
+  readonly repeatCount?: number;
+  readonly hiddenCount?: number;
   readonly detail?: unknown;
   readonly extensionPath?: string;
 }) {
+  const detail = toPiJsonValue(input.detail);
   await input.publishRuntimeEvent({
     ...makeContextEventBase(input.context, input.context.activeTurnId),
-    type: "extension.activity",
+    type: "pi.extension.diagnostic",
     payload: {
-      source: "pi.extension.ui",
-      activityType: input.severity === "error" ? "error" : "notify",
+      source: "pi.extension",
       message: input.message,
-      ...(input.severity ? { severity: input.severity } : {}),
+      severity: input.severity ?? "warning",
+      visibility: "pi-panel",
       ...(input.extensionPath ? { extensionPath: input.extensionPath } : {}),
-      ...(input.detail !== undefined ? { data: input.detail } : {}),
+      ...(input.event ? { event: input.event } : {}),
+      ...(input.diagnosticKey ? { diagnosticKey: input.diagnosticKey } : {}),
+      ...(input.repeatCount ? { repeatCount: input.repeatCount } : {}),
+      ...(input.hiddenCount !== undefined ? { hiddenCount: input.hiddenCount } : {}),
+      ...(detail !== undefined ? { detail } : {}),
       uiOnly: true,
     },
   });
@@ -688,40 +704,25 @@ function extensionErrorMessage(error: ExtensionError): string {
   return `${source}${event ? ` failed during ${event}` : " failed"}${detail ? `: ${detail}` : "."}`;
 }
 
-function getPiExtensionConfigSnapshot(session: AgentSession) {
-  const runner = session.extensionRunner;
-  if (!runner) {
-    return {
-      extensionPaths: [],
-      slashCommands: [],
-      tools: [],
-      flags: [],
-    };
-  }
+function extensionDiagnosticKey(error: ExtensionError): string {
+  return [
+    error.extensionPath.trim() || "Pi extension",
+    error.event.trim(),
+    error.error.trim(),
+  ].join(" :: ");
+}
+
+function shouldPublishExtensionDiagnostic(count: number): boolean {
+  return count === 1 || count === 2 || count === 5 || count === 10 || count % 100 === 0;
+}
+
+function getPiExtensionConfigSnapshot(context: PiSessionContext) {
+  const runner = context.session.extensionRunner;
+  const models = context.modelRegistry.getAvailable().map(piModelToServerModel);
+  const inventory = getPiExtensionInventoryFromRunner(runner);
   return {
-    extensionPaths: runner.getExtensionPaths(),
-    slashCommands: runner.getRegisteredCommands().map((command) => {
-      const commandRecord = Object(command) as Record<string, unknown>;
-      const input =
-        commandRecord.input && typeof commandRecord.input === "object"
-          ? (commandRecord.input as { readonly hint?: unknown })
-          : undefined;
-      const snapshot = {
-        name: command.name,
-        description: command.description,
-        source: "extension",
-        sourceInfo: command.sourceInfo,
-      };
-      return typeof input?.hint === "string"
-        ? Object.assign(snapshot, { input: { hint: input.hint } })
-        : snapshot;
-    }),
-    tools: runner.getAllRegisteredTools().map((tool) => ({
-      name: tool.definition.name,
-      description: tool.definition.description,
-      sourceInfo: tool.sourceInfo,
-    })),
-    flags: [...runner.getFlags().keys()],
+    ...inventory,
+    models,
   };
 }
 
@@ -729,13 +730,18 @@ async function publishPiExtensionConfig(input: {
   readonly context: PiSessionContext;
   readonly publishRuntimeEvent: PiRuntimeEventPublisher;
 }) {
+  const config = getPiExtensionConfigSnapshot(input.context);
+  const models = toPiJsonValue(config.models);
   await input.publishRuntimeEvent({
     ...makeContextEventBase(input.context, input.context.activeTurnId),
-    type: "session.configured",
+    type: "pi.extension.configured",
     payload: {
-      config: {
-        piExtensions: getPiExtensionConfigSnapshot(input.context.session),
-      },
+      source: "pi.extension",
+      extensionPaths: config.extensionPaths,
+      slashCommands: config.slashCommands,
+      tools: config.tools,
+      flags: config.flags,
+      ...(Array.isArray(models) ? { models } : {}),
     },
   });
 }
@@ -745,6 +751,7 @@ async function bindPiExtensions(input: {
   readonly publishRuntimeEvent: PiRuntimeEventPublisher;
   readonly uiContext: ExtensionUIContext;
 }) {
+  const diagnosticCounts = new Map<string, number>();
   const commandContextActions: ExtensionCommandContextActions = {
     waitForIdle: () => input.context.session.agent.waitForIdle(),
     newSession: async () => {
@@ -782,7 +789,13 @@ async function bindPiExtensions(input: {
       });
       return { cancelled: true };
     },
-    reload: () => input.context.session.reload(),
+    reload: async () => {
+      await input.context.session.reload();
+      await publishPiExtensionConfig({
+        context: input.context,
+        publishRuntimeEvent: input.publishRuntimeEvent,
+      });
+    },
   };
 
   await input.context.session.bindExtensions({
@@ -797,12 +810,22 @@ async function bindPiExtensions(input: {
       });
     },
     onError: (error) => {
-      void publishPiExtensionActivity({
+      const diagnosticKey = extensionDiagnosticKey(error);
+      const repeatCount = (diagnosticCounts.get(diagnosticKey) ?? 0) + 1;
+      diagnosticCounts.set(diagnosticKey, repeatCount);
+      if (!shouldPublishExtensionDiagnostic(repeatCount)) {
+        return;
+      }
+      void publishPiExtensionDiagnostic({
         context: input.context,
         publishRuntimeEvent: input.publishRuntimeEvent,
         message: extensionErrorMessage(error),
         severity: "error",
         extensionPath: error.extensionPath,
+        event: error.event,
+        diagnosticKey,
+        repeatCount,
+        hiddenCount: Math.max(0, repeatCount - 1),
         detail: error,
       });
     },

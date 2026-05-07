@@ -61,6 +61,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
 
       const adapter = yield* makePiAdapter(effectiveConfig, { instanceId });
       const textGeneration = yield* makePiTextGeneration(effectiveConfig);
+      const serverConfig = yield* ServerConfig;
 
       const snapshot = yield* makeManagedServerProvider<PiSettings>({
         maintenanceCapabilities: makeManualOnlyProviderMaintenanceCapabilities({
@@ -71,7 +72,9 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         streamSettings: Stream.never,
         haveSettingsChanged: () => false,
         initialSnapshot: (settings) => stampIdentity(makePendingPiProvider(settings)),
-        checkProvider: checkPiProviderStatus(effectiveConfig).pipe(Effect.map(stampIdentity)),
+        checkProvider: checkPiProviderStatus(effectiveConfig, serverConfig.cwd).pipe(
+          Effect.map(stampIdentity),
+        ),
         refreshInterval: SNAPSHOT_REFRESH_INTERVAL,
       }).pipe(
         Effect.mapError(

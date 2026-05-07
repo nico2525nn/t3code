@@ -178,6 +178,22 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     }
     return ready;
   }, [instanceEntries]);
+  const hasResolvedFavorites = useMemo(() => {
+    if (favoritesSet.size === 0 || props.lockedProvider !== null) return false;
+    for (const [instanceId, models] of modelOptionsByInstance) {
+      if (!readyInstanceSet.has(instanceId)) continue;
+      if (models.some((model) => favoritesSet.has(providerModelKey(instanceId, model.slug)))) {
+        return true;
+      }
+    }
+    return false;
+  }, [favoritesSet, modelOptionsByInstance, props.lockedProvider, readyInstanceSet]);
+
+  useLayoutEffect(() => {
+    if (selectedInstanceId === "favorites" && !hasResolvedFavorites) {
+      setSelectedInstanceId(props.activeInstanceId);
+    }
+  }, [hasResolvedFavorites, props.activeInstanceId, selectedInstanceId]);
 
   // Flatten models into a searchable array. One pass over the
   // instance-keyed map; each model carries its instance id + driver kind

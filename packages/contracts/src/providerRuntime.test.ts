@@ -168,6 +168,126 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.payload.uiOnly).toBe(true);
   });
 
+  it("decodes Pi panel state updates", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "pi.ui.state.updated",
+      eventId: "event-pi-ui-1",
+      provider: "pi",
+      createdAt: "2026-02-28T00:00:01.000Z",
+      threadId: "thread-2",
+      payload: {
+        source: "pi.extension.ui",
+        surface: "status",
+        key: "tps",
+        label: "tps",
+        text: "42 tok/s",
+        state: "set",
+        uiOnly: true,
+      },
+    });
+
+    expect(parsed.type).toBe("pi.ui.state.updated");
+    if (parsed.type !== "pi.ui.state.updated") {
+      throw new Error("expected pi.ui.state.updated");
+    }
+    expect(parsed.payload.state).toBe("set");
+    expect(parsed.payload.uiOnly).toBe(true);
+  });
+
+  it("decodes Pi extension configured snapshots", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "pi.extension.configured",
+      eventId: "event-pi-config-1",
+      provider: "pi",
+      createdAt: "2026-02-28T00:00:01.000Z",
+      threadId: "thread-2",
+      payload: {
+        source: "pi.extension",
+        extensionPaths: ["/Users/davis/.pi/agent/extensions/tps-tracker.ts"],
+        slashCommands: [
+          {
+            name: "usage",
+            description: "Show usage",
+            source: "extension",
+            sourceInfo: { path: "/Users/davis/.pi/agent/extensions/tps-tracker.ts" },
+          },
+        ],
+        tools: [
+          {
+            name: "search",
+            description: "Search",
+            sourceInfo: { path: "/Users/davis/.pi/agent/extensions/tps-tracker.ts" },
+          },
+        ],
+        flags: ["verbose"],
+        models: [{ slug: "extension/model", name: "Extension Model" }],
+      },
+    });
+
+    expect(parsed.type).toBe("pi.extension.configured");
+    if (parsed.type !== "pi.extension.configured") {
+      throw new Error("expected pi.extension.configured");
+    }
+    expect(parsed.payload.slashCommands[0]?.name).toBe("usage");
+    expect(parsed.payload.tools[0]?.sourceInfo).toEqual({
+      path: "/Users/davis/.pi/agent/extensions/tps-tracker.ts",
+    });
+  });
+
+  it("rejects non-JSON Pi extension configured metadata", () => {
+    expect(() =>
+      decodeRuntimeEvent({
+        type: "pi.extension.configured",
+        eventId: "event-pi-config-unsafe-1",
+        provider: "pi",
+        createdAt: "2026-02-28T00:00:01.000Z",
+        threadId: "thread-2",
+        payload: {
+          source: "pi.extension",
+          extensionPaths: ["/Users/davis/.pi/agent/extensions/pi-mcp/src/index.ts"],
+          slashCommands: [],
+          tools: [
+            {
+              name: "search",
+              sourceInfo: {
+                path: "/Users/davis/.pi/agent/extensions/pi-mcp/src/index.ts",
+                baseDir: undefined,
+              },
+            },
+          ],
+          flags: [],
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("decodes Pi extension diagnostics with repeat counts", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "pi.extension.diagnostic",
+      eventId: "event-pi-diagnostic-1",
+      provider: "pi",
+      createdAt: "2026-02-28T00:00:01.000Z",
+      threadId: "thread-2",
+      payload: {
+        source: "pi.extension",
+        message: "tps-tracker.ts failed during message_update",
+        severity: "error",
+        visibility: "pi-panel",
+        event: "message_update",
+        diagnosticKey: "tps-tracker :: message_update :: theme.fg is not a function",
+        repeatCount: 100,
+        hiddenCount: 99,
+      },
+    });
+
+    expect(parsed.type).toBe("pi.extension.diagnostic");
+    if (parsed.type !== "pi.extension.diagnostic") {
+      throw new Error("expected pi.extension.diagnostic");
+    }
+    expect(parsed.payload.visibility).toBe("pi-panel");
+    expect(parsed.payload.hiddenCount).toBe(99);
+  });
+
   it("decodes user-input.resolved with answer map", () => {
     const parsed = decodeRuntimeEvent({
       type: "user-input.resolved",

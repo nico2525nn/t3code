@@ -192,6 +192,9 @@ const ProviderRuntimeEventType = Schema.Literals([
   "deprecation.notice",
   "files.persisted",
   "extension.activity",
+  "pi.ui.state.updated",
+  "pi.extension.configured",
+  "pi.extension.diagnostic",
   "runtime.warning",
   "runtime.error",
 ]);
@@ -243,6 +246,9 @@ const ConfigWarningType = Schema.Literal("config.warning");
 const DeprecationNoticeType = Schema.Literal("deprecation.notice");
 const FilesPersistedType = Schema.Literal("files.persisted");
 const ExtensionActivityType = Schema.Literal("extension.activity");
+const PiUiStateUpdatedType = Schema.Literal("pi.ui.state.updated");
+const PiExtensionConfiguredType = Schema.Literal("pi.extension.configured");
+const PiExtensionDiagnosticType = Schema.Literal("pi.extension.diagnostic");
 const RuntimeWarningType = Schema.Literal("runtime.warning");
 const RuntimeErrorType = Schema.Literal("runtime.error");
 
@@ -611,11 +617,86 @@ export const ExtensionActivityPayload = Schema.Struct({
   ]),
   message: TrimmedNonEmptyStringSchema,
   severity: Schema.optional(Schema.Literals(["info", "warning", "error"])),
+  visibility: Schema.optional(Schema.Literals(["main", "pi-panel", "debug", "hidden"])),
   extensionPath: Schema.optional(TrimmedNonEmptyStringSchema),
-  data: Schema.optional(Schema.Unknown),
+  data: Schema.optional(Schema.Json),
   uiOnly: Schema.optional(Schema.Boolean).pipe(Schema.withConstructorDefault(Effect.succeed(true))),
 });
 export type ExtensionActivityPayload = typeof ExtensionActivityPayload.Type;
+
+export const PiUiPanelSurface = Schema.Literals([
+  "header",
+  "footer",
+  "status",
+  "widget",
+  "title",
+  "editor",
+  "custom",
+]);
+export type PiUiPanelSurface = typeof PiUiPanelSurface.Type;
+
+export const PiUiStateUpdatedPayload = Schema.Struct({
+  source: TrimmedNonEmptyStringSchema,
+  surface: PiUiPanelSurface,
+  key: TrimmedNonEmptyStringSchema,
+  label: Schema.optional(TrimmedNonEmptyStringSchema),
+  text: Schema.optional(Schema.String),
+  lines: Schema.optional(Schema.Array(Schema.String)),
+  state: Schema.optional(Schema.Literals(["set", "cleared", "unsupported"])).pipe(
+    Schema.withConstructorDefault(Effect.succeed("set")),
+  ),
+  placement: Schema.optional(TrimmedNonEmptyStringSchema),
+  extensionPath: Schema.optional(TrimmedNonEmptyStringSchema),
+  data: Schema.optional(Schema.Json),
+  uiOnly: Schema.optional(Schema.Boolean).pipe(Schema.withConstructorDefault(Effect.succeed(true))),
+});
+export type PiUiStateUpdatedPayload = typeof PiUiStateUpdatedPayload.Type;
+
+const PiExtensionSlashCommandSnapshot = Schema.Struct({
+  name: TrimmedNonEmptyStringSchema,
+  description: Schema.optional(Schema.String),
+  source: Schema.optional(TrimmedNonEmptyStringSchema),
+  sourceInfo: Schema.optional(Schema.Json),
+  input: Schema.optional(Schema.Json),
+});
+export type PiExtensionSlashCommandSnapshot = typeof PiExtensionSlashCommandSnapshot.Type;
+
+const PiExtensionToolSnapshot = Schema.Struct({
+  name: TrimmedNonEmptyStringSchema,
+  description: Schema.optional(Schema.String),
+  sourceInfo: Schema.optional(Schema.Json),
+});
+export type PiExtensionToolSnapshot = typeof PiExtensionToolSnapshot.Type;
+
+export const PiExtensionConfiguredPayload = Schema.Struct({
+  source: TrimmedNonEmptyStringSchema,
+  extensionPaths: Schema.Array(Schema.String),
+  slashCommands: Schema.Array(PiExtensionSlashCommandSnapshot),
+  tools: Schema.Array(PiExtensionToolSnapshot),
+  flags: Schema.Array(Schema.String),
+  models: Schema.optional(Schema.Array(Schema.Json)),
+  skills: Schema.optional(Schema.Array(Schema.Json)),
+});
+export type PiExtensionConfiguredPayload = typeof PiExtensionConfiguredPayload.Type;
+
+export const PiExtensionDiagnosticPayload = Schema.Struct({
+  source: TrimmedNonEmptyStringSchema,
+  message: TrimmedNonEmptyStringSchema,
+  severity: Schema.Literals(["info", "warning", "error"]),
+  visibility: Schema.optional(Schema.Literals(["main", "pi-panel", "debug", "hidden"])).pipe(
+    Schema.withConstructorDefault(Effect.succeed("pi-panel")),
+  ),
+  extensionPath: Schema.optional(TrimmedNonEmptyStringSchema),
+  event: Schema.optional(TrimmedNonEmptyStringSchema),
+  diagnosticKey: Schema.optional(TrimmedNonEmptyStringSchema),
+  repeatCount: Schema.optional(PositiveInt).pipe(Schema.withConstructorDefault(Effect.succeed(1))),
+  hiddenCount: Schema.optional(NonNegativeInt).pipe(
+    Schema.withConstructorDefault(Effect.succeed(0)),
+  ),
+  detail: Schema.optional(Schema.Json),
+  uiOnly: Schema.optional(Schema.Boolean).pipe(Schema.withConstructorDefault(Effect.succeed(true))),
+});
+export type PiExtensionDiagnosticPayload = typeof PiExtensionDiagnosticPayload.Type;
 
 const RuntimeWarningPayload = Schema.Struct({
   message: TrimmedNonEmptyStringSchema,
@@ -970,6 +1051,29 @@ const ProviderRuntimeExtensionActivityEvent = Schema.Struct({
 export type ProviderRuntimeExtensionActivityEvent =
   typeof ProviderRuntimeExtensionActivityEvent.Type;
 
+const ProviderRuntimePiUiStateUpdatedEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: PiUiStateUpdatedType,
+  payload: PiUiStateUpdatedPayload,
+});
+export type ProviderRuntimePiUiStateUpdatedEvent = typeof ProviderRuntimePiUiStateUpdatedEvent.Type;
+
+const ProviderRuntimePiExtensionConfiguredEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: PiExtensionConfiguredType,
+  payload: PiExtensionConfiguredPayload,
+});
+export type ProviderRuntimePiExtensionConfiguredEvent =
+  typeof ProviderRuntimePiExtensionConfiguredEvent.Type;
+
+const ProviderRuntimePiExtensionDiagnosticEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: PiExtensionDiagnosticType,
+  payload: PiExtensionDiagnosticPayload,
+});
+export type ProviderRuntimePiExtensionDiagnosticEvent =
+  typeof ProviderRuntimePiExtensionDiagnosticEvent.Type;
+
 const ProviderRuntimeWarningEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: RuntimeWarningType,
@@ -1031,6 +1135,9 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeDeprecationNoticeEvent,
   ProviderRuntimeFilesPersistedEvent,
   ProviderRuntimeExtensionActivityEvent,
+  ProviderRuntimePiUiStateUpdatedEvent,
+  ProviderRuntimePiExtensionConfiguredEvent,
+  ProviderRuntimePiExtensionDiagnosticEvent,
   ProviderRuntimeWarningEvent,
   ProviderRuntimeErrorEvent,
 ]);

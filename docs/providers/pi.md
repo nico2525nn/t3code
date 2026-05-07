@@ -39,7 +39,60 @@ The tables below use these status labels:
 - `future`: intentionally not handled in v1.
 - `internal`: available to extensions, but no T3-facing behavior is needed.
 
-Persisted extension activity is UI-only history. It must not be included in future model context.
+Persisted extension activity and Pi panel state are UI-only history. They must not be included in
+future model context.
+
+## Pi Runtime Panel
+
+When the selected provider is Pi, T3 renders a small Pi panel from the composer. The panel is not a
+second chat interface and does not replace T3's composer. It is the home for Pi's TUI-adjacent
+surfaces: header, footer, status, widgets, extension inventory, and diagnostics.
+
+The panel has three tabs:
+
+- `Home`: the Pi TUI projection. It contains header state, keyed status rows, working message,
+  string widgets, title metadata, and footer state.
+- `Extensions`: loaded extension paths, registered extension tools/commands/providers when known,
+  and Pi skills. Slash commands still belong in `/` autocomplete, not in a separate commands tab.
+- `Logs`: Pi diagnostics and extension lifecycle messages. High-frequency hook failures are deduped
+  here and hidden from the normal Work Log.
+
+The open panel has a fixed maximum height inside the composer. Its tab body owns scrolling, so long
+extension or skill lists never resize the composer surface after the panel is opened.
+
+Closed state:
+
+- The closed Pi button may show one compact status summary, for example
+  `Pi · tps 42 tok/s`, sourced from `ctx.ui.setStatus(...)`.
+- Warning/error counts are T3 diagnostics and should appear as a quiet badge, not inline status copy.
+
+Pi TUI surface mapping:
+
+| Pi TUI surface | T3 panel section | Pi function source                                                                  |
+| -------------- | ---------------- | ----------------------------------------------------------------------------------- |
+| Header         | `Home` header    | `ctx.ui.setHeader(...)`; fallback from title/session/git metadata when available.   |
+| Input          | T3 composer      | T3 keeps its own composer. Pi input prompts render above the composer when pending. |
+| Body widgets   | `Home` widgets   | `ctx.ui.setWidget(...)`; string widgets render, component widgets degrade in v1.    |
+| Status/footer  | `Home` status    | `ctx.ui.setStatus(...)` and `ctx.ui.setWorkingMessage(...)`.                        |
+| Footer         | `Home` footer    | `ctx.ui.setFooter(...)`; fallback from cwd, branch, model, usage, and context.      |
+| Logs           | `Logs`           | extension load/reload messages, `bindExtensions({ onError })`, degraded UI calls.   |
+
+Implementation rules:
+
+- `ctx.ui.setStatus(...)`, `ctx.ui.setWorkingMessage(...)`, `ctx.ui.setTitle(...)`, and
+  `ctx.ui.setWidget(...)` update keyed Pi panel state. They do not append normal Work Log rows.
+- Before a Pi session emits per-thread activity, T3 should seed the panel from the provider snapshot:
+  static extension paths, extension tools, extension slash commands, Pi skills, and available Pi
+  models. Live `pi.extension.configured` activity replaces this once the session is bound.
+- `ctx.ui.notify(...)` remains user-visible activity when appropriate, and may also be mirrored in
+  Pi logs.
+- Extension hook errors are non-fatal diagnostics. They are deduped by extension path, hook event,
+  and error message, then displayed in the Pi `Logs` tab instead of the normal Work Log.
+- Repeated diagnostics should publish the first occurrence and occasional count updates, not one row
+  per failure.
+- Unsupported custom TUI components should create a restrained placeholder in the relevant Pi panel
+  surface and a diagnostic log entry. They should not throw or hang the extension.
+- T3 should strip terminal ANSI sequences before rendering Pi panel text in the browser.
 
 ## `ctx.ui` Mapping
 
@@ -50,21 +103,21 @@ Persisted extension activity is UI-only history. It must not be included in futu
 | `ctx.ui.input(title, placeholder, opts)`           | `v1`      | Emit `user-input.requested` with `inputKind: "text"`. Resolve with submitted text or `undefined`.                                                     |
 | `ctx.ui.editor(title, prefill)`                    | `v1`      | Emit `user-input.requested` with `inputKind: "textarea"`. Resolve with submitted text or `undefined`.                                                 |
 | `ctx.ui.notify(message, type)`                     | `v1`      | Persist `extension.activity` with `activityType: "notify"` and severity from `type`. No toast-only behavior.                                          |
-| `ctx.ui.setStatus(key, text)`                      | `v1`      | Persist every call as an individual `extension.activity` with `activityType: "status"`. If `text` is omitted, persist a clear-status entry.           |
-| `ctx.ui.setWorkingMessage(message)`                | `v1`      | Persist as `extension.activity` status. If omitted, persist or ignore as a clear/default status event.                                                |
-| `ctx.ui.setWidget(key, stringLines, options)`      | `v1`      | Persist string-array widgets as UI-only `extension.activity` with placement metadata.                                                                 |
-| `ctx.ui.setWidget(key, componentFactory, options)` | `degrade` | Persist `custom ui coming soon`, then do not render the component.                                                                                    |
-| `ctx.ui.setTitle(title)`                           | `v1`      | Persist UI-only `extension.activity` with `activityType: "title"`. Do not change browser title in v1.                                                 |
-| `ctx.ui.custom(factory, options)`                  | `degrade` | Persist exact message `custom ui coming soon`, then resolve as unsupported/cancelled so the extension does not hang.                                  |
-| `ctx.ui.pasteToEditor(text)`                       | `degrade` | Persist UI-only editor activity in v1. Future work can mutate the composer.                                                                           |
-| `ctx.ui.setEditorText(text)`                       | `degrade` | Persist UI-only editor activity in v1. Future work can mutate the composer.                                                                           |
+| `ctx.ui.setStatus(key, text)`                      | `v1`      | Update keyed Pi panel status state. If `text` is omitted, clear that status key. High-frequency updates should be throttled/deduped.                  |
+| `ctx.ui.setWorkingMessage(message)`                | `v1`      | Update the Pi panel working/status row. If omitted, clear the custom working message.                                                                 |
+| `ctx.ui.setWidget(key, stringLines, options)`      | `v1`      | Update keyed Pi panel widget state with string lines and placement metadata.                                                                          |
+| `ctx.ui.setWidget(key, componentFactory, options)` | `degrade` | Update a Pi panel widget placeholder and emit a diagnostic. Do not render the component in v1.                                                        |
+| `ctx.ui.setTitle(title)`                           | `v1`      | Update Pi panel title/header metadata. Do not change browser title in v1.                                                                             |
+| `ctx.ui.custom(factory, options)`                  | `degrade` | Emit a Pi panel diagnostic and resolve as unsupported/cancelled so the extension does not hang.                                                       |
+| `ctx.ui.pasteToEditor(text)`                       | `degrade` | Update internal editor text state and emit a Pi panel diagnostic in v1. Future work can mutate the composer.                                          |
+| `ctx.ui.setEditorText(text)`                       | `degrade` | Update internal editor text state and emit a Pi panel diagnostic in v1. Future work can mutate the composer.                                          |
 | `ctx.ui.getEditorText()`                           | `degrade` | Return `""` in v1. Future work can request current composer text from the client.                                                                     |
 | `ctx.ui.onTerminalInput(handler)`                  | `future`  | Return an unsubscribe no-op. Optional one-time activity warning if an extension registers this.                                                       |
 | `ctx.ui.setWorkingVisible(visible)`                | `future`  | No-op in v1. Optional UI-only activity for visibility changes.                                                                                        |
 | `ctx.ui.setWorkingIndicator(options)`              | `future`  | No-op in v1.                                                                                                                                          |
 | `ctx.ui.setHiddenThinkingLabel(label)`             | `future`  | No-op in v1. Future mapping can alter reasoning block labels.                                                                                         |
-| `ctx.ui.setFooter(factory)`                        | `future`  | No-op or persist unsupported UI activity when a factory is provided.                                                                                  |
-| `ctx.ui.setHeader(factory)`                        | `future`  | No-op or persist unsupported UI activity when a factory is provided.                                                                                  |
+| `ctx.ui.setFooter(factory)`                        | `degrade` | Update Pi panel footer placeholder state and emit a diagnostic when a custom factory is provided.                                                     |
+| `ctx.ui.setHeader(factory)`                        | `degrade` | Update Pi panel header placeholder state and emit a diagnostic when a custom factory is provided.                                                     |
 | `ctx.ui.addAutocompleteProvider(factory)`          | `future`  | No-op in v1. Future mapping can compose into T3 composer autocomplete.                                                                                |
 | `ctx.ui.setEditorComponent(factory)`               | `future`  | No-op in v1.                                                                                                                                          |
 | `ctx.ui.getEditorComponent()`                      | `future`  | Return `undefined` in v1.                                                                                                                             |
@@ -300,9 +353,13 @@ If the extension uses the answer in TypeScript only, no user message is added. I
 
 Extension errors are non-fatal by default.
 
-T3 should persist an `extension.activity` row with `activityType: "error"` and severity `error`,
-then continue the session. Do not map extension hook/command errors to `runtime.error` unless the Pi
-session itself crashes.
+T3 should persist Pi diagnostics for extension hook/command errors, then continue the session. Do
+not map extension hook/command errors to `runtime.error` unless the Pi session itself crashes.
+
+Diagnostics belong in the Pi panel `Logs` tab by default. The normal Work Log should only show
+extension errors when they are directly user-actionable and intentionally marked for the main
+surface. High-frequency hooks such as `message_update` must be deduped and suppressed after the
+first visible diagnostic.
 
 ## Current Local Extension Coverage
 

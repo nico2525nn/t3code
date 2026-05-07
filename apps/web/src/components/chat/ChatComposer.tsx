@@ -70,6 +70,12 @@ import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
+import {
+  PiRuntimePanel,
+  PiRuntimePanelTrigger,
+  type PiRuntimePanelTab,
+  usePiRuntimePanelState,
+} from "./PiRuntimePanel";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { searchSlashCommandItems } from "./composerSlashCommandSearch";
 import {
@@ -115,6 +121,7 @@ import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
+const PI_PROVIDER = ProviderDriverKind.make("pi");
 
 const runtimeModeConfig: Record<
   RuntimeMode,
@@ -723,19 +730,59 @@ export const ChatComposer = memo(
       () => selectedProviderEntry?.models ?? [],
       [selectedProviderEntry],
     );
+    const isPiProviderSelected = selectedProvider === PI_PROVIDER;
     const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
     const [isModelPickerOptionsHydrated, setIsModelPickerOptionsHydrated] = useState(false);
+    const [piPanelOpen, setPiPanelOpen] = useState(false);
+    const [piPanelTab, setPiPanelTab] = useState<PiRuntimePanelTab>("home");
+    const piPanelState = usePiRuntimePanelState({
+      activities: activeThreadActivities,
+      provider: selectedProviderStatus,
+      skills: selectedProviderStatus?.skills,
+      thread: activeThread,
+      gitCwd,
+      model: selectedModel,
+    });
+    const selectedProviderSlashCommands = useMemo(() => {
+      const commands = [...(selectedProviderStatus?.slashCommands ?? [])];
+      if (!isPiProviderSelected) {
+        return commands;
+      }
+      const seen = new Set(commands.map((command) => command.name));
+      for (const command of piPanelState.slashCommands) {
+        if (seen.has(command.name)) continue;
+        commands.push(command);
+        seen.add(command.name);
+      }
+      return commands;
+    }, [isPiProviderSelected, piPanelState.slashCommands, selectedProviderStatus?.slashCommands]);
+    const selectedProviderModelsForComposer = useMemo(() => {
+      if (!isPiProviderSelected || piPanelState.models.length === 0) {
+        return selectedProviderModels;
+      }
+      const modelsBySlug = new Map(selectedProviderModels.map((model) => [model.slug, model]));
+      for (const model of piPanelState.models) {
+        modelsBySlug.set(model.slug, model);
+      }
+      return [...modelsBySlug.values()];
+    }, [isPiProviderSelected, piPanelState.models, selectedProviderModels]);
 
     const composerProviderState = useMemo(
       () =>
         getComposerProviderState({
           provider: selectedProvider,
           model: selectedModel,
-          models: selectedProviderModels,
+          models: selectedProviderModelsForComposer,
           prompt,
           modelOptions: composerModelOptions?.[selectedProvider],
         }),
-      [composerModelOptions, prompt, selectedModel, selectedProvider, selectedProviderModels],
+      [
+        composerModelOptions,
+        prompt,
+        selectedModel,
+        selectedProvider,
+        selectedProviderModelsForComposer,
+      ],
     );
 
     const selectedPromptEffort = composerProviderState.promptEffort;
@@ -767,14 +814,47 @@ export const ChatComposer = memo(
       const out = new Map<ProviderInstanceId, ReadonlyArray<AppModelOption>>();
       const entries = isModelPickerOptionsHydrated
         ? providerInstanceEntries
-        : selectedProviderEntry
-          ? [selectedProviderEntry]
-          : [];
+        : (() => {
+            const initialEntries = new Map<ProviderInstanceId, ProviderInstanceEntry>();
+            if (selectedProviderEntry) {
+              initialEntries.set(selectedProviderEntry.instanceId, selectedProviderEntry);
+            }
+            for (const favorite of settings.favorites ?? []) {
+              const favoriteEntry = providerInstanceEntries.find(
+                (entry) => entry.instanceId === favorite.provider,
+              );
+              if (favoriteEntry) {
+                initialEntries.set(favoriteEntry.instanceId, favoriteEntry);
+              }
+            }
+            return [...initialEntries.values()];
+          })();
       for (const entry of entries) {
-        out.set(entry.instanceId, getAppModelOptionsForInstance(settings, entry));
+        const entryForOptions =
+          isPiProviderSelected &&
+          entry.instanceId === selectedInstanceId &&
+          selectedProviderModelsForComposer.length > 0
+            ? ({
+                ...entry,
+                models: selectedProviderModelsForComposer,
+                snapshot: {
+                  ...entry.snapshot,
+                  models: selectedProviderModelsForComposer,
+                },
+              } satisfies ProviderInstanceEntry)
+            : entry;
+        out.set(entry.instanceId, getAppModelOptionsForInstance(settings, entryForOptions));
       }
       return out;
-    }, [isModelPickerOptionsHydrated, providerInstanceEntries, selectedProviderEntry, settings]);
+    }, [
+      isModelPickerOptionsHydrated,
+      isPiProviderSelected,
+      providerInstanceEntries,
+      selectedInstanceId,
+      selectedProviderEntry,
+      selectedProviderModelsForComposer,
+      settings,
+    ]);
     const selectedModelForPickerWithCustomFallback = useMemo(() => {
       const currentOptions = modelOptionsByInstance.get(selectedInstanceId) ?? [];
       return currentOptions.some((option) => option.slug === selectedModelForPicker)
@@ -795,6 +875,12 @@ export const ChatComposer = memo(
         window.cancelAnimationFrame(frame);
       };
     }, [isComposerModelPickerOpen]);
+
+    useEffect(() => {
+      if (!isPiProviderSelected) {
+        setPiPanelOpen(false);
+      }
+    }, [isPiProviderSelected]);
 
     useEffect(() => {
       if (!isComposerModelPickerOpen) {
@@ -926,16 +1012,14 @@ export const ChatComposer = memo(
             description: "Switch this thread back to normal build mode",
           },
         ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
-        const providerSlashCommandItems = (selectedProviderStatus?.slashCommands ?? []).map(
-          (command) => ({
-            id: `provider-slash-command:${selectedProvider}:${command.name}`,
-            type: "provider-slash-command" as const,
-            provider: selectedProvider,
-            command,
-            label: `/${command.name}`,
-            description: command.description ?? command.input?.hint ?? "Run provider command",
-          }),
-        );
+        const providerSlashCommandItems = selectedProviderSlashCommands.map((command) => ({
+          id: `provider-slash-command:${selectedProvider}:${command.name}`,
+          type: "provider-slash-command" as const,
+          provider: selectedProvider,
+          command,
+          label: `/${command.name}`,
+          description: command.description ?? command.input?.hint ?? "Run provider command",
+        }));
         const query = composerTrigger.query.trim().toLowerCase();
         const slashCommandItems = [...builtInSlashCommandItems, ...providerSlashCommandItems];
         if (!query) {
@@ -960,7 +1044,13 @@ export const ChatComposer = memo(
         }));
       }
       return [];
-    }, [composerTrigger, selectedProvider, selectedProviderStatus, workspaceEntries]);
+    }, [
+      composerTrigger,
+      selectedProvider,
+      selectedProviderSlashCommands,
+      selectedProviderStatus,
+      workspaceEntries,
+    ]);
 
     const composerMenuOpen = Boolean(composerTrigger);
     const composerMenuSearchKey = composerTrigger
@@ -995,7 +1085,8 @@ export const ChatComposer = memo(
     const hasComposerHeader =
       isComposerApprovalState ||
       pendingUserInputs.length > 0 ||
-      (showPlanFollowUpPrompt && activeProposedPlan !== null);
+      (showPlanFollowUpPrompt && activeProposedPlan !== null) ||
+      (isPiProviderSelected && piPanelOpen);
     const showCollapsedMobilePromptRow =
       isComposerCollapsedMobile && !isComposerApprovalState && pendingUserInputs.length === 0;
 
@@ -1062,7 +1153,7 @@ export const ChatComposer = memo(
       ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
       ...(routeKind === "draft" && draftId ? { draftId } : {}),
       model: selectedModel,
-      models: selectedProviderModels,
+      models: selectedProviderModelsForComposer,
       modelOptions: composerModelOptions?.[selectedProvider],
       prompt,
       onPromptChange: setPromptFromTraits,
@@ -1072,7 +1163,7 @@ export const ChatComposer = memo(
       ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
       ...(routeKind === "draft" && draftId ? { draftId } : {}),
       model: selectedModel,
-      models: selectedProviderModels,
+      models: selectedProviderModelsForComposer,
       modelOptions: composerModelOptions?.[selectedProvider],
       prompt,
       onPromptChange: setPromptFromTraits,
@@ -1512,7 +1603,7 @@ export const ChatComposer = memo(
     }, [readComposerSnapshot]);
 
     const onSelectComposerItem = useCallback(
-      (item: ComposerCommandItem) => {
+      (item: ComposerCommandItem, action: "insert" | "run" = "run") => {
         if (composerSelectLockRef.current) return;
         composerSelectLockRef.current = true;
         window.requestAnimationFrame(() => {
@@ -1560,21 +1651,42 @@ export const ChatComposer = memo(
           return;
         }
         if (item.type === "provider-slash-command") {
-          const replacement = `/${item.command.name} `;
+          const replacement = action === "run" ? `/${item.command.name}` : `/${item.command.name} `;
           const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
             snapshot.value,
             trigger.rangeEnd,
             replacement,
           );
+          const expectedText = snapshot.value.slice(trigger.rangeStart, replacementRangeEnd);
+          if (action === "run") {
+            const next = replaceTextRange(
+              snapshot.value,
+              trigger.rangeStart,
+              replacementRangeEnd,
+              replacement,
+            );
+            if (expectedText !== snapshot.value.slice(trigger.rangeStart, replacementRangeEnd)) {
+              return;
+            }
+            promptRef.current = next.text;
+            setPrompt(next.text);
+            setComposerCursor(collapseExpandedComposerCursor(next.text, next.cursor));
+            setComposerTrigger(null);
+            setComposerHighlightedItemId(null);
+            window.requestAnimationFrame(() => {
+              onSend();
+            });
+            return;
+          }
           const applied = applyPromptReplacement(
             trigger.rangeStart,
             replacementRangeEnd,
             replacement,
-            { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+            {
+              expectedText,
+            },
           );
-          if (applied) {
-            setComposerHighlightedItemId(null);
-          }
+          if (applied) setComposerHighlightedItemId(null);
           return;
         }
         if (item.type === "skill") {
@@ -1596,7 +1708,14 @@ export const ChatComposer = memo(
           return;
         }
       },
-      [applyPromptReplacement, handleInteractionModeChange, resolveActiveComposerTrigger],
+      [
+        applyPromptReplacement,
+        handleInteractionModeChange,
+        onSend,
+        promptRef,
+        resolveActiveComposerTrigger,
+        setPrompt,
+      ],
     );
 
     const onComposerMenuItemHighlighted = useCallback(
@@ -1712,7 +1831,7 @@ export const ChatComposer = memo(
           return true;
         }
         if ((key === "Enter" || key === "Tab") && selectedItem) {
-          onSelectComposerItem(selectedItem);
+          onSelectComposerItem(selectedItem, key === "Tab" ? "insert" : "run");
           return true;
         }
       }
@@ -1956,7 +2075,7 @@ export const ChatComposer = memo(
           selectedModelSelection,
           selectedProvider,
           selectedModel,
-          selectedProviderModels,
+          selectedProviderModels: selectedProviderModelsForComposer,
         }),
       }),
       [
@@ -1975,7 +2094,7 @@ export const ChatComposer = memo(
         selectedModelSelection,
         selectedPromptEffort,
         selectedProvider,
-        selectedProviderModels,
+        selectedProviderModelsForComposer,
       ],
     );
 
@@ -2130,6 +2249,15 @@ export const ChatComposer = memo(
                   </div>
                 </div>
               </div>
+            ) : null}
+
+            {!isComposerCollapsedMobile && isPiProviderSelected && piPanelOpen ? (
+              <PiRuntimePanel
+                state={piPanelState}
+                tab={piPanelTab}
+                onTabChange={setPiPanelTab}
+                onClose={() => setPiPanelOpen(false)}
+              />
             ) : null}
 
             {showCollapsedMobilePromptRow ? (
@@ -2383,6 +2511,15 @@ export const ChatComposer = memo(
                     }}
                     onInstanceModelChange={onProviderModelSelect}
                   />
+
+                  {isPiProviderSelected ? (
+                    <PiRuntimePanelTrigger
+                      state={piPanelState}
+                      open={piPanelOpen}
+                      compact={isComposerFooterCompact}
+                      onToggle={() => setPiPanelOpen((open) => !open)}
+                    />
+                  ) : null}
 
                   {isComposerFooterCompact ? (
                     <CompactComposerControlsMenu

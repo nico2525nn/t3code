@@ -358,12 +358,64 @@ function runtimeEventToActivities(
     }
 
     case "extension.activity": {
+      if (
+        event.payload.visibility === "pi-panel" ||
+        event.payload.visibility === "debug" ||
+        event.payload.visibility === "hidden"
+      ) {
+        return [];
+      }
       return [
         {
           id: event.eventId,
           createdAt: event.createdAt,
           tone: event.payload.severity === "error" ? "error" : "info",
           kind: "extension.activity",
+          summary: event.payload.message,
+          payload: event.payload,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "pi.ui.state.updated": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "pi.ui.state.updated",
+          summary: `Pi ${event.payload.surface} updated`,
+          payload: event.payload,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "pi.extension.configured": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "pi.extension.configured",
+          summary: "Pi extensions configured",
+          payload: event.payload,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "pi.extension.diagnostic": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: event.payload.severity === "error" ? "error" : "info",
+          kind: "pi.extension.diagnostic",
           summary: event.payload.message,
           payload: event.payload,
           turnId: toTurnId(event.turnId) ?? null,

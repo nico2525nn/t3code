@@ -249,6 +249,7 @@ describe("derivePendingUserInputs", () => {
             id: "sandbox_mode",
             header: "Sandbox",
             question: "Which mode should be used?",
+            inputKind: "select",
             options: [
               {
                 label: "workspace-write",
@@ -618,6 +619,45 @@ describe("deriveWorkLogEntries", () => {
 
     const entries = deriveWorkLogEntries(activities, undefined);
     expect(entries.map((entry) => entry.id)).toEqual(["task-progress", "task-complete"]);
+  });
+
+  it("omits Pi panel state and diagnostics from the normal work log", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "pi-status",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "pi.ui.state.updated",
+        summary: "Pi status updated",
+        tone: "info",
+        payload: {
+          source: "pi.extension.ui",
+          surface: "status",
+          key: "tps",
+          text: "42 tok/s",
+        },
+      }),
+      makeActivity({
+        id: "pi-diagnostic",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "pi.extension.diagnostic",
+        summary: "message_update failed",
+        tone: "error",
+        payload: {
+          source: "pi.extension",
+          message: "message_update failed",
+          severity: "error",
+        },
+      }),
+      makeActivity({
+        id: "tool-complete",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        summary: "Tool call complete",
+        kind: "tool.completed",
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
   });
 
   it("uses payload summary as label for task entries when available", () => {

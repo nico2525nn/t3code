@@ -79,6 +79,20 @@ export const ServerProviderSlashCommand = Schema.Struct({
 });
 export type ServerProviderSlashCommand = typeof ServerProviderSlashCommand.Type;
 
+export const ServerProviderPiToolSnapshot = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  description: Schema.optional(Schema.String),
+  sourceInfo: Schema.optional(Schema.Json),
+});
+export type ServerProviderPiToolSnapshot = typeof ServerProviderPiToolSnapshot.Type;
+
+export const ServerProviderPiMetadata = Schema.Struct({
+  extensionPaths: Schema.Array(Schema.String),
+  tools: Schema.Array(ServerProviderPiToolSnapshot),
+  flags: Schema.Array(Schema.String),
+});
+export type ServerProviderPiMetadata = typeof ServerProviderPiMetadata.Type;
+
 export const ServerProviderSkill = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
@@ -185,6 +199,7 @@ export const ServerProvider = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   skills: Schema.Array(ServerProviderSkill).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  pi: Schema.optionalKey(ServerProviderPiMetadata),
   versionAdvisory: Schema.optionalKey(ServerProviderVersionAdvisory),
   updateState: Schema.optionalKey(ServerProviderUpdateState),
 });
