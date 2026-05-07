@@ -10,6 +10,7 @@ import {
   type CreateAgentSessionOptions,
   type ExtensionCommandContextActions,
   type ExtensionError,
+  type ExtensionUIContext,
 } from "@mariozechner/pi-coding-agent";
 import {
   EventId,
@@ -17,6 +18,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   RuntimeItemId,
+  RuntimeRequestId,
   TurnId,
   type ChatAttachment,
   type PiSettings,
@@ -39,6 +41,7 @@ import {
 } from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import { parsePiSlashCommand, PI_BUILT_IN_SLASH_COMMANDS } from "../pi/PiSlashCommands.ts";
+import { makePiExtensionUiBridge, type PiExtensionUiBridge } from "../pi/PiExtensionUiBridge.ts";
 import { resolvePiAgentDir, resolvePiSessionDir } from "./PiProvider.ts";
 
 const PROVIDER = ProviderDriverKind.make("pi");
@@ -82,6 +85,7 @@ interface PiSessionContext {
   readonly unsubscribe: () => void;
   readonly turns: Array<{ readonly id: TurnId; readonly items: ReadonlyArray<unknown> }>;
   activeTurnId: TurnId | undefined;
+  extensionUiBridge: PiExtensionUiBridge | undefined;
   providerSession: ProviderSession;
   resumeCursor: PiResumeCursor | undefined;
 }
@@ -215,6 +219,7 @@ function toAdapterError(
 function piToolItemType(toolName: string): ToolLifecycleItemType {
   switch (toolName) {
     case "bash":
+    case "exec":
       return "command_execution";
     case "edit":
     case "write":
@@ -222,6 +227,49 @@ function piToolItemType(toolName: string): ToolLifecycleItemType {
     default:
       return "dynamic_tool_call";
   }
+}
+
+function stringifyDisplayValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? truncateSummaryText(trimmed) : undefined;
+  }
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const parts = value.map((entry) => stringifyDisplayValue(entry)).filter(Boolean);
+    return parts.length > 0 ? truncateSummaryText(parts.join("\n")) : undefined;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const textKeys = ["stdout", "stderr", "content", "output", "text", "message", "result"];
+    const parts = textKeys.map((key) => stringifyDisplayValue(record[key])).filter(Boolean);
+    if (parts.length > 0) {
+      return truncateSummaryText(parts.join("\n"));
+    }
+  }
+  return undefined;
+}
+
+function piToolDisplayPayload(
+  event: Extract<AgentSessionEvent, { readonly type: "tool_execution_end" }>,
+) {
+  const detail = stringifyDisplayValue(event.result);
+  return {
+    itemType: piToolItemType(event.toolName),
+    status: event.isError ? ("failed" as const) : ("completed" as const),
+    title: event.toolName,
+    ...(detail ? { detail } : {}),
+    data: {
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      rawOutput: summarizeUnknown(event.result),
+    },
+  };
 }
 
 const SUMMARY_STRING_LIMIT = 1_200;
@@ -523,12 +571,7 @@ function mapPiEvent(
           ...makeBaseEvent(context, event),
           type: "item.completed",
           itemId: makeRuntimeItemId(event.toolCallId),
-          payload: {
-            itemType: piToolItemType(event.toolName),
-            status: event.isError ? "failed" : "completed",
-            title: event.toolName,
-            data: { result: summarizeUnknown(event.result) },
-          },
+          payload: piToolDisplayPayload(event),
         },
       ];
     case "queue_update":
@@ -615,20 +658,25 @@ async function publishPiRuntimeWarning(input: {
   });
 }
 
-async function publishPiRuntimeError(input: {
+async function publishPiExtensionActivity(input: {
   readonly context: PiSessionContext;
-  readonly turnId?: TurnId | undefined;
   readonly publishRuntimeEvent: PiRuntimeEventPublisher;
   readonly message: string;
+  readonly severity?: "info" | "warning" | "error";
   readonly detail?: unknown;
+  readonly extensionPath?: string;
 }) {
   await input.publishRuntimeEvent({
-    ...makeContextEventBase(input.context, input.turnId),
-    type: "runtime.error",
+    ...makeContextEventBase(input.context, input.context.activeTurnId),
+    type: "extension.activity",
     payload: {
-      class: "provider_error",
+      source: "pi.extension.ui",
+      activityType: input.severity === "error" ? "error" : "notify",
       message: input.message,
-      ...(input.detail !== undefined ? { detail: input.detail } : {}),
+      ...(input.severity ? { severity: input.severity } : {}),
+      ...(input.extensionPath ? { extensionPath: input.extensionPath } : {}),
+      ...(input.detail !== undefined ? { data: input.detail } : {}),
+      uiOnly: true,
     },
   });
 }
@@ -640,9 +688,62 @@ function extensionErrorMessage(error: ExtensionError): string {
   return `${source}${event ? ` failed during ${event}` : " failed"}${detail ? `: ${detail}` : "."}`;
 }
 
+function getPiExtensionConfigSnapshot(session: AgentSession) {
+  const runner = session.extensionRunner;
+  if (!runner) {
+    return {
+      extensionPaths: [],
+      slashCommands: [],
+      tools: [],
+      flags: [],
+    };
+  }
+  return {
+    extensionPaths: runner.getExtensionPaths(),
+    slashCommands: runner.getRegisteredCommands().map((command) => {
+      const commandRecord = Object(command) as Record<string, unknown>;
+      const input =
+        commandRecord.input && typeof commandRecord.input === "object"
+          ? (commandRecord.input as { readonly hint?: unknown })
+          : undefined;
+      const snapshot = {
+        name: command.name,
+        description: command.description,
+        source: "extension",
+        sourceInfo: command.sourceInfo,
+      };
+      return typeof input?.hint === "string"
+        ? Object.assign(snapshot, { input: { hint: input.hint } })
+        : snapshot;
+    }),
+    tools: runner.getAllRegisteredTools().map((tool) => ({
+      name: tool.definition.name,
+      description: tool.definition.description,
+      sourceInfo: tool.sourceInfo,
+    })),
+    flags: [...runner.getFlags().keys()],
+  };
+}
+
+async function publishPiExtensionConfig(input: {
+  readonly context: PiSessionContext;
+  readonly publishRuntimeEvent: PiRuntimeEventPublisher;
+}) {
+  await input.publishRuntimeEvent({
+    ...makeContextEventBase(input.context, input.context.activeTurnId),
+    type: "session.configured",
+    payload: {
+      config: {
+        piExtensions: getPiExtensionConfigSnapshot(input.context.session),
+      },
+    },
+  });
+}
+
 async function bindPiExtensions(input: {
   readonly context: PiSessionContext;
   readonly publishRuntimeEvent: PiRuntimeEventPublisher;
+  readonly uiContext: ExtensionUIContext;
 }) {
   const commandContextActions: ExtensionCommandContextActions = {
     waitForIdle: () => input.context.session.agent.waitForIdle(),
@@ -685,6 +786,7 @@ async function bindPiExtensions(input: {
   };
 
   await input.context.session.bindExtensions({
+    uiContext: input.uiContext,
     commandContextActions,
     shutdownHandler: () => {
       void publishPiRuntimeWarning({
@@ -695,10 +797,12 @@ async function bindPiExtensions(input: {
       });
     },
     onError: (error) => {
-      void publishPiRuntimeError({
+      void publishPiExtensionActivity({
         context: input.context,
         publishRuntimeEvent: input.publishRuntimeEvent,
         message: extensionErrorMessage(error),
+        severity: "error",
+        extensionPath: error.extensionPath,
         detail: error,
       });
     },
@@ -841,10 +945,20 @@ export function makePiAdapter(piSettings: PiSettings, options?: PiAdapterOptions
             modelRegistry,
             unsubscribe: () => unsubscribe(),
             turns: [],
+            extensionUiBridge: undefined,
             providerSession,
             resumeCursor: undefined,
             activeTurnId: undefined,
           };
+          const extensionUiBridge = makePiExtensionUiBridge({
+            getContext: () => ({
+              threadId: liveContext.threadId,
+              providerInstanceId: liveContext.providerInstanceId,
+              activeTurnId: liveContext.activeTurnId,
+            }),
+            publishRuntimeEvent,
+          });
+          liveContext.extensionUiBridge = extensionUiBridge;
           unsubscribe = session.subscribe((event) => {
             const mapped = mapPiEvent(liveContext, event);
             for (const runtimeEvent of mapped) {
@@ -856,8 +970,14 @@ export function makePiAdapter(piSettings: PiSettings, options?: PiAdapterOptions
             await bindPiExtensions({
               context: liveContext,
               publishRuntimeEvent,
+              uiContext: extensionUiBridge.uiContext,
+            });
+            await publishPiExtensionConfig({
+              context: liveContext,
+              publishRuntimeEvent,
             });
           } catch (cause) {
+            extensionUiBridge.dispose();
             liveContext.unsubscribe();
             session.dispose();
             sessions.delete(input.threadId);
@@ -1103,19 +1223,38 @@ export function makePiAdapter(piSettings: PiSettings, options?: PiAdapterOptions
         }),
       );
 
-    const respondToUserInput: ProviderAdapterShape<ProviderAdapterError>["respondToUserInput"] =
-      () =>
-        Effect.fail(
-          new ProviderAdapterRequestError({
+    const respondToUserInput: ProviderAdapterShape<ProviderAdapterError>["respondToUserInput"] = (
+      threadId,
+      requestId,
+      answers,
+    ) =>
+      Effect.gen(function* () {
+        const context = yield* requireSession(threadId);
+        const bridge = context.extensionUiBridge;
+        if (!bridge) {
+          return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "item/tool/respondToUserInput",
-            detail: "Pi extension user-input requests are not implemented yet.",
-          }),
-        );
+            detail: "Pi extension UI bridge is not available for this session.",
+          });
+        }
+        yield* Effect.tryPromise({
+          try: () => bridge.respond(requestId, answers),
+          catch: (cause) =>
+            toAdapterError(PROVIDER, threadId, "item/tool/respondToUserInput", cause),
+        });
+        yield* offerRuntimeEvent({
+          ...makeContextEventBase(context, context.activeTurnId),
+          type: "user-input.resolved",
+          requestId: RuntimeRequestId.make(requestId),
+          payload: { answers },
+        });
+      });
 
     const stopSession: ProviderAdapterShape<ProviderAdapterError>["stopSession"] = (threadId) =>
       Effect.gen(function* () {
         const context = yield* requireSession(threadId);
+        context.extensionUiBridge?.dispose();
         context.unsubscribe();
         context.session.dispose();
         sessions.delete(threadId);

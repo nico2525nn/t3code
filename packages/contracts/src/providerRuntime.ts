@@ -191,6 +191,7 @@ const ProviderRuntimeEventType = Schema.Literals([
   "config.warning",
   "deprecation.notice",
   "files.persisted",
+  "extension.activity",
   "runtime.warning",
   "runtime.error",
 ]);
@@ -241,6 +242,7 @@ const ModelReroutedType = Schema.Literal("model.rerouted");
 const ConfigWarningType = Schema.Literal("config.warning");
 const DeprecationNoticeType = Schema.Literal("deprecation.notice");
 const FilesPersistedType = Schema.Literal("files.persisted");
+const ExtensionActivityType = Schema.Literal("extension.activity");
 const RuntimeWarningType = Schema.Literal("runtime.warning");
 const RuntimeErrorType = Schema.Literal("runtime.error");
 
@@ -441,7 +443,14 @@ export const UserInputQuestion = Schema.Struct({
   id: TrimmedNonEmptyStringSchema,
   header: TrimmedNonEmptyStringSchema,
   question: TrimmedNonEmptyStringSchema,
-  options: Schema.Array(UserInputQuestionOption),
+  inputKind: Schema.optional(Schema.Literals(["select", "confirm", "text", "textarea"])).pipe(
+    Schema.withConstructorDefault(Effect.succeed("select")),
+  ),
+  options: Schema.optional(Schema.Array(UserInputQuestionOption)).pipe(
+    Schema.withConstructorDefault(Effect.succeed([])),
+  ),
+  placeholder: Schema.optional(Schema.String),
+  prefill: Schema.optional(Schema.String),
   multiSelect: Schema.optional(Schema.Boolean).pipe(
     Schema.withConstructorDefault(Effect.succeed(false)),
   ),
@@ -588,6 +597,25 @@ const FilesPersistedPayload = Schema.Struct({
   ),
 });
 export type FilesPersistedPayload = typeof FilesPersistedPayload.Type;
+
+export const ExtensionActivityPayload = Schema.Struct({
+  source: TrimmedNonEmptyStringSchema,
+  activityType: Schema.Literals([
+    "notify",
+    "status",
+    "widget",
+    "title",
+    "editor",
+    "custom-ui",
+    "error",
+  ]),
+  message: TrimmedNonEmptyStringSchema,
+  severity: Schema.optional(Schema.Literals(["info", "warning", "error"])),
+  extensionPath: Schema.optional(TrimmedNonEmptyStringSchema),
+  data: Schema.optional(Schema.Unknown),
+  uiOnly: Schema.optional(Schema.Boolean).pipe(Schema.withConstructorDefault(Effect.succeed(true))),
+});
+export type ExtensionActivityPayload = typeof ExtensionActivityPayload.Type;
 
 const RuntimeWarningPayload = Schema.Struct({
   message: TrimmedNonEmptyStringSchema,
@@ -934,6 +962,14 @@ const ProviderRuntimeFilesPersistedEvent = Schema.Struct({
 });
 export type ProviderRuntimeFilesPersistedEvent = typeof ProviderRuntimeFilesPersistedEvent.Type;
 
+const ProviderRuntimeExtensionActivityEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: ExtensionActivityType,
+  payload: ExtensionActivityPayload,
+});
+export type ProviderRuntimeExtensionActivityEvent =
+  typeof ProviderRuntimeExtensionActivityEvent.Type;
+
 const ProviderRuntimeWarningEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: RuntimeWarningType,
@@ -994,6 +1030,7 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeConfigWarningEvent,
   ProviderRuntimeDeprecationNoticeEvent,
   ProviderRuntimeFilesPersistedEvent,
+  ProviderRuntimeExtensionActivityEvent,
   ProviderRuntimeWarningEvent,
   ProviderRuntimeErrorEvent,
 ]);

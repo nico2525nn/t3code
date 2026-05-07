@@ -473,6 +473,7 @@ export interface ChatComposerProps {
     expandedCursor: number,
     cursorAdjacentToMention: boolean,
   ) => void;
+  onChangeActivePendingUserInputTextAnswer: (questionId: string, value: string) => void;
 
   onProviderModelSelect: (instanceId: ProviderInstanceId, model: string) => void;
   toggleInteractionMode: () => void;
@@ -548,6 +549,7 @@ export const ChatComposer = memo(
       onAdvanceActivePendingUserInput,
       onPreviousActivePendingUserInputQuestion,
       onChangeActivePendingUserInputCustomAnswer,
+      onChangeActivePendingUserInputTextAnswer,
       onProviderModelSelect,
       toggleInteractionMode,
       handleRuntimeModeChange,
@@ -2040,6 +2042,7 @@ export const ChatComposer = memo(
                     answers={activePendingDraftAnswers}
                     questionIndex={activePendingQuestionIndex}
                     onToggleOption={onSelectActivePendingUserInputOption}
+                    onChangeTextAnswer={onChangeActivePendingUserInputTextAnswer}
                     onAdvance={onAdvanceActivePendingUserInput}
                   />
                 </div>
@@ -2080,6 +2083,7 @@ export const ChatComposer = memo(
                   answers={activePendingDraftAnswers}
                   questionIndex={activePendingQuestionIndex}
                   onToggleOption={onSelectActivePendingUserInputOption}
+                  onChangeTextAnswer={onChangeActivePendingUserInputTextAnswer}
                   onAdvance={onAdvanceActivePendingUserInput}
                 />
                 <div className="px-3 pb-3 sm:px-4">

@@ -40,6 +40,25 @@ const multiSelectQuestion = {
   multiSelect: true,
 } as const;
 
+const textQuestion = {
+  id: "token",
+  header: "Token",
+  question: "Enter token",
+  inputKind: "text",
+  options: [],
+  multiSelect: false,
+} as const;
+
+const textareaQuestion = {
+  id: "notes",
+  header: "Notes",
+  question: "Edit notes",
+  inputKind: "textarea",
+  options: [],
+  prefill: "Existing notes",
+  multiSelect: false,
+} as const;
+
 describe("resolvePendingUserInputAnswer", () => {
   it("prefers a custom answer over selected options", () => {
     expect(
@@ -64,6 +83,19 @@ describe("resolvePendingUserInputAnswer", () => {
         selectedOptionLabels: ["Server", "Web"],
       }),
     ).toEqual(["Server", "Web"]);
+  });
+
+  it("uses text answers for text and textarea prompts without options", () => {
+    expect(
+      resolvePendingUserInputAnswer(textQuestion, {
+        textAnswer: "secret-token",
+      }),
+    ).toBe("secret-token");
+    expect(
+      resolvePendingUserInputAnswer(textareaQuestion, {
+        textAnswer: "updated notes",
+      }),
+    ).toBe("updated notes");
   });
 
   it("clears the preset selection when a custom answer is entered", () => {
@@ -147,6 +179,18 @@ describe("buildPendingUserInputAnswers", () => {
       }),
     ).toEqual({
       areas: ["Server", "Web"],
+    });
+  });
+
+  it("returns text answers for text prompts", () => {
+    expect(
+      buildPendingUserInputAnswers([textQuestion, textareaQuestion], {
+        token: { textAnswer: "secret-token" },
+        notes: { textAnswer: "updated notes" },
+      }),
+    ).toEqual({
+      token: "secret-token",
+      notes: "updated notes",
     });
   });
 

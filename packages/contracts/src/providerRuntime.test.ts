@@ -107,6 +107,67 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.payload.questions[0]?.options).toHaveLength(2);
   });
 
+  it("decodes Pi text and textarea user-input questions without options", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "user-input.requested",
+      eventId: "event-pi-input-1",
+      provider: "pi",
+      createdAt: "2026-02-28T00:00:01.000Z",
+      threadId: "thread-2",
+      requestId: "request-1",
+      payload: {
+        questions: [
+          {
+            id: "token",
+            header: "Token",
+            question: "Enter token",
+            inputKind: "text",
+            options: [],
+            placeholder: "sk-...",
+          },
+          {
+            id: "notes",
+            header: "Notes",
+            question: "Edit notes",
+            inputKind: "textarea",
+            options: [],
+            prefill: "Existing notes",
+          },
+        ],
+      },
+    });
+
+    expect(parsed.type).toBe("user-input.requested");
+    if (parsed.type !== "user-input.requested") {
+      throw new Error("expected user-input.requested");
+    }
+    expect(parsed.payload.questions[0]?.options).toEqual([]);
+    expect(parsed.payload.questions[1]?.prefill).toBe("Existing notes");
+  });
+
+  it("decodes non-fatal extension activity events", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "extension.activity",
+      eventId: "event-pi-activity-1",
+      provider: "pi",
+      createdAt: "2026-02-28T00:00:01.000Z",
+      threadId: "thread-2",
+      payload: {
+        source: "pi.extension.ui",
+        activityType: "notify",
+        message: "Copied thread",
+        severity: "info",
+        uiOnly: true,
+      },
+    });
+
+    expect(parsed.type).toBe("extension.activity");
+    if (parsed.type !== "extension.activity") {
+      throw new Error("expected extension.activity");
+    }
+    expect(parsed.payload.uiOnly).toBe(true);
+  });
+
   it("decodes user-input.resolved with answer map", () => {
     const parsed = decodeRuntimeEvent({
       type: "user-input.resolved",

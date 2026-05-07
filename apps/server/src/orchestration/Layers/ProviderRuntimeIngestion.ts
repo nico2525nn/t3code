@@ -357,6 +357,21 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "extension.activity": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: event.payload.severity === "error" ? "error" : "info",
+          kind: "extension.activity",
+          summary: event.payload.message,
+          payload: event.payload,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "turn.plan.updated": {
       return [
         {

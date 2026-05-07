@@ -22,6 +22,8 @@ import type {
   TurnDiffSummary,
 } from "./types";
 
+type UserInputQuestionOption = NonNullable<UserInputQuestion["options"]>[number];
+
 export type ProviderPickerKind = ProviderDriverKind;
 
 export const PROVIDER_OPTIONS: Array<{
@@ -278,16 +280,22 @@ function parseUserInputQuestions(
     .map<UserInputQuestion | null>((entry) => {
       if (!entry || typeof entry !== "object") return null;
       const question = entry as Record<string, unknown>;
+      const inputKind =
+        question.inputKind === "confirm" ||
+        question.inputKind === "text" ||
+        question.inputKind === "textarea"
+          ? question.inputKind
+          : "select";
       if (
         typeof question.id !== "string" ||
         typeof question.header !== "string" ||
-        typeof question.question !== "string" ||
-        !Array.isArray(question.options)
+        typeof question.question !== "string"
       ) {
         return null;
       }
-      const options = question.options
-        .map<UserInputQuestion["options"][number] | null>((option) => {
+      const rawOptions = Array.isArray(question.options) ? question.options : [];
+      const options = rawOptions
+        .map<UserInputQuestionOption | null>((option) => {
           if (!option || typeof option !== "object") return null;
           const optionRecord = option as Record<string, unknown>;
           if (
@@ -301,17 +309,25 @@ function parseUserInputQuestions(
             description: optionRecord.description,
           };
         })
-        .filter((option): option is UserInputQuestion["options"][number] => option !== null);
-      if (options.length === 0) {
+        .filter((option): option is UserInputQuestionOption => option !== null);
+      if ((inputKind === "select" || inputKind === "confirm") && options.length === 0) {
         return null;
       }
-      return {
+      const parsedQuestion: UserInputQuestion = {
         id: question.id,
         header: question.header,
         question: question.question,
+        inputKind,
         options,
         multiSelect: question.multiSelect === true,
       };
+      if (typeof question.placeholder === "string") {
+        Object.assign(parsedQuestion, { placeholder: question.placeholder });
+      }
+      if (typeof question.prefill === "string") {
+        Object.assign(parsedQuestion, { prefill: question.prefill });
+      }
+      return parsedQuestion;
     })
     .filter((question): question is UserInputQuestion => question !== null);
   return parsed.length > 0 ? parsed : null;

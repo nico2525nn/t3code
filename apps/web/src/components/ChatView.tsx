@@ -69,6 +69,7 @@ import {
   buildPendingUserInputAnswers,
   derivePendingUserInputProgress,
   setPendingUserInputCustomAnswer,
+  setPendingUserInputTextAnswer,
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
@@ -3054,6 +3055,25 @@ export default function ChatView(props: ChatViewProps) {
     [activePendingUserInput],
   );
 
+  const onChangeActivePendingUserInputTextAnswer = useCallback(
+    (questionId: string, value: string) => {
+      if (!activePendingUserInput) {
+        return;
+      }
+      setPendingUserInputAnswersByRequestId((existing) => ({
+        ...existing,
+        [activePendingUserInput.requestId]: {
+          ...existing[activePendingUserInput.requestId],
+          [questionId]: setPendingUserInputTextAnswer(
+            existing[activePendingUserInput.requestId]?.[questionId],
+            value,
+          ),
+        },
+      }));
+    },
+    [activePendingUserInput],
+  );
+
   const onAdvanceActivePendingUserInput = useCallback(() => {
     if (!activePendingUserInput || !activePendingProgress) {
       return;
@@ -3661,6 +3681,9 @@ export default function ChatView(props: ChatViewProps) {
                   }
                   onChangeActivePendingUserInputCustomAnswer={
                     onChangeActivePendingUserInputCustomAnswer
+                  }
+                  onChangeActivePendingUserInputTextAnswer={
+                    onChangeActivePendingUserInputTextAnswer
                   }
                   onProviderModelSelect={onProviderModelSelect}
                   toggleInteractionMode={toggleInteractionMode}

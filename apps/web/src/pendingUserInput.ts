@@ -3,6 +3,7 @@ import type { UserInputQuestion } from "@t3tools/contracts";
 export interface PendingUserInputDraftAnswer {
   selectedOptionLabels?: string[];
   customAnswer?: string;
+  textAnswer?: string;
 }
 
 export interface PendingUserInputProgress {
@@ -11,6 +12,7 @@ export interface PendingUserInputProgress {
   activeDraft: PendingUserInputDraftAnswer | undefined;
   selectedOptionLabels: string[];
   customAnswer: string;
+  textAnswer: string;
   resolvedAnswer: string | string[] | null;
   usingCustomAnswer: boolean;
   answeredQuestionCount: number;
@@ -46,6 +48,10 @@ export function resolvePendingUserInputAnswer(
   draft: PendingUserInputDraftAnswer | undefined,
 ): string | string[] | null {
   const customAnswer = normalizeDraftAnswer(draft?.customAnswer);
+  if (question.inputKind === "text" || question.inputKind === "textarea") {
+    return normalizeDraftAnswer(draft?.textAnswer ?? draft?.customAnswer);
+  }
+
   if (customAnswer) {
     return customAnswer;
   }
@@ -56,6 +62,17 @@ export function resolvePendingUserInputAnswer(
   }
 
   return selectedOptionLabels[0] ?? null;
+}
+
+export function setPendingUserInputTextAnswer(
+  draft: PendingUserInputDraftAnswer | undefined,
+  textAnswer: string,
+): PendingUserInputDraftAnswer {
+  return {
+    ...draft,
+    customAnswer: "",
+    textAnswer,
+  };
 }
 
 export function setPendingUserInputCustomAnswer(
@@ -148,6 +165,7 @@ export function derivePendingUserInputProgress(
     ? resolvePendingUserInputAnswer(activeQuestion, activeDraft)
     : null;
   const customAnswer = activeDraft?.customAnswer ?? "";
+  const textAnswer = activeDraft?.textAnswer ?? activeQuestion?.prefill ?? "";
   const answeredQuestionCount = countAnsweredPendingUserInputQuestions(questions, draftAnswers);
   const isLastQuestion =
     questions.length === 0 ? true : normalizedQuestionIndex >= questions.length - 1;
@@ -158,6 +176,7 @@ export function derivePendingUserInputProgress(
     activeDraft,
     selectedOptionLabels: normalizeSelectedOptionLabels(activeDraft?.selectedOptionLabels),
     customAnswer,
+    textAnswer,
     resolvedAnswer,
     usingCustomAnswer: customAnswer.trim().length > 0,
     answeredQuestionCount,
