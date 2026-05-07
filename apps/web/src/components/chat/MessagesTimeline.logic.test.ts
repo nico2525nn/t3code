@@ -252,6 +252,8 @@ describe("deriveMessagesTimelineRows", () => {
       ],
       completionDividerBeforeEntryId: "assistant-final-entry",
       isWorking: false,
+      activeTurnInProgress: false,
+      activeTurnId: null,
       activeTurnStartedAt: null,
       turnDiffSummaryByAssistantMessageId: new Map(),
       revertTurnCountByUserMessageId: new Map(),
@@ -309,6 +311,8 @@ describe("deriveMessagesTimelineRows", () => {
       ],
       completionDividerBeforeEntryId: null,
       isWorking: false,
+      activeTurnInProgress: false,
+      activeTurnId: null,
       activeTurnStartedAt: null,
       turnDiffSummaryByAssistantMessageId: new Map([
         ["assistant-1" as never, assistantTurnDiffSummary],
@@ -366,6 +370,8 @@ describe("computeStableMessagesTimelineRows", () => {
       ],
       completionDividerBeforeEntryId: null,
       isWorking: false,
+      activeTurnInProgress: false,
+      activeTurnId: null,
       activeTurnStartedAt: null,
       turnDiffSummaryByAssistantMessageId: new Map(),
       revertTurnCountByUserMessageId: new Map(),
@@ -380,6 +386,71 @@ describe("computeStableMessagesTimelineRows", () => {
 
     expect(repeated).toBe(initial);
     expect(repeated.result).toBe(initial.result);
+  });
+
+  it("keeps inactive assistant rows stable when the active turn changes", () => {
+    const firstAssistantMessage = {
+      id: "assistant-1" as never,
+      role: "assistant" as const,
+      text: "First",
+      turnId: "turn-1" as never,
+      createdAt: "2026-01-01T00:00:00Z",
+      completedAt: "2026-01-01T00:00:01Z",
+      streaming: false,
+    };
+    const secondAssistantMessage = {
+      id: "assistant-2" as never,
+      role: "assistant" as const,
+      text: "Second",
+      turnId: "turn-2" as never,
+      createdAt: "2026-01-01T00:00:10Z",
+      completedAt: "2026-01-01T00:00:11Z",
+      streaming: false,
+    };
+    const timelineEntries = [
+      {
+        id: "entry-assistant-1",
+        kind: "message" as const,
+        createdAt: firstAssistantMessage.createdAt,
+        message: firstAssistantMessage,
+      },
+      {
+        id: "entry-assistant-2",
+        kind: "message" as const,
+        createdAt: secondAssistantMessage.createdAt,
+        message: secondAssistantMessage,
+      },
+    ];
+
+    const inactiveRows = deriveMessagesTimelineRows({
+      timelineEntries,
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnInProgress: false,
+      activeTurnId: null,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+    const initial = computeStableMessagesTimelineRows(inactiveRows, {
+      byId: new Map(),
+      result: [],
+    });
+
+    const activeRows = deriveMessagesTimelineRows({
+      timelineEntries,
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnInProgress: true,
+      activeTurnId: "turn-2" as never,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+    const repeated = computeStableMessagesTimelineRows(activeRows, initial);
+
+    expect(repeated.result[0]).toBe(initial.result[0]);
+    expect(repeated.result[1]).not.toBe(initial.result[1]);
   });
 
   it("reuses work rows when equivalent timeline derivations create new grouped arrays", () => {
@@ -416,6 +487,8 @@ describe("computeStableMessagesTimelineRows", () => {
         ],
         completionDividerBeforeEntryId: null,
         isWorking: false,
+        activeTurnInProgress: false,
+        activeTurnId: null,
         activeTurnStartedAt: null,
         turnDiffSummaryByAssistantMessageId: new Map(),
         revertTurnCountByUserMessageId: new Map(),
@@ -471,6 +544,8 @@ describe("computeStableMessagesTimelineRows", () => {
       ],
       completionDividerBeforeEntryId: null,
       isWorking: false,
+      activeTurnInProgress: false,
+      activeTurnId: null,
       activeTurnStartedAt: null,
       turnDiffSummaryByAssistantMessageId: new Map(),
       revertTurnCountByUserMessageId: new Map(),
