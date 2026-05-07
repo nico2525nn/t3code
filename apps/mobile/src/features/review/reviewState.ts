@@ -78,6 +78,18 @@ const reviewParsedDiffBySectionCacheKeyAtom = Atom.family((cacheKey: string) =>
   ),
 );
 
+export interface ReviewCacheForThread {
+  readonly threadKey: string | null;
+  readonly gitSections: ReadonlyArray<ReviewDiffPreviewSource>;
+  readonly turnDiffById: Readonly<Record<string, string>>;
+  readonly selectedSectionId: string | null;
+  readonly expandedFileIdsBySection: Readonly<Record<string, ReadonlyArray<string> | undefined>>;
+  readonly revealedLargeFileIdsBySection: Readonly<
+    Record<string, ReadonlyArray<string> | undefined>
+  >;
+  readonly viewedFileIdsBySection: Readonly<Record<string, ReadonlyArray<string> | undefined>>;
+}
+
 function buildThreadKey(input: {
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
@@ -94,7 +106,7 @@ function buildSectionCacheKey(threadKey: string, sectionId: string): string {
 export function useReviewCacheForThread(input: {
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
-}) {
+}): ReviewCacheForThread {
   const threadKey = buildThreadKey(input);
   const gitSections = useAtomValue(
     threadKey ? reviewGitSectionsByThreadKeyAtom(threadKey) : EMPTY_REVIEW_GIT_SECTIONS_ATOM,

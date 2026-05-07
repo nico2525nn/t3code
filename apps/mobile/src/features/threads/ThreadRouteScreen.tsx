@@ -41,6 +41,7 @@ import { ThreadNavigationDrawer } from "./ThreadNavigationDrawer";
 import { useSelectedThreadCommands } from "../../state/use-selected-thread-commands";
 import { useSelectedThreadGitActions } from "../../state/use-selected-thread-git-actions";
 import { useSelectedThreadGitState } from "../../state/use-selected-thread-git-state";
+import { useSelectedThreadRequests } from "../../state/use-selected-thread-requests";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useThreadComposerState } from "../../state/use-thread-composer-state";
 
@@ -65,9 +66,8 @@ export function ThreadRouteScreen() {
   const composer = useThreadComposerState();
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
+  const requests = useSelectedThreadRequests();
   const commands = useSelectedThreadCommands({
-    activePendingUserInput: composer.activePendingUserInput,
-    activePendingUserInputAnswers: composer.activePendingUserInputAnswers,
     refreshSelectedThreadGitStatus: gitActions.refreshSelectedThreadGitStatus,
   });
   const refreshSelectedThread = commands.onRefresh;
@@ -369,12 +369,12 @@ export function ThreadRouteScreen() {
           bearerToken={selectedEnvironmentConnection?.bearerToken ?? null}
           selectedThreadFeed={composer.selectedThreadFeed}
           activeWorkStartedAt={composer.activeWorkStartedAt}
-          activePendingApproval={composer.activePendingApproval}
-          respondingApprovalId={commands.respondingApprovalId}
-          activePendingUserInput={composer.activePendingUserInput}
-          activePendingUserInputDrafts={composer.activePendingUserInputDrafts}
-          activePendingUserInputAnswers={composer.activePendingUserInputAnswers}
-          respondingUserInputId={commands.respondingUserInputId}
+          activePendingApproval={requests.activePendingApproval}
+          respondingApprovalId={requests.respondingApprovalId}
+          activePendingUserInput={requests.activePendingUserInput}
+          activePendingUserInputDrafts={requests.activePendingUserInputDrafts}
+          activePendingUserInputAnswers={requests.activePendingUserInputAnswers}
+          respondingUserInputId={requests.respondingUserInputId}
           draftMessage={composer.draftMessage}
           draftAttachments={composer.draftAttachments}
           connectionStateLabel={routeConnectionState}
@@ -395,10 +395,10 @@ export function ThreadRouteScreen() {
           onUpdateThreadModelSelection={commands.onUpdateThreadModelSelection}
           onUpdateThreadRuntimeMode={commands.onUpdateThreadRuntimeMode}
           onUpdateThreadInteractionMode={commands.onUpdateThreadInteractionMode}
-          onRespondToApproval={commands.onRespondToApproval}
-          onSelectUserInputOption={composer.onSelectUserInputOption}
-          onChangeUserInputCustomAnswer={composer.onChangeUserInputCustomAnswer}
-          onSubmitUserInput={commands.onSubmitUserInput}
+          onRespondToApproval={requests.onRespondToApproval}
+          onSelectUserInputOption={requests.onSelectUserInputOption}
+          onChangeUserInputCustomAnswer={requests.onChangeUserInputCustomAnswer}
+          onSubmitUserInput={requests.onSubmitUserInput}
         />
 
         <ThreadNavigationDrawer

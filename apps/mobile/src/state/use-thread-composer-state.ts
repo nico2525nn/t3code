@@ -2,13 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo } from "react";
 
 import { EnvironmentScopedThreadShell } from "@t3tools/client-runtime";
-import {
-  CommandId,
-  MessageId,
-  type ApprovalRequestId,
-  type EnvironmentId,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { CommandId, MessageId, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { deriveActiveWorkStartedAt } from "@t3tools/shared/orchestrationTiming";
 import { Atom } from "effect/unstable/reactivity";
 
@@ -18,16 +12,8 @@ import {
   pickComposerImages,
 } from "../lib/composerImages";
 import type { DraftComposerImageAttachment } from "../lib/composerImages";
-import { scopedRequestKey, scopedThreadKey } from "../lib/scopedEntities";
-import {
-  buildPendingUserInputAnswers,
-  buildThreadFeed,
-  derivePendingApprovals,
-  derivePendingUserInputs,
-  setPendingUserInputCustomAnswer,
-  type PendingUserInputDraftAnswer,
-  type QueuedThreadMessage,
-} from "../lib/threadActivity";
+import { scopedThreadKey } from "../lib/scopedEntities";
+import { buildThreadFeed, type QueuedThreadMessage } from "../lib/threadActivity";
 import { uuidv4 } from "../lib/uuid";
 import { appAtomRegistry } from "../state/atom-registry";
 import { getEnvironmentClient } from "./environment-session-registry";
@@ -57,10 +43,6 @@ const dispatchingQueuedMessageIdAtom = Atom.make<MessageId | null>(null).pipe(
 const queuedMessagesByThreadKeyAtom = Atom.make<Record<string, ReadonlyArray<QueuedThreadMessage>>>(
   {},
 ).pipe(Atom.keepAlive, Atom.withLabel("mobile:thread-composer:queued-messages"));
-
-const userInputDraftsByRequestKeyAtom = Atom.make<
-  Record<string, Record<string, PendingUserInputDraftAnswer>>
->({}).pipe(Atom.keepAlive, Atom.withLabel("mobile:user-input-drafts"));
 
 function setDraftMessage(threadKey: string, value: string): void {
   const current = appAtomRegistry.get(draftMessageByThreadKeyAtom);
@@ -187,37 +169,6 @@ function removeQueuedMessage(
   appAtomRegistry.set(queuedMessagesByThreadKeyAtom, next);
 }
 
-function setUserInputDraftOption(requestKey: string, questionId: string, label: string): void {
-  const current = appAtomRegistry.get(userInputDraftsByRequestKeyAtom);
-  appAtomRegistry.set(userInputDraftsByRequestKeyAtom, {
-    ...current,
-    [requestKey]: {
-      ...current[requestKey],
-      [questionId]: {
-        selectedOptionLabel: label,
-      },
-    },
-  });
-}
-
-function setUserInputDraftCustomAnswer(
-  requestKey: string,
-  questionId: string,
-  customAnswer: string,
-): void {
-  const current = appAtomRegistry.get(userInputDraftsByRequestKeyAtom);
-  appAtomRegistry.set(userInputDraftsByRequestKeyAtom, {
-    ...current,
-    [requestKey]: {
-      ...current[requestKey],
-      [questionId]: setPendingUserInputCustomAnswer(
-        current[requestKey]?.[questionId],
-        customAnswer,
-      ),
-    },
-  });
-}
-
 function useQueueDrain(input: {
   readonly dispatchingQueuedMessageId: MessageId | null;
   readonly queuedMessagesByThreadKey: Record<string, ReadonlyArray<QueuedThreadMessage>>;
@@ -284,14 +235,9 @@ export function useThreadComposerState() {
   const draftAttachmentsByThreadKey = useAtomValue(draftAttachmentsByThreadKeyAtom);
   const dispatchingQueuedMessageId = useAtomValue(dispatchingQueuedMessageIdAtom);
   const queuedMessagesByThreadKey = useAtomValue(queuedMessagesByThreadKeyAtom);
-  const userInputDraftsByRequestKey = useAtomValue(userInputDraftsByRequestKeyAtom);
 
   const selectedThreadKey = selectedThreadShell
     ? scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id)
-    : null;
-  const selectedRequestKey = selectedThreadShell
-    ? (requestId: ApprovalRequestId) =>
-        scopedRequestKey(selectedThreadShell.environmentId, requestId)
     : null;
   const selectedThreadQueuedMessages = useMemo(
     () => (selectedThreadKey ? (queuedMessagesByThreadKey[selectedThreadKey] ?? []) : []),
@@ -335,25 +281,6 @@ export function useThreadComposerState() {
       queuedSendStartedAt,
     );
   }, [queuedSendStartedAt, selectedThread, selectedThreadSessionActivity]);
-
-  const activePendingApprovals = useMemo(
-    () => (selectedThread ? derivePendingApprovals(selectedThread.activities) : []),
-    [selectedThread],
-  );
-  const activePendingApproval = activePendingApprovals[0] ?? null;
-
-  const activePendingUserInputs = useMemo(
-    () => (selectedThread ? derivePendingUserInputs(selectedThread.activities) : []),
-    [selectedThread],
-  );
-  const activePendingUserInput = activePendingUserInputs[0] ?? null;
-  const activePendingUserInputDrafts =
-    activePendingUserInput && selectedRequestKey
-      ? (userInputDraftsByRequestKey[selectedRequestKey(activePendingUserInput.requestId)] ?? {})
-      : {};
-  const activePendingUserInputAnswers = activePendingUserInput
-    ? buildPendingUserInputAnswers(activePendingUserInput.questions, activePendingUserInputDrafts)
-    : null;
 
   const activeThreadBusy =
     !!selectedThread &&
@@ -442,30 +369,6 @@ export function useThreadComposerState() {
     clearDraft(threadKey);
   }, [draftAttachmentsByThreadKey, draftMessageByThreadKey, selectedThreadShell]);
 
-  const onSelectUserInputOption = useCallback(
-    (requestId: ApprovalRequestId, questionId: string, label: string) => {
-      if (!selectedThreadShell) {
-        return;
-      }
-
-      const requestKey = scopedRequestKey(selectedThreadShell.environmentId, requestId);
-      setUserInputDraftOption(requestKey, questionId, label);
-    },
-    [selectedThreadShell],
-  );
-
-  const onChangeUserInputCustomAnswer = useCallback(
-    (requestId: ApprovalRequestId, questionId: string, customAnswer: string) => {
-      if (!selectedThreadShell) {
-        return;
-      }
-
-      const requestKey = scopedRequestKey(selectedThreadShell.environmentId, requestId);
-      setUserInputDraftCustomAnswer(requestKey, questionId, customAnswer);
-    },
-    [selectedThreadShell],
-  );
-
   const onChangeDraftMessage = useCallback(
     (value: string) => {
       if (!selectedThreadShell) {
@@ -553,10 +456,6 @@ export function useThreadComposerState() {
     selectedThreadFeed,
     selectedThreadQueueCount,
     activeWorkStartedAt,
-    activePendingApproval,
-    activePendingUserInput,
-    activePendingUserInputDrafts,
-    activePendingUserInputAnswers,
     draftMessage,
     draftAttachments,
     activeThreadBusy,
@@ -566,7 +465,5 @@ export function useThreadComposerState() {
     onNativePasteImages,
     onRemoveDraftImage,
     onSendMessage,
-    onSelectUserInputOption,
-    onChangeUserInputCustomAnswer,
   };
 }
