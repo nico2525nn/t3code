@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { assertSuccess } from "@effect/vitest/utils";
-import { FileSystem, Path, Effect, Layer, Sink, Stream } from "effect";
+import { FileSystem, Path, Effect, Sink, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
@@ -490,6 +490,7 @@ it.layer(NodeServices.layer)("launchDetached", (it) => {
             kill: () => Effect.void,
             unref: Effect.sync(() => {
               unrefCalled = true;
+              return Effect.void;
             }),
             stdin: Sink.drain,
             stdout: Stream.empty,
@@ -505,7 +506,7 @@ it.layer(NodeServices.layer)("launchDetached", (it) => {
         command: process.execPath,
         args: ["-e", "process.exit(0)"],
       }).pipe(
-        Effect.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.result,
       );
 

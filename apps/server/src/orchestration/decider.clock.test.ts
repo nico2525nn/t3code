@@ -1,9 +1,4 @@
-import {
-  CommandId,
-  EventId,
-  ProjectId,
-  type OrchestrationEvent,
-} from "@t3tools/contracts";
+import { CommandId, EventId, ProjectId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import { DateTime, Duration, Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
@@ -49,10 +44,15 @@ it.effect("uses the Effect clock for generated project update timestamps", () =>
       },
       readModel,
     });
-    const event = (Array.isArray(result) ? result[0] : result) as Extract<
-      Omit<OrchestrationEvent, "sequence">,
-      { type: "project.meta-updated" }
-    >;
+    if (Array.isArray(result)) {
+      assert.fail("expected a single project meta-updated event");
+      return;
+    }
+    if (result.type !== "project.meta-updated") {
+      assert.fail(`expected project.meta-updated, received ${result.type}`);
+      return;
+    }
+    const event = result;
 
     assert.equal(event.occurredAt, expectedNow);
     assert.equal(event.payload.updatedAt, expectedNow);

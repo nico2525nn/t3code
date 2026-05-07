@@ -190,31 +190,42 @@ const launchDetachedWithSpawner = (
       return yield* new OpenError({ message: `Editor command not found: ${launch.command}` });
     }
 
-    const isWin32 = process.platform === "win32";
-    const child = yield* spawner
-      .spawn(
-        ChildProcess.make(launch.command, isWin32 ? launch.args.map((a) => `"${a}"`) : [
-          ...launch.args,
-        ], {
-          detached: true,
-          stdin: "ignore",
-          stdout: "ignore",
-          stderr: "ignore",
-          shell: isWin32,
-        }),
-      )
-      .pipe(
-        Effect.mapError(
-          (cause) => new OpenError({ message: "failed to spawn detached process", cause }),
-        ),
-      );
-    yield* child.unref;
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const isWin32 = process.platform === "win32";
+        const child = yield* spawner
+          .spawn(
+            ChildProcess.make(
+              launch.command,
+              isWin32 ? launch.args.map((a) => `"${a}"`) : [...launch.args],
+              {
+                detached: true,
+                stdin: "ignore",
+                stdout: "ignore",
+                stderr: "ignore",
+                shell: isWin32,
+              },
+            ),
+          )
+          .pipe(
+            Effect.mapError(
+              (cause) => new OpenError({ message: "failed to spawn detached process", cause }),
+            ),
+          );
+        const _reref = yield* child.unref.pipe(
+          Effect.mapError(
+            (cause) => new OpenError({ message: "failed to unref detached process", cause }),
+          ),
+        );
+      }),
+    );
   });
 
 export const launchDetached = (launch: EditorLaunch) =>
-  Effect.flatMap(ChildProcessSpawner.ChildProcessSpawner, (spawner) =>
-    launchDetachedWithSpawner(launch, spawner),
-  );
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    return yield* launchDetachedWithSpawner(launch, spawner);
+  });
 
 const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -228,10 +239,10 @@ const make = Effect.gen(function* () {
       Effect.tryPromise({
         try: () => open.default(target),
         catch: (cause) => new OpenError({ message: "Browser auto-open failed", cause }),
-      }),
+      }).pipe(Effect.asVoid),
     openInEditor: (input) =>
       Effect.flatMap(resolveEditorLaunch(input), (launch) =>
-        launchDetachedWithSpawner(launch, spawner)
+        launchDetachedWithSpawner(launch, spawner),
       ),
   } satisfies OpenShape;
 });
