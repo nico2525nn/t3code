@@ -19,11 +19,10 @@ const decideProjectCreatedEventId = decideOrchestrationCommand({
   readModel: createEmptyReadModel(createdAt),
 }).pipe(
   Effect.map((event) => {
-    assert.isFalse(Array.isArray(event));
-    if (Array.isArray(event)) {
-      throw new Error("project.create should emit one event");
+    if (!Array.isArray(event)) {
+      return event.eventId;
     }
-    return event.eventId;
+    throw new Error("project.create should emit one event");
   }),
 );
 
