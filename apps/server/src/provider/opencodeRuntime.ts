@@ -24,14 +24,13 @@ import * as P from "effect/Predicate";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Scope from "effect/Scope";
-import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
+import { encodeJsonStringForDiagnostics } from "@t3tools/shared/schemaJson";
 import { isWindowsCommandNotFound } from "../processRunner.ts";
 import { collectStreamAsString } from "./providerSnapshot.ts";
 import * as NetService from "@t3tools/shared/Net";
-const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
 const OPENCODE_EMPTY_CONFIG_CONTENT = "{}";
 
 const OPENCODE_SERVER_READY_PREFIX = "opencode server listening";
@@ -56,11 +55,6 @@ export class OpenCodeRuntimeError extends Data.TaggedError(OPENCODE_RUNTIME_ERRO
 }> {
   static readonly is = (u: unknown): u is OpenCodeRuntimeError =>
     P.isTagged(u, OPENCODE_RUNTIME_ERROR_TAG);
-}
-
-function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
-  const result = encodeUnknownJsonStringExit(input);
-  return Exit.isSuccess(result) ? result.value : undefined;
 }
 
 export function openCodeRuntimeErrorDetail(cause: unknown): string {

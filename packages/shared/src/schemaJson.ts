@@ -84,6 +84,17 @@ export const fromLenientJsonString = new SchemaTransformation.Transformation(
   SchemaGetter.stringifyJson(),
 );
 
+const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
+
+/**
+ * Attempt to encode an unknown value to a JSON string for diagnostic output.
+ * Returns `undefined` on encoding failure instead of throwing.
+ */
+export function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
+  const result = encodeUnknownJsonStringExit(input);
+  return Exit.isSuccess(result) ? result.value : undefined;
+}
+
 export const prettyJsonString = SchemaGetter.parseJson<string>().compose(
   SchemaGetter.stringifyJson({ space: 2 }),
 );

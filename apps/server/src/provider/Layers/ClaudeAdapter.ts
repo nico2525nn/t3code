@@ -82,9 +82,9 @@ import {
   ProviderAdapterValidationError,
   type ProviderAdapterError,
 } from "../Errors.ts";
+import { encodeJsonStringForDiagnostics } from "@t3tools/shared/schemaJson";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
-const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.UnknownFromJsonString);
 
 const PROVIDER = ProviderDriverKind.make("claudeAgent");
@@ -94,11 +94,6 @@ type ClaudeToolResultStreamKind = Extract<
   "command_output" | "file_change_output"
 >;
 type ClaudeSdkEffort = NonNullable<ClaudeQueryOptions["effort"]>;
-
-function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
-  const result = encodeUnknownJsonStringExit(input);
-  return Exit.isSuccess(result) ? result.value : undefined;
-}
 
 type PromptQueueItem =
   | {

@@ -72,21 +72,16 @@ import {
   extractPlanMarkdown,
   extractTodosAsPlan,
 } from "../acp/CursorAcpExtension.ts";
+import { encodeJsonStringForDiagnostics } from "@t3tools/shared/schemaJson";
 import { type CursorAdapterShape } from "../Services/CursorAdapter.ts";
 import { resolveCursorAcpBaseModelId } from "./CursorProvider.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
-const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
 
 const PROVIDER = ProviderDriverKind.make("cursor");
 const CURSOR_RESUME_VERSION = 1 as const;
 const ACP_PLAN_MODE_ALIASES = ["plan", "architect"];
 const ACP_IMPLEMENT_MODE_ALIASES = ["code", "agent", "default", "chat", "implement"];
 const ACP_APPROVAL_MODE_ALIASES = ["ask"];
-
-function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
-  const result = encodeUnknownJsonStringExit(input);
-  return Exit.isSuccess(result) ? result.value : undefined;
-}
 
 export interface CursorAdapterLiveOptions {
   readonly environment?: NodeJS.ProcessEnv;
