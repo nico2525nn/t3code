@@ -53,7 +53,7 @@ const ClaudeOutputEnvelope = Schema.Struct({
   structured_output: Schema.Unknown,
 });
 
-const encodeUnknownJsonString = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
+const encodeJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
 const decodeClaudeOutputEnvelope = Schema.decodeEffect(Schema.fromJsonString(ClaudeOutputEnvelope));
 
 export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(function* (
@@ -78,6 +78,26 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       ),
     );
 
+  const encodeJsonForOperation = (
+    operation:
+      | "generateCommitMessage"
+      | "generatePrContent"
+      | "generateBranchName"
+      | "generateThreadTitle",
+    value: unknown,
+    detail: string,
+  ): Effect.Effect<string, TextGenerationError> =>
+    encodeJsonString(value).pipe(
+      Effect.mapError(
+        (cause) =>
+          new TextGenerationError({
+            operation,
+            detail,
+            cause,
+          }),
+      ),
+    );
+
   /**
    * Spawn the Claude CLI with structured JSON output and return the parsed,
    * schema-validated result.
@@ -99,7 +119,11 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     outputSchemaJson: S;
     modelSelection: ModelSelection;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
-    const jsonSchemaStr = encodeUnknownJsonString(toJsonSchemaObject(outputSchemaJson));
+    const jsonSchemaStr = yield* encodeJsonForOperation(
+      operation,
+      toJsonSchemaObject(outputSchemaJson),
+      "Failed to encode structured output schema.",
+    );
     const caps = getClaudeModelCapabilities(modelSelection.model);
     const descriptors = getProviderOptionDescriptors({
       caps,
@@ -119,6 +143,14 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
       ...(fastMode ? { fastMode: true } : {}),
     };
+    const settingsJson =
+      Object.keys(settings).length > 0
+        ? yield* encodeJsonForOperation(
+            operation,
+            settings,
+            "Failed to encode Claude CLI settings.",
+          )
+        : undefined;
 
     const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
       const command = ChildProcess.make(
@@ -132,9 +164,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
           "--model",
           resolveClaudeApiModelId(modelSelection),
           ...(cliEffort ? ["--effort", cliEffort] : []),
-          ...(Object.keys(settings).length > 0
-            ? ["--settings", encodeUnknownJsonString(settings)]
-            : []),
+          ...(settingsJson ? ["--settings", settingsJson] : []),
           "--dangerously-skip-permissions",
         ],
         {

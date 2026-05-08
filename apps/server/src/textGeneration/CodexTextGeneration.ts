@@ -40,7 +40,7 @@ import {
 
 const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "low";
 const CODEX_TIMEOUT_MS = 180_000;
-const encodeUnknownJsonString = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
+const encodeJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
 /**
  * Build a Codex text-generation closure bound to a specific `CodexSettings`
  * payload. See `makeCodexAdapter` for the overall per-instance rationale.
@@ -100,6 +100,25 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
   const safeUnlink = (filePath: string): Effect.Effect<void, never> =>
     fileSystem.remove(filePath).pipe(Effect.catch(() => Effect.void));
 
+  const encodeJsonForOperation = (
+    operation:
+      | "generateCommitMessage"
+      | "generatePrContent"
+      | "generateBranchName"
+      | "generateThreadTitle",
+    value: unknown,
+  ): Effect.Effect<string, TextGenerationError> =>
+    encodeJsonString(value).pipe(
+      Effect.mapError(
+        (cause) =>
+          new TextGenerationError({
+            operation,
+            detail: "Failed to encode structured output schema.",
+            cause,
+          }),
+      ),
+    );
+
   const materializeImageAttachments = Effect.fn("materializeImageAttachments")(function* (
     _operation:
       | "generateCommitMessage"
@@ -157,11 +176,11 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     cleanupPaths?: ReadonlyArray<string>;
     modelSelection: ModelSelection;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
-    const schemaPath = yield* writeTempFile(
+    const schemaJson = yield* encodeJsonForOperation(
       operation,
-      "codex-schema",
-      encodeUnknownJsonString(toJsonSchemaObject(outputSchemaJson)),
+      toJsonSchemaObject(outputSchemaJson),
     );
+    const schemaPath = yield* writeTempFile(operation, "codex-schema", schemaJson);
     const outputPath = yield* writeTempFile(operation, "codex-output", "");
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {

@@ -1,11 +1,12 @@
 import { ServerSettings, type ServerSettingsPatch } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { deepMerge } from "./Struct.ts";
 import { fromLenientJson } from "./schemaJson.ts";
 import { createModelSelection } from "./model.ts";
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
-const decodeServerSettingsJson = Schema.decodeUnknownSync(ServerSettingsJson);
+const decodeServerSettingsJson = Schema.decodeUnknownOption(ServerSettingsJson);
 
 export interface PersistedServerObservabilitySettings {
   readonly otlpTracesUrl: string | undefined;
@@ -34,12 +35,11 @@ export function extractPersistedServerObservabilitySettings(input: {
 export function parsePersistedServerObservabilitySettings(
   raw: string,
 ): PersistedServerObservabilitySettings {
-  try {
-    const decoded = decodeServerSettingsJson(raw);
-    return extractPersistedServerObservabilitySettings(decoded);
-  } catch {
-    return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined };
+  const decoded = decodeServerSettingsJson(raw);
+  if (Option.isSome(decoded)) {
+    return extractPersistedServerObservabilitySettings(decoded.value);
   }
+  return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined };
 }
 
 function shouldReplaceTextGenerationModelSelection(
