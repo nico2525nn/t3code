@@ -40,6 +40,7 @@ import {
 
 const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "low";
 const CODEX_TIMEOUT_MS = 180_000;
+const encodeUnknownJsonString = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
 /**
  * Build a Codex text-generation closure bound to a specific `CodexSettings`
  * payload. See `makeCodexAdapter` for the overall per-instance rationale.
@@ -159,7 +160,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     const schemaPath = yield* writeTempFile(
       operation,
       "codex-schema",
-      Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(toJsonSchemaObject(outputSchemaJson)),
+      encodeUnknownJsonString(toJsonSchemaObject(outputSchemaJson)),
     );
     const outputPath = yield* writeTempFile(operation, "codex-output", "");
 
@@ -259,6 +260,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
         ),
       );
 
+      const decodeOutput = Schema.decodeEffect(Schema.fromJsonString(outputSchemaJson));
+
       return yield* fileSystem.readFileString(outputPath).pipe(
         Effect.mapError(
           (cause) =>
@@ -268,7 +271,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
               cause,
             }),
         ),
-        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(outputSchemaJson))),
+        Effect.flatMap(decodeOutput),
         Effect.catchTag("SchemaError", (cause) =>
           Effect.fail(
             new TextGenerationError({

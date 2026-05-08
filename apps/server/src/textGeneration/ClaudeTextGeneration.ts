@@ -53,6 +53,9 @@ const ClaudeOutputEnvelope = Schema.Struct({
   structured_output: Schema.Unknown,
 });
 
+const encodeUnknownJsonString = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
+const decodeClaudeOutputEnvelope = Schema.decodeEffect(Schema.fromJsonString(ClaudeOutputEnvelope));
+
 export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(function* (
   claudeSettings: ClaudeSettings,
   environment: NodeJS.ProcessEnv = process.env,
@@ -96,9 +99,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     outputSchemaJson: S;
     modelSelection: ModelSelection;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
-    const jsonSchemaStr = Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(
-      toJsonSchemaObject(outputSchemaJson),
-    );
+    const jsonSchemaStr = encodeUnknownJsonString(toJsonSchemaObject(outputSchemaJson));
     const caps = getClaudeModelCapabilities(modelSelection.model);
     const descriptors = getProviderOptionDescriptors({
       caps,
@@ -132,7 +133,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
           resolveClaudeApiModelId(modelSelection),
           ...(cliEffort ? ["--effort", cliEffort] : []),
           ...(Object.keys(settings).length > 0
-            ? ["--settings", Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(settings)]
+            ? ["--settings", encodeUnknownJsonString(settings)]
             : []),
           "--dangerously-skip-permissions",
         ],
@@ -197,9 +198,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       ),
     );
 
-    const envelope = yield* Schema.decodeEffect(Schema.fromJsonString(ClaudeOutputEnvelope))(
-      rawStdout,
-    ).pipe(
+    const envelope = yield* decodeClaudeOutputEnvelope(rawStdout).pipe(
       Effect.catchTag("SchemaError", (cause) =>
         Effect.fail(
           new TextGenerationError({
@@ -211,7 +210,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       ),
     );
 
-    return yield* Schema.decodeEffect(outputSchemaJson)(envelope.structured_output).pipe(
+    const decodeOutput = Schema.decodeEffect(outputSchemaJson);
+    return yield* decodeOutput(envelope.structured_output).pipe(
       Effect.catchTag("SchemaError", (cause) =>
         Effect.fail(
           new TextGenerationError({

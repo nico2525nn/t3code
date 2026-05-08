@@ -64,7 +64,8 @@ function readFieldBooleanDefault(
   fieldSchema: ProviderClientDefinition["settingsSchema"]["fields"][string],
 ): boolean | undefined {
   try {
-    const decoded = Schema.decodeUnknownSync(fieldSchema as Schema.Decoder<unknown>)(undefined);
+    const decodeDefault = Schema.decodeUnknownSync(fieldSchema as Schema.Decoder<unknown>);
+    const decoded = decodeDefault(undefined);
     return typeof decoded === "boolean" ? decoded : undefined;
   } catch {
     return undefined;

@@ -84,6 +84,8 @@ import {
 } from "../Errors.ts";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+const encodeUnknownJsonString = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
+const decodeUnknownJsonString = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
 
 const PROVIDER = ProviderDriverKind.make("claudeAgent");
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
@@ -545,7 +547,7 @@ function summarizeToolRequest(toolName: string, input: Record<string, unknown>):
     }
   }
 
-  const serialized = Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(input);
+  const serialized = encodeUnknownJsonString(input);
   if (serialized.length <= 400) {
     return `${toolName}: ${serialized}`;
   }
@@ -811,7 +813,7 @@ function exitPlanCaptureKey(input: {
 
 function tryParseJsonRecord(value: string): Record<string, unknown> | undefined {
   try {
-    const parsed = Schema.decodeUnknownSync(Schema.UnknownFromJsonString)(value);
+    const parsed = decodeUnknownJsonString(value);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : undefined;
@@ -822,7 +824,7 @@ function tryParseJsonRecord(value: string): Record<string, unknown> | undefined 
 
 function toolInputFingerprint(input: Record<string, unknown>): string | undefined {
   try {
-    return Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(input);
+    return encodeUnknownJsonString(input);
   } catch {
     return undefined;
   }
@@ -2941,12 +2943,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         "claude.query.include_partial_messages": true,
         "claude.query.additional_directories": input.cwd ? [input.cwd] : [],
         "claude.query.setting_sources": [...CLAUDE_SETTING_SOURCES],
-        "claude.query.settings_json": Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(
-          settings,
-        ),
-        "claude.query.extra_args_json": Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(
-          extraArgs,
-        ),
+        "claude.query.settings_json": encodeUnknownJsonString(settings),
+        "claude.query.extra_args_json": encodeUnknownJsonString(extraArgs),
         "claude.query.path_to_executable": claudeBinaryPath,
       });
 

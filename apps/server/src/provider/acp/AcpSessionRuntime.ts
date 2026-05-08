@@ -26,6 +26,7 @@ import {
   type AcpSessionModeState,
   type AcpToolCallState,
 } from "./AcpRuntimeModel.ts";
+const encodeUnknownJsonString = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
 
 export interface AcpSpawnInput {
   readonly command: string;
@@ -277,7 +278,7 @@ const makeAcpSessionRuntime = (
           }
           return yield* new EffectAcpErrors.AcpRequestError({
             code: -32602,
-            errorMessage: `Invalid value ${Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(value)} for session config option "${configOption.id}": expected boolean`,
+            errorMessage: `Invalid value ${encodeUnknownJsonString(value)} for session config option "${configOption.id}": expected boolean`,
             data: {
               configId: configOption.id,
               expectedType: "boolean",
@@ -288,7 +289,7 @@ const makeAcpSessionRuntime = (
         if (typeof value !== "string") {
           return yield* new EffectAcpErrors.AcpRequestError({
             code: -32602,
-            errorMessage: `Invalid value ${Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(value)} for session config option "${configOption.id}": expected string`,
+            errorMessage: `Invalid value ${encodeUnknownJsonString(value)} for session config option "${configOption.id}": expected string`,
             data: {
               configId: configOption.id,
               expectedType: "string",
@@ -302,7 +303,7 @@ const makeAcpSessionRuntime = (
         }
         return yield* new EffectAcpErrors.AcpRequestError({
           code: -32602,
-          errorMessage: `Invalid value ${Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(value)} for session config option "${configOption.id}": expected one of ${allowedValues.join(", ")}`,
+          errorMessage: `Invalid value ${encodeUnknownJsonString(value)} for session config option "${configOption.id}": expected one of ${allowedValues.join(", ")}`,
           data: {
             configId: configOption.id,
             allowedValues,

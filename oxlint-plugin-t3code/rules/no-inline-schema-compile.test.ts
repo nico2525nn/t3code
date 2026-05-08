@@ -17,6 +17,43 @@ describe("t3code/no-inline-schema-compile", () => {
     `,
   );
 
+  rule.valid(
+    "allows factory helpers that return a precompiled decoder",
+    `
+      import { Schema } from "effect";
+
+      export const makeParser = <A, I>(schema: Schema.Codec<A, I>) => {
+        const decode = Schema.decodeUnknownEffect(schema);
+        return (input: unknown) => decode(input);
+      };
+    `,
+  );
+
+  rule.valid(
+    "allows schema construction helpers that use encode transformations",
+    `
+      import { Schema } from "effect";
+
+      export const makePrettyJson = <S extends Schema.Top>(schema: S) =>
+        Schema.fromJsonString(schema).pipe(
+          Schema.encode({
+            decode: Schema.String,
+            encode: Schema.String,
+          }),
+        );
+    `,
+  );
+
+  rule.valid(
+    "allows dynamic schema parameters that cannot be hoisted to module scope",
+    `
+      import { Schema } from "effect";
+
+      export const parseWith = <A, I>(schema: Schema.Codec<A, I>, input: unknown) =>
+        Schema.decodeUnknownEffect(schema)(input);
+    `,
+  );
+
   rule.invalid(
     "reports schema compilers inside function bodies",
     `

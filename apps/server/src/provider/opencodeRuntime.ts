@@ -31,6 +31,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { isWindowsCommandNotFound } from "../processRunner.ts";
 import { collectStreamAsString } from "./providerSnapshot.ts";
 import * as NetService from "@t3tools/shared/Net";
+const encodeUnknownJsonString = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
 
 const OPENCODE_SERVER_READY_PREFIX = "opencode server listening";
 const DEFAULT_OPENCODE_SERVER_TIMEOUT_MS = 5_000;
@@ -65,7 +66,7 @@ export function openCodeRuntimeErrorDetail(cause: unknown): string {
     const status = (anyCause.response as { status?: number } | undefined)?.status;
     const body = anyCause.error ?? anyCause.data ?? anyCause.body;
     try {
-      return `status=${status ?? "?"} body=${Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(body ?? cause)}`;
+      return `status=${status ?? "?"} body=${encodeUnknownJsonString(body ?? cause)}`;
     } catch {
       /* fall through */
     }
@@ -336,7 +337,7 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
             shell: process.platform === "win32",
             env: {
               ...(input.environment ?? process.env),
-              OPENCODE_CONFIG_CONTENT: Schema.encodeUnknownSync(Schema.UnknownFromJsonString)({}),
+              OPENCODE_CONFIG_CONTENT: encodeUnknownJsonString({}),
             },
           }),
         )

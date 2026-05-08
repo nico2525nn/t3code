@@ -1,39 +1,35 @@
 import { defineRule } from "@oxlint/plugins";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import { getPropertyName, isIdentifier, unwrapExpression } from "../utils.ts";
 
 // Effect Schema decoder/encoder APIs allocate compiled functions. Keep them
 // outside function bodies so hot paths do not rebuild compilers per call.
-const COMPILER_METHODS = new Set([
-  "decode",
-  "decodeSync",
-  "decodePromise",
-  "decodeOption",
-  "decodeEither",
-  "decodeUnknown",
-  "decodeUnknownSync",
-  "decodeUnknownPromise",
-  "decodeUnknownOption",
-  "decodeUnknownEither",
+const COMPILER_METHODS = new Set<keyof typeof Schema>([
+  "is",
+  "asserts",
   "decodeEffect",
-  "decodeUnknownEffect",
   "decodeExit",
+  "decodeOption",
+  "decodePromise",
+  "decodeSync",
   "decodeUnknownExit",
-  "encode",
-  "encodeSync",
-  "encodePromise",
-  "encodeOption",
-  "encodeEither",
-  "encodeUnknown",
-  "encodeUnknownSync",
-  "encodeUnknownPromise",
-  "encodeUnknownOption",
-  "encodeUnknownEither",
-  "encodeEffect",
-  "encodeUnknownEffect",
+  "decodeUnknownEffect",
+  "decodeUnknownOption",
+  "decodeUnknownPromise",
+  "decodeUnknownSync",
+
   "encodeExit",
+  "encodeEffect",
+  "encodeOption",
+  "encodePromise",
+  "encodeSync",
   "encodeUnknownExit",
+  "encodeUnknownEffect",
+  "encodeUnknownOption",
+  "encodeUnknownPromise",
+  "encodeUnknownSync",
 ]);
 
 const getSchemaCompilerMethod = (callee: unknown): Option.Option<string> => {
@@ -46,11 +42,23 @@ const getSchemaCompilerMethod = (callee: unknown): Option.Option<string> => {
   if (!isIdentifier(object, "Schema")) return Option.none();
 
   return Option.filter(getPropertyName(expression.value.property), (method) =>
-    COMPILER_METHODS.has(method),
+    COMPILER_METHODS.has(method as keyof typeof Schema),
   );
 };
 
-const isNestedSchemaCall = (node: unknown) => {
+const isStaticSchemaReference = (node: unknown): boolean => {
+  const expression = unwrapExpression(node);
+  if (Option.isNone(expression)) return false;
+
+  if (expression.value.type === "Identifier") {
+    const [firstChar] = expression.value.name;
+    return firstChar !== undefined && firstChar.toUpperCase() === firstChar;
+  }
+
+  return expression.value.type === "MemberExpression";
+};
+
+const isNestedStaticSchemaCall = (node: unknown): boolean => {
   const expression = unwrapExpression(node);
   if (Option.isNone(expression) || expression.value.type !== "CallExpression") return false;
 
@@ -58,7 +66,30 @@ const isNestedSchemaCall = (node: unknown) => {
   if (Option.isNone(callee) || callee.value.type !== "MemberExpression") return false;
 
   const object = unwrapExpression(callee.value.object);
-  return isIdentifier(object, "Schema");
+  if (!isIdentifier(object, "Schema")) return false;
+
+  const method = getPropertyName(callee.value.property);
+  if (Option.isSome(method) && method.value === "fromJsonString") {
+    const firstArg = expression.value.arguments[0];
+    return isStaticSchemaReference(firstArg) || isNestedStaticSchemaCall(firstArg);
+  }
+
+  return true;
+};
+
+const isImmediatelyInvoked = (node: unknown): boolean => {
+  const expression = unwrapExpression(node);
+  if (Option.isNone(expression)) return false;
+
+  const parent =
+    "parent" in expression.value ? unwrapExpression(expression.value.parent) : Option.none();
+  return (
+    Option.isSome(parent) &&
+    parent.value.type === "CallExpression" &&
+    unwrapExpression(parent.value.callee).pipe(
+      Option.exists((callee) => callee === expression.value),
+    )
+  );
 };
 
 const messageHigh = (method: string) =>
@@ -103,9 +134,11 @@ export default defineRule({
 
         const method = getSchemaCompilerMethod(node.callee);
         if (Option.isNone(method)) return;
+        if (!isImmediatelyInvoked(node)) return;
 
         const firstArg = node.arguments[0];
-        const high = firstArg && isNestedSchemaCall(firstArg);
+        const high = firstArg && isNestedStaticSchemaCall(firstArg);
+        if (!high && !isStaticSchemaReference(firstArg)) return;
 
         context.report({
           node: node.callee,

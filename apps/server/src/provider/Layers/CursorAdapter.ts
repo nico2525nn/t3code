@@ -75,6 +75,7 @@ import {
 import { type CursorAdapterShape } from "../Services/CursorAdapter.ts";
 import { resolveCursorAcpBaseModelId } from "./CursorProvider.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+const encodeUnknownJsonString = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
 
 const PROVIDER = ProviderDriverKind.make("cursor");
 const CURSOR_RESUME_VERSION = 1 as const;
@@ -390,7 +391,7 @@ export function makeCursorAdapter(
       method: string,
     ) =>
       Effect.gen(function* () {
-        const fingerprint = `${ctx.activeTurnId ?? "no-turn"}:${Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(payload)}`;
+        const fingerprint = `${ctx.activeTurnId ?? "no-turn"}:${encodeUnknownJsonString(payload)}`;
         if (ctx.lastPlanFingerprint === fingerprint) {
           return;
         }
@@ -639,8 +640,7 @@ export function makeCursorAdapter(
                     requestId: runtimeRequestId,
                     permissionRequest,
                     detail:
-                      permissionRequest.detail ??
-                      Schema.encodeUnknownSync(Schema.UnknownFromJsonString)(params).slice(0, 2000),
+                      permissionRequest.detail ?? encodeUnknownJsonString(params).slice(0, 2000),
                     args: params,
                     source: "acp.jsonrpc",
                     method: "session/request_permission",
