@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import {
   DEFAULT_TERMINAL_ID,
   type TerminalAttachInput,
@@ -13,20 +11,19 @@ import {
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
-import {
-  Effect,
-  Encoding,
-  Equal,
-  Exit,
-  Fiber,
-  FileSystem,
-  Layer,
-  Option,
-  Schema,
-  Scope,
-  Semaphore,
-  SynchronizedRef,
-} from "effect";
+import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
+import * as Encoding from "effect/Encoding";
+import * as Equal from "effect/Equal";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
+import * as Semaphore from "effect/Semaphore";
+import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import { ServerConfig } from "../../config.ts";
 import {
@@ -60,6 +57,26 @@ const DEFAULT_OPEN_COLS = 120;
 const DEFAULT_OPEN_ROWS = 30;
 const TERMINAL_ENV_BLOCKLIST = new Set(["PORT", "ELECTRON_RENDERER_PORT", "ELECTRON_RUN_AS_NODE"]);
 const MAX_TERMINAL_LABEL_LENGTH = 128;
+const nowIsoUnsafe = () => DateTime.formatIso(DateTime.nowUnsafe());
+
+function basename(value: string, platform: NodeJS.Platform = process.platform): string {
+  const separator = platform === "win32" ? /[\\/]+/ : /\/+/;
+  let result = value;
+  for (const part of value.split(separator)) {
+    if (part.length > 0) {
+      result = part;
+    }
+  }
+  return result;
+}
+
+function joinPath(...parts: ReadonlyArray<string>): string {
+  return parts.filter((part) => part.length > 0).join("/");
+}
+
+function joinWindowsPath(...parts: ReadonlyArray<string>): string {
+  return parts.filter((part) => part.length > 0).join("\\");
+}
 
 class TerminalSubprocessCheckError extends Schema.TaggedErrorClass<TerminalSubprocessCheckError>()(
   "TerminalSubprocessCheckError",
@@ -181,7 +198,7 @@ function normalizeChildCommandName(raw: string, platform: NodeJS.Platform): stri
   }
   const firstToken = (trimmed.split(/\s+/)[0] ?? trimmed).trim();
   if (firstToken.length === 0) return null;
-  const base = platform === "win32" ? path.win32.basename(firstToken) : path.basename(firstToken);
+  const base = basename(firstToken, platform);
   const withoutExe =
     platform === "win32" && base.toLowerCase().endsWith(".exe") ? base.slice(0, -4) : base;
   return withoutExe.length > 0 ? withoutExe : null;
@@ -279,7 +296,7 @@ function advanceEventSequence(session: TerminalSessionState): {
   readonly updatedAt: string;
   readonly sequence: number;
 } {
-  const updatedAt = new Date().toISOString();
+  const updatedAt = nowIsoUnsafe();
   session.eventSequence += 1;
   session.updatedAt = updatedAt;
   return { updatedAt, sequence: session.eventSequence };
@@ -344,8 +361,8 @@ function shellCandidateFromCommand(
   if (!command || command.length === 0) return null;
   const shellName =
     platform === "win32"
-      ? path.win32.basename(command).toLowerCase()
-      : path.basename(command).toLowerCase();
+      ? basename(command, "win32").toLowerCase()
+      : basename(command).toLowerCase();
   if (platform === "win32" && (shellName === "pwsh.exe" || shellName === "powershell.exe")) {
     return { shell: command, args: ["-NoLogo"] };
   }
@@ -360,7 +377,7 @@ function windowsSystemRoot(env: NodeJS.ProcessEnv): string {
 }
 
 function windowsPowerShellPath(env: NodeJS.ProcessEnv): string {
-  return path.win32.join(
+  return joinWindowsPath(
     windowsSystemRoot(env),
     "System32",
     "WindowsPowerShell",
@@ -370,7 +387,7 @@ function windowsPowerShellPath(env: NodeJS.ProcessEnv): string {
 }
 
 function windowsCmdPath(env: NodeJS.ProcessEnv): string {
-  return path.win32.join(windowsSystemRoot(env), "System32", "cmd.exe");
+  return joinWindowsPath(windowsSystemRoot(env), "System32", "cmd.exe");
 }
 
 function formatShellCandidate(candidate: ShellCandidate): string {
@@ -952,13 +969,13 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
     const historyPath = (threadId: string, terminalId: string) => {
       const threadPart = toSafeThreadId(threadId);
       if (terminalId === DEFAULT_TERMINAL_ID) {
-        return path.join(logsDir, `${threadPart}.log`);
+        return joinPath(logsDir, `${threadPart}.log`);
       }
-      return path.join(logsDir, `${threadPart}_${toSafeTerminalId(terminalId)}.log`);
+      return joinPath(logsDir, `${threadPart}_${toSafeTerminalId(terminalId)}.log`);
     };
 
     const legacyHistoryPath = (threadId: string) =>
-      path.join(logsDir, `${legacySafeThreadId(threadId)}.log`);
+      joinPath(logsDir, `${legacySafeThreadId(threadId)}.log`);
 
     const toTerminalHistoryError =
       (operation: "read" | "truncate" | "migrate", threadId: string, terminalId: string) =>
@@ -1261,7 +1278,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
             name.startsWith(threadPrefix),
         ),
         (name) =>
-          fileSystem.remove(path.join(logsDir, name), { force: true }).pipe(
+          fileSystem.remove(joinPath(logsDir, name), { force: true }).pipe(
             Effect.catch((error) =>
               Effect.logWarning("failed to delete terminal histories for thread", {
                 threadId,
@@ -1488,7 +1505,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         session.pendingProcessEvents = [];
         session.pendingProcessEventIndex = 0;
         session.processEventDrainRunning = false;
-        session.updatedAt = new Date().toISOString();
+        session.updatedAt = nowIsoUnsafe();
         return [undefined, state] as const;
       });
 
@@ -1580,7 +1597,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         session.pendingProcessEvents = [];
         session.pendingProcessEventIndex = 0;
         session.processEventDrainRunning = false;
-        session.updatedAt = new Date().toISOString();
+        session.updatedAt = nowIsoUnsafe();
         return [undefined, state] as const;
       });
 
@@ -1868,7 +1885,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
           processEventDrainRunning: false,
           exitCode: null,
           exitSignal: null,
-          updatedAt: new Date().toISOString(),
+          updatedAt: nowIsoUnsafe(),
           eventSequence: 0,
           cols,
           rows,
@@ -1959,7 +1976,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
       if (liveSession.cols !== targetCols || liveSession.rows !== targetRows) {
         liveSession.cols = targetCols;
         liveSession.rows = targetRows;
-        liveSession.updatedAt = new Date().toISOString();
+        liveSession.updatedAt = nowIsoUnsafe();
         liveSession.process.resize(targetCols, targetRows);
       }
 
@@ -2010,7 +2027,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
           ) {
             session.cols = targetCols;
             session.rows = targetRows;
-            session.updatedAt = new Date().toISOString();
+            session.updatedAt = nowIsoUnsafe();
             yield* Effect.sync(() => session.process?.resize(targetCols, targetRows));
           }
 
@@ -2204,7 +2221,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
       }
       session.cols = input.cols;
       session.rows = input.rows;
-      session.updatedAt = new Date().toISOString();
+      session.updatedAt = nowIsoUnsafe();
       yield* Effect.sync(() => process.resize(input.cols, input.rows));
     });
 
@@ -2258,7 +2275,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
               processEventDrainRunning: false,
               exitCode: null,
               exitSignal: null,
-              updatedAt: new Date().toISOString(),
+              updatedAt: nowIsoUnsafe(),
               eventSequence: 0,
               cols,
               rows,

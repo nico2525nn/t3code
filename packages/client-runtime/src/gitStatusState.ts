@@ -1,5 +1,6 @@
 import type { EnvironmentId, GitManagerServiceError, VcsStatusResult } from "@t3tools/contracts";
 import type * as Cause from "effect/Cause";
+import * as DateTime from "effect/DateTime";
 import { Atom, type AtomRegistry } from "effect/unstable/reactivity";
 import type { WsRpcClient } from "./wsRpcClient.ts";
 
@@ -92,6 +93,7 @@ export interface GitStatusManagerConfig {
 }
 
 const GIT_STATUS_REFRESH_DEBOUNCE_MS = 1_000;
+const nowMs = () => DateTime.toEpochMillis(DateTime.nowUnsafe());
 
 export function createGitStatusManager(config: GitStatusManagerConfig) {
   const watched = new Map<string, WatchedEntry>();
@@ -253,12 +255,13 @@ export function createGitStatusManager(config: GitStatusManagerConfig) {
     const existing = refreshInFlight.get(targetKey);
     if (existing) return existing;
 
+    const requestedAt = nowMs();
     const last = lastRefreshAt.get(targetKey) ?? 0;
-    if (Date.now() - last < GIT_STATUS_REFRESH_DEBOUNCE_MS) {
+    if (requestedAt - last < GIT_STATUS_REFRESH_DEBOUNCE_MS) {
       return Promise.resolve(getSnapshot(target).data);
     }
 
-    lastRefreshAt.set(targetKey, Date.now());
+    lastRefreshAt.set(targetKey, requestedAt);
     const promise = resolved
       .refreshStatus({ cwd: target.cwd })
       .finally(() => refreshInFlight.delete(targetKey));

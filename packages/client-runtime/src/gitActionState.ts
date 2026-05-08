@@ -14,6 +14,7 @@ import type {
   VcsSwitchRefInput,
   VcsSwitchRefResult,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import { Atom, type AtomRegistry } from "effect/unstable/reactivity";
 
 import { buildGitActionProgressStages } from "./gitActions.ts";
@@ -68,6 +69,8 @@ export const EMPTY_GIT_ACTION_STATE = Object.freeze<GitActionState>({
 });
 
 const knownGitActionKeys = new Set<string>();
+let nextGeneratedActionId = 0;
+const nowMs = () => DateTime.toEpochMillis(DateTime.nowUnsafe());
 
 export const gitActionStateAtom = Atom.family((key: string) => {
   knownGitActionKeys.add(key);
@@ -93,7 +96,7 @@ export function applyGitActionProgressEvent(
   current: GitActionState,
   event: GitActionProgressEvent,
 ): GitActionState {
-  const now = Date.now();
+  const now = nowMs();
 
   switch (event.kind) {
     case "action_started":
@@ -209,7 +212,7 @@ export function createGitActionManager(config: GitActionManagerConfig) {
       currentPhaseLabel: input.label,
       hookName: null,
       lastOutputLine: null,
-      phaseStartedAtMs: Date.now(),
+      phaseStartedAtMs: nowMs(),
       hookStartedAtMs: null,
       error: null,
     });
@@ -379,7 +382,7 @@ export function createGitActionManager(config: GitActionManagerConfig) {
     const actionId =
       input.actionId ??
       config.getActionId?.() ??
-      `git-action-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      `git-action-${nowMs()}-${++nextGeneratedActionId}`;
     const targetKey = getGitActionTargetKey(target);
 
     return runOperation(target, {

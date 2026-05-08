@@ -210,6 +210,8 @@ describe("TerminalCloseInput", () => {
 });
 
 describe("TerminalSessionSnapshot", () => {
+  const isoTimestamp = "2026-01-01T00:00:00.000Z";
+
   it("accepts running snapshots", () => {
     expect(
       decodes(TerminalSessionSnapshot, {
@@ -223,7 +225,7 @@ describe("TerminalSessionSnapshot", () => {
         exitCode: null,
         exitSignal: null,
         label: "Primary",
-        updatedAt: new Date().toISOString(),
+        updatedAt: isoTimestamp,
       }),
     ).toBe(true);
   });
@@ -292,7 +294,7 @@ describe("TerminalEvent", () => {
           exitCode: null,
           exitSignal: null,
           label: "Primary",
-          updatedAt: new Date().toISOString(),
+          updatedAt: "2026-01-01T00:00:00.000Z",
         },
       }),
     ).toBe(true);

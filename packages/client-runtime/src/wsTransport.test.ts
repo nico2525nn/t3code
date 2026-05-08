@@ -1,4 +1,7 @@
 import { WS_METHODS } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -70,6 +73,7 @@ class MockWebSocket {
 const originalWebSocket = globalThis.WebSocket;
 const originalFetch = globalThis.fetch;
 const transports: WsTransport[] = [];
+const nowMs = () => DateTime.toEpochMillis(DateTime.nowUnsafe());
 
 function getSocket(): MockWebSocket {
   const socket = sockets.at(-1);
@@ -80,16 +84,16 @@ function getSocket(): MockWebSocket {
 }
 
 async function waitFor(assertion: () => void, timeoutMs = 1_000): Promise<void> {
-  const startedAt = Date.now();
+  const startedAt = nowMs();
   for (;;) {
     try {
       assertion();
       return;
     } catch (error) {
-      if (Date.now() - startedAt >= timeoutMs) {
+      if (nowMs() - startedAt >= timeoutMs) {
         throw error;
       }
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await Effect.runPromise(Effect.sleep(Duration.millis(10)));
     }
   }
 }
@@ -646,8 +650,10 @@ describe("WsTransport", () => {
   });
 
   it("does not retry stream subscriptions after application-level failures", async () => {
-    const transport = createTransport("ws://localhost:3020");
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const transport = createTransport("ws://localhost:3020", undefined, {
+      onSubscriptionWarning: warnSpy,
+    });
     let attempts = 0;
 
     const unsubscribe = transport.subscribe(
@@ -669,7 +675,7 @@ describe("WsTransport", () => {
     await waitFor(() => {
       expect(attempts).toBe(1);
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Effect.runPromise(Effect.sleep(Duration.millis(50)));
 
     expect(attempts).toBe(1);
     expect(warnSpy).toHaveBeenCalledWith("WebSocket RPC subscription failed", {
@@ -685,8 +691,10 @@ describe("WsTransport", () => {
   });
 
   it("keeps retrying stream subscriptions after transport failures", async () => {
-    const transport = createTransport("ws://localhost:3020");
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const transport = createTransport("ws://localhost:3020", undefined, {
+      onSubscriptionWarning: warnSpy,
+    });
     let attempts = 0;
 
     const unsubscribe = transport.subscribe(
@@ -718,8 +726,10 @@ describe("WsTransport", () => {
   });
 
   it("logs a transport disconnect once even when multiple subscriptions fail together", async () => {
-    const transport = createTransport("ws://localhost:3020");
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const transport = createTransport("ws://localhost:3020", undefined, {
+      onSubscriptionWarning: warnSpy,
+    });
 
     const unsubscribeA = transport.subscribe(
       () => Stream.fail(new Error("SocketCloseError: 1006")),

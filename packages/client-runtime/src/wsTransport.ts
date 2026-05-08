@@ -1,4 +1,5 @@
 import * as Cause from "effect/Cause";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -35,6 +36,7 @@ export interface WsTransportOptions {
    * Invoked at the start of {@link WsTransport.reconnect} before the session is replaced.
    */
   readonly onBeforeReconnect?: () => void;
+  readonly onSubscriptionWarning?: (message: string, details: { readonly error: string }) => void;
 }
 
 interface SubscribeOptions {
@@ -45,6 +47,7 @@ interface SubscribeOptions {
 
 const DEFAULT_SUBSCRIPTION_RETRY_DELAY = Duration.millis(250);
 const NOOP: () => void = () => undefined;
+const nowMs = () => DateTime.toEpochMillis(DateTime.nowUnsafe());
 
 interface TransportSession {
   readonly clientPromise: Promise<WsRpcProtocolClient>;
@@ -190,14 +193,14 @@ export class WsTransport {
 
           const formattedError = formatErrorMessage(error);
           if (!isTransportConnectionErrorMessage(formattedError)) {
-            console.warn("WebSocket RPC subscription failed", {
+            this.options?.onSubscriptionWarning?.("WebSocket RPC subscription failed", {
               error: formattedError,
             });
             return;
           }
 
           if (!this.hasReportedTransportDisconnect) {
-            console.warn("WebSocket RPC subscription disconnected", {
+            this.options?.onSubscriptionWarning?.("WebSocket RPC subscription disconnected", {
               error: formattedError,
             });
           }
@@ -249,7 +252,7 @@ export class WsTransport {
   }
 
   isHeartbeatFresh(maxAgeMs = 15_000): boolean {
-    return this.lastHeartbeatPongAt > 0 && Date.now() - this.lastHeartbeatPongAt <= maxAgeMs;
+    return this.lastHeartbeatPongAt > 0 && nowMs() - this.lastHeartbeatPongAt <= maxAgeMs;
   }
 
   private closeSession(session: TransportSession) {
@@ -273,7 +276,7 @@ export class WsTransport {
         this.intentionalCloseDepth > 0 ||
         this.lifecycleHandlers?.isCloseIntentional?.() === true,
       onHeartbeatPong: () => {
-        this.lastHeartbeatPongAt = Date.now();
+        this.lastHeartbeatPongAt = nowMs();
         this.lifecycleHandlers?.onHeartbeatPong?.();
       },
       onRequestStart: (info) => {
@@ -378,7 +381,5 @@ export class WsTransport {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+  return Effect.runPromise(Effect.sleep(Duration.millis(ms)));
 }

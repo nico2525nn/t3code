@@ -18,7 +18,7 @@ import {
   type EnvironmentId,
 } from "@t3tools/contracts";
 import { WsRpcClient } from "@t3tools/client-runtime";
-import { DateTime } from "effect";
+import * as DateTime from "effect/DateTime";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
