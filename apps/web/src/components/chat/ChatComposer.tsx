@@ -147,6 +147,14 @@ const COMPOSER_FLOATING_LAYER_SELECTOR = [
   '[data-slot="autocomplete-popup"]',
 ].join(",");
 
+function useStableCallback<Args extends unknown[], Return>(
+  callback: (...args: Args) => Return,
+): (...args: Args) => Return {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+  return useCallback((...args: Args) => callbackRef.current(...args), []);
+}
+
 const extendReplacementRangeForTrailingSpace = (
   text: string,
   rangeEnd: number,
@@ -1635,7 +1643,7 @@ export const ChatComposer = memo(
     // ------------------------------------------------------------------
     // Callbacks: command key
     // ------------------------------------------------------------------
-    const onComposerCommandKey = useCallback(
+    const onComposerCommandKey = useStableCallback(
       (key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab", event: KeyboardEvent) => {
         if (key === "Tab" && event.shiftKey) {
           toggleInteractionMode();
@@ -1665,13 +1673,6 @@ export const ChatComposer = memo(
         }
         return false;
       },
-      [
-        nudgeComposerMenuHighlight,
-        onSelectComposerItem,
-        resolveActiveComposerTrigger,
-        submitComposer,
-        toggleInteractionMode,
-      ],
     );
 
     // ------------------------------------------------------------------
@@ -1735,14 +1736,14 @@ export const ChatComposer = memo(
     // ------------------------------------------------------------------
     // Callbacks: paste / drag
     // ------------------------------------------------------------------
-    const onComposerPaste = useCallback((event: React.ClipboardEvent<HTMLElement>) => {
+    const onComposerPaste = useStableCallback((event: React.ClipboardEvent<HTMLElement>) => {
       const files = Array.from(event.clipboardData.files);
       if (files.length === 0) return;
       const imageFiles = files.filter((file) => file.type.startsWith("image/"));
       if (imageFiles.length === 0) return;
       event.preventDefault();
       addComposerImages(imageFiles);
-    }, [addComposerImages]);
+    });
 
     const onComposerDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
       if (!event.dataTransfer.types.includes("Files")) return;
