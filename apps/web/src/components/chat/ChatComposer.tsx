@@ -598,6 +598,16 @@ export const ChatComposer = memo(
       () => sortProviderInstanceEntries(deriveProviderInstanceEntries(providerStatuses)),
       [providerStatuses],
     );
+    const providerInstanceEntryById = useMemo<ReadonlyMap<ProviderInstanceId, ProviderInstanceEntry>>(
+      () => {
+        const entriesById = new Map<ProviderInstanceId, ProviderInstanceEntry>();
+        for (const entry of providerInstanceEntries) {
+          entriesById.set(entry.instanceId, entry);
+        }
+        return entriesById;
+      },
+      [providerInstanceEntries],
+    );
     const selectedProviderByThreadId = composerDraft.activeProvider ?? null;
     const threadProvider =
       activeThread?.session?.providerInstanceId ??
@@ -618,15 +628,12 @@ export const ChatComposer = memo(
       const lockedInstanceId =
         activeThread.session?.providerInstanceId ?? activeThreadModelSelection?.instanceId;
       if (!lockedInstanceId) return null;
-      return (
-        providerInstanceEntries.find((entry) => entry.instanceId === lockedInstanceId)
-          ?.continuationGroupKey ?? null
-      );
+      return providerInstanceEntryById.get(lockedInstanceId)?.continuationGroupKey ?? null;
     }, [
       activeThread,
       activeThreadModelSelection?.instanceId,
       lockedProvider,
-      providerInstanceEntries,
+      providerInstanceEntryById,
     ]);
 
     // Resolve which configured instance the composer is currently targeting.
@@ -648,10 +655,9 @@ export const ChatComposer = memo(
       ];
       for (const candidate of candidates) {
         if (!candidate) continue;
-        const match = providerInstanceEntries.find(
-          (entry) => entry.instanceId === candidate && entry.enabled,
-        );
+        const match = providerInstanceEntryById.get(ProviderInstanceId.make(candidate));
         if (match) {
+          if (!match.enabled) continue;
           // When locked to a specific driver kind, ignore persisted instance
           // ids from a different kind or continuation group.
           if (lockedProvider && match.driverKind !== lockedProvider) continue;
@@ -691,6 +697,7 @@ export const ChatComposer = memo(
       explicitSelectedInstanceId,
       lockedContinuationGroupKey,
       lockedProvider,
+      providerInstanceEntryById,
       providerInstanceEntries,
       selectedProvider,
     ]);
@@ -709,8 +716,8 @@ export const ChatComposer = memo(
     // instance gets its own slash commands, skills, and model list — not
     // the first snapshot for the same driver kind.
     const selectedProviderEntry = useMemo(
-      () => providerInstanceEntries.find((entry) => entry.instanceId === selectedInstanceId),
-      [providerInstanceEntries, selectedInstanceId],
+      () => providerInstanceEntryById.get(selectedInstanceId),
+      [providerInstanceEntryById, selectedInstanceId],
     );
     const selectedProviderStatus = useMemo(
       () => selectedProviderEntry?.snapshot ?? null,
@@ -928,20 +935,24 @@ export const ChatComposer = memo(
     const composerMenuSearchKey = composerTrigger
       ? `${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
       : null;
+    const activeComposerMenuItemId = useMemo(
+      () =>
+        resolveComposerMenuActiveItemId({
+          items: composerMenuItems,
+          highlightedItemId: composerHighlightedItemId,
+          currentSearchKey: composerMenuSearchKey,
+          highlightedSearchKey: composerHighlightedSearchKey,
+        }),
+      [
+        composerHighlightedItemId,
+        composerHighlightedSearchKey,
+        composerMenuItems,
+        composerMenuSearchKey,
+      ],
+    );
     const activeComposerMenuItem = useMemo(() => {
-      const activeItemId = resolveComposerMenuActiveItemId({
-        items: composerMenuItems,
-        highlightedItemId: composerHighlightedItemId,
-        currentSearchKey: composerMenuSearchKey,
-        highlightedSearchKey: composerHighlightedSearchKey,
-      });
-      return composerMenuItems.find((item) => item.id === activeItemId) ?? null;
-    }, [
-      composerHighlightedItemId,
-      composerHighlightedSearchKey,
-      composerMenuItems,
-      composerMenuSearchKey,
-    ]);
+      return composerMenuItems.find((item) => item.id === activeComposerMenuItemId) ?? null;
+    }, [activeComposerMenuItemId, composerMenuItems]);
 
     composerMenuOpenRef.current = composerMenuOpen;
     composerMenuItemsRef.current = composerMenuItems;
@@ -1127,35 +1138,6 @@ export const ChatComposer = memo(
     useEffect(() => {
       composerTerminalContextsRef.current = composerTerminalContexts;
     }, [composerTerminalContexts, composerTerminalContextsRef]);
-
-    // ------------------------------------------------------------------
-    // Composer menu highlight sync
-    // ------------------------------------------------------------------
-    useEffect(() => {
-      if (!composerMenuOpen) {
-        setComposerHighlightedItemId(null);
-        setComposerHighlightedSearchKey(null);
-        return;
-      }
-      const nextActiveItemId = resolveComposerMenuActiveItemId({
-        items: composerMenuItems,
-        highlightedItemId: composerHighlightedItemId,
-        currentSearchKey: composerMenuSearchKey,
-        highlightedSearchKey: composerHighlightedSearchKey,
-      });
-      setComposerHighlightedItemId((existing) =>
-        existing === nextActiveItemId ? existing : nextActiveItemId,
-      );
-      setComposerHighlightedSearchKey((existing) =>
-        existing === composerMenuSearchKey ? existing : composerMenuSearchKey,
-      );
-    }, [
-      composerHighlightedItemId,
-      composerHighlightedSearchKey,
-      composerMenuItems,
-      composerMenuOpen,
-      composerMenuSearchKey,
-    ]);
 
     const lastSyncedPendingInputRef = useRef<{
       requestId: string | null;
@@ -1573,7 +1555,7 @@ export const ChatComposer = memo(
       (key: "ArrowDown" | "ArrowUp") => {
         if (composerMenuItems.length === 0) return;
         const highlightedIndex = composerMenuItems.findIndex(
-          (item) => item.id === composerHighlightedItemId,
+          (item) => item.id === activeComposerMenuItemId,
         );
         const normalizedIndex =
           highlightedIndex >= 0 ? highlightedIndex : key === "ArrowDown" ? -1 : 0;
@@ -1582,8 +1564,9 @@ export const ChatComposer = memo(
           (normalizedIndex + offset + composerMenuItems.length) % composerMenuItems.length;
         const nextItem = composerMenuItems[nextIndex];
         setComposerHighlightedItemId(nextItem?.id ?? null);
+        setComposerHighlightedSearchKey(composerMenuSearchKey);
       },
-      [composerHighlightedItemId, composerMenuItems],
+      [activeComposerMenuItemId, composerMenuItems, composerMenuSearchKey],
     );
 
     const blurMobileComposerAfterSend = useCallback(() => {
