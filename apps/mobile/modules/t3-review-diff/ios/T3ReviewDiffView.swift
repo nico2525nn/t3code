@@ -216,7 +216,7 @@ private struct ReviewDiffNativeStyle {
       fileHeaderHorizontalPadding: metric(payload?.fileHeaderHorizontalPadding, fallback: 12),
       fileHeaderPathRightPadding: metric(payload?.fileHeaderPathRightPadding, fallback: 128),
       fileHeaderCountColumnWidth: metric(payload?.fileHeaderCountColumnWidth, fallback: 42),
-      fileHeaderCountGap: metric(payload?.fileHeaderCountGap, fallback: 6),
+      fileHeaderCountGap: metric(payload?.fileHeaderCountGap, fallback: 4),
       codeFontSize: metric(payload?.codeFontSize, fallback: 12),
       codeFontWeight: fontWeight(payload?.codeFontWeight, fallback: .bold),
       lineNumberFontSize: metric(payload?.lineNumberFontSize, fallback: 11),
