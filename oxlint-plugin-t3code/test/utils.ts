@@ -1,6 +1,13 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { Data, Effect, FileSystem, Formatter, Path, Stream, Predicate } from "effect";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
+import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 class OxlintFixtureFailure extends Data.TaggedError("OxlintFixtureFailure")<{
@@ -20,15 +27,26 @@ class OxlintFixtureExpectedFailure extends Data.TaggedError("OxlintFixtureExpect
   }
 }
 
-type HarnessEffect<A> = Effect.Effect<A, unknown, NodeServices.NodeServices>;
-type InvalidAssertion = (output: string) => void;
+const encodeOxlintConfig = Schema.encodeEffect(Schema.UnknownFromJsonString);
 
-type RuleHarness = {
-  readonly run: (source: string) => HarnessEffect<string>;
-  readonly runAndExpectFailure: (source: string) => HarnessEffect<string>;
+interface RuleHarness {
+  readonly run: (
+    source: string,
+  ) => Effect.Effect<
+    string,
+    OxlintFixtureFailure | PlatformError.PlatformError | Schema.SchemaError,
+    NodeServices.NodeServices
+  >;
+  readonly runAndExpectFailure: (
+    source: string,
+  ) => Effect.Effect<
+    string,
+    OxlintFixtureExpectedFailure | PlatformError.PlatformError | Schema.SchemaError,
+    NodeServices.NodeServices
+  >;
   readonly valid: (name: string, source: string) => void;
-  readonly invalid: (name: string, source: string, assertion?: InvalidAssertion) => void;
-};
+  readonly invalid: (name: string, source: string, assertion?: (output: string) => void) => void;
+}
 
 const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
   stream.pipe(
@@ -61,7 +79,7 @@ export const createOxlintRuleHarness = (ruleName: string): RuleHarness => {
     pluginName && shortRuleName ? `${pluginName}\\(${shortRuleName}\\)` : ruleName;
   const test = it.layer(NodeServices.layer);
 
-  const run = Effect.fnUntraced(function* (source: string) {
+  const run: RuleHarness["run"] = Effect.fnUntraced(function* (source: string) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const fixtureDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-oxlint-" });
@@ -73,7 +91,7 @@ export const createOxlintRuleHarness = (ruleName: string): RuleHarness => {
 
     yield* fs.writeFileString(
       configPath,
-      Formatter.formatJson({
+      yield* encodeOxlintConfig({
         jsPlugins: [{ name: "t3code", specifier: pluginPath }],
         rules: { [ruleName]: "error" },
       }),
@@ -95,7 +113,7 @@ export const createOxlintRuleHarness = (ruleName: string): RuleHarness => {
     return `${output.stdout}${output.stderr}`;
   }, Effect.scoped);
 
-  const runAndExpectFailure = (source: string): HarnessEffect<string> =>
+  const runAndExpectFailure: RuleHarness["runAndExpectFailure"] = (source) =>
     run(source).pipe(
       Effect.matchEffect({
         onFailure: (error) =>
@@ -113,17 +131,20 @@ export const createOxlintRuleHarness = (ruleName: string): RuleHarness => {
     runAndExpectFailure,
     valid(name, source) {
       test(name, (it) => {
-        it.effect("passes", () => run(source).pipe(Effect.asVoid));
+        it.effect("passes", () => run(source));
       });
     },
     invalid(name, source, assertion) {
       test(name, (it) => {
         it.effect("reports the rule diagnostic", () =>
-          Effect.gen(function* () {
-            const output = yield* runAndExpectFailure(source);
-            assert.match(output, new RegExp(diagnosticRuleName));
-            assertion?.(output);
-          }),
+          runAndExpectFailure(source).pipe(
+            Effect.tap((output) =>
+              Effect.sync(() => {
+                assert.match(output, new RegExp(diagnosticRuleName));
+                assertion?.(output);
+              }),
+            ),
+          ),
         );
       });
     },
