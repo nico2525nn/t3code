@@ -39,7 +39,6 @@ import {
 import {
   createContext,
   forwardRef,
-  memo,
   useCallback,
   useContext,
   useEffect,
@@ -1651,62 +1650,63 @@ function ComposerPromptEditorInner({
   );
 }
 
-export const ComposerPromptEditor = memo(
-  forwardRef<ComposerPromptEditorHandle, ComposerPromptEditorProps>(function ComposerPromptEditor(
-    {
-      value,
-      cursor,
-      terminalContexts,
-      skills,
-      disabled,
-      placeholder,
-      className,
-      onRemoveTerminalContext,
-      onChange,
-      onCommandKeyDown,
-      onPaste,
-    },
-    ref,
-  ) {
-    const initialValueRef = useRef(value);
-    const initialTerminalContextsRef = useRef(terminalContexts);
-    const initialSkillMetadataRef = useRef(skillMetadataByName(skills));
-    const initialConfig = useMemo<InitialConfigType>(
-      () => ({
-        namespace: "t3tools-composer-editor",
-        editable: true,
-        nodes: [ComposerMentionNode, ComposerSkillNode, ComposerTerminalContextNode],
-        editorState: () => {
-          $setComposerEditorPrompt(
-            initialValueRef.current,
-            initialTerminalContextsRef.current,
-            initialSkillMetadataRef.current,
-          );
-        },
-        onError: (error) => {
-          throw error;
-        },
-      }),
-      [],
-    );
+export const ComposerPromptEditor = forwardRef<
+  ComposerPromptEditorHandle,
+  ComposerPromptEditorProps
+>(function ComposerPromptEditor(
+  {
+    value,
+    cursor,
+    terminalContexts,
+    skills,
+    disabled,
+    placeholder,
+    className,
+    onRemoveTerminalContext,
+    onChange,
+    onCommandKeyDown,
+    onPaste,
+  },
+  ref,
+) {
+  const initialValueRef = useRef(value);
+  const initialTerminalContextsRef = useRef(terminalContexts);
+  const initialSkillMetadataRef = useRef(skillMetadataByName(skills));
+  const initialConfig = useMemo<InitialConfigType>(
+    () => ({
+      namespace: "t3tools-composer-editor",
+      editable: true,
+      nodes: [ComposerMentionNode, ComposerSkillNode, ComposerTerminalContextNode],
+      editorState: () => {
+        $setComposerEditorPrompt(
+          initialValueRef.current,
+          initialTerminalContextsRef.current,
+          initialSkillMetadataRef.current,
+        );
+      },
+      onError: (error) => {
+        throw error;
+      },
+    }),
+    [],
+  );
 
-    return (
-      <LexicalComposer key={COMPOSER_EDITOR_HMR_KEY} initialConfig={initialConfig}>
-        <ComposerPromptEditorInner
-          value={value}
-          cursor={cursor}
-          terminalContexts={terminalContexts}
-          skills={skills}
-          disabled={disabled}
-          placeholder={placeholder}
-          onRemoveTerminalContext={onRemoveTerminalContext}
-          onChange={onChange}
-          onPaste={onPaste}
-          editorRef={ref}
-          {...(onCommandKeyDown ? { onCommandKeyDown } : {})}
-          {...(className ? { className } : {})}
-        />
-      </LexicalComposer>
-    );
-  }),
-);
+  return (
+    <LexicalComposer key={COMPOSER_EDITOR_HMR_KEY} initialConfig={initialConfig}>
+      <ComposerPromptEditorInner
+        value={value}
+        cursor={cursor}
+        terminalContexts={terminalContexts}
+        skills={skills}
+        disabled={disabled}
+        placeholder={placeholder}
+        onRemoveTerminalContext={onRemoveTerminalContext}
+        onChange={onChange}
+        onPaste={onPaste}
+        editorRef={ref}
+        {...(onCommandKeyDown ? { onCommandKeyDown } : {})}
+        {...(className ? { className } : {})}
+      />
+    </LexicalComposer>
+  );
+});
