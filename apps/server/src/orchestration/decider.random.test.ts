@@ -1,11 +1,12 @@
 import { assert, it } from "@effect/vitest";
-import { CommandId, ProjectId } from "@t3tools/contracts";
+import { CommandId, ProjectId, type OrchestrationEvent } from "@t3tools/contracts";
 import { Effect, Random } from "effect";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel } from "./projector.ts";
 
 const createdAt = "2026-05-08T16:00:00.000Z";
+type PlannedEvent = Omit<OrchestrationEvent, "sequence">;
 
 const decideProjectCreatedEventId = decideOrchestrationCommand({
   command: {
@@ -19,8 +20,10 @@ const decideProjectCreatedEventId = decideOrchestrationCommand({
   readModel: createEmptyReadModel(createdAt),
 }).pipe(
   Effect.map((event) => {
-    if (!Array.isArray(event)) {
-      return event.eventId;
+    const events = (Array.isArray(event) ? event : [event]) as ReadonlyArray<PlannedEvent>;
+    const firstEvent = events[0];
+    if (firstEvent) {
+      return firstEvent.eventId;
     }
     throw new Error("project.create should emit one event");
   }),
