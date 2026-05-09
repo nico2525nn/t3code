@@ -2,7 +2,6 @@ import type {
   ApprovalRequestId,
   EnvironmentId,
   ModelSelection,
-  ProjectEntry,
   ProviderApprovalDecision,
   ProviderInteractionMode,
   ResolvedKeybindingsConfig,
@@ -30,9 +29,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useDebouncedValue } from "@tanstack/react-pacer";
-import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import {
   clampCollapsedComposerCursor,
   type ComposerTrigger,
@@ -56,6 +52,7 @@ import {
   insertInlineTerminalContextPlaceholder,
   removeInlineTerminalContextPlaceholder,
 } from "../../lib/terminalContext";
+import { useComposerPathSearch } from "../../lib/composerPathSearchState";
 import {
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
@@ -137,8 +134,6 @@ const runtimeModeConfig: Record<
 };
 
 const runtimeModeOptions = Object.keys(runtimeModeConfig) as RuntimeMode[];
-const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
-const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const COMPOSER_FLOATING_LAYER_SELECTOR = [
   '[data-slot="popover-popup"]',
   '[data-slot="menu-popup"]',
@@ -835,27 +830,16 @@ export const ChatComposer = memo(
     const composerTriggerKind = composerTrigger?.kind ?? null;
     const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
     const isPathTrigger = composerTriggerKind === "path";
-    const [debouncedPathQuery, composerPathQueryDebouncer] = useDebouncedValue(
-      pathTriggerQuery,
-      { wait: COMPOSER_PATH_QUERY_DEBOUNCE_MS },
-      (debouncerState) => ({ isPending: debouncerState.isPending }),
-    );
-    const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
-    const workspaceEntriesQuery = useQuery(
-      projectSearchEntriesQueryOptions({
-        environmentId,
-        cwd: gitCwd,
-        query: effectivePathQuery,
-        enabled: isPathTrigger,
-        limit: 80,
-      }),
-    );
-    const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
+    const workspaceEntries = useComposerPathSearch({
+      environmentId,
+      cwd: isPathTrigger ? gitCwd : null,
+      query: isPathTrigger ? pathTriggerQuery : null,
+    });
 
     const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
       if (!composerTrigger) return [];
       if (composerTrigger.kind === "path") {
-        return workspaceEntries.map((entry) => ({
+        return workspaceEntries.entries.map((entry) => ({
           id: `path:${entry.kind}:${entry.path}`,
           type: "path",
           path: entry.path,
@@ -922,7 +906,7 @@ export const ChatComposer = memo(
         }));
       }
       return [];
-    }, [composerTrigger, selectedProvider, selectedProviderStatus, workspaceEntries]);
+    }, [composerTrigger, selectedProvider, selectedProviderStatus, workspaceEntries.entries]);
 
     const composerMenuOpen = Boolean(composerTrigger);
     const composerMenuSearchKey = composerTrigger
@@ -987,10 +971,7 @@ export const ChatComposer = memo(
     ]);
 
     const isComposerMenuLoading =
-      composerTriggerKind === "path" &&
-      ((pathTriggerQuery.length > 0 && composerPathQueryDebouncer.state.isPending) ||
-        workspaceEntriesQuery.isLoading ||
-        workspaceEntriesQuery.isFetching);
+      composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending;
     const composerMenuEmptyState = useMemo(() => {
       if (composerTriggerKind === "skill") {
         return "No skills found. Try / to browse provider commands.";
