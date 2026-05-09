@@ -10,6 +10,7 @@ export const CLEAR_CLOUD_AUTH_TOKEN_CHANNEL = "desktop:clear-cloud-auth-token";
 export const FETCH_CLOUD_AUTH_CHANNEL = "desktop:fetch-cloud-auth";
 export const CLOUD_AUTH_CALLBACK_CHANNEL = "desktop:cloud-auth-callback";
 export const MENU_ACTION_CHANNEL = "desktop:menu-action";
+export const ZOOM_FACTOR_CHANGED_CHANNEL = "desktop:zoom-factor-changed";
 export const UPDATE_STATE_CHANNEL = "desktop:update-state";
 export const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 export const UPDATE_SET_CHANNEL_CHANNEL = "desktop:update-set-channel";
