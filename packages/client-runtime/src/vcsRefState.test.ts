@@ -3,11 +3,11 @@ import { AtomRegistry } from "effect/unstable/reactivity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  createGitBranchManager,
-  EMPTY_GIT_BRANCH_STATE,
-  gitBranchStateAtom,
-  type GitBranchClient,
-} from "./gitBranchState.ts";
+  createVcsRefManager,
+  EMPTY_VCS_REF_STATE,
+  vcsRefStateAtom,
+  type VcsRefClient,
+} from "./vcsRefState.ts";
 
 let atomRegistry = AtomRegistry.make();
 
@@ -40,7 +40,7 @@ const SECOND_PAGE: VcsListRefsResult = {
 };
 
 function createMockClient() {
-  const listRefs = vi.fn(async (input: Parameters<GitBranchClient["listRefs"]>[0]) => {
+  const listRefs = vi.fn(async (input: Parameters<VcsRefClient["listRefs"]>[0]) => {
     if (input.query === "feature") {
       return {
         ...FIRST_PAGE,
@@ -58,19 +58,29 @@ function createMockClient() {
   });
 
   return {
-    client: { listRefs } satisfies GitBranchClient,
+    client: { listRefs } satisfies VcsRefClient,
     listRefs,
   };
 }
 
-describe("createGitBranchManager", () => {
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+describe("createVcsRefManager", () => {
   afterEach(() => {
     resetAtomRegistry();
   });
 
   it("loads the first page and stores it in atom state", async () => {
     const mock = createMockClient();
-    const manager = createGitBranchManager({
+    const manager = createVcsRefManager({
       getRegistry: () => atomRegistry,
       getClient: () => mock.client,
     });
@@ -94,7 +104,7 @@ describe("createGitBranchManager", () => {
 
   it("loads the next page and appends branches", async () => {
     const mock = createMockClient();
-    const manager = createGitBranchManager({
+    const manager = createVcsRefManager({
       getRegistry: () => atomRegistry,
       getClient: () => mock.client,
     });
@@ -118,7 +128,7 @@ describe("createGitBranchManager", () => {
 
   it("stores query-specific state independently", async () => {
     const mock = createMockClient();
-    const manager = createGitBranchManager({
+    const manager = createVcsRefManager({
       getRegistry: () => atomRegistry,
       getClient: () => mock.client,
     });
@@ -134,12 +144,12 @@ describe("createGitBranchManager", () => {
   });
 
   it("returns cached data when no client is available", async () => {
-    const manager = createGitBranchManager({
+    const manager = createVcsRefManager({
       getRegistry: () => atomRegistry,
       getClient: () => null,
     });
 
-    atomRegistry.set(gitBranchStateAtom("env-local:/repo:"), {
+    atomRegistry.set(vcsRefStateAtom("env-local:/repo:"), {
       data: FIRST_PAGE,
       isPending: false,
       error: null,
@@ -150,7 +160,7 @@ describe("createGitBranchManager", () => {
 
   it("resets state", async () => {
     const mock = createMockClient();
-    const manager = createGitBranchManager({
+    const manager = createVcsRefManager({
       getRegistry: () => atomRegistry,
       getClient: () => mock.client,
     });
@@ -158,14 +168,14 @@ describe("createGitBranchManager", () => {
     await manager.load(TARGET, mock.client);
     manager.reset();
 
-    expect(manager.getSnapshot(TARGET)).toEqual(EMPTY_GIT_BRANCH_STATE);
+    expect(manager.getSnapshot(TARGET)).toEqual(EMPTY_VCS_REF_STATE);
   });
 
   it("watches branches with a ref-counted client-change subscription", async () => {
     const mock = createMockClient();
     let listener: () => void = noop;
     const unsubscribe = vi.fn();
-    const manager = createGitBranchManager({
+    const manager = createVcsRefManager({
       getRegistry: () => atomRegistry,
       getClient: () => mock.client,
       subscribeClientChanges: (nextListener) => {
@@ -190,5 +200,67 @@ describe("createGitBranchManager", () => {
     expect(unsubscribe).not.toHaveBeenCalled();
     secondUnwatch();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("swallows watched refresh failures after storing error state", async () => {
+    const refreshError = new Error("backend unavailable");
+    const listRefs = vi.fn(async () => {
+      throw refreshError;
+    });
+    const onBackgroundError = vi.fn();
+    const manager = createVcsRefManager({
+      getRegistry: () => atomRegistry,
+      getClient: () => ({ listRefs }),
+      onBackgroundError,
+    });
+
+    manager.watch(TARGET);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.waitFor(() => {
+      expect(manager.getSnapshot(TARGET)).toEqual({
+        data: null,
+        isPending: false,
+        error: "backend unavailable",
+      });
+      expect(onBackgroundError).toHaveBeenCalledWith(refreshError);
+    });
+  });
+
+  it("starts a new watched refresh when the client is replaced while a load is in flight", async () => {
+    const firstLoad = deferred<VcsListRefsResult>();
+    const secondLoad = deferred<VcsListRefsResult>();
+    const firstListRefs = vi.fn(() => firstLoad.promise);
+    const secondListRefs = vi.fn(() => secondLoad.promise);
+    const firstClient = { listRefs: firstListRefs } satisfies VcsRefClient;
+    const secondClient = { listRefs: secondListRefs } satisfies VcsRefClient;
+    let currentClient: VcsRefClient = firstClient;
+    let listener: () => void = noop;
+    const manager = createVcsRefManager({
+      getRegistry: () => atomRegistry,
+      getClient: () => currentClient,
+      subscribeClientChanges: (nextListener) => {
+        listener = nextListener;
+        return noop;
+      },
+    });
+
+    manager.watch(TARGET);
+    await Promise.resolve();
+    expect(firstListRefs).toHaveBeenCalledTimes(1);
+
+    currentClient = secondClient;
+    listener();
+    await Promise.resolve();
+    expect(secondListRefs).toHaveBeenCalledTimes(1);
+
+    secondLoad.resolve(SECOND_PAGE);
+    await secondLoad.promise;
+    expect(manager.getSnapshot(TARGET).data).toEqual(SECOND_PAGE);
+
+    firstLoad.resolve(FIRST_PAGE);
+    await firstLoad.promise;
+    expect(manager.getSnapshot(TARGET).data).toEqual(SECOND_PAGE);
   });
 });

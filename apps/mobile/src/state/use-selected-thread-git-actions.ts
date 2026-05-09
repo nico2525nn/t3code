@@ -3,7 +3,7 @@ import { useCallback, useEffect } from "react";
 import {
   EnvironmentScopedProjectShell,
   EnvironmentScopedThreadShell,
-  type GitBranch,
+  type VcsRef,
   type GitActionRequestInput,
 } from "@t3tools/client-runtime";
 import { CommandId, type GitRunStackedActionResult } from "@t3tools/contracts";
@@ -16,7 +16,7 @@ import { uuidv4 } from "../lib/uuid";
 import { getEnvironmentClient } from "./environment-session-registry";
 import { setPendingConnectionError } from "./use-remote-environment-registry";
 import { gitActionManager, showGitActionResult } from "./use-git-action-state";
-import { gitBranchManager } from "./use-git-branches";
+import { vcsRefManager } from "./use-vcs-refs";
 import { gitStatusManager } from "./use-git-status";
 import { useThreadSelection } from "./use-thread-selection";
 import { useSelectedThreadWorktree } from "./use-selected-thread-worktree";
@@ -126,7 +126,7 @@ export function useSelectedThreadGitActions() {
     [selectedThread, selectedThreadCwd, selectedThreadProject],
   );
 
-  const refreshSelectedThreadBranches = useCallback(async (): Promise<ReadonlyArray<GitBranch>> => {
+  const refreshSelectedThreadBranches = useCallback(async (): Promise<ReadonlyArray<VcsRef>> => {
     if (!selectedThread || !selectedThreadProject || !selectedThreadGitRootCwd) {
       return [];
     }
@@ -137,7 +137,7 @@ export function useSelectedThreadGitActions() {
     }
 
     try {
-      const result = await gitBranchManager.load(
+      const result = await vcsRefManager.load(
         { environmentId: selectedThread.environmentId, cwd: selectedThreadGitRootCwd, query: null },
         client.vcs,
         { limit: 100 },
@@ -169,7 +169,7 @@ export function useSelectedThreadGitActions() {
 
       const branchRootCwd = input.branchRootCwd ?? selectedThreadProject?.workspaceRoot ?? null;
       if (branchRootCwd) {
-        gitBranchManager.invalidate({
+        vcsRefManager.invalidate({
           environmentId: input.thread.environmentId,
           cwd: branchRootCwd,
           query: null,

@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import { EnvironmentScopedProjectShell, type GitBranch } from "@t3tools/client-runtime";
+import { EnvironmentScopedProjectShell, type VcsRef } from "@t3tools/client-runtime";
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -18,7 +18,7 @@ import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import { uuidv4 } from "../../lib/uuid";
 import { getEnvironmentClient } from "../../state/environment-session-registry";
 import { environmentRuntimeManager } from "../../state/use-environment-runtime";
-import { gitBranchManager } from "../../state/use-git-branches";
+import { vcsRefManager } from "../../state/use-vcs-refs";
 import { useRemoteCatalog } from "../../state/use-remote-catalog";
 import {
   setPendingConnectionError,
@@ -185,14 +185,14 @@ export function useProjectActions() {
   );
 
   const onListProjectBranches = useCallback(
-    async (project: EnvironmentScopedProjectShell): Promise<ReadonlyArray<GitBranch>> => {
+    async (project: EnvironmentScopedProjectShell): Promise<ReadonlyArray<VcsRef>> => {
       const client = getEnvironmentClient(project.environmentId);
       if (!client) {
         return [];
       }
 
       try {
-        const result = await gitBranchManager.load(
+        const result = await vcsRefManager.load(
           { environmentId: project.environmentId, cwd: project.workspaceRoot, query: null },
           client.vcs,
           { limit: 100 },
@@ -231,7 +231,7 @@ export function useProjectActions() {
           newRefName: sanitizeFeatureBranchName(nextWorktree.newBranch),
           path: null,
         });
-        gitBranchManager.invalidate({
+        vcsRefManager.invalidate({
           environmentId: project.environmentId,
           cwd: project.workspaceRoot,
           query: null,
