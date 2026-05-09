@@ -813,7 +813,12 @@ const bootstrapBrowserSession = (
     };
   });
 
-const bootstrapBearerSession = (credential = defaultDesktopBootstrapToken) =>
+const bootstrapBearerSession = (
+  credential = defaultDesktopBootstrapToken,
+  options?: {
+    readonly headers?: Record<string, string>;
+  },
+) =>
   Effect.gen(function* () {
     const bootstrapUrl = yield* getHttpServerUrl("/api/auth/bootstrap/bearer");
     const response = yield* Effect.promise(() =>
@@ -821,6 +826,7 @@ const bootstrapBearerSession = (credential = defaultDesktopBootstrapToken) =>
         method: "POST",
         headers: {
           "content-type": "application/json",
+          ...options?.headers,
         },
         body: JSON.stringify({
           credential,
@@ -895,6 +901,22 @@ const splitHeaderTokens = (value: string | null) =>
     .map((token) => token.trim())
     .filter((token) => token.length > 0)
     .toSorted();
+
+const assertBrowserApiCorsHeaders = (headers: Headers) => {
+  assert.equal(headers.get("access-control-allow-origin"), "*");
+  assert.deepEqual(splitHeaderTokens(headers.get("access-control-allow-methods")), [
+    "GET",
+    "OPTIONS",
+    "POST",
+  ]);
+  assert.deepEqual(splitHeaderTokens(headers.get("access-control-allow-headers")), [
+    "authorization",
+    "b3",
+    "content-type",
+    "traceparent",
+  ]);
+};
+const crossOriginClientOrigin = "http://remote-client.test:3773";
 
 const getWsServerUrl = (
   pathname = "",
@@ -1013,6 +1035,28 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       )) as typeof testEnvironmentDescriptor;
 
       assert.equal(response.status, 200);
+      assert.deepEqual(body, testEnvironmentDescriptor);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("includes CORS headers on public environment descriptor responses", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const url = yield* getHttpServerUrl("/.well-known/t3/environment");
+      const response = yield* Effect.promise(() =>
+        fetch(url, {
+          headers: {
+            origin: crossOriginClientOrigin,
+          },
+        }),
+      );
+      const body = (yield* Effect.promise(() =>
+        response.json(),
+      )) as typeof testEnvironmentDescriptor;
+
+      assert.equal(response.status, 200);
+      assertBrowserApiCorsHeaders(response.headers);
       assert.deepEqual(body, testEnvironmentDescriptor);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -1140,6 +1184,62 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("includes CORS headers on remote auth success responses", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const origin = crossOriginClientOrigin;
+      const { response: bootstrapResponse, body: bootstrapBody } = yield* bootstrapBearerSession(
+        defaultDesktopBootstrapToken,
+        {
+          headers: { origin },
+        },
+      );
+
+      assert.equal(bootstrapResponse.status, 200);
+      assertBrowserApiCorsHeaders(bootstrapResponse.headers);
+      assert.equal(bootstrapBody.authenticated, true);
+      assert.equal(typeof bootstrapBody.sessionToken, "string");
+
+      const sessionUrl = yield* getHttpServerUrl("/api/auth/session");
+      const sessionResponse = yield* Effect.promise(() =>
+        fetch(sessionUrl, {
+          headers: {
+            authorization: `Bearer ${bootstrapBody.sessionToken ?? ""}`,
+            origin,
+          },
+        }),
+      );
+      const sessionBody = (yield* Effect.promise(() => sessionResponse.json())) as {
+        readonly authenticated: boolean;
+        readonly sessionMethod?: string;
+      };
+
+      assert.equal(sessionResponse.status, 200);
+      assertBrowserApiCorsHeaders(sessionResponse.headers);
+      assert.equal(sessionBody.authenticated, true);
+      assert.equal(sessionBody.sessionMethod, "bearer-session-token");
+
+      const wsTokenUrl = yield* getHttpServerUrl("/api/auth/ws-token");
+      const wsTokenResponse = yield* Effect.promise(() =>
+        fetch(wsTokenUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${bootstrapBody.sessionToken ?? ""}`,
+            origin,
+          },
+        }),
+      );
+      const wsTokenBody = (yield* Effect.promise(() => wsTokenResponse.json())) as {
+        readonly token: string;
+      };
+
+      assert.equal(wsTokenResponse.status, 200);
+      assertBrowserApiCorsHeaders(wsTokenResponse.headers);
+      assert.equal(typeof wsTokenBody.token, "string");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect(
     "responds to remote auth websocket-token preflight requests with authorization CORS headers",
     () =>
@@ -1151,7 +1251,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           fetch(wsTokenUrl, {
             method: "OPTIONS",
             headers: {
-              origin: "http://192.168.86.35:3773",
+              origin: crossOriginClientOrigin,
               "access-control-request-method": "POST",
               "access-control-request-headers": "authorization",
             },
@@ -1159,18 +1259,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         );
 
         assert.equal(response.status, 204);
-        assert.equal(response.headers.get("access-control-allow-origin"), "*");
-        assert.deepEqual(splitHeaderTokens(response.headers.get("access-control-allow-methods")), [
-          "GET",
-          "OPTIONS",
-          "POST",
-        ]);
-        assert.deepEqual(splitHeaderTokens(response.headers.get("access-control-allow-headers")), [
-          "authorization",
-          "b3",
-          "content-type",
-          "traceparent",
-        ]);
+        assertBrowserApiCorsHeaders(response.headers);
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -1183,7 +1272,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         fetch(wsTokenUrl, {
           method: "POST",
           headers: {
-            origin: "http://192.168.86.35:3773",
+            origin: crossOriginClientOrigin,
           },
         }),
       );
@@ -1192,7 +1281,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       };
 
       assert.equal(response.status, 401);
-      assert.equal(response.headers.get("access-control-allow-origin"), "*");
+      assertBrowserApiCorsHeaders(response.headers);
       assert.equal(body.error, "Authentication required.");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
