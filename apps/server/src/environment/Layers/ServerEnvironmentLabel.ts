@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { collectUint8StreamText } from "../../stream/collectUint8StreamText.ts";
@@ -24,8 +25,18 @@ interface ServerEnvironmentLabelCommandRunnerShape {
   readonly run: (
     command: string,
     args: readonly string[],
-  ) => Effect.Effect<ServerEnvironmentLabelCommandResult, unknown>;
+  ) => Effect.Effect<ServerEnvironmentLabelCommandResult, ServerEnvironmentLabelCommandError>;
 }
+
+export class ServerEnvironmentLabelCommandError extends Schema.TaggedErrorClass<ServerEnvironmentLabelCommandError>()(
+  "ServerEnvironmentLabelCommandError",
+  {
+    command: Schema.String,
+    args: Schema.Array(Schema.String),
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
 
 export class ServerEnvironmentLabelCommandRunner extends Context.Service<
   ServerEnvironmentLabelCommandRunner,
@@ -59,7 +70,17 @@ export const ServerEnvironmentLabelCommandRunnerLive = Layer.effect(
               stdout: stdout.text,
               exitCode: Number(exitCode),
             };
-          }),
+          }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ServerEnvironmentLabelCommandError({
+                  command,
+                  args: [...args],
+                  message: `Failed to run friendly host label command: ${command}.`,
+                  cause,
+                }),
+            ),
+          ),
         ),
     });
   }),

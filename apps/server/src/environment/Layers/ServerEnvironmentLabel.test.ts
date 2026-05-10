@@ -4,6 +4,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 
 import {
+  ServerEnvironmentLabelCommandError,
   ServerEnvironmentLabelCommandRunner,
   resolveServerEnvironmentLabel,
 } from "./ServerEnvironmentLabel.ts";
@@ -20,7 +21,10 @@ function commandRunnerLayer(input: {
   readonly run: (
     command: string,
     args: readonly string[],
-  ) => Effect.Effect<{ readonly stdout: string; readonly exitCode: number }, unknown>;
+  ) => Effect.Effect<
+    { readonly stdout: string; readonly exitCode: number },
+    ServerEnvironmentLabelCommandError
+  >;
 }) {
   return Layer.mock(ServerEnvironmentLabelCommandRunner)({
     run: (command, args) =>
@@ -143,7 +147,14 @@ describe("resolveServerEnvironmentLabel", () => {
         Effect.provide(
           testLayer(
             commandRunnerLayer({
-              run: () => Effect.fail(new Error("spawn scutil ENOENT")),
+              run: (command, args) =>
+                Effect.fail(
+                  new ServerEnvironmentLabelCommandError({
+                    command,
+                    args: [...args],
+                    message: "spawn scutil ENOENT",
+                  }),
+                ),
             }),
           ),
         ),
