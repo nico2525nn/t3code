@@ -2374,7 +2374,18 @@ export function ConnectionsSettings() {
               mode: "wsl" as const,
               distro: value === BACKEND_VALUE_DEFAULT_WSL ? null : value,
             };
-      if (target.mode === desktopWslState.mode && target.distro === desktopWslState.distro) {
+      // The dropdown maps `state.distro: null` to the actual default distro
+      // name so a real option highlights — re-picking the visually-active row
+      // produces `target.distro = "<defaultName>"` while state is still
+      // `null`. Resolve both sides through the same null→default mapping
+      // before comparing so this is a true no-op.
+      const defaultDistroName =
+        desktopWslState.distros.find((distro) => distro.isDefault)?.name ?? null;
+      const resolvedCurrentDistro =
+        desktopWslState.mode === "wsl" ? (desktopWslState.distro ?? defaultDistroName) : null;
+      const resolvedTargetDistro =
+        target.mode === "wsl" ? (target.distro ?? defaultDistroName) : null;
+      if (target.mode === desktopWslState.mode && resolvedTargetDistro === resolvedCurrentDistro) {
         return;
       }
       setPendingDesktopWslSelection(target);
