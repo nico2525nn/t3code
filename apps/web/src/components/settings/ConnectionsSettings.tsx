@@ -86,7 +86,7 @@ import {
   type ServerClientSessionRecord,
   type ServerPairingLinkRecord,
 } from "~/environments/primary";
-import { onWelcome } from "~/rpc/serverState";
+import { getWelcomePayload, onWelcome } from "~/rpc/serverState";
 import { suppressReconnect } from "~/rpc/wsConnectionState";
 import { useStore } from "~/store";
 import type { WsRpcClient } from "~/rpc/wsRpcClient";
@@ -2403,13 +2403,20 @@ export function ConnectionsSettings() {
     const previousPrimaryEnvId = readPrimaryEnvironmentDescriptor()?.environmentId ?? null;
 
     // Subscribe to welcomes BEFORE the swap so we can wait for the new
-    // backend's welcome (env-id !== previous) before declaring the swap done.
+    // backend's welcome before declaring the swap done. Capture the current
+    // welcome's env-id as the baseline instead of comparing against
+    // `previousPrimaryEnvId`: `onWelcome` is `immediate: true` and fires
+    // synchronously with the atom's current value, so if the descriptor
+    // hasn't loaded (`previousPrimaryEnvId === null`) any non-null payload
+    // would otherwise resolve the promise instantly. Using the live welcome
+    // atom as the baseline closes that race.
+    const baselineWelcomeEnvId = getWelcomePayload()?.environment.environmentId ?? null;
     let resolveNewWelcome: (() => void) | null = null;
     const newWelcomePromise = new Promise<void>((resolve) => {
       resolveNewWelcome = resolve;
     });
     const unsubscribeWelcome = onWelcome((payload) => {
-      if (payload.environment.environmentId !== previousPrimaryEnvId) {
+      if (payload.environment.environmentId !== baselineWelcomeEnvId) {
         resolveNewWelcome?.();
       }
     });
