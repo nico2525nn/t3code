@@ -31,7 +31,7 @@ import {
   terminalRestartsTotal,
   terminalSessionsTotal,
 } from "../../observability/Metrics.ts";
-import { runProcess } from "../../processRunner.ts";
+import * as ProcessRunner from "../../processRunner.ts";
 import {
   TerminalCwdError,
   TerminalHistoryError,
@@ -501,6 +501,7 @@ function parseFirstChildPidFromPgrep(stdout: string): number | null {
 function windowsInspectSubprocess(
   terminalPid: number,
   platform: NodeJS.Platform,
+  processRunner: ProcessRunner.ProcessRunnerShape,
 ): Effect.Effect<TerminalSubprocessInspectResult, TerminalSubprocessCheckError> {
   const command = [
     `$c = Get-CimInstance Win32_Process -Filter "ParentProcessId = ${terminalPid}" -ErrorAction SilentlyContinue | Select-Object -First 1`,
@@ -508,76 +509,89 @@ function windowsInspectSubprocess(
     "Write-Output $c.Name",
     "exit 0",
   ].join("; ");
-  return Effect.tryPromise({
-    try: () =>
-      runProcess("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], {
-        timeoutMs: 1_500,
-        allowNonZeroExit: true,
-        maxBufferBytes: 32_768,
-        outputMode: "truncate",
+  return processRunner
+    .run({
+      command: "powershell.exe",
+      args: ["-NoProfile", "-NonInteractive", "-Command", command],
+      timeout: "1500 millis",
+      maxOutputBytes: 32_768,
+      outputMode: "truncate",
+      shell: process.platform === "win32",
+      timeoutBehavior: "timedOutResult",
+    })
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new TerminalSubprocessCheckError({
+            message: "Failed to inspect Windows terminal subprocesses.",
+            cause,
+            terminalPid,
+            command: "powershell",
+          }),
+      ),
+      Effect.map((result) => {
+        if (result.code !== 0) {
+          return { hasRunningSubprocess: false, childCommand: null } as const;
+        }
+        const name = result.stdout.trim().split(/\r?\n/)[0]?.trim() ?? "";
+        if (name.length === 0) {
+          return { hasRunningSubprocess: true, childCommand: null } as const;
+        }
+        const normalized = normalizeChildCommandName(name, platform);
+        return {
+          hasRunningSubprocess: true,
+          childCommand: normalized ? truncateTerminalWireLabel(normalized) : null,
+        } as const;
       }),
-    catch: (cause) =>
-      new TerminalSubprocessCheckError({
-        message: "Failed to inspect Windows terminal subprocesses.",
-        cause,
-        terminalPid,
-        command: "powershell",
-      }),
-  }).pipe(
-    Effect.map((result) => {
-      if (result.code !== 0) {
-        return { hasRunningSubprocess: false, childCommand: null } as const;
-      }
-      const name = result.stdout.trim().split(/\r?\n/)[0]?.trim() ?? "";
-      if (name.length === 0) {
-        return { hasRunningSubprocess: true, childCommand: null } as const;
-      }
-      const normalized = normalizeChildCommandName(name, platform);
-      return {
-        hasRunningSubprocess: true,
-        childCommand: normalized ? truncateTerminalWireLabel(normalized) : null,
-      } as const;
-    }),
-  );
+    );
 }
 
 const posixInspectSubprocess = Effect.fn("terminal.posixInspectSubprocess")(function* (
   terminalPid: number,
   platform: NodeJS.Platform,
+  processRunner: ProcessRunner.ProcessRunnerShape,
 ): Effect.fn.Return<TerminalSubprocessInspectResult, TerminalSubprocessCheckError> {
-  const runPgrep = Effect.tryPromise({
-    try: () =>
-      runProcess("pgrep", ["-P", String(terminalPid)], {
-        timeoutMs: 1_000,
-        allowNonZeroExit: true,
-        maxBufferBytes: 32_768,
-        outputMode: "truncate",
-      }),
-    catch: (cause) =>
-      new TerminalSubprocessCheckError({
-        message: "Failed to inspect terminal subprocesses with pgrep.",
-        cause,
-        terminalPid,
-        command: "pgrep",
-      }),
-  });
+  const runPgrep = processRunner
+    .run({
+      command: "pgrep",
+      args: ["-P", String(terminalPid)],
+      timeout: "1 second",
+      maxOutputBytes: 32_768,
+      outputMode: "truncate",
+      timeoutBehavior: "timedOutResult",
+    })
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new TerminalSubprocessCheckError({
+            message: "Failed to inspect terminal subprocesses with pgrep.",
+            cause,
+            terminalPid,
+            command: "pgrep",
+          }),
+      ),
+    );
 
-  const runPs = Effect.tryPromise({
-    try: () =>
-      runProcess("ps", ["-eo", "pid=,ppid="], {
-        timeoutMs: 1_000,
-        allowNonZeroExit: true,
-        maxBufferBytes: 262_144,
-        outputMode: "truncate",
-      }),
-    catch: (cause) =>
-      new TerminalSubprocessCheckError({
-        message: "Failed to inspect terminal subprocesses with ps.",
-        cause,
-        terminalPid,
-        command: "ps",
-      }),
-  });
+  const runPs = processRunner
+    .run({
+      command: "ps",
+      args: ["-eo", "pid=,ppid="],
+      timeout: "1 second",
+      maxOutputBytes: 262_144,
+      outputMode: "truncate",
+      timeoutBehavior: "timedOutResult",
+    })
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new TerminalSubprocessCheckError({
+            message: "Failed to inspect terminal subprocesses with ps.",
+            cause,
+            terminalPid,
+            command: "ps",
+          }),
+      ),
+    );
 
   let childPid: number | null = null;
 
@@ -611,16 +625,16 @@ const posixInspectSubprocess = Effect.fn("terminal.posixInspectSubprocess")(func
     return { hasRunningSubprocess: false, childCommand: null };
   }
 
-  const runComm = Effect.tryPromise({
-    try: () =>
-      runProcess("ps", ["-p", String(childPid), "-o", "comm="], {
-        timeoutMs: 1_000,
-        allowNonZeroExit: true,
-        maxBufferBytes: 8_192,
-        outputMode: "truncate",
-      }),
-    catch: () => null,
-  });
+  const runComm = processRunner
+    .run({
+      command: "ps",
+      args: ["-p", String(childPid), "-o", "comm="],
+      timeout: "1 second",
+      maxOutputBytes: 8_192,
+      outputMode: "truncate",
+      timeoutBehavior: "timedOutResult",
+    })
+    .pipe(Effect.catch(() => Effect.succeed(null)));
 
   const commResult = yield* Effect.exit(runComm);
   let rawComm: string | null = null;
@@ -629,16 +643,16 @@ const posixInspectSubprocess = Effect.fn("terminal.posixInspectSubprocess")(func
   }
 
   if (!rawComm || rawComm.length === 0) {
-    const runArgs = Effect.tryPromise({
-      try: () =>
-        runProcess("ps", ["-p", String(childPid), "-o", "args="], {
-          timeoutMs: 1_000,
-          allowNonZeroExit: true,
-          maxBufferBytes: 16_384,
-          outputMode: "truncate",
-        }),
-      catch: () => null,
-    });
+    const runArgs = processRunner
+      .run({
+        command: "ps",
+        args: ["-p", String(childPid), "-o", "args="],
+        timeout: "1 second",
+        maxOutputBytes: 16_384,
+        outputMode: "truncate",
+        timeoutBehavior: "timedOutResult",
+      })
+      .pipe(Effect.catch(() => Effect.succeed(null)));
     const argsResult = yield* Effect.exit(runArgs);
     if (argsResult._tag === "Success" && argsResult.value && argsResult.value.code === 0) {
       const first = argsResult.value.stdout.trim().split(/\s+/)[0] ?? "";
@@ -655,15 +669,16 @@ const posixInspectSubprocess = Effect.fn("terminal.posixInspectSubprocess")(func
 
 function defaultSubprocessInspectorForPlatform(
   platform: NodeJS.Platform,
+  processRunner: ProcessRunner.ProcessRunnerShape,
 ): TerminalSubprocessInspector {
   return Effect.fn("terminal.defaultSubprocessInspector")(function* (terminalPid: number) {
     if (!Number.isInteger(terminalPid) || terminalPid <= 0) {
       return { hasRunningSubprocess: false, childCommand: null };
     }
     if (platform === "win32") {
-      return yield* windowsInspectSubprocess(terminalPid, platform);
+      return yield* windowsInspectSubprocess(terminalPid, platform, processRunner);
     }
-    return yield* posixInspectSubprocess(terminalPid, platform);
+    return yield* posixInspectSubprocess(terminalPid, platform, processRunner);
   });
 }
 
@@ -940,8 +955,9 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
     const platform = options.platform ?? process.platform;
     const baseEnv = options.env ?? process.env;
     const shellResolver = options.shellResolver ?? (() => defaultShellResolver(platform, baseEnv));
+    const processRunner = yield* ProcessRunner.ProcessRunner;
     const subprocessInspector =
-      options.subprocessInspector ?? defaultSubprocessInspectorForPlatform(platform);
+      options.subprocessInspector ?? defaultSubprocessInspectorForPlatform(platform, processRunner);
     const subprocessPollIntervalMs =
       options.subprocessPollIntervalMs ?? DEFAULT_SUBPROCESS_POLL_INTERVAL_MS;
     const processKillGraceMs = options.processKillGraceMs ?? DEFAULT_PROCESS_KILL_GRACE_MS;
@@ -2373,4 +2389,6 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
   },
 );
 
-export const TerminalManagerLive = Layer.effect(TerminalManager, makeTerminalManager());
+export const TerminalManagerLive = Layer.effect(TerminalManager, makeTerminalManager()).pipe(
+  Layer.provide(ProcessRunner.layer),
+);
