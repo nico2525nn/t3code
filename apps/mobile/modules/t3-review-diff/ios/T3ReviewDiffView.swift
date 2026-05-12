@@ -824,8 +824,11 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     var nextOffsets: [CGFloat] = []
     var nextFileHeaderRowIndices: [Int] = []
     nextOffsets.reserveCapacity(rows.count)
-    var maxColumnCountsByFileId: [String: Int] = [:]
+    var maxTextWidthsByFileId: [String: CGFloat] = [:]
     var offset: CGFloat = 0
+
+    let font = codeFont
+    let measureAttrs: [NSAttributedString.Key: Any] = [.font: font, .ligature: 0]
 
     for (index, row) in rows.enumerated() {
       nextOffsets.append(offset)
@@ -837,24 +840,24 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
       let fileId = resolvedFileId(for: row)
       switch row.kind {
       case "line":
-        maxColumnCountsByFileId[fileId] = max(
-          maxColumnCountsByFileId[fileId] ?? 0,
-          row.content?.count ?? 0
-        )
+        if let content = row.content {
+          let width = ceil((content as NSString).size(withAttributes: measureAttrs).width)
+          maxTextWidthsByFileId[fileId] = max(maxTextWidthsByFileId[fileId] ?? 0, width)
+        }
       case "hunk":
-        maxColumnCountsByFileId[fileId] = max(
-          maxColumnCountsByFileId[fileId] ?? 0,
-          row.text?.count ?? 0
-        )
+        if let text = row.text {
+          let width = ceil((text as NSString).size(withAttributes: measureAttrs).width)
+          maxTextWidthsByFileId[fileId] = max(maxTextWidthsByFileId[fileId] ?? 0, width)
+        }
       default:
         continue
       }
     }
 
-    let characterWidth = monospaceCharacterWidth(font: codeFont)
+    let characterWidth = monospaceCharacterWidth(font: font)
     codeCharacterWidth = characterWidth
-    contentWidthsByFileId = maxColumnCountsByFileId.mapValues { maxColumnCount in
-      let measuredWidth = ceil(CGFloat(maxColumnCount) * characterWidth) + style.codePadding * 2
+    contentWidthsByFileId = maxTextWidthsByFileId.mapValues { maxTextWidth in
+      let measuredWidth = maxTextWidth + style.codePadding * 2
       return max(0, min(style.contentWidth, measuredWidth))
     }
     rowOffsets = nextOffsets
@@ -2016,13 +2019,24 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     let highlightY = rowRect.midY - highlightHeight / 2
 
     fillColor.setFill()
+    let nsContent = (row.content ?? "") as NSString
+    let measureAttrs: [NSAttributedString.Key: Any] = [.font: codeFont, .ligature: 0]
     for range in ranges {
       guard range.end > range.start else {
         continue
       }
 
-      let startX = codeStartX - horizontalOffset + CGFloat(range.start) * codeCharacterWidth
-      let width = max(2, CGFloat(range.end - range.start) * codeCharacterWidth)
+      let clampedStart = min(range.start, nsContent.length)
+      let clampedEnd = min(range.end, nsContent.length)
+      let prefixWidth = clampedStart > 0
+        ? nsContent.substring(to: clampedStart).size(withAttributes: measureAttrs).width
+        : 0
+      let rangeTextWidth = clampedEnd > clampedStart
+        ? nsContent.substring(with: NSRange(location: clampedStart, length: clampedEnd - clampedStart))
+          .size(withAttributes: measureAttrs).width
+        : 0
+      let startX = codeStartX - horizontalOffset + prefixWidth
+      let width = max(2, rangeTextWidth)
       let highlightRect = CGRect(
         x: startX,
         y: highlightY,
