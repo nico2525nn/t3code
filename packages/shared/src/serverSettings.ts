@@ -89,26 +89,28 @@ export function applyServerSettingsPatch(
     ...patchForMerge
   } = patch;
   const backgroundActivityPatch =
-    backgroundActivityProfile !== undefined
-      ? {
-          schemaVersion: 1 as const,
-          profile: backgroundActivityProfile,
-          overrides: {},
-        }
-      : automaticGitFetchInterval !== undefined || providerHealthRefreshInterval !== undefined
+    backgroundActivity !== undefined
+      ? undefined
+      : backgroundActivityProfile !== undefined
         ? {
             schemaVersion: 1 as const,
-            profile: "custom" as const,
-            baseProfile: getBackgroundActivityBaseProfile(current.backgroundActivity),
-            overrides: {
-              ...current.backgroundActivity.overrides,
-              ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
-              ...(providerHealthRefreshInterval !== undefined
-                ? { providerHealthRefreshInterval }
-                : {}),
-            },
+            profile: backgroundActivityProfile,
+            overrides: {},
           }
-        : undefined;
+        : automaticGitFetchInterval !== undefined || providerHealthRefreshInterval !== undefined
+          ? {
+              schemaVersion: 1 as const,
+              profile: "custom" as const,
+              baseProfile: getBackgroundActivityBaseProfile(current.backgroundActivity),
+              overrides: {
+                ...current.backgroundActivity.overrides,
+                ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
+                ...(providerHealthRefreshInterval !== undefined
+                  ? { providerHealthRefreshInterval }
+                  : {}),
+              },
+            }
+          : undefined;
   const next = deepMerge(current, patchForMerge);
   const nextWithReplacementsBase = {
     ...next,

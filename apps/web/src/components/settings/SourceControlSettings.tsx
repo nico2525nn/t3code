@@ -1,9 +1,8 @@
-import { ChevronDownIcon, GitPullRequestIcon, InfoIcon, RefreshCwIcon } from "lucide-react";
+import { ChevronDownIcon, GitPullRequestIcon, RefreshCwIcon } from "lucide-react";
 import * as Duration from "effect/Duration";
 import * as Option from "effect/Option";
 import { useState, type ReactNode } from "react";
 import type {
-  BackgroundActivitySettings,
   SourceControlProviderKind,
   SourceControlDiscoveryResult,
   SourceControlProviderAuth,
@@ -55,6 +54,12 @@ import {
 } from "../Icons";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SettingResetButton, SettingsPageContainer, SettingsSection } from "./settingsLayout";
+import {
+  BackgroundPolicyTooltip,
+  backgroundActivityOverrideSettings,
+  durationToSeconds,
+  normalizeIntervalSeconds as normalizeFetchIntervalSeconds,
+} from "./backgroundActivityUtils";
 
 const EMPTY_DISCOVERY_RESULT: SourceControlDiscoveryResult = {
   versionControlSystems: [],
@@ -75,43 +80,6 @@ const VCS_ICONS: Partial<Record<VcsDriverKind, Icon>> = {
 
 const SOURCE_CONTROL_SKELETON_ROWS = ["primary", "secondary"] as const;
 const GIT_FETCH_INTERVAL_STEP_SECONDS = 5;
-type BackgroundActivityOverridePatch = Partial<{
-  [K in keyof BackgroundActivitySettings["overrides"]]:
-    | BackgroundActivitySettings["overrides"][K]
-    | undefined;
-}>;
-
-function durationToSeconds(duration: Duration.Duration): number {
-  return Math.round(Duration.toMillis(duration) / 1_000);
-}
-
-function normalizeFetchIntervalSeconds(value: number | null): number {
-  if (value === null || !Number.isFinite(value)) {
-    return 0;
-  }
-  return Math.max(0, Math.round(value));
-}
-
-function BackgroundPolicyTooltip({ children }: { readonly children: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            className="inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
-            aria-label="Background policy details"
-          >
-            <InfoIcon className="size-3.5" />
-          </button>
-        }
-      />
-      <TooltipPopup side="top" className="max-w-72">
-        {children}
-      </TooltipPopup>
-    </Tooltip>
-  );
-}
 
 function optionLabel(value: Option.Option<string>): string | null {
   return Option.getOrNull(value);
@@ -335,28 +303,6 @@ function GitFetchIntervalSettings() {
   );
   const canResetFetchInterval =
     automaticGitFetchIntervalSeconds !== defaultAutomaticGitFetchIntervalSeconds;
-  const backgroundActivityOverrideSettings = (
-    current: BackgroundActivitySettings,
-    overrides: BackgroundActivityOverridePatch,
-  ) => {
-    const nextOverrides: BackgroundActivityOverridePatch = {
-      ...current.overrides,
-      ...overrides,
-    };
-    for (const [key, value] of Object.entries(nextOverrides)) {
-      if (value === undefined) {
-        delete nextOverrides[key as keyof typeof nextOverrides];
-      }
-    }
-    return {
-      backgroundActivity: {
-        schemaVersion: 1 as const,
-        profile: "custom" as const,
-        baseProfile: getBackgroundActivityBaseProfile(current),
-        overrides: nextOverrides as BackgroundActivitySettings["overrides"],
-      },
-    };
-  };
 
   return (
     <div className="grid gap-3">

@@ -1,7 +1,6 @@
 import {
   ArchiveIcon,
   ArchiveX,
-  InfoIcon,
   LoaderIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -106,6 +105,12 @@ import {
   SettingsSection,
   useRelativeTimeTick,
 } from "./settingsLayout";
+import {
+  BackgroundPolicyTooltip as PolicyTooltip,
+  backgroundActivityOverrideSettings,
+  durationToSeconds,
+  normalizeIntervalSeconds,
+} from "./backgroundActivityUtils";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { useServerObservability, useServerProviders } from "../../rpc/serverState";
 
@@ -137,11 +142,6 @@ const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<BackgroundActivityProfile, stri
 };
 
 type BackgroundActivityProfileOption = BackgroundActivityProfile | "advanced";
-type BackgroundActivityOverridePatch = Partial<{
-  [K in keyof BackgroundActivitySettings["overrides"]]:
-    | BackgroundActivitySettings["overrides"][K]
-    | undefined;
-}>;
 
 const BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS: Record<BackgroundActivityProfileOption, string> = {
   ...BACKGROUND_ACTIVITY_PROFILE_LABELS,
@@ -174,17 +174,6 @@ const BACKGROUND_ACTIVITY_BOOLEAN_OVERRIDES: ReadonlyArray<{
   { key: "pauseWhenOnBattery", label: "Pause on battery" },
 ];
 
-function durationToSeconds(duration: Duration.Duration): number {
-  return Math.round(Duration.toMillis(duration) / 1_000);
-}
-
-function normalizeIntervalSeconds(value: number | null): number {
-  if (value === null || !Number.isFinite(value)) {
-    return 0;
-  }
-  return Math.max(0, Math.round(value));
-}
-
 function resolveBackgroundActivityProfileOption(settings: {
   readonly backgroundActivity: BackgroundActivitySettings;
 }): BackgroundActivityProfileOption {
@@ -207,50 +196,6 @@ function backgroundActivityProfileSettings(profile: BackgroundActivityProfile) {
       overrides: {},
     },
   };
-}
-
-function backgroundActivityOverrideSettings(
-  current: BackgroundActivitySettings,
-  overrides: BackgroundActivityOverridePatch,
-) {
-  const nextOverrides: BackgroundActivityOverridePatch = {
-    ...current.overrides,
-    ...overrides,
-  };
-  for (const [key, value] of Object.entries(nextOverrides)) {
-    if (value === undefined) {
-      delete nextOverrides[key as keyof typeof nextOverrides];
-    }
-  }
-  return {
-    backgroundActivity: {
-      schemaVersion: 1 as const,
-      profile: "custom" as const,
-      baseProfile: getBackgroundActivityBaseProfile(current),
-      overrides: nextOverrides as BackgroundActivitySettings["overrides"],
-    },
-  };
-}
-
-function PolicyTooltip({ children }: { readonly children: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            className="inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
-            aria-label="Background policy details"
-          >
-            <InfoIcon className="size-3.5" />
-          </button>
-        }
-      />
-      <TooltipPopup side="top" className="max-w-72">
-        {children}
-      </TooltipPopup>
-    </Tooltip>
-  );
 }
 
 function withoutProviderInstanceKey<V>(
