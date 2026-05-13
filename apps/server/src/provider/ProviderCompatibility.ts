@@ -233,13 +233,6 @@ const fetchRemoteCompatibilityDocument = Effect.fn("fetchRemoteCompatibilityDocu
     ),
 );
 
-export const resolveRemoteProviderCompatibilityDocument = Effect.fn(
-  "resolveRemoteProviderCompatibilityDocument",
-)(function* () {
-  const compatibility = yield* ProviderCompatibilityService;
-  return yield* compatibility.resolveRemoteDocument;
-});
-
 function applyCompatibilityAdvisory<Snapshot extends ProviderCompatibilitySnapshot>(
   snapshot: Snapshot,
   compatibilityAdvisory: ServerProviderCompatibilityAdvisory | undefined,
