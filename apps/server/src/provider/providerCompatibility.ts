@@ -293,10 +293,6 @@ function applyCompatibilityAdvisory<Snapshot extends ProviderCompatibilitySnapsh
     return snapshotWithoutAdvisory as Snapshot;
   }
 
-  const compatibilityMessage =
-    compatibilityAdvisory.severity !== "info"
-      ? (compatibilityAdvisory.message ?? undefined)
-      : undefined;
   const status =
     snapshot.enabled && compatibilityAdvisory.severity === "error"
       ? "error"
@@ -305,6 +301,10 @@ function applyCompatibilityAdvisory<Snapshot extends ProviderCompatibilitySnapsh
           snapshot.status === "ready"
         ? "warning"
         : snapshot.status;
+  const compatibilityMessage =
+    status !== snapshot.status && compatibilityAdvisory.severity !== "info"
+      ? (compatibilityAdvisory.message ?? undefined)
+      : undefined;
 
   return {
     ...snapshot,
