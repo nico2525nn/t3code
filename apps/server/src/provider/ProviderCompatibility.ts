@@ -349,23 +349,16 @@ export const makeProviderCompatibilityService = Effect.fn("makeProviderCompatibi
       resolveRemoteDocument,
       enrichSnapshot: (snapshot) =>
         resolveRemoteDocument.pipe(
-          Effect.map((remoteDocument) => {
-            const remoteAdvisory = remoteDocument
-              ? createProviderCompatibilityAdvisory({
-                  driver: snapshot.driver,
-                  currentVersion: snapshot.version,
-                  document: remoteDocument,
-                })
-              : undefined;
-            const advisory =
-              remoteAdvisory ??
+          Effect.map((remoteDocument) =>
+            applyCompatibilityAdvisory(
+              snapshot,
               createProviderCompatibilityAdvisory({
                 driver: snapshot.driver,
                 currentVersion: snapshot.version,
-              });
-
-            return applyCompatibilityAdvisory(snapshot, advisory);
-          }),
+                ...(remoteDocument ? { document: remoteDocument } : {}),
+              }),
+            ),
+          ),
         ),
     } satisfies ProviderCompatibilityServiceShape;
   },
