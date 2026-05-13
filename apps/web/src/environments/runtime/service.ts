@@ -73,6 +73,7 @@ import {
   derivePhysicalProjectKey,
 } from "../../logicalProject";
 import { getClientSettings } from "~/hooks/useSettings";
+import { startBackgroundActivityReporter } from "~/lib/backgroundActivityReporter";
 
 type EnvironmentServiceState = {
   readonly queryClient: QueryClient;
@@ -1783,6 +1784,10 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
     .catch(() => undefined);
 
   const unsubscribeBrowserResumeReconnects = subscribeBrowserResumeReconnects();
+  const stopBackgroundActivityReporter = startBackgroundActivityReporter({
+    getConnections: listEnvironmentConnections,
+    subscribeConnections: subscribeEnvironmentConnections,
+  });
 
   activeService = {
     queryClient,
@@ -1791,6 +1796,7 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
     stop: () => {
       unsubscribeSavedEnvironments();
       unsubscribeBrowserResumeReconnects();
+      stopBackgroundActivityReporter();
       queryInvalidationThrottler.cancel();
     },
   };
