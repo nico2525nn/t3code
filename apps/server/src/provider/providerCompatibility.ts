@@ -325,13 +325,19 @@ function applyCompatibilityAdvisory<Snapshot extends ProviderCompatibilitySnapsh
         ? "warning"
         : baseSnapshot.status;
 
+  const advisoryWithPreState: ServerProviderCompatibilityAdvisory = {
+    ...compatibilityAdvisory,
+    preAdvisoryStatus: baseSnapshot.status,
+    ...(baseSnapshot.message ? { preAdvisoryMessage: baseSnapshot.message } : {}),
+  };
+
   return {
     ...baseSnapshot,
     status,
     ...(compatibilityMessage || baseSnapshot.message
       ? { message: compatibilityMessage ?? baseSnapshot.message }
       : {}),
-    compatibilityAdvisory,
+    compatibilityAdvisory: advisoryWithPreState,
   } as Snapshot;
 }
 
@@ -349,10 +355,18 @@ function removeExistingCompatibilityAdvisory<Snapshot extends ProviderCompatibil
       : undefined;
   if (compatibilityMessage && baseSnapshot.message === compatibilityMessage) {
     const { message: _message, ...snapshotWithoutCompatibilityMessage } = baseSnapshot;
+    const restoredStatus =
+      existingCompatibilityAdvisory.preAdvisoryStatus ?? (snapshot.enabled ? "ready" : "disabled");
     return {
       ...snapshotWithoutCompatibilityMessage,
-      status: snapshot.enabled ? "ready" : "disabled",
+      status: restoredStatus,
+      ...(existingCompatibilityAdvisory.preAdvisoryMessage
+        ? { message: existingCompatibilityAdvisory.preAdvisoryMessage }
+        : {}),
     } as Snapshot;
+  }
+  if (existingCompatibilityAdvisory.preAdvisoryStatus !== undefined) {
+    return { ...baseSnapshot, status: existingCompatibilityAdvisory.preAdvisoryStatus } as Snapshot;
   }
   return baseSnapshot as Snapshot;
 }

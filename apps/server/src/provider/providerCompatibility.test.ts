@@ -327,6 +327,52 @@ describe("provider compatibility", () => {
     });
   });
 
+  it.effect("preserves genuine probe errors when the remote map relaxes a bundled advisory", () => {
+    const bundledMessage =
+      "This provider harness version 0.130.0 is known to be incompatible with this T3 Code release. Use 0.129.0.";
+    const probeErrorMessage = "CLI health-check failed: process exited with code 1";
+    const remoteDocument = {
+      version: 1,
+      policies: [
+        {
+          t3CodeRange: ">=0.0.0",
+          driver: "codex",
+          recommendedRange: ">=0.130.0",
+          recommendedVersion: "0.130.0",
+          ranges: [{ status: "supported", range: ">=0.130.0" }],
+        },
+      ],
+    };
+
+    return Effect.gen(function* () {
+      const enriched = yield* enrichProviderSnapshotWithCompatibilityAdvisory({
+        ...baseProvider,
+        status: "error",
+        message: bundledMessage,
+        compatibilityAdvisory: {
+          status: "broken",
+          severity: "error",
+          currentVersion: "0.130.0",
+          message: bundledMessage,
+          recommendedRange: "<0.130.0",
+          recommendedVersion: "0.129.0",
+          ranges: [{ status: "broken", range: ">=0.130.0" }],
+          preAdvisoryStatus: "error",
+          preAdvisoryMessage: probeErrorMessage,
+        },
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          jsonHttpClient(() => ({ payload: remoteDocument })),
+        ),
+      );
+
+      expect(enriched.status).toBe("error");
+      expect(enriched.message).toBe(probeErrorMessage);
+      expect(enriched.compatibilityAdvisory).toMatchObject({ status: "supported" });
+    });
+  });
+
   it.effect("falls back to the bundled map when the remote compatibility fetch fails", () =>
     Effect.gen(function* () {
       const enriched = yield* enrichProviderSnapshotWithCompatibilityAdvisory({
