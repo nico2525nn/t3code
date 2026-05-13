@@ -61,6 +61,23 @@ export type EnvironmentStreamRpcTag =
   | EnvironmentStreamCommandRpcTag;
 
 export type EnvironmentUnaryRpcTag = Exclude<EnvironmentRpcTag, EnvironmentStreamRpcTag>;
+
+export interface EnvironmentRpcSubscriptionObservation {
+  readonly environmentId: string;
+  readonly method: EnvironmentSubscriptionRpcTag;
+  readonly input: unknown;
+}
+
+export class EnvironmentRpcSubscriptionObserver extends Context.Reference<{
+  readonly observe: (
+    subscription: EnvironmentRpcSubscriptionObservation,
+  ) => Effect.Effect<Effect.Effect<void>>;
+}>("@t3tools/client-runtime/rpc/EnvironmentRpcSubscriptionObserver", {
+  defaultValue: () => ({
+    observe: () => Effect.succeed(Effect.void),
+  }),
+}) {}
+
 const isRpcClientError = Schema.is(RpcClientError.RpcClientError);
 
 export type EnvironmentRpcInput<TTag extends EnvironmentRpcTag> = Parameters<RpcMethod<TTag>>[0];
@@ -162,9 +179,15 @@ export function subscribe<TTag extends EnvironmentSubscriptionRpcTag>(
   EnvironmentSupervisor
 > {
   return Stream.unwrap(
-    EnvironmentSupervisor.pipe(
-      Effect.map((supervisor) =>
-        SubscriptionRef.changes(supervisor.session).pipe(
+    Effect.gen(function* () {
+      const supervisor = yield* EnvironmentSupervisor;
+      const observer = yield* EnvironmentRpcSubscriptionObserver;
+      const completeObservation = yield* observer.observe({
+        environmentId: supervisor.target.environmentId,
+        method: tag,
+        input,
+      });
+      return SubscriptionRef.changes(supervisor.session).pipe(
           Stream.switchMap(
             Option.match({
               onNone: () => Stream.empty,
@@ -226,9 +249,9 @@ export function subscribe<TTag extends EnvironmentSubscriptionRpcTag>(
               },
             }),
           ),
-        ),
-      ),
-    ),
+          Stream.ensuring(completeObservation),
+        );
+    }),
   ).pipe(
     Stream.withSpan("EnvironmentRpc.subscribe", {
       attributes: { "rpc.method": tag },

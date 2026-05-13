@@ -48,6 +48,7 @@ import {
   FilesystemBrowseError,
   AssetWorkspaceContextNotFoundError,
   AssetWorkspaceContextResolutionError,
+  RpcClientId,
   EnvironmentAuthorizationError,
   ThreadId,
   type TerminalAttachStreamEvent,
@@ -57,6 +58,7 @@ import {
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
+import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -93,6 +95,7 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
+import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
@@ -415,10 +418,13 @@ const makeWsRpcLayer = (currentSession: EnvironmentAuth.AuthenticatedSession) =>
       const repositoryIdentityResolver =
         yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
+      const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
       const sourceControlDiscovery = yield* SourceControlDiscovery.SourceControlDiscovery;
       const automaticGitFetchInterval = serverSettings.getSettings.pipe(
-        Effect.map((settings) => settings.automaticGitFetchInterval),
+        Effect.map(
+          (settings) => resolveServerBackgroundActivitySettings(settings).automaticGitFetchInterval,
+        ),
         Effect.catch((cause) =>
           Effect.logWarning("Failed to read automatic Git fetch interval setting", {
             detail: cause.message,
@@ -1261,6 +1267,26 @@ const makeWsRpcLayer = (currentSession: EnvironmentAuth.AuthenticatedSession) =>
           observeRpcEffect(WS_METHODS.serverSignalProcess, processDiagnostics.signal(input), {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.serverReportClientActivity]: (input, metadata) =>
+          observeRpcEffect(
+            WS_METHODS.serverReportClientActivity,
+            backgroundPolicy.reportClientActivity(
+              currentSessionId,
+              RpcClientId.make(metadata.client.id),
+              input,
+            ),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverReportHostPowerState]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverReportHostPowerState,
+            backgroundPolicy.reportHostPowerState(input),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverGetBackgroundPolicy]: (_input) =>
+          observeRpcEffect(WS_METHODS.serverGetBackgroundPolicy, backgroundPolicy.snapshot, {
+            "rpc.aggregate": "server",
+          }),
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) =>
           observeRpcEffect(WS_METHODS.cloudGetRelayClientStatus, relayClient.resolve, {
             "rpc.aggregate": "cloud",
@@ -1785,6 +1811,15 @@ const makeWsRpcLayer = (currentSession: EnvironmentAuth.AuthenticatedSession) =>
               );
             }),
             { "rpc.aggregate": "auth" },
+          ),
+        [WS_METHODS.subscribeBackgroundPolicy]: (_input) =>
+          observeRpcStream(
+            WS_METHODS.subscribeBackgroundPolicy,
+            Stream.concat(
+              Stream.unwrap(Effect.map(backgroundPolicy.snapshot, Stream.make)),
+              backgroundPolicy.streamChanges,
+            ),
+            { "rpc.aggregate": "server" },
           ),
       });
     }),

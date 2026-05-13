@@ -3,20 +3,31 @@ import * as Layer from "effect/Layer";
 import { Atom } from "effect/unstable/reactivity";
 
 import { runtimeContextLayer } from "../lib/runtime";
+import {
+  backgroundActivityObserverLayer,
+  backgroundActivityReporterLayer,
+} from "../lib/backgroundActivityReporter";
 import { connectionPlatformLayer } from "./platform";
 
 const providedConnectionPlatformLayer = connectionPlatformLayer.pipe(
   Layer.provide(runtimeContextLayer),
 );
 
-type ConnectionLayerSource =
-  | typeof Connection.layer
-  | typeof runtimeContextLayer
-  | typeof connectionPlatformLayer;
-
-const connectionLayer = Connection.layer.pipe(
-  Layer.provideMerge(Layer.mergeAll(runtimeContextLayer, providedConnectionPlatformLayer)),
+const providedClientConnectionLayer = Connection.layer.pipe(
+  Layer.provideMerge(
+    Layer.mergeAll(
+      runtimeContextLayer,
+      providedConnectionPlatformLayer,
+      backgroundActivityObserverLayer,
+    ),
+  ),
 );
+
+export const connectionLayer = backgroundActivityReporterLayer.pipe(
+  Layer.provideMerge(providedClientConnectionLayer),
+);
+
+type ConnectionLayerSource = typeof connectionLayer;
 
 export const connectionAtomRuntime: Atom.AtomRuntime<
   Layer.Success<ConnectionLayerSource>,
