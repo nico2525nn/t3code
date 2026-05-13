@@ -7,6 +7,10 @@ import * as Order from "effect/Order";
 
 export type ReviewSectionKind = "turn" | "working-tree" | "branch-range";
 
+const DIRTY_WORKTREE_SECTION_ID = "git:working-tree";
+const DIRTY_WORKTREE_TITLE = "Dirty worktree";
+const DIRTY_WORKTREE_SUBTITLE = "Tracked, staged, and untracked worktree changes";
+
 export interface ReviewSectionItem {
   readonly id: string;
   readonly kind: ReviewSectionKind;
@@ -153,7 +157,7 @@ const readyCheckpointOrder = Order.make<OrchestrationCheckpointSummary>(
 
 function gitSubtitle(section: ReviewDiffPreviewSource): string | null {
   if (section.kind === "working-tree") {
-    return "Tracked, staged, and untracked worktree changes";
+    return DIRTY_WORKTREE_SUBTITLE;
   }
   if (section.baseRef) {
     return `${section.baseRef} ... ${section.headRef ?? "HEAD"}`;
@@ -526,6 +530,7 @@ export function buildReviewSectionItems(input: {
   readonly gitSections: ReadonlyArray<ReviewDiffPreviewSource>;
   readonly turnDiffById: Readonly<Record<string, string | undefined>>;
   readonly loadingTurnIds: Readonly<Record<string, boolean | undefined>>;
+  readonly loadingGitSections: boolean;
 }): ReadonlyArray<ReviewSectionItem> {
   const turnItems = getReadyReviewCheckpoints(input.checkpoints).map<ReviewSectionItem>(
     (checkpoint) => {
@@ -549,8 +554,23 @@ export function buildReviewSectionItems(input: {
     diff: section.diff,
     isLoading: false,
   }));
+  const hasDirtyWorktreeItem = gitItems.some((item) => item.id === DIRTY_WORKTREE_SECTION_ID);
+  const visibleGitItems =
+    input.loadingGitSections && !hasDirtyWorktreeItem
+      ? [
+          {
+            id: DIRTY_WORKTREE_SECTION_ID,
+            kind: "working-tree",
+            title: DIRTY_WORKTREE_TITLE,
+            subtitle: DIRTY_WORKTREE_SUBTITLE,
+            diff: null,
+            isLoading: true,
+          } satisfies ReviewSectionItem,
+          ...gitItems,
+        ]
+      : gitItems;
 
-  return [...turnItems, ...gitItems];
+  return [...turnItems, ...visibleGitItems];
 }
 
 export function getDefaultReviewSectionId(

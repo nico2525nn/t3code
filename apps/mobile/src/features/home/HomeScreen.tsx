@@ -5,7 +5,7 @@ import type {
 } from "@t3tools/client-runtime";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { useThemeColor } from "../../lib/useThemeColor";
@@ -16,6 +16,7 @@ import { ProjectFavicon } from "../../components/ProjectFavicon";
 import type { SavedRemoteConnection } from "../../lib/connection";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { relativeTime } from "../../lib/time";
+import type { RemoteCatalogState } from "../../state/use-remote-catalog";
 import { useVcsStatus } from "../../state/use-vcs-status";
 import { threadStatusTone } from "../threads/threadPresentation";
 
@@ -24,8 +25,10 @@ import { threadStatusTone } from "../threads/threadPresentation";
 interface HomeScreenProps {
   readonly projects: ReadonlyArray<EnvironmentScopedProjectShell>;
   readonly threads: ReadonlyArray<EnvironmentScopedThreadShell>;
+  readonly catalogState: RemoteCatalogState;
   readonly savedConnectionsById: Readonly<Record<string, SavedRemoteConnection>>;
   readonly searchQuery: string;
+  readonly onAddConnection: () => void;
   readonly onSelectThread: (thread: EnvironmentScopedThreadShell) => void;
 }
 
@@ -62,6 +65,64 @@ function statusColors(thread: EnvironmentScopedThreadShell): { bg: string; fg: s
 }
 
 const COLLAPSED_THREAD_LIMIT = 6;
+
+function deriveEmptyState(props: {
+  readonly catalogState: RemoteCatalogState;
+  readonly projectCount: number;
+}): { readonly title: string; readonly detail: string; readonly loading: boolean } {
+  const { catalogState } = props;
+  if (catalogState.isLoadingSavedConnections) {
+    return {
+      title: "Loading environments",
+      detail: "Checking saved environments on this device.",
+      loading: true,
+    };
+  }
+
+  if (!catalogState.hasSavedConnections) {
+    return {
+      title: "No environments connected",
+      detail: "Add an environment to load projects and start coding sessions.",
+      loading: false,
+    };
+  }
+
+  if (catalogState.connectionState === "disconnected" && !catalogState.hasLoadedShellSnapshot) {
+    return {
+      title: "Environment unavailable",
+      detail:
+        catalogState.connectionError ??
+        "The saved environment is offline. Check the URL or start the environment, then retry.",
+      loading: false,
+    };
+  }
+
+  if (
+    catalogState.hasConnectingEnvironment &&
+    !catalogState.hasLoadedShellSnapshot &&
+    catalogState.connectionError === null
+  ) {
+    return {
+      title: "Connecting to environment",
+      detail: "Loading projects and threads from the saved environment.",
+      loading: true,
+    };
+  }
+
+  if (props.projectCount === 0 && catalogState.hasLoadedShellSnapshot) {
+    return {
+      title: "No projects found",
+      detail: "The connected environment did not report any projects.",
+      loading: false,
+    };
+  }
+
+  return {
+    title: "No threads yet",
+    detail: "Create a task to start a new coding session in one of your connected projects.",
+    loading: false,
+  };
+}
 
 /* ─── Project group header ───────────────────────────────────────────── */
 
@@ -233,6 +294,7 @@ function ThreadRow(props: {
 
 export function HomeScreen(props: HomeScreenProps) {
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set());
+  const accentColor = useThemeColor("--color-icon-muted");
 
   const toggleExpanded = useCallback((key: string) => {
     setExpandedProjects((prev) => {
@@ -288,6 +350,10 @@ export function HomeScreen(props: HomeScreenProps) {
   /* Empty states */
   const hasAnyThreads = props.threads.length > 0;
   const hasResults = filteredThreads.length > 0;
+  const emptyState = deriveEmptyState({
+    catalogState: props.catalogState,
+    projectCount: props.projects.length,
+  });
 
   return (
     <ScrollView
@@ -304,10 +370,19 @@ export function HomeScreen(props: HomeScreenProps) {
       }}
     >
       {!hasAnyThreads ? (
-        <EmptyState
-          title="No threads yet"
-          detail="Create a task to start a new coding session in one of your connected projects."
-        />
+        <View>
+          <EmptyState
+            title={emptyState.title}
+            detail={emptyState.detail}
+            actionLabel={!props.catalogState.hasReadyEnvironment ? "Add environment" : undefined}
+            onAction={!props.catalogState.hasReadyEnvironment ? props.onAddConnection : undefined}
+          />
+          {emptyState.loading ? (
+            <View className="absolute right-5 top-5">
+              <ActivityIndicator color={accentColor} />
+            </View>
+          ) : null}
+        </View>
       ) : !hasResults ? (
         <EmptyState title="No results" detail={`No threads matching "${props.searchQuery}".`} />
       ) : (

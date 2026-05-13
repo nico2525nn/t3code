@@ -33,7 +33,7 @@ export default function ConnectionsRouteScreen() {
     <View collapsable={false} className="flex-1 bg-sheet">
       <Stack.Screen
         options={{
-          title: "Backends",
+          title: "Environments",
           headerRight: () => (
             <Link href="/connections/new" asChild>
               <Pressable className="h-10 w-10 items-center justify-center rounded-full bg-primary active:opacity-70">
@@ -53,10 +53,10 @@ export default function ConnectionsRouteScreen() {
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
+        contentInset={{ bottom: Math.max(insets.bottom, 18) + 18 }}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingTop: 16,
-          paddingBottom: Math.max(insets.bottom, 18) + 18,
         }}
       >
         {hasEnvironments ? (
@@ -92,7 +92,7 @@ export default function ConnectionsRouteScreen() {
               />
             </View>
             <Text className="text-center text-[14px] leading-[20px] text-foreground-muted">
-              No backends connected yet.{"\n"}Tap{" "}
+              No environments connected yet.{"\n"}Tap{" "}
               <Text className="font-t3-bold text-foreground">+</Text> to add one.
             </Text>
           </View>

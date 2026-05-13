@@ -1,12 +1,21 @@
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as SecureStore from "expo-secure-store";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, OrchestrationShellSnapshot } from "@t3tools/contracts";
 
 import type { SavedRemoteConnection } from "./connection";
 
 const CONNECTIONS_KEY = "t3code.connections";
 const PREFERENCES_KEY = "t3code.preferences";
+const SHELL_SNAPSHOT_CACHE_SCHEMA_VERSION = 1;
+const SHELL_SNAPSHOT_CACHE_DIRECTORY = "shell-snapshots";
+
+export interface CachedShellSnapshot {
+  readonly schemaVersion: typeof SHELL_SNAPSHOT_CACHE_SCHEMA_VERSION;
+  readonly environmentId: EnvironmentId;
+  readonly snapshotReceivedAt: string;
+  readonly snapshot: OrchestrationShellSnapshot;
+}
 
 export interface MobilePreferences {
   readonly terminalFontSize?: number;
@@ -30,6 +39,104 @@ async function readJsonStorageItem<T>(key: string): Promise<T | null> {
     return JSON.parse(raw) as T;
   } catch {
     return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isShellSnapshot(value: unknown): value is OrchestrationShellSnapshot {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.snapshotSequence === "number" &&
+    Array.isArray(value.projects) &&
+    Array.isArray(value.threads) &&
+    typeof value.updatedAt === "string"
+  );
+}
+
+function isCachedShellSnapshot(value: unknown): value is CachedShellSnapshot {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    value.schemaVersion === SHELL_SNAPSHOT_CACHE_SCHEMA_VERSION &&
+    typeof value.environmentId === "string" &&
+    typeof value.snapshotReceivedAt === "string" &&
+    isShellSnapshot(value.snapshot)
+  );
+}
+
+function cachedShellSnapshotFileName(environmentId: EnvironmentId): string {
+  return `${encodeURIComponent(environmentId)}.json`;
+}
+
+async function getShellSnapshotCacheDirectory() {
+  const { Directory, Paths } = await import("expo-file-system");
+  const directory = new Directory(Paths.document, SHELL_SNAPSHOT_CACHE_DIRECTORY);
+  directory.create({ idempotent: true, intermediates: true });
+  return directory;
+}
+
+export async function loadCachedShellSnapshot(
+  environmentId: EnvironmentId,
+): Promise<CachedShellSnapshot | null> {
+  try {
+    const { File } = await import("expo-file-system");
+    const directory = await getShellSnapshotCacheDirectory();
+    const file = new File(directory, cachedShellSnapshotFileName(environmentId));
+    if (!file.exists) {
+      return null;
+    }
+
+    const parsed = JSON.parse(await file.text()) as unknown;
+    if (!isCachedShellSnapshot(parsed) || parsed.environmentId !== environmentId) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCachedShellSnapshot(
+  environmentId: EnvironmentId,
+  snapshot: OrchestrationShellSnapshot,
+): Promise<void> {
+  try {
+    const { File } = await import("expo-file-system");
+    const directory = await getShellSnapshotCacheDirectory();
+    const file = new File(directory, cachedShellSnapshotFileName(environmentId));
+    const document: CachedShellSnapshot = {
+      schemaVersion: SHELL_SNAPSHOT_CACHE_SCHEMA_VERSION,
+      environmentId,
+      snapshotReceivedAt: new Date().toISOString(),
+      snapshot,
+    };
+
+    if (!file.exists) {
+      file.create({ intermediates: true, overwrite: true });
+    }
+    file.write(JSON.stringify(document));
+  } catch {
+    // Cache persistence is best-effort and should never block live data.
+  }
+}
+
+export async function clearCachedShellSnapshot(environmentId: EnvironmentId): Promise<void> {
+  try {
+    const { File } = await import("expo-file-system");
+    const directory = await getShellSnapshotCacheDirectory();
+    const file = new File(directory, cachedShellSnapshotFileName(environmentId));
+    if (file.exists) {
+      file.delete();
+    }
+  } catch {
+    // Ignore cache cleanup failures.
   }
 }
 

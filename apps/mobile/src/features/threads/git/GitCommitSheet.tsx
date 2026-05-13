@@ -65,10 +65,10 @@ export function GitCommitSheet() {
     <ScrollView
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
+      contentInset={{ bottom: Math.max(insets.bottom, 18) + 18 }}
       contentContainerStyle={{
         paddingHorizontal: 20,
         paddingTop: 8,
-        paddingBottom: Math.max(insets.bottom, 18) + 18,
         gap: 16,
       }}
     >

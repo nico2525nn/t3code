@@ -304,16 +304,17 @@ function upsertTerminalIntoGroups(
   if (!destinationGroup) {
     return normalized;
   }
+  const destinationTerminalIdSet = new Set(destinationGroup.terminalIds);
 
   if (
     isNewTerminal &&
-    !destinationGroup.terminalIds.includes(terminalId) &&
+    !destinationTerminalIdSet.has(terminalId) &&
     destinationGroup.terminalIds.length >= MAX_TERMINALS_PER_GROUP
   ) {
     return normalized;
   }
 
-  if (!destinationGroup.terminalIds.includes(terminalId)) {
+  if (!destinationTerminalIdSet.has(terminalId)) {
     const anchorIndex = destinationGroup.terminalIds.indexOf(normalized.activeTerminalId);
     if (anchorIndex >= 0) {
       destinationGroup.terminalIds.splice(anchorIndex + 1, 0, terminalId);

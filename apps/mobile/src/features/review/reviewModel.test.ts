@@ -95,6 +95,7 @@ describe("buildReviewSectionItems", () => {
       loadingTurnIds: {
         [getReviewSectionIdForCheckpoint(checkpoints[1])]: true,
       },
+      loadingGitSections: false,
     });
 
     expect(items.map((item) => item.id)).toEqual([
@@ -109,6 +110,28 @@ describe("buildReviewSectionItems", () => {
       diff: expect.stringContaining("loaded.ts"),
     });
     expect(getDefaultReviewSectionId(items)).toBe("turn:2");
+  });
+
+  it("shows dirty worktree while git preview is loading", () => {
+    const items = buildReviewSectionItems({
+      checkpoints: [],
+      gitSections: [],
+      turnDiffById: {},
+      loadingTurnIds: {},
+      loadingGitSections: true,
+    });
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: "git:working-tree",
+        kind: "working-tree",
+        title: "Dirty worktree",
+        subtitle: "Tracked, staged, and untracked worktree changes",
+        diff: null,
+        isLoading: true,
+      }),
+    ]);
+    expect(getDefaultReviewSectionId(items)).toBe("git:working-tree");
   });
 });
 

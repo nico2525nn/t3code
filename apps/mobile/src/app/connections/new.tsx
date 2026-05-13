@@ -16,11 +16,10 @@ import { buildPairingUrl, parsePairingUrl } from "../../features/connection/pair
 
 export default function ConnectionsNewRouteScreen() {
   const {
-    connectionError,
     connectionPairingUrl,
-    connectionState,
     onChangeConnectionPairingUrl,
     onConnectPress,
+    pairingConnectionError,
   } = useRemoteConnections();
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string }>();
@@ -35,8 +34,7 @@ export default function ConnectionsNewRouteScreen() {
   const textColor = useThemeColor("--color-icon");
   const placeholderColor = useThemeColor("--color-placeholder");
 
-  const connectDisabled =
-    isSubmitting || connectionState === "connecting" || hostInput.trim().length === 0;
+  const connectDisabled = isSubmitting || hostInput.trim().length === 0;
 
   useEffect(() => {
     const { host, code } = parsePairingUrl(connectionPairingUrl);
@@ -45,10 +43,10 @@ export default function ConnectionsNewRouteScreen() {
   }, [connectionPairingUrl]);
 
   useEffect(() => {
-    if (connectionError) {
+    if (pairingConnectionError) {
       setIsSubmitting(false);
     }
-  }, [connectionError]);
+  }, [pairingConnectionError]);
 
   const handleHostChange = useCallback((value: string) => {
     setHostInput(value);
@@ -72,7 +70,10 @@ export default function ConnectionsNewRouteScreen() {
       return;
     }
 
-    Alert.alert("Camera access needed", "Allow camera access to scan a backend pairing QR code.");
+    Alert.alert(
+      "Camera access needed",
+      "Allow camera access to scan an environment pairing QR code.",
+    );
   }, [cameraPermission?.granted, requestCameraPermission]);
 
   const closeScanner = useCallback(() => {
@@ -126,7 +127,7 @@ export default function ConnectionsNewRouteScreen() {
     <View collapsable={false} className="flex-1 bg-sheet">
       <Stack.Screen
         options={{
-          title: showScanner ? "Scan QR Code" : "Add Backend",
+          title: showScanner ? "Scan QR Code" : "Add Environment",
           headerRight: () => (
             <Pressable
               className="h-10 w-10 items-center justify-center rounded-full border border-border bg-secondary"
@@ -154,10 +155,10 @@ export default function ConnectionsNewRouteScreen() {
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
+        contentInset={{ bottom: Math.max(insets.bottom, 18) + 18 }}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingTop: 16,
-          paddingBottom: Math.max(insets.bottom, 18) + 18,
         }}
       >
         <View collapsable={false} className="gap-5">
@@ -231,13 +232,11 @@ export default function ConnectionsNewRouteScreen() {
                 />
               </View>
 
-              {connectionError ? <ErrorBanner message={connectionError} /> : null}
+              {pairingConnectionError ? <ErrorBanner message={pairingConnectionError} /> : null}
 
               <ConnectionSheetButton
                 icon="plus"
-                label={
-                  isSubmitting || connectionState === "connecting" ? "Pairing..." : "Add backend"
-                }
+                label={isSubmitting ? "Pairing..." : "Add environment"}
                 disabled={connectDisabled}
                 tone="primary"
                 onPress={() => {

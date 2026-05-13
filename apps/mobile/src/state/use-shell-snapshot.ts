@@ -1,6 +1,7 @@
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { useAtomValue } from "@effect/atom-react";
+import { Atom } from "effect/unstable/reactivity";
 import {
   EMPTY_SHELL_SNAPSHOT_ATOM,
   EMPTY_SHELL_SNAPSHOT_STATE,
@@ -13,10 +14,46 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { appAtomRegistry } from "./atom-registry";
+import type { CachedShellSnapshot } from "../lib/storage";
+
+const cachedShellSnapshotMetadataAtom = Atom.make<
+  Readonly<Record<EnvironmentId, { readonly snapshotReceivedAt: string }>>
+>({}).pipe(Atom.keepAlive, Atom.withLabel("mobile:cached-shell-snapshot-metadata"));
 
 export const shellSnapshotManager = createShellSnapshotManager({
   getRegistry: () => appAtomRegistry,
 });
+
+export function hydrateCachedShellSnapshot(cached: CachedShellSnapshot): void {
+  shellSnapshotManager.syncSnapshot({ environmentId: cached.environmentId }, cached.snapshot);
+  appAtomRegistry.set(cachedShellSnapshotMetadataAtom, {
+    ...appAtomRegistry.get(cachedShellSnapshotMetadataAtom),
+    [cached.environmentId]: {
+      snapshotReceivedAt: cached.snapshotReceivedAt,
+    },
+  });
+}
+
+export function markShellSnapshotLive(environmentId: EnvironmentId): void {
+  const current = appAtomRegistry.get(cachedShellSnapshotMetadataAtom);
+  if (current[environmentId] === undefined) {
+    return;
+  }
+
+  const next = { ...current };
+  delete next[environmentId];
+  appAtomRegistry.set(cachedShellSnapshotMetadataAtom, next);
+}
+
+export function clearCachedShellSnapshotMetadata(environmentId: EnvironmentId): void {
+  markShellSnapshotLive(environmentId);
+}
+
+export function useCachedShellSnapshotMetadata(): Readonly<
+  Record<EnvironmentId, { readonly snapshotReceivedAt: string }>
+> {
+  return useAtomValue(cachedShellSnapshotMetadataAtom);
+}
 
 export function useShellSnapshot(environmentId: EnvironmentId | null): ShellSnapshotState {
   const targetKey = getShellSnapshotTargetKey({ environmentId });

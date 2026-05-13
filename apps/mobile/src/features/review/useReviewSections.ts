@@ -66,8 +66,15 @@ export function useReviewSections(input: {
         gitSections: reviewCache.gitSections,
         turnDiffById: reviewCache.turnDiffById,
         loadingTurnIds,
+        loadingGitSections: diffPreview.isPending,
       }),
-    [loadingTurnIds, readyCheckpoints, reviewCache.gitSections, reviewCache.turnDiffById],
+    [
+      diffPreview.isPending,
+      loadingTurnIds,
+      readyCheckpoints,
+      reviewCache.gitSections,
+      reviewCache.turnDiffById,
+    ],
   );
   const selectedSection = useMemo(
     () =>

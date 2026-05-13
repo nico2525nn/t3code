@@ -4,7 +4,7 @@ import { SymbolView } from "expo-symbols";
 import { TextInputWrapper } from "expo-paste-input";
 import { useCallback, useEffect, useMemo } from "react";
 import { Pressable, View, useColorScheme } from "react-native";
-import Animated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../lib/useThemeColor";
 
@@ -35,13 +35,7 @@ export function NewTaskDraftScreen(props: {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isDarkMode = useColorScheme() === "dark";
-  const keyboard = useAnimatedKeyboard();
-  const containerAnimatedStyle = useAnimatedStyle(() => ({
-    paddingBottom: keyboard.height.value,
-  }));
-  const controlsBottomPadding = useAnimatedStyle(() => ({
-    paddingBottom: keyboard.height.value > 0 ? 4 : Math.max(insets.bottom, 10),
-  }));
+  const controlsBottomPadding = Math.max(insets.bottom, 10);
   const { logicalProjects, selectedProject, setProject } = flow;
 
   const iconColor = useThemeColor("--color-icon");
@@ -402,7 +396,7 @@ export function NewTaskDraftScreen(props: {
   }
 
   return (
-    <Animated.View className="flex-1 bg-sheet" style={containerAnimatedStyle}>
+    <View className="flex-1 bg-sheet">
       <View style={{ minHeight: 16, paddingTop: 8 }} />
 
       <View className="items-center gap-1 px-5 pb-3 pt-4">
@@ -443,72 +437,74 @@ export function NewTaskDraftScreen(props: {
         </TextInputWrapper>
       </View>
 
-      <Animated.View
-        style={[
-          {
+      <KeyboardStickyView>
+        <View
+          style={{
             borderTopWidth: 1,
             borderTopColor: borderColor,
-          },
-          controlsBottomPadding,
-        ]}
-      >
-        {flow.attachments.length > 0 ? (
-          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-            <ComposerAttachmentStrip
-              attachments={flow.attachments}
-              onRemove={flow.removeAttachment}
-              imageSize={88}
-              imageBorderRadius={20}
+            paddingBottom: controlsBottomPadding,
+          }}
+        >
+          {flow.attachments.length > 0 ? (
+            <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+              <ComposerAttachmentStrip
+                attachments={flow.attachments}
+                onRemove={flow.removeAttachment}
+                imageSize={88}
+                imageBorderRadius={20}
+              />
+            </View>
+          ) : null}
+          <View className="flex-row items-center justify-between gap-2 px-4 pb-1 pt-4">
+            <ControlPill icon="plus" onPress={() => void handlePickImages()} />
+            <MenuView
+              actions={modelMenuActions}
+              onPressAction={({ nativeEvent }) => handleModelMenuAction(nativeEvent.event)}
+              themeVariant={isDarkMode ? "dark" : "light"}
+            >
+              <ControlPill
+                iconNode={
+                  <ProviderIcon provider={flow.selectedModelOption?.providerDriver} size={16} />
+                }
+              />
+            </MenuView>
+            <MenuView
+              actions={optionsMenuActions}
+              onPressAction={({ nativeEvent }) => handleOptionsMenuAction(nativeEvent.event)}
+              themeVariant={isDarkMode ? "dark" : "light"}
+            >
+              <ControlPill icon="slider.horizontal.3" />
+            </MenuView>
+            <MenuView
+              actions={environmentMenuActions}
+              onPressAction={({ nativeEvent }) => handleEnvironmentMenuAction(nativeEvent.event)}
+              themeVariant={isDarkMode ? "dark" : "light"}
+            >
+              <ControlPill icon="desktopcomputer" />
+            </MenuView>
+            <MenuView
+              actions={workspaceMenuActions}
+              onPressAction={({ nativeEvent }) => handleWorkspaceMenuAction(nativeEvent.event)}
+              themeVariant={isDarkMode ? "dark" : "light"}
+            >
+              <ControlPill icon="point.topleft.down.curvedto.point.bottomright.up" />
+            </MenuView>
+            <ControlPill
+              icon="arrow.up"
+              label={flow.submitting ? "Starting" : "Start"}
+              onPress={() => void handleStart()}
+              variant="primary"
+              disabled={
+                !flow.selectedProject ||
+                !flow.selectedModel ||
+                flow.prompt.trim().length === 0 ||
+                flow.submitting ||
+                (flow.workspaceMode === "worktree" && !flow.selectedBranchName)
+              }
             />
           </View>
-        ) : null}
-        <View className="flex-row items-center justify-between gap-2 px-4 pb-1 pt-4">
-          <ControlPill icon="plus" onPress={() => void handlePickImages()} />
-          <MenuView
-            actions={modelMenuActions}
-            onPressAction={({ nativeEvent }) => handleModelMenuAction(nativeEvent.event)}
-            themeVariant={isDarkMode ? "dark" : "light"}
-          >
-            <ControlPill
-              iconNode={<ProviderIcon provider={flow.selectedModel?.provider} size={16} />}
-            />
-          </MenuView>
-          <MenuView
-            actions={optionsMenuActions}
-            onPressAction={({ nativeEvent }) => handleOptionsMenuAction(nativeEvent.event)}
-            themeVariant={isDarkMode ? "dark" : "light"}
-          >
-            <ControlPill icon="slider.horizontal.3" />
-          </MenuView>
-          <MenuView
-            actions={environmentMenuActions}
-            onPressAction={({ nativeEvent }) => handleEnvironmentMenuAction(nativeEvent.event)}
-            themeVariant={isDarkMode ? "dark" : "light"}
-          >
-            <ControlPill icon="desktopcomputer" />
-          </MenuView>
-          <MenuView
-            actions={workspaceMenuActions}
-            onPressAction={({ nativeEvent }) => handleWorkspaceMenuAction(nativeEvent.event)}
-            themeVariant={isDarkMode ? "dark" : "light"}
-          >
-            <ControlPill icon="point.topleft.down.curvedto.point.bottomright.up" />
-          </MenuView>
-          <ControlPill
-            icon="arrow.up"
-            label={flow.submitting ? "Starting" : "Start"}
-            onPress={() => void handleStart()}
-            variant="primary"
-            disabled={
-              !flow.selectedProject ||
-              !flow.selectedModel ||
-              flow.prompt.trim().length === 0 ||
-              flow.submitting ||
-              (flow.workspaceMode === "worktree" && !flow.selectedBranchName)
-            }
-          />
         </View>
-      </Animated.View>
-    </Animated.View>
+      </KeyboardStickyView>
+    </View>
   );
 }

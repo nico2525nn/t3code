@@ -1,23 +1,50 @@
 import { Stack, useRouter } from "expo-router";
-import { useState } from "react";
-import { Text as RNText, View, useColorScheme } from "react-native";
+import { type ComponentProps, useState } from "react";
+import { Pressable, Text as RNText, View, useColorScheme } from "react-native";
+import { SymbolView } from "expo-symbols";
 import { useThemeColor } from "../lib/useThemeColor";
 
 import { buildThreadRoutePath } from "../lib/routes";
 import { useRemoteCatalog } from "../state/use-remote-catalog";
 import { useRemoteEnvironmentState } from "../state/use-remote-environment-registry";
 import { HomeScreen } from "../features/home/HomeScreen";
+import type { RemoteCatalogState } from "../state/use-remote-catalog";
+
+function resolveHeaderStatus(state: RemoteCatalogState): {
+  readonly icon: ComponentProps<typeof SymbolView>["name"];
+  readonly color: string;
+  readonly label: string;
+} {
+  if (state.isLoadingSavedConnections) {
+    return { icon: "hourglass", color: "#737373", label: "Loading environments" };
+  }
+  if (state.connectionError) {
+    return { icon: "exclamationmark.triangle.fill", color: "#ef4444", label: "Environment error" };
+  }
+  if (state.connectionState === "ready") {
+    return { icon: "checkmark.circle.fill", color: "#22c55e", label: "Environment online" };
+  }
+  if (state.connectionState === "connecting" || state.connectionState === "reconnecting") {
+    return {
+      icon: "arrow.triangle.2.circlepath",
+      color: "#f59e0b",
+      label: "Environment connecting",
+    };
+  }
+  return { icon: "wifi.slash", color: "#ef4444", label: "Environment offline" };
+}
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
 export default function HomeRouteScreen() {
-  const { projects, threads } = useRemoteCatalog();
+  const { projects, state: catalogState, threads } = useRemoteCatalog();
   const { savedConnectionsById } = useRemoteEnvironmentState();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
 
   const isDark = useColorScheme() === "dark";
   const iconColor = String(useThemeColor("--color-icon"));
+  const status = resolveHeaderStatus(catalogState);
 
   return (
     <>
@@ -78,11 +105,15 @@ export default function HomeRouteScreen() {
       </Stack.Toolbar>
 
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          icon="network"
-          onPress={() => router.push("/connections")}
-          separateBackground
-        />
+        <Stack.Toolbar.View hidesSharedBackground>
+          <Pressable
+            accessibilityLabel={status.label}
+            className="h-11 w-11 items-center justify-center rounded-full bg-card active:opacity-70"
+            onPress={() => router.push("/connections")}
+          >
+            <SymbolView name={status.icon} size={21} tintColor={status.color} type="monochrome" />
+          </Pressable>
+        </Stack.Toolbar.View>
       </Stack.Toolbar>
 
       {/* Bottom toolbar: search + compose, visually split like iMessage */}
@@ -99,8 +130,10 @@ export default function HomeRouteScreen() {
       <HomeScreen
         projects={projects}
         threads={threads}
+        catalogState={catalogState}
         savedConnectionsById={savedConnectionsById}
         searchQuery={searchQuery}
+        onAddConnection={() => router.push("/connections/new")}
         onSelectThread={(thread) => {
           router.push(buildThreadRoutePath(thread));
         }}

@@ -70,11 +70,16 @@ export function createArchivedThreadsManager(config: {
   readonly idleTtlMs?: number;
 }) {
   const knownEnvironmentKeys = new Set<string>();
+  const knownEnvironmentIdsByKey = new Map<string, ReadonlySet<EnvironmentId>>();
   const staleTime = config.staleTimeMs ?? DEFAULT_ARCHIVED_THREADS_STALE_TIME_MS;
   const idleTtl = config.idleTtlMs ?? DEFAULT_ARCHIVED_THREADS_IDLE_TTL_MS;
 
   const snapshotsAtom = Atom.family((environmentKey: string) => {
     knownEnvironmentKeys.add(environmentKey);
+    knownEnvironmentIdsByKey.set(
+      environmentKey,
+      new Set(parseArchivedThreadsEnvironmentKey(environmentKey)),
+    );
     return Atom.make(
       Effect.promise(async (): Promise<ReadonlyArray<ArchivedSnapshotEntry>> => {
         const snapshots = await Promise.all(
@@ -119,7 +124,7 @@ export function createArchivedThreadsManager(config: {
 
   function refreshForEnvironment(environmentId: EnvironmentId): void {
     for (const environmentKey of knownEnvironmentKeys) {
-      if (parseArchivedThreadsEnvironmentKey(environmentKey).includes(environmentId)) {
+      if (knownEnvironmentIdsByKey.get(environmentKey)?.has(environmentId)) {
         config.getRegistry().refresh(getAtom(environmentKey));
       }
     }

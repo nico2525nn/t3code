@@ -1,22 +1,74 @@
-import { Link, Stack } from "expo-router";
+import { Link, Stack, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useMemo } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../lib/useThemeColor";
 
 import { AppText as Text } from "../../components/AppText";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
-import { useRemoteCatalog } from "../../state/use-remote-catalog";
+import { type RemoteCatalogState, useRemoteCatalog } from "../../state/use-remote-catalog";
 import { useRemoteEnvironmentState } from "../../state/use-remote-environment-registry";
 
+function deriveProjectEmptyState(catalogState: RemoteCatalogState): {
+  readonly title: string;
+  readonly detail: string;
+  readonly loading: boolean;
+} {
+  if (catalogState.isLoadingSavedConnections) {
+    return {
+      title: "Loading environments",
+      detail: "Checking saved environments on this device.",
+      loading: true,
+    };
+  }
+
+  if (!catalogState.hasSavedConnections) {
+    return {
+      title: "No environments connected",
+      detail: "Add an environment before creating a task.",
+      loading: false,
+    };
+  }
+
+  if (catalogState.connectionState === "disconnected" && !catalogState.hasLoadedShellSnapshot) {
+    return {
+      title: "Environment unavailable",
+      detail:
+        catalogState.connectionError ??
+        "The saved environment is offline. Check the URL or start the environment, then retry.",
+      loading: false,
+    };
+  }
+
+  if (
+    catalogState.hasConnectingEnvironment &&
+    !catalogState.hasLoadedShellSnapshot &&
+    catalogState.connectionError === null
+  ) {
+    return {
+      title: "Connecting to environment",
+      detail: "Loading projects from the saved environment.",
+      loading: true,
+    };
+  }
+
+  return {
+    title: "No projects found",
+    detail: "The connected environment did not report any projects.",
+    loading: false,
+  };
+}
+
 export default function NewTaskRoute() {
-  const { projects, threads } = useRemoteCatalog();
+  const { projects, state: catalogState, threads } = useRemoteCatalog();
   const { savedConnectionsById } = useRemoteEnvironmentState();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const chevronColor = useThemeColor("--color-chevron");
+  const accentColor = useThemeColor("--color-icon-muted");
   const borderSubtleColor = useThemeColor("--color-border-subtle");
   const repositoryGroups = useMemo(
     () => groupProjectsByRepository({ projects, threads }),
@@ -45,6 +97,7 @@ export default function NewTaskRoute() {
     }
     return nextItems;
   }, [repositoryGroups]);
+  const projectEmptyState = deriveProjectEmptyState(catalogState);
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
@@ -65,17 +118,31 @@ export default function NewTaskRoute() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
+        contentInset={{ bottom: Math.max(insets.bottom, 18) + 18 }}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingTop: 8,
-          paddingBottom: Math.max(insets.bottom, 18) + 18,
         }}
       >
         {items.length === 0 ? (
-          <View collapsable={false} className="items-center rounded-[24px] bg-card px-6 py-8">
-            <Text className="text-[16px] font-medium text-foreground-muted">
-              Loading projects...
+          <View collapsable={false} className="items-center gap-3 rounded-[24px] bg-card px-6 py-8">
+            {projectEmptyState.loading ? <ActivityIndicator color={accentColor} /> : null}
+            <Text className="text-center text-[17px] font-t3-bold text-foreground">
+              {projectEmptyState.title}
             </Text>
+            <Text className="text-center text-[14px] leading-[20px] text-foreground-muted">
+              {projectEmptyState.detail}
+            </Text>
+            {!catalogState.hasReadyEnvironment ? (
+              <Pressable
+                className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
+                onPress={() => router.push("/connections/new")}
+              >
+                <Text className="text-[13px] font-t3-bold text-primary-foreground">
+                  Add environment
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : (
           <View collapsable={false} className="overflow-hidden rounded-[24px] bg-card">

@@ -9,7 +9,6 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text as RNText, View, useColorScheme } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
-import Animated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
 
 import { EmptyState } from "../../components/EmptyState";
 import { LoadingScreen } from "../../components/LoadingScreen";
@@ -191,7 +190,6 @@ function pickRunningTerminalSessionForBootstrap(
 
 export function ThreadTerminalRouteScreen() {
   const router = useRouter();
-  const keyboard = useAnimatedKeyboard();
   const appearanceScheme = useColorScheme() === "light" ? "light" : "dark";
   const { isLoadingSavedConnection } = useRemoteEnvironmentState();
   const params = useLocalSearchParams<{
@@ -397,12 +395,6 @@ export function ThreadTerminalRouteScreen() {
     ];
   }, [hostPlatform]);
   const terminalBottomInset = TERMINAL_ACCESSORY_HEIGHT;
-  const terminalContainerAnimatedStyle = useAnimatedStyle(() => ({
-    paddingBottom:
-      keyboard.height.value > 0
-        ? keyboard.height.value + TERMINAL_ACCESSORY_HEIGHT
-        : terminalBottomInset,
-  }));
 
   const terminalMenuSessions = useMemo<ReadonlyArray<TerminalMenuSession>>(
     () =>
@@ -1031,7 +1023,7 @@ export function ThreadTerminalRouteScreen() {
       </Stack.Toolbar>
 
       <View style={{ flex: 1, backgroundColor: terminalTheme.background }}>
-        <Animated.View style={[{ flex: 1 }, terminalContainerAnimatedStyle]}>
+        <View style={{ flex: 1, paddingBottom: terminalBottomInset }}>
           <TerminalSurface
             buffer={terminalSurfaceBuffer}
             fontSize={fontSize}
@@ -1041,7 +1033,7 @@ export function ThreadTerminalRouteScreen() {
             style={{ flex: 1 }}
             terminalKey={terminalKey}
           />
-        </Animated.View>
+        </View>
 
         <KeyboardStickyView style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}>
           <View

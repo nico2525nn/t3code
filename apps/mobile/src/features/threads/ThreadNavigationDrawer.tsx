@@ -188,10 +188,10 @@ export function ThreadNavigationDrawer(props: {
 
             <ScrollView
               showsVerticalScrollIndicator={false}
+              contentInset={{ bottom: Math.max(insets.bottom, 18) + 12 }}
               contentContainerStyle={{
                 gap: 20,
                 paddingHorizontal: 14,
-                paddingBottom: Math.max(insets.bottom, 18) + 12,
               }}
             >
               {groupedThreads.map((group) => (

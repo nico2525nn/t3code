@@ -9,6 +9,25 @@ import { AppText as Text, AppTextInput as TextInput } from "../../components/App
 import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 
+function connectionStatusLabel(environment: ConnectedEnvironmentSummary): string | null {
+  if (environment.connectionError) {
+    return null;
+  }
+
+  switch (environment.connectionState) {
+    case "ready":
+      return "Connected";
+    case "connecting":
+      return "Connecting";
+    case "reconnecting":
+      return "Reconnecting";
+    case "disconnected":
+      return null;
+    case "idle":
+      return null;
+  }
+}
+
 export function ConnectionEnvironmentRow(props: {
   readonly environment: ConnectedEnvironmentSummary;
   readonly expanded: boolean;
@@ -27,6 +46,7 @@ export function ConnectionEnvironmentRow(props: {
   const placeholderColor = useThemeColor("--color-placeholder");
   const primaryFg = useThemeColor("--color-primary-foreground");
   const dangerFg = useThemeColor("--color-danger-foreground");
+  const statusLabel = connectionStatusLabel(props.environment);
 
   const handleSave = useCallback(() => {
     props.onUpdate(props.environment.environmentId, {
@@ -42,7 +62,14 @@ export function ConnectionEnvironmentRow(props: {
         className="flex-row items-center gap-3 px-4 py-3.5 active:opacity-70"
         onPress={props.onToggle}
       >
-        <ConnectionStatusDot state={props.environment.connectionState} pulse={false} size={8} />
+        <ConnectionStatusDot
+          state={props.environment.connectionState}
+          pulse={
+            props.environment.connectionState === "connecting" ||
+            props.environment.connectionState === "reconnecting"
+          }
+          size={8}
+        />
 
         <View className="flex-1 gap-0.5">
           <Text
@@ -54,6 +81,11 @@ export function ConnectionEnvironmentRow(props: {
           <Text className="text-[12px] leading-[16px] text-foreground-muted" numberOfLines={1}>
             {props.environment.displayUrl}
           </Text>
+          {statusLabel ? (
+            <Text className="text-[12px] leading-[16px] text-foreground-muted" numberOfLines={1}>
+              {statusLabel}
+            </Text>
+          ) : null}
           {props.environment.connectionError ? (
             <Text
               className="text-[12px] leading-[16px] text-rose-500 dark:text-rose-400"

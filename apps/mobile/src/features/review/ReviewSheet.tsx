@@ -385,9 +385,6 @@ export function ReviewSheet() {
             }}
             showsVerticalScrollIndicator={false}
             style={{ flex: 1 }}
-            contentContainerStyle={{
-              paddingTop: REVIEW_HEADER_SPACING,
-            }}
           >
             {listHeader}
             {!selectedSection ? (

@@ -12,7 +12,7 @@ import {
 
 import { ConnectedEnvironmentSummary } from "./remote-runtime-types";
 import type { SavedRemoteConnection } from "../lib/connection";
-import { useShellSnapshotStates } from "./use-shell-snapshot";
+import { useCachedShellSnapshotMetadata, useShellSnapshotStates } from "./use-shell-snapshot";
 import {
   useRemoteConnectionStatus,
   useRemoteEnvironmentState,
@@ -68,12 +68,30 @@ function listRemoteCatalogEnvironmentIds(
   return environmentIds;
 }
 
+export interface RemoteCatalogState {
+  readonly isLoadingSavedConnections: boolean;
+  readonly hasSavedConnections: boolean;
+  readonly hasLoadedShellSnapshot: boolean;
+  readonly hasPendingShellSnapshot: boolean;
+  readonly hasReadyEnvironment: boolean;
+  readonly hasConnectingEnvironment: boolean;
+  readonly connectionState: EnvironmentConnectionState;
+  readonly connectionError: string | null;
+  readonly shellSnapshotError: string | null;
+  readonly isUsingCachedData: boolean;
+  readonly latestCachedSnapshotReceivedAt: string | null;
+}
+
 export function useRemoteCatalog() {
-  const { connectedEnvironments, connectionState } = useRemoteConnectionStatus();
-  const { environmentStateById, savedConnectionsById } = useRemoteEnvironmentState();
-  const shellSnapshotStates = useShellSnapshotStates(
-    listRemoteCatalogEnvironmentIds(savedConnectionsById),
+  const { connectedEnvironments, connectionError, connectionState } = useRemoteConnectionStatus();
+  const { environmentStateById, isLoadingSavedConnection, savedConnectionsById } =
+    useRemoteEnvironmentState();
+  const catalogEnvironmentIds = useMemo(
+    () => listRemoteCatalogEnvironmentIds(savedConnectionsById),
+    [savedConnectionsById],
   );
+  const shellSnapshotStates = useShellSnapshotStates(catalogEnvironmentIds);
+  const cachedShellSnapshotMetadata = useCachedShellSnapshotMetadata();
 
   const projects = useMemo(() => {
     const scopedProjects: EnvironmentScopedProjectShell[] = [];
@@ -121,11 +139,60 @@ export function useRemoteCatalog() {
     [threads],
   );
 
+  const state = useMemo<RemoteCatalogState>(() => {
+    const shellSnapshots = Object.values(shellSnapshotStates);
+    const cachedSnapshotReceivedAts: string[] = [];
+    for (const environmentId of catalogEnvironmentIds) {
+      const metadata = cachedShellSnapshotMetadata[environmentId];
+      if (metadata) {
+        cachedSnapshotReceivedAts.push(metadata.snapshotReceivedAt);
+      }
+    }
+    let shellSnapshotError: string | null = null;
+    for (const snapshot of shellSnapshots) {
+      if (snapshot.error !== null) {
+        shellSnapshotError = snapshot.error;
+        break;
+      }
+    }
+    return {
+      isLoadingSavedConnections: isLoadingSavedConnection,
+      hasSavedConnections: catalogEnvironmentIds.length > 0,
+      hasLoadedShellSnapshot: shellSnapshots.some((snapshot) => snapshot.data !== null),
+      hasPendingShellSnapshot: shellSnapshots.some((snapshot) => snapshot.isPending),
+      hasReadyEnvironment: connectedEnvironments.some(
+        (environment) => environment.connectionState === "ready",
+      ),
+      hasConnectingEnvironment: connectedEnvironments.some(
+        (environment) =>
+          environment.connectionState === "connecting" ||
+          environment.connectionState === "reconnecting",
+      ),
+      connectionState: connectionState ?? overallConnectionState,
+      connectionError,
+      shellSnapshotError,
+      isUsingCachedData: cachedSnapshotReceivedAts.length > 0,
+      latestCachedSnapshotReceivedAt:
+        Arr.sort(cachedSnapshotReceivedAts, Order.flip(Order.String))[0] ?? null,
+    };
+  }, [
+    cachedShellSnapshotMetadata,
+    catalogEnvironmentIds,
+    connectedEnvironments,
+    connectionError,
+    connectionState,
+    isLoadingSavedConnection,
+    overallConnectionState,
+    shellSnapshotStates,
+  ]);
+
   return {
     projects,
     threads,
     serverConfigByEnvironmentId,
-    connectionState: connectionState ?? overallConnectionState,
+    connectionState: state.connectionState,
+    connectionError: state.connectionError,
+    state,
     hasRemoteActivity,
   };
 }
