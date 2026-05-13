@@ -40,11 +40,20 @@ function mockHandle(result: { stdout?: string; stderr?: string; code?: number })
 }
 
 function mockNeverFinishingHandle() {
+  let finish: ((exitCode: ChildProcessSpawner.ExitCode) => void) | null = null;
   return ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(1),
-    exitCode: Effect.never,
+    exitCode: Effect.callback<ChildProcessSpawner.ExitCode>((resume) => {
+      finish = (exitCode) => resume(Effect.succeed(exitCode));
+      return Effect.sync(() => {
+        finish = null;
+      });
+    }),
     isRunning: Effect.succeed(true),
-    kill: () => Effect.void,
+    kill: () =>
+      Effect.sync(() => {
+        finish?.(ChildProcessSpawner.ExitCode(143));
+      }),
     unref: Effect.succeed(Effect.void),
     stdin: Sink.drain,
     stdout: Stream.empty,
