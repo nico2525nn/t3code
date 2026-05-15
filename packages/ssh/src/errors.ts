@@ -82,11 +82,15 @@ export type SshReadinessError =
   | SshReadinessProbeTimedOutError
   | SshReadinessTimedOutError;
 
+const isSshReadinessProbeFailedError = Schema.is(SshReadinessProbeFailedError);
+const isSshReadinessProbeTimedOutError = Schema.is(SshReadinessProbeTimedOutError);
+const isSshReadinessTimedOutError = Schema.is(SshReadinessTimedOutError);
+
 export function isSshReadinessError(cause: unknown): cause is SshReadinessError {
   return (
-    Schema.is(SshReadinessProbeFailedError)(cause) ||
-    Schema.is(SshReadinessProbeTimedOutError)(cause) ||
-    Schema.is(SshReadinessTimedOutError)(cause)
+    isSshReadinessProbeFailedError(cause) ||
+    isSshReadinessProbeTimedOutError(cause) ||
+    isSshReadinessTimedOutError(cause)
   );
 }
 
