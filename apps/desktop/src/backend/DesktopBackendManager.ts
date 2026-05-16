@@ -14,9 +14,10 @@
 //   - configResolve replaces `DesktopBackendConfiguration.resolve` so each
 //     instance can resolve its own start config (Windows-native, WSL via
 //     wsl.exe, etc.).
-//   - onReady / onShutdown replace direct writes to
-//     `DesktopState.backendReady` and `DesktopWindow.handleBackendReady`
-//     so only the primary's spec wires those side effects.
+//   - onReady / onShutdown drive UI side effects (window auto-open,
+//     readiness latch) only for instances that want them — the primary's
+//     spec passes the window's handleBackendReady/handleBackendNotReady,
+//     other pool instances pass nothing.
 //   - log writes still go through the shared `DesktopBackendOutputLog`
 //     service for now; step 3 of the migration will split that per
 //     instance.

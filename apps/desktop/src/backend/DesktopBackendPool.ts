@@ -2,14 +2,14 @@
 // point for the concurrent-Windows+WSL-backend feature; see the design
 // notes below before extending it.
 //
-// Current state (step 1):
+// Current state (step 2):
 //   - `DesktopBackendManager.ts` no longer exposes a Context.Service. It
 //     is a per-instance factory (`makeBackendInstance(spec)`); the pool
 //     calls it once for the Windows primary at startup.
 //   - The primary spec wires `configResolve` to `DesktopBackendConfiguration`
-//     and the `onReady`/`onShutdown` callbacks to the legacy global side
-//     effects (`DesktopState.backendReady`, `DesktopWindow.handleBackendReady`).
-//     Those couplings move per-instance in steps 2-3.
+//     and the `onReady`/`onShutdown` callbacks to the window service's
+//     `handleBackendReady` / `handleBackendNotReady`. Readiness is no
+//     longer in `DesktopState`; the window owns its own latch.
 //   - Consumers (window/wsl IPC, lifecycle hooks, telemetry) read the
 //     primary instance off `pool.primary`. There is no longer a separate
 //     `DesktopBackendManager` service in the layer graph.
@@ -18,10 +18,9 @@
 //   - The pool layer constructs N instances — at minimum the Windows
 //     primary; the WSL instance is added when the user enables the WSL
 //     backend (with the selected distro).
-//   - Per-instance state (readiness, restart fiber, active run) already
-//     lives on each `DesktopBackendInstance` after step 1. Step 2 moves
-//     the global `DesktopState.backendReady` flag onto the pool's primary
-//     readiness; step 3 splits backend log routing per instance.
+//   - Per-instance state (readiness, restart fiber, active run) lives on
+//     each `DesktopBackendInstance`. Step 3 splits backend log routing
+//     per instance.
 //   - `getLocalEnvironmentBootstrap()` widens to
 //     `getLocalEnvironmentBootstraps()` returning one bootstrap per pool
 //     instance; the frontend env runtime registers each as a local
@@ -31,12 +30,11 @@
 //     pool holds. No more swap-mode, no more rollback-on-restart.
 //
 // Migration sequence (each step is its own commit):
-//   1. (this commit) Reshape `DesktopBackendManager` into an instance
-//      factory and route consumers through the pool. Pool still holds a
-//      single instance.
-//   2. Drop `DesktopState.backendReady`. UI subscribes to
-//      `pool.primary.snapshot.ready` (or the multi-instance readiness
-//      signal once it exists).
+//   1. Reshape `DesktopBackendManager` into an instance factory and route
+//      consumers through the pool. Pool still holds a single instance.
+//   2. (this commit) Drop `DesktopState.backendReady`. The window owns
+//      its own readiness latch, driven by the primary instance's
+//      onReady/onShutdown callbacks.
 //   3. Per-instance log routing: split `DesktopBackendOutputLog` into a
 //      factory keyed by instance id.
 //   4. Add register/unregister so WSL backend can be added on demand.
@@ -55,7 +53,6 @@ import * as Ref from "effect/Ref";
 
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
-import * as DesktopState from "../app/DesktopState.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 
 export type BackendInstanceId = DesktopBackendManager.BackendInstanceId;
@@ -86,15 +83,18 @@ export const layer = Layer.effect(
   DesktopBackendPool,
   Effect.gen(function* () {
     const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
-    const desktopState = yield* DesktopState.DesktopState;
     const desktopWindow = yield* DesktopWindow.DesktopWindow;
 
     const primary = yield* DesktopBackendManager.makeBackendInstance({
       id: DesktopBackendManager.PRIMARY_INSTANCE_ID,
       label: "Windows",
       configResolve: configuration.resolve,
+      // Window creation errors propagating out of handleBackendReady are
+      // swallowed here on purpose: they're logged by the window service
+      // and we don't want a stuck splash window to block the readiness
+      // callback (which would prevent restartAttempt from being reset).
       onReady: () => desktopWindow.handleBackendReady.pipe(Effect.catch(() => Effect.void)),
-      onShutdown: () => Ref.set(desktopState.backendReady, false),
+      onShutdown: () => desktopWindow.handleBackendNotReady,
     });
 
     const instancesRef = yield* Ref.make<ReadonlyMap<BackendInstanceId, DesktopBackendInstance>>(

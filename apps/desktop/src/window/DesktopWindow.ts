@@ -10,7 +10,6 @@ import type * as Electron from "electron";
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
-import * as DesktopState from "../app/DesktopState.ts";
 import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
@@ -32,7 +31,6 @@ type DesktopWindowRuntimeServices =
   | DesktopEnvironment.DesktopEnvironment
   | DesktopAssets.DesktopAssets
   | DesktopServerExposure.DesktopServerExposure
-  | DesktopState.DesktopState
   | ElectronMenu.ElectronMenu
   | ElectronShell.ElectronShell
   | ElectronTheme.ElectronTheme
@@ -57,6 +55,11 @@ export interface DesktopWindowShape {
   readonly activate: Effect.Effect<void, DesktopWindowError>;
   readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
   readonly handleBackendReady: Effect.Effect<void, DesktopWindowError>;
+  // Called when the backend transitions back to "not ready" (clean stop,
+  // restart, crash). Clears the latch that lets `activate` auto-create a
+  // window so a "macOS dock click" while the backend is down doesn't
+  // produce a stranded window pointing at nothing.
+  readonly handleBackendNotReady: Effect.Effect<void>;
   readonly dispatchMenuAction: (action: string) => Effect.Effect<void, DesktopWindowError>;
   readonly syncAppearance: Effect.Effect<void>;
 }
@@ -152,7 +155,12 @@ const make = Effect.gen(function* () {
   const electronTheme = yield* ElectronTheme.ElectronTheme;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
-  const state = yield* DesktopState.DesktopState;
+  // Window-side latch for the primary backend's readiness. Set by
+  // handleBackendReady (driven by the pool's onReady callback), cleared
+  // by handleBackendNotReady (driven by onShutdown). Only consumed by
+  // createMainIfBackendReady, which gates the post-readiness window
+  // open in development and the macOS "activate without windows" path.
+  const backendReadyRef = yield* Ref.make(false);
   const context = yield* Effect.context<DesktopWindowRuntimeServices>();
   const runPromise = Effect.runPromiseWith(context);
 
@@ -313,7 +321,7 @@ const make = Effect.gen(function* () {
   }).pipe(Effect.withSpan("desktop.window.revealOrCreateMain"));
 
   const createMainIfBackendReady = Effect.gen(function* () {
-    const backendReady = yield* Ref.get(state.backendReady);
+    const backendReady = yield* Ref.get(backendReadyRef);
     if (!backendReady) return;
     const existingWindow = yield* electronWindow.currentMainOrFirst;
     if (Option.isSome(existingWindow)) return;
@@ -334,10 +342,13 @@ const make = Effect.gen(function* () {
     }).pipe(Effect.withSpan("desktop.window.activate")),
     createMainIfBackendReady,
     handleBackendReady: Effect.gen(function* () {
-      yield* Ref.set(state.backendReady, true);
+      yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http" });
       yield* createMainIfBackendReady;
     }).pipe(Effect.withSpan("desktop.window.handleBackendReady")),
+    handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(
+      Effect.withSpan("desktop.window.handleBackendNotReady"),
+    ),
     dispatchMenuAction: Effect.fn("desktop.window.dispatchMenuAction")(function* (action) {
       yield* Effect.annotateCurrentSpan({ action });
       const existingWindow = yield* electronWindow.focusedMainOrFirst;
