@@ -2,9 +2,12 @@ import { assert, describe, it } from "@effect/vitest";
 import { SshHttpBridgeError } from "@t3tools/ssh/errors";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 import * as DesktopSshRemoteApi from "./DesktopSshRemoteApi.ts";
+
+const isSshHttpBridgeError = Schema.is(SshHttpBridgeError);
 
 function jsonResponse(request: HttpClientRequest.HttpClientRequest, body: unknown, status = 200) {
   return HttpClientResponse.fromWeb(
@@ -73,7 +76,7 @@ describe("DesktopSshRemoteApi", () => {
 
       assert.instanceOf(error, DesktopSshRemoteApi.DesktopSshRemoteApiError);
       assert.equal(error.operation, "fetch-environment-descriptor");
-      assert.equal(error.cause instanceof SshHttpBridgeError, false);
+      assert.equal(isSshHttpBridgeError(error.cause), false);
     }).pipe(Effect.provide(layer));
   });
 });
