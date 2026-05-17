@@ -168,7 +168,7 @@ export const layer = Layer.effect(
     const primary = yield* DesktopBackendManager.makeBackendInstance({
       id: DesktopBackendManager.PRIMARY_INSTANCE_ID,
       label: "Windows",
-      configResolve: configuration.resolve,
+      configResolve: configuration.resolvePrimary,
       // Window creation errors propagating out of handleBackendReady are
       // swallowed here on purpose: they're logged by the window service
       // and we don't want a stuck splash window to block the readiness

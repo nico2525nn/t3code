@@ -11,9 +11,10 @@
 //
 // Singleton couplings that the legacy service held inline are now
 // parameterized via the spec:
-//   - configResolve replaces `DesktopBackendConfiguration.resolve` so each
-//     instance can resolve its own start config (Windows-native, WSL via
-//     wsl.exe, etc.).
+//   - configResolve replaces the legacy `DesktopBackendConfiguration.resolve`
+//     so each instance can resolve its own start config — the primary wires
+//     `configuration.resolvePrimary`, the WSL orchestrator wires a
+//     `configuration.resolveWsl({ port, distro })` closure.
 //   - onReady / onShutdown drive UI side effects (window auto-open,
 //     readiness latch) only for instances that want them — the primary's
 //     spec passes the window's handleBackendReady/handleBackendNotReady,
