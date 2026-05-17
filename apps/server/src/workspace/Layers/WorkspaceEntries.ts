@@ -402,8 +402,7 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
     buildWorkspaceIndex,
     {
       capacity: WORKSPACE_CACHE_MAX_KEYS,
-      timeToLive: (exit) =>
-        Exit.isSuccess(exit) ? WORKSPACE_CACHE_TTL : Duration.zero,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? WORKSPACE_CACHE_TTL : Duration.zero),
     },
   );
 
