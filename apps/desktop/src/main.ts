@@ -44,6 +44,7 @@ import * as DesktopSshRemoteApi from "./ssh/DesktopSshRemoteApi.ts";
 import * as DesktopState from "./app/DesktopState.ts";
 import * as DesktopUpdates from "./updates/DesktopUpdates.ts";
 import * as DesktopWindow from "./window/DesktopWindow.ts";
+import * as DesktopWslBackend from "./wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "./wsl/DesktopWslEnvironment.ts";
 
 const desktopEnvironmentLayer = Layer.unwrap(
@@ -140,12 +141,19 @@ const desktopBackendLayer = DesktopBackendPool.layer.pipe(
   Layer.provideMerge(desktopWindowLayer),
 );
 
+// WSL orchestrator hangs off the backend layer because it needs the
+// pool + configuration + serverExposure; it pulls NetService and the
+// foundation services through the same provideMerge chain.
+const desktopWslBackendLayer = DesktopWslBackend.layer.pipe(
+  Layer.provideMerge(desktopBackendLayer),
+);
+
 const desktopApplicationLayer = Layer.mergeAll(
   DesktopLifecycle.layer,
   DesktopApplicationMenu.layer,
   DesktopShellEnvironment.layer,
   desktopSshLayer,
-).pipe(Layer.provideMerge(DesktopUpdates.layer), Layer.provideMerge(desktopBackendLayer));
+).pipe(Layer.provideMerge(DesktopUpdates.layer), Layer.provideMerge(desktopWslBackendLayer));
 
 const desktopRuntimeLayer = ElectronProtocol.layerSchemePrivileges.pipe(
   Layer.flatMap(() =>

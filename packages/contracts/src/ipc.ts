@@ -369,10 +369,6 @@ export const PickFolderOptionsSchema = Schema.Struct({
   initialPath: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 
-export type DesktopWslMode = "local" | "wsl";
-
-export const DesktopWslModeSchema = Schema.Literals(["local", "wsl"]);
-
 export interface DesktopWslDistro {
   name: string;
   isDefault: boolean;
@@ -386,14 +382,18 @@ export const DesktopWslDistroSchema = Schema.Struct({
 });
 
 export interface DesktopWslState {
-  mode: DesktopWslMode;
+  // True when the user has opted the WSL backend in; the actual backend
+  // process is registered with the desktop pool independently of this
+  // flag and may take a moment to come up after the user enables it.
+  enabled: boolean;
+  // null means "track the current WSL default distro".
   distro: string | null;
   available: boolean;
   distros: readonly DesktopWslDistro[];
 }
 
 export const DesktopWslStateSchema = Schema.Struct({
-  mode: DesktopWslModeSchema,
+  enabled: Schema.Boolean,
   distro: Schema.NullOr(Schema.String),
   available: Schema.Boolean,
   distros: Schema.Array(DesktopWslDistroSchema),
@@ -437,10 +437,8 @@ export interface DesktopBridge {
   }) => Promise<DesktopServerExposureState>;
   getAdvertisedEndpoints: () => Promise<readonly AdvertisedEndpoint[]>;
   getWslState: () => Promise<DesktopWslState>;
-  setWslBackend: (input: {
-    mode: DesktopWslMode;
-    distro: string | null;
-  }) => Promise<DesktopWslState>;
+  setWslBackendEnabled: (enabled: boolean) => Promise<DesktopWslState>;
+  setWslDistro: (distro: string | null) => Promise<DesktopWslState>;
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;

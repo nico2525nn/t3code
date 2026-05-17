@@ -300,8 +300,12 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     // the SQLite file with the primary).
     host: wslHost,
     desktopBootstrapToken: input.bootstrapToken,
+    // PortSchema rejects 0, so when tailscale serve is disabled we still
+    // need a valid number in this slot. The backend reads tailscaleServePort
+    // only when tailscaleServeEnabled is true, so the actual value here is
+    // inert.
     tailscaleServeEnabled: false,
-    tailscaleServePort: 0,
+    tailscaleServePort: 443,
     ...buildObservabilityFragment(input.observabilitySettings),
   };
 

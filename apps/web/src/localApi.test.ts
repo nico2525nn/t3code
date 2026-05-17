@@ -221,13 +221,19 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     }),
     getAdvertisedEndpoints: async () => [],
     getWslState: async () => ({
-      mode: "local",
+      enabled: false,
       distro: null,
       available: false,
       distros: [],
     }),
-    setWslBackend: async () => ({
-      mode: "local",
+    setWslBackendEnabled: async () => ({
+      enabled: false,
+      distro: null,
+      available: false,
+      distros: [],
+    }),
+    setWslDistro: async () => ({
+      enabled: false,
       distro: null,
       available: false,
       distros: [],

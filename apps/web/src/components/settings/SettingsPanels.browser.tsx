@@ -445,13 +445,19 @@ const createDesktopBridgeStub = (overrides?: {
     })),
     getAdvertisedEndpoints: vi.fn().mockResolvedValue(overrides?.advertisedEndpoints ?? []),
     getWslState: vi.fn().mockResolvedValue({
-      mode: "local" as const,
+      enabled: false,
       distro: null,
       available: false,
       distros: [],
     }),
-    setWslBackend: vi.fn().mockResolvedValue({
-      mode: "local" as const,
+    setWslBackendEnabled: vi.fn().mockResolvedValue({
+      enabled: false,
+      distro: null,
+      available: false,
+      distros: [],
+    }),
+    setWslDistro: vi.fn().mockResolvedValue({
+      enabled: false,
       distro: null,
       available: false,
       distros: [],

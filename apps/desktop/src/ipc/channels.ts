@@ -33,5 +33,6 @@ export const SET_SERVER_EXPOSURE_MODE_CHANNEL = "desktop:set-server-exposure-mod
 export const SET_TAILSCALE_SERVE_ENABLED_CHANNEL = "desktop:set-tailscale-serve-enabled";
 export const GET_ADVERTISED_ENDPOINTS_CHANNEL = "desktop:get-advertised-endpoints";
 export const GET_WSL_STATE_CHANNEL = "desktop:get-wsl-state";
-export const SET_WSL_BACKEND_CHANNEL = "desktop:set-wsl-backend";
+export const SET_WSL_BACKEND_ENABLED_CHANNEL = "desktop:set-wsl-backend-enabled";
+export const SET_WSL_DISTRO_CHANNEL = "desktop:set-wsl-distro";
 export const SSH_PASSWORD_PROMPT_CANCELLED_RESULT = "ssh-password-prompt-cancelled";

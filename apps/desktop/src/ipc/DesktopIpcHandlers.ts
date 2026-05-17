@@ -41,7 +41,7 @@ import {
   setTheme,
   showContextMenu,
 } from "./methods/window.ts";
-import { getWslState, setWslBackend } from "./methods/wsl.ts";
+import { getWslState, setWslBackendEnabled, setWslDistro } from "./methods/wsl.ts";
 
 export const installDesktopIpcHandlers = Effect.gen(function* () {
   const ipc = yield* DesktopIpc.DesktopIpc;
@@ -72,7 +72,8 @@ export const installDesktopIpcHandlers = Effect.gen(function* () {
   yield* ipc.handle(getAdvertisedEndpoints);
 
   yield* ipc.handle(getWslState);
-  yield* ipc.handle(setWslBackend);
+  yield* ipc.handle(setWslBackendEnabled);
+  yield* ipc.handle(setWslDistro);
 
   yield* ipc.handle(pickFolder);
   yield* ipc.handle(confirm);

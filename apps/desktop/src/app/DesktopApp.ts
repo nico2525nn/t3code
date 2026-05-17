@@ -21,6 +21,7 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopShellEnvironment from "../shell/DesktopShellEnvironment.ts";
 import * as DesktopState from "./DesktopState.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
+import * as DesktopWslBackend from "../wsl/DesktopWslBackend.ts";
 
 const DEFAULT_DESKTOP_BACKEND_PORT = 3773;
 const MAX_TCP_PORT = 65_535;
@@ -136,6 +137,7 @@ const bootstrap = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+  const wslBackend = yield* DesktopWslBackend.DesktopWslBackend;
   yield* logBootstrapInfo("bootstrap start");
 
   if (environment.isDevelopment && Option.isNone(environment.configuredBackendPort)) {
@@ -181,6 +183,11 @@ const bootstrap = Effect.gen(function* () {
   if (!(yield* Ref.get(state.quitting))) {
     yield* primaryBackend.start;
     yield* logBootstrapInfo("bootstrap backend start requested");
+    // Bring up the WSL backend if the user previously enabled it. The
+    // primary is already starting; reconcile fires off the WSL register
+    // in parallel rather than blocking primary readiness on a possibly
+    // slow first wsl.exe spawn.
+    yield* Effect.forkScoped(wslBackend.reconcile);
   }
 }).pipe(Effect.withSpan("desktop.bootstrap"));
 
