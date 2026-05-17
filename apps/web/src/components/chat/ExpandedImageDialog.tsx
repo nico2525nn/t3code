@@ -68,7 +68,7 @@ function useExpandedImageKeyboardShortcuts(input: {
   useEffect(() => {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onKeyDown]);
+  }, []);
 }
 
 export const ExpandedImageDialog = memo(function ExpandedImageDialog({
