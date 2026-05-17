@@ -30,6 +30,7 @@ import { collectActiveTerminalThreadIds } from "~/lib/terminalStateCleanup";
 import { deriveOrchestrationBatchEffects } from "~/orchestrationEventEffects";
 import { projectQueryKeys } from "~/lib/projectReactQuery";
 import { providerQueryKeys } from "~/lib/providerReactQuery";
+import { reconcileLocalSecondaryEnvironments } from "../local";
 import { getPrimaryKnownEnvironment } from "../primary";
 import {
   bootstrapRemoteBearerSession,
@@ -1293,7 +1294,7 @@ function maybeCreatePrimaryEnvironmentConnection(): EnvironmentConnection | null
   return getPrimaryKnownEnvironment()?.environmentId ? createPrimaryEnvironmentConnection() : null;
 }
 
-async function ensureSavedEnvironmentConnection(
+export async function ensureSavedEnvironmentConnection(
   record: SavedEnvironmentRecord,
   options?: {
     readonly client?: WsRpcClient;
@@ -1639,6 +1640,21 @@ export async function removeSavedEnvironment(environmentId: EnvironmentId): Prom
   await removeSavedEnvironmentBearerToken(environmentId);
 }
 
+// Variant for desktop-managed secondary local envs. Same teardown
+// shape as removeSavedEnvironment but skips the bearer-token-secret
+// delete: the local-secondary reconciler manages its own bearer
+// tokens and the secret store may not have a key for a transient,
+// non-persisted record.
+export async function removeSavedEnvironmentByInstance(
+  environmentId: EnvironmentId,
+): Promise<void> {
+  await disconnectSavedEnvironment(environmentId);
+  disposeThreadDetailSubscriptionsForEnvironment(environmentId);
+  useSavedEnvironmentRegistryStore.getState().remove(environmentId);
+  useSavedEnvironmentRuntimeStore.getState().clear(environmentId);
+  useStore.getState().removeEnvironmentState(environmentId);
+}
+
 export async function addSavedEnvironment(input: {
   readonly label: string;
   readonly pairingUrl?: string;
@@ -1774,6 +1790,19 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
 
   maybeCreatePrimaryEnvironmentConnection();
 
+  // Bring up the desktop-managed secondary local environments (today
+  // just the WSL backend, if enabled). The reconcile call is best-effort
+  // and self-retrying: if the WSL backend is still mid-boot when this
+  // fires, the next ConnectionsSettings interaction or a manual
+  // re-toggle will pick it up via reconcileLocalSecondaryEnvironments.
+  void reconcileLocalSecondaryEnvironments();
+  // One delayed retry to catch the common case where the WSL backend
+  // is mid-cold-boot at app start. Bounded to a single extra attempt
+  // so we don't poll forever for users who never enable WSL.
+  const localSecondaryRetryHandle = setTimeout(() => {
+    void reconcileLocalSecondaryEnvironments();
+  }, 5_000);
+
   const unsubscribeSavedEnvironments = useSavedEnvironmentRegistryStore.subscribe(() => {
     if (!hasSavedEnvironmentRegistryHydrated()) {
       return;
@@ -1792,6 +1821,7 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
     queryInvalidationThrottler,
     refCount: 1,
     stop: () => {
+      clearTimeout(localSecondaryRetryHandle);
       unsubscribeSavedEnvironments();
       unsubscribeBrowserResumeReconnects();
       queryInvalidationThrottler.cancel();

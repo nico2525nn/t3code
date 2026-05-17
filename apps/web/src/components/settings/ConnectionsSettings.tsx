@@ -84,6 +84,7 @@ import {
   type ServerClientSessionRecord,
   type ServerPairingLinkRecord,
 } from "~/environments/primary";
+import { reconcileLocalSecondaryEnvironments } from "~/environments/local";
 import type { WsRpcClient } from "~/rpc/wsRpcClient";
 import {
   type SavedEnvironmentRecord,
@@ -2354,7 +2355,10 @@ export function ConnectionsSettings() {
       : null;
   // Apply a setting change immediately. The orchestrator reconciles the
   // pool in the background and the primary backend is untouched, so we
-  // don't gate this behind a confirmation dialog.
+  // don't gate this behind a confirmation dialog. After the desktop
+  // side persists the change and nudges its orchestrator, we trigger
+  // the renderer's reconciler so the WSL backend's saved-env-shaped
+  // entry catches up (registers/unregisters) without a reload.
   const applyWslSettingChange = useCallback(
     async (apply: () => Promise<DesktopWslState>) => {
       if (!desktopBridge) return;
@@ -2362,6 +2366,14 @@ export function ConnectionsSettings() {
       setDesktopWslError(null);
       try {
         setDesktopWslState(await apply());
+        // The desktop orchestrator may take a moment to register the new
+        // WSL instance with bootstrap info — fire the renderer reconciler
+        // now to remove stale entries (toggle-off, distro change), then
+        // again after a short delay to pick up a freshly-registered one.
+        void reconcileLocalSecondaryEnvironments();
+        setTimeout(() => {
+          void reconcileLocalSecondaryEnvironments();
+        }, 1_500);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to update WSL backend.";
         setDesktopWslError(message);
