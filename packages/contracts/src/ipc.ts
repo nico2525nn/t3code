@@ -374,10 +374,17 @@ export const DesktopServerExposureStateSchema = Schema.Struct({
 
 export interface PickFolderOptions {
   initialPath?: string | null;
+  // When set, the desktop dialog opens against the named backend's
+  // filesystem instead of the primary's. Used by callers that already
+  // know which local environment they're targeting (e.g. opening a
+  // project that lives inside WSL). Omitting it keeps the historical
+  // behavior so non-WSL users never see a different picker.
+  targetEnvironmentId?: string;
 }
 
 export const PickFolderOptionsSchema = Schema.Struct({
   initialPath: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  targetEnvironmentId: Schema.optionalKey(Schema.String),
 });
 
 export interface DesktopWslDistro {
