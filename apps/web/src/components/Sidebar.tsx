@@ -3,6 +3,7 @@ import {
   ArrowUpDownIcon,
   ChevronRightIcon,
   CloudIcon,
+  ContainerIcon,
   FolderPlusIcon,
   SearchIcon,
   SettingsIcon,
@@ -355,8 +356,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const remoteEnvSavedLabel = useSavedEnvironmentRegistryStore(
     (s) => s.byId[thread.environmentId]?.label ?? null,
   );
+  // desktopLocal entries (e.g. the WSL backend) live in the
+  // saved-environment registry alongside true remote envs, but they
+  // run on the user's own machine. The cloud icon is misleading for
+  // them, so we render a container icon instead.
+  const isDesktopLocalThread = useSavedEnvironmentRegistryStore((s) =>
+    Boolean(s.byId[thread.environmentId]?.desktopLocal),
+  );
   const threadEnvironmentLabel = isRemoteThread
-    ? (remoteEnvLabel ?? remoteEnvSavedLabel ?? "Remote")
+    ? (remoteEnvLabel ?? remoteEnvSavedLabel ?? (isDesktopLocalThread ? "Local" : "Remote"))
     : null;
   // For grouped projects, the thread may belong to a different environment
   // than the representative project.  Look up the thread's own project cwd
@@ -679,12 +687,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     <TooltipTrigger
                       render={
                         <span
-                          aria-label={threadEnvironmentLabel ?? "Remote"}
+                          aria-label={
+                            threadEnvironmentLabel ?? (isDesktopLocalThread ? "Local" : "Remote")
+                          }
                           className="inline-flex h-5 items-center justify-center"
                         />
                       }
                     >
-                      <CloudIcon className="block size-3 text-muted-foreground/60" />
+                      {isDesktopLocalThread ? (
+                        <ContainerIcon className="block size-3 text-muted-foreground/60" />
+                      ) : (
+                        <CloudIcon className="block size-3 text-muted-foreground/60" />
+                      )}
                     </TooltipTrigger>
                     <TooltipPopup side="top">{threadEnvironmentLabel}</TooltipPopup>
                   </Tooltip>
