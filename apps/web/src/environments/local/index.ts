@@ -27,6 +27,8 @@
 // It's safe to call multiple times — pending work is deduped by
 // `pendingByInstanceId` and entries already wired up are skipped.
 
+import { create } from "zustand";
+
 import {
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   type AuthSessionRole,
@@ -67,45 +69,98 @@ const AUTO_RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 45_000, 60_00
 let autoRetryHandle: ReturnType<typeof setTimeout> | null = null;
 let autoRetryAttempt = 0;
 
-interface LocalSecondaryReconcileTrace {
-  readonly bootstrapsSeen: ReadonlyArray<{ id: string; hasToken: boolean; httpBaseUrl: string }>;
-  readonly registrationErrors: ReadonlyMap<string, { message: string; at: string }>;
+export interface LocalSecondaryReconcileBootstrapSnapshot {
+  readonly id: string;
+  readonly label: string;
+  readonly hasToken: boolean;
+  readonly httpBaseUrl: string;
+}
+
+export interface LocalSecondaryReconcileError {
+  readonly message: string;
+  readonly at: string;
+}
+
+export interface LocalSecondaryReconcileState {
+  // Bootstraps the renderer most recently learned about from the
+  // desktop pool. Reflects whatever the next register attempt will
+  // try to bring up.
+  readonly bootstrapsSeen: ReadonlyArray<LocalSecondaryReconcileBootstrapSnapshot>;
+  // Instance ids that have a register call in flight right now.
+  readonly pendingInstanceIds: ReadonlyArray<string>;
+  // Per-instance error trace from the most recent register attempt
+  // that failed. Cleared when that instance registers successfully.
+  readonly registrationErrors: Readonly<Record<string, LocalSecondaryReconcileError>>;
+  // True once the auto-retry budget has run out without all
+  // secondaries landing. The sidebar uses this to switch from
+  // "Connecting" to "Couldn't connect, retry?".
+  readonly budgetExhausted: boolean;
   readonly lastReconcileAt: string | null;
   readonly attempts: number;
 }
 
-const reconcileTrace: {
-  bootstrapsSeen: ReadonlyArray<{ id: string; hasToken: boolean; httpBaseUrl: string }>;
-  registrationErrors: Map<string, { message: string; at: string }>;
-  lastReconcileAt: string | null;
-  attempts: number;
-} = {
+export const useLocalSecondaryReconcileStore = create<LocalSecondaryReconcileState>()(() => ({
   bootstrapsSeen: [],
-  registrationErrors: new Map(),
+  pendingInstanceIds: [],
+  registrationErrors: {},
+  budgetExhausted: false,
   lastReconcileAt: null,
   attempts: 0,
-};
+}));
 
-// Surface the reconciler's internal state on `window` for ad-hoc
-// debugging. Production renderers don't expose CDP, so this is the
-// only way for a user to inspect "what does the local-secondary
-// reconciler think happened?" from the dev tools console.
+function patchReconcileState(patch: Partial<LocalSecondaryReconcileState>): void {
+  useLocalSecondaryReconcileStore.setState((state) => ({ ...state, ...patch }));
+}
+
+function addPending(instanceId: string): void {
+  useLocalSecondaryReconcileStore.setState((state) => {
+    if (state.pendingInstanceIds.includes(instanceId)) return state;
+    return { ...state, pendingInstanceIds: [...state.pendingInstanceIds, instanceId] };
+  });
+}
+
+function removePending(instanceId: string): void {
+  useLocalSecondaryReconcileStore.setState((state) => {
+    if (!state.pendingInstanceIds.includes(instanceId)) return state;
+    return {
+      ...state,
+      pendingInstanceIds: state.pendingInstanceIds.filter((id) => id !== instanceId),
+    };
+  });
+}
+
+function setRegistrationError(instanceId: string, error: LocalSecondaryReconcileError): void {
+  useLocalSecondaryReconcileStore.setState((state) => ({
+    ...state,
+    registrationErrors: { ...state.registrationErrors, [instanceId]: error },
+  }));
+}
+
+function clearRegistrationError(instanceId: string): void {
+  useLocalSecondaryReconcileStore.setState((state) => {
+    if (!(instanceId in state.registrationErrors)) return state;
+    const next = { ...state.registrationErrors };
+    delete next[instanceId];
+    return { ...state, registrationErrors: next };
+  });
+}
+
+// Surface the reconciler's state on `window` for ad-hoc debugging.
+// Production renderers don't expose CDP, so this is the only way for
+// a user to inspect what the local-secondary reconciler thinks
+// happened. Reads straight from the zustand store so it always
+// reflects the current state.
 function exposeDebugGlobal(): void {
   if (typeof window === "undefined") return;
   const w = window as unknown as {
     __t3LocalSecondaryDebug?: {
-      getState: () => LocalSecondaryReconcileTrace;
+      getState: () => LocalSecondaryReconcileState;
       retryNow: () => Promise<void>;
     };
   };
   if (w.__t3LocalSecondaryDebug) return;
   w.__t3LocalSecondaryDebug = {
-    getState: () => ({
-      bootstrapsSeen: reconcileTrace.bootstrapsSeen,
-      registrationErrors: new Map(reconcileTrace.registrationErrors),
-      lastReconcileAt: reconcileTrace.lastReconcileAt,
-      attempts: reconcileTrace.attempts,
-    }),
+    getState: () => useLocalSecondaryReconcileStore.getState(),
     retryNow: () => reconcileLocalSecondaryEnvironments(),
   };
 }
@@ -123,13 +178,16 @@ function readBootstraps(): readonly DesktopEnvironmentBootstrap[] {
     console.error("[LOCAL_SECONDARY] readBootstraps threw", error);
     return [];
   }
-  reconcileTrace.bootstrapsSeen = list.map((entry) => ({
-    id: entry.id,
-    hasToken: Boolean(entry.bootstrapToken),
-    httpBaseUrl: entry.httpBaseUrl ?? "",
-  }));
-  reconcileTrace.lastReconcileAt = new Date().toISOString();
-  reconcileTrace.attempts += 1;
+  patchReconcileState({
+    bootstrapsSeen: list.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      hasToken: Boolean(entry.bootstrapToken),
+      httpBaseUrl: entry.httpBaseUrl ?? "",
+    })),
+    lastReconcileAt: new Date().toISOString(),
+    attempts: useLocalSecondaryReconcileStore.getState().attempts + 1,
+  });
   return list;
 }
 
@@ -307,16 +365,17 @@ async function reconcileOnce(): Promise<void> {
           attemptTimeoutMs,
         );
       });
+      addPending(bootstrap.id);
       const promise = Promise.race([registerSecondaryLocalEnvironment(bootstrap), timeoutPromise])
         .then((record) => {
           if (record) {
-            reconcileTrace.registrationErrors.delete(bootstrap.id);
+            clearRegistrationError(bootstrap.id);
           }
           return record;
         })
         .catch((error) => {
           const message = error instanceof Error ? error.message : String(error);
-          reconcileTrace.registrationErrors.set(bootstrap.id, {
+          setRegistrationError(bootstrap.id, {
             message,
             at: new Date().toISOString(),
           });
@@ -325,6 +384,7 @@ async function reconcileOnce(): Promise<void> {
         })
         .finally(() => {
           pendingByInstanceId.delete(bootstrap.id);
+          removePending(bootstrap.id);
         });
       pendingByInstanceId.set(bootstrap.id, { promise });
       await promise;
@@ -334,7 +394,12 @@ async function reconcileOnce(): Promise<void> {
 
 function scheduleAutoRetry(): void {
   if (autoRetryHandle !== null) return;
-  if (autoRetryAttempt >= AUTO_RETRY_DELAYS_MS.length) return;
+  if (autoRetryAttempt >= AUTO_RETRY_DELAYS_MS.length) {
+    // Budget exhausted. Surface this through the store so the sidebar
+    // can switch from "Connecting..." to "Couldn't connect, retry?".
+    patchReconcileState({ budgetExhausted: true });
+    return;
+  }
   // Note: we deliberately don't short-circuit when the current bootstraps
   // list lacks any secondary entry. The desktop pool only publishes a
   // backend's bootstrap once its first start cycle has produced a config
@@ -365,6 +430,7 @@ function runReconcile(options: { readonly resetBudget: boolean }): Promise<void>
       clearTimeout(autoRetryHandle);
       autoRetryHandle = null;
     }
+    patchReconcileState({ budgetExhausted: false });
   }
   const next = reconcileOnce()
     .finally(() => {

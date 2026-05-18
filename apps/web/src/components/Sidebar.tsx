@@ -5,6 +5,7 @@ import {
   CloudIcon,
   ContainerIcon,
   FolderPlusIcon,
+  LoaderIcon,
   SearchIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -62,6 +63,10 @@ import {
   type SidebarThreadSortOrder,
 } from "@t3tools/contracts/settings";
 import { usePrimaryEnvironmentId } from "../environments/primary";
+import {
+  reconcileLocalSecondaryEnvironments,
+  useLocalSecondaryReconcileStore,
+} from "../environments/local";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -2257,6 +2262,67 @@ const SidebarProjectListRow = memo(function SidebarProjectListRow(props: Sidebar
   );
 });
 
+function LocalSecondaryStatus() {
+  const pendingIds = useLocalSecondaryReconcileStore((state) => state.pendingInstanceIds);
+  const errors = useLocalSecondaryReconcileStore((state) => state.registrationErrors);
+  const bootstraps = useLocalSecondaryReconcileStore((state) => state.bootstrapsSeen);
+  const budgetExhausted = useLocalSecondaryReconcileStore((state) => state.budgetExhausted);
+
+  const labelForId = useCallback(
+    (id: string) => {
+      const match = bootstraps.find((b) => b.id === id);
+      return match?.label ?? id;
+    },
+    [bootstraps],
+  );
+
+  // Pending takes precedence: while a registration is in flight, show
+  // "Connecting" even if a previous attempt left an error in the store.
+  // Once nothing is pending and the auto-retry budget has run out, the
+  // remaining errors are the user-actionable failures.
+  const pendingSet = new Set(pendingIds);
+  const failedIds = budgetExhausted ? Object.keys(errors).filter((id) => !pendingSet.has(id)) : [];
+
+  if (pendingIds.length === 0 && failedIds.length === 0) return null;
+
+  const handleRetry = () => {
+    void reconcileLocalSecondaryEnvironments();
+  };
+
+  return (
+    <SidebarGroup className="px-2 pt-2 pb-0">
+      {pendingIds.length > 0 ? (
+        <Alert
+          variant="default"
+          className="rounded-2xl border-border/40 bg-accent/40 text-muted-foreground"
+        >
+          <LoaderIcon className="animate-spin" />
+          <AlertTitle className="text-xs font-medium text-foreground">
+            Connecting {pendingIds.map(labelForId).join(", ")}
+          </AlertTitle>
+        </Alert>
+      ) : null}
+      {failedIds.length > 0 ? (
+        <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
+          <TriangleAlertIcon />
+          <AlertTitle>Couldn't connect {failedIds.map(labelForId).join(", ")}</AlertTitle>
+          <AlertDescription>
+            {failedIds
+              .map((id) => errors[id]?.message)
+              .filter(Boolean)
+              .join("; ") || "The backend didn't respond."}
+          </AlertDescription>
+          <AlertAction>
+            <Button size="xs" variant="outline" onClick={handleRetry}>
+              Retry
+            </Button>
+          </AlertAction>
+        </Alert>
+      ) : null}
+    </SidebarGroup>
+  );
+}
+
 function T3Wordmark() {
   return (
     <svg
@@ -2688,6 +2754,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
           </Alert>
         </SidebarGroup>
       ) : null}
+      <LocalSecondaryStatus />
       <SidebarGroup className="px-2 py-2">
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
