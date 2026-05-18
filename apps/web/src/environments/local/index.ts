@@ -67,12 +67,70 @@ const AUTO_RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 45_000, 60_00
 let autoRetryHandle: ReturnType<typeof setTimeout> | null = null;
 let autoRetryAttempt = 0;
 
+interface LocalSecondaryReconcileTrace {
+  readonly bootstrapsSeen: ReadonlyArray<{ id: string; hasToken: boolean; httpBaseUrl: string }>;
+  readonly registrationErrors: ReadonlyMap<string, { message: string; at: string }>;
+  readonly lastReconcileAt: string | null;
+  readonly attempts: number;
+}
+
+const reconcileTrace: {
+  bootstrapsSeen: ReadonlyArray<{ id: string; hasToken: boolean; httpBaseUrl: string }>;
+  registrationErrors: Map<string, { message: string; at: string }>;
+  lastReconcileAt: string | null;
+  attempts: number;
+} = {
+  bootstrapsSeen: [],
+  registrationErrors: new Map(),
+  lastReconcileAt: null,
+  attempts: 0,
+};
+
+// Surface the reconciler's internal state on `window` for ad-hoc
+// debugging. Production renderers don't expose CDP, so this is the
+// only way for a user to inspect "what does the local-secondary
+// reconciler think happened?" from the dev tools console.
+function exposeDebugGlobal(): void {
+  if (typeof window === "undefined") return;
+  const w = window as unknown as {
+    __t3LocalSecondaryDebug?: {
+      getState: () => LocalSecondaryReconcileTrace;
+      retryNow: () => Promise<void>;
+    };
+  };
+  if (w.__t3LocalSecondaryDebug) return;
+  w.__t3LocalSecondaryDebug = {
+    getState: () => ({
+      bootstrapsSeen: reconcileTrace.bootstrapsSeen,
+      registrationErrors: new Map(reconcileTrace.registrationErrors),
+      lastReconcileAt: reconcileTrace.lastReconcileAt,
+      attempts: reconcileTrace.attempts,
+    }),
+    retryNow: () => reconcileLocalSecondaryEnvironments(),
+  };
+}
+
 function readBootstraps(): readonly DesktopEnvironmentBootstrap[] {
   // Guard against test environments that import this module under
   // Node (no window) but exercise the service entrypoint that boots
   // the reconciler.
   if (typeof window === "undefined") return [];
-  return window.desktopBridge?.getLocalEnvironmentBootstraps() ?? [];
+  exposeDebugGlobal();
+  let list: readonly DesktopEnvironmentBootstrap[] = [];
+  try {
+    list = window.desktopBridge?.getLocalEnvironmentBootstraps() ?? [];
+  } catch (error) {
+    console.error("[LOCAL_SECONDARY] readBootstraps threw", error);
+    return [];
+  }
+  reconcileTrace.bootstrapsSeen = list.map((entry) => ({
+    id: entry.id,
+    hasToken: Boolean(entry.bootstrapToken),
+    httpBaseUrl: entry.httpBaseUrl ?? "",
+  }));
+  reconcileTrace.lastReconcileAt = new Date().toISOString();
+  reconcileTrace.attempts += 1;
+  return list;
 }
 
 function findRecordByInstanceId(instanceId: string): SavedEnvironmentRecord | null {
@@ -238,8 +296,30 @@ async function reconcileOnce(): Promise<void> {
         return;
       }
 
-      const promise = registerSecondaryLocalEnvironment(bootstrap)
+      // Hard ceiling per attempt so a hung step (e.g. WebSocket open
+      // that never resolves, or an IPC call that doesn't return) can't
+      // wedge `pendingReconcileRun` and silence the entire retry loop.
+      const attemptTimeoutMs = 25_000;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(
+          () =>
+            reject(new Error(`Timed out registering ${bootstrap.id} after ${attemptTimeoutMs}ms`)),
+          attemptTimeoutMs,
+        );
+      });
+      const promise = Promise.race([registerSecondaryLocalEnvironment(bootstrap), timeoutPromise])
+        .then((record) => {
+          if (record) {
+            reconcileTrace.registrationErrors.delete(bootstrap.id);
+          }
+          return record;
+        })
         .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          reconcileTrace.registrationErrors.set(bootstrap.id, {
+            message,
+            at: new Date().toISOString(),
+          });
           console.error("[LOCAL_SECONDARY] register failed", bootstrap.id, error);
           return null;
         })
