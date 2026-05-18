@@ -283,13 +283,28 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
   | FileSystem.FileSystem
 > {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  const wslEnvironment = yield* DesktopWslEnvironment.DesktopWslEnvironment;
 
-  // WSL backend is always loopback-only; the primary owns LAN exposure
-  // when the user opts in. Hardcode 127.0.0.1 + drop the tailscale flags
-  // so a second tailscale serve forwarder doesn't try to bind the same
-  // port from inside WSL.
-  const wslHost = "127.0.0.1";
-  const httpBaseUrl = new URL(`http://${wslHost}:${input.port}`);
+  // Bind to 0.0.0.0 inside WSL so the backend is reachable both via
+  // WSL2's automatic localhost forwarding (wslhost: Windows 127.0.0.1
+  // -> WSL 127.0.0.1) AND via the distro's eth0 IP directly from
+  // Windows. wslhost forwarding is unreliable on some Windows hosts:
+  // the desktop's readiness probe and the renderer's saved-env-style
+  // fetch both saw "Failed to fetch" when the backend only bound to
+  // 127.0.0.1 inside WSL. Binding to 0.0.0.0 plus advertising the
+  // WSL IP as the renderer-visible URL avoids that dependency.
+  // Security-wise this is acceptable for the local-only WSL backend:
+  // the network it exposes on is the WSL-vEthernet network, not the
+  // LAN; the primary owns LAN exposure when the user opts in.
+  const wslBindHost = "0.0.0.0";
+
+  // Resolve the WSL distro's IPv4 address (eth0). Falls back to
+  // 127.0.0.1 + wslhost forwarding when the IP probe fails: that
+  // gives us the same behavior as before this change, so a missing
+  // WSL setup doesn't regress instead of just degrading.
+  const distroIp = yield* wslEnvironment.getDistroIp(input.distro);
+  const rendererHost = Option.getOrElse(distroIp, () => "127.0.0.1");
+  const httpBaseUrl = new URL(`http://${rendererHost}:${input.port}`);
 
   const bootstrap = {
     mode: "desktop" as const,
@@ -298,7 +313,7 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     // Omit t3Home so the Linux backend uses its own home dir instead of
     // the Windows-side baseDir (which would be a /mnt/c path and share
     // the SQLite file with the primary).
-    host: wslHost,
+    host: wslBindHost,
     desktopBootstrapToken: input.bootstrapToken,
     // PortSchema rejects 0, so when tailscale serve is disabled we still
     // need a valid number in this slot. The backend reads tailscaleServePort

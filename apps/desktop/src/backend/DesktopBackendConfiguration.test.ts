@@ -243,9 +243,14 @@ describe("DesktopBackendConfiguration", () => {
 
           assert.equal(config.executablePath, "wsl.exe");
           assert.equal(config.bootstrap.port, 5050);
-          assert.equal(config.bootstrap.host, "127.0.0.1");
+          // Binds to 0.0.0.0 inside WSL so the backend is reachable via
+          // both wslhost-forwarded localhost and the distro's eth0 IP.
+          assert.equal(config.bootstrap.host, "0.0.0.0");
           assert.equal(config.bootstrap.tailscaleServeEnabled, false);
-          assert.equal(config.httpBaseUrl.href, "http://127.0.0.1:5050/");
+          // httpBaseUrl uses the resolved distro IP from the test stub,
+          // not localhost — the renderer reaches the backend directly to
+          // avoid relying on wslhost forwarding.
+          assert.equal(config.httpBaseUrl.href, "http://172.27.0.99:5050/");
           assert.equal(config.env.OPENAI_API_KEY, "openai-key");
           assert.equal(config.env.ANTHROPIC_API_KEY, "anthropic-key");
           assert.equal(
@@ -261,6 +266,7 @@ describe("DesktopBackendConfiguration", () => {
                 DesktopWslEnvironment.layerTest({
                   isAvailable: true,
                   windowsToWslPath: () => Option.some("/mnt/c/repo/apps/server/src/index.ts"),
+                  getDistroIp: () => Option.some("172.27.0.99"),
                 }),
               ),
               Layer.provideMerge(makeEnvironmentLayer(baseDir, { platform: "win32" })),

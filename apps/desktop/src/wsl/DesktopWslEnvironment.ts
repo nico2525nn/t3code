@@ -42,6 +42,13 @@ export interface DesktopWslEnvironmentShape {
   // Resolves the user's Linux home dir inside the chosen distro (e.g.
   // "/home/josh"). Used by the folder picker to expand `~` correctly.
   readonly getUserHome: (distro: string | null) => Effect.Effect<Option.Option<string>>;
+  // Resolves the WSL distro's IPv4 address on the WSL vEthernet adapter
+  // (e.g. "172.x.x.x"). The orchestrator uses this for the WSL backend's
+  // httpBaseUrl so the renderer can reach it without relying on wslhost's
+  // localhost→WSL automatic forwarding, which is flaky in practice
+  // (the backend can be listening for 30+ seconds before wslhost starts
+  // forwarding 127.0.0.1:port to WSL-side localhost).
+  readonly getDistroIp: (distro: string | null) => Effect.Effect<Option.Option<string>>;
   readonly ensureNodePty: (
     distro: string | null,
     windowsRepoRoot: string,
@@ -379,6 +386,43 @@ const windowsToWslPathImpl = (
   );
 };
 
+const IPV4_PATTERN = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+
+const getDistroIpImpl = (
+  distro: string | null,
+): Effect.Effect<Option.Option<string>, never, ChildProcessSpawner.ChildProcessSpawner> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      // `hostname -I` prints a space-separated list of all non-loopback
+      // IPs the distro has bound. The first entry on the WSL2 default
+      // network is always the eth0 vEthernet address Windows can reach
+      // directly (no wslhost forwarding required).
+      const command = ChildProcess.make(
+        "wsl.exe",
+        [...buildDistroArgs(distro), "--", "sh", "-c", "hostname -I"],
+        {
+          stdin: "ignore",
+          stdout: "pipe",
+          stderr: "ignore",
+          killSignal: "SIGTERM",
+          forceKillAfter: PROCESS_TERMINATE_GRACE,
+        },
+      );
+      const handle = yield* spawner.spawn(command);
+      const stdoutBytes = yield* Stream.runCollect(handle.stdout);
+      const exitCode = yield* handle.exitCode;
+      if ((exitCode as unknown as number) !== 0) return Option.none<string>();
+      const raw = decodeUtf8(concatChunks(stdoutBytes)).trim();
+      const candidate = raw.split(/\s+/).find((part) => IPV4_PATTERN.test(part));
+      return candidate ? Option.some(candidate) : Option.none<string>();
+    }),
+  ).pipe(
+    Effect.timeoutOption(USER_HOME_TIMEOUT),
+    Effect.map(Option.flatten),
+    Effect.catch(() => Effect.succeed(Option.none<string>())),
+  );
+
 const getUserHomeImpl = (
   distro: string | null,
 ): Effect.Effect<Option.Option<string>, never, ChildProcessSpawner.ChildProcessSpawner> =>
@@ -434,6 +478,7 @@ export interface DesktopWslEnvironmentTestStub {
   readonly distros?: ReadonlyArray<WslDistro>;
   readonly windowsToWslPath?: (distro: string | null, windowsPath: string) => Option.Option<string>;
   readonly getUserHome?: (distro: string | null) => Option.Option<string>;
+  readonly getDistroIp?: (distro: string | null) => Option.Option<string>;
   readonly ensureNodePty?: (
     distro: string | null,
     windowsRepoRoot: string,
@@ -451,6 +496,7 @@ export const layerTest = (stub: DesktopWslEnvironmentTestStub = {}) =>
       windowsToWslPath: (distro, windowsPath) =>
         Effect.succeed(stub.windowsToWslPath?.(distro, windowsPath) ?? Option.none()),
       getUserHome: (distro) => Effect.succeed(stub.getUserHome?.(distro) ?? Option.none<string>()),
+      getDistroIp: (distro) => Effect.succeed(stub.getDistroIp?.(distro) ?? Option.none<string>()),
       ensureNodePty: (distro, windowsRepoRoot, options) =>
         Effect.succeed(
           stub.ensureNodePty?.(distro, windowsRepoRoot, options) ?? {
@@ -500,6 +546,21 @@ export const layer = Layer.effect(
         return resolved;
       }).pipe(Effect.withSpan("desktop.wsl.getUserHome"));
 
+    // Cache the distro IP per distro for the life of the desktop
+    // process; WSL's eth0 IP only changes on full WSL restarts (which
+    // also restart the orchestrator's instance), so we don't need to
+    // re-probe on every config resolve.
+    const distroIpCache = new Map<string, string>();
+    const getDistroIp = (distro: string | null) =>
+      Effect.gen(function* () {
+        const key = distro ?? "__default__";
+        const cached = distroIpCache.get(key);
+        if (cached !== undefined) return Option.some(cached);
+        const resolved = yield* provideSpawner(getDistroIpImpl(distro));
+        if (Option.isSome(resolved)) distroIpCache.set(key, resolved.value);
+        return resolved;
+      }).pipe(Effect.withSpan("desktop.wsl.getDistroIp"));
+
     return DesktopWslEnvironment.of({
       isAvailable,
       listDistros: provideSpawner(listDistrosImpl).pipe(Effect.withSpan("desktop.wsl.listDistros")),
@@ -507,6 +568,7 @@ export const layer = Layer.effect(
         provideSpawner(preWarmImpl(distro)).pipe(Effect.withSpan("desktop.wsl.preWarm")),
       windowsToWslPath,
       getUserHome,
+      getDistroIp,
       ensureNodePty: (distro, windowsRepoRoot, options) =>
         provideSpawner(ensureNodePtyImpl(distro, windowsRepoRoot, windowsToWslPath, options)).pipe(
           Effect.withSpan("desktop.wsl.ensureNodePty"),
