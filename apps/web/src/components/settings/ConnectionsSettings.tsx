@@ -104,11 +104,11 @@ import { useServerConfig } from "~/rpc/serverState";
 
 const DEFAULT_TAILSCALE_SERVE_PORT = 443;
 
-// Sentinel for the "track the WSL default distro" option in the
-// distro picker. The colon is rejected by DISTRO_NAME_PATTERN
-// (validated on the desktop side) so it can never collide with a
-// real distro name.
+// Sentinels for the consolidated WSL backend picker. The colon is
+// rejected by DISTRO_NAME_PATTERN (validated on the desktop side) so
+// neither can collide with a real distro name.
 const BACKEND_VALUE_DEFAULT_WSL = "backend:default-wsl";
+const BACKEND_VALUE_WSL_OFF = "backend:wsl-off";
 
 const accessTimestampFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -2421,37 +2421,47 @@ export function ConnectionsSettings() {
     return false;
   }, [savedEnvironmentsById]);
 
-  const handleToggleWslBackend = useCallback(
-    (enabled: boolean) => {
-      if (!desktopBridge || !desktopWslState || desktopWslState.enabled === enabled) return;
-      // Enabling is non-destructive: it just starts a new backend
-      // alongside the Windows one. Skip the dialog. Disabling only
-      // prompts when there's actual WSL state in the registry that the
-      // user might lose access to.
-      if (!enabled && hasWslRegistrationToLose) {
-        setPendingWslChange({ kind: "disable" });
-        return;
-      }
-      void applyWslSettingChange(() => desktopBridge.setWslBackendEnabled(enabled));
-    },
-    [applyWslSettingChange, desktopBridge, desktopWslState, hasWslRegistrationToLose],
-  );
-
-  const handleSelectWslDistro = useCallback(
+  // Single picker for "WSL backend off" vs "running on distro X". The
+  // dropdown maps "Off" to disable and any distro entry to enable +
+  // run on that distro. Splitting these into a separate switch and
+  // dropdown was confusing — they're the same decision.
+  const handleSelectWslMode = useCallback(
     (value: string) => {
       if (!desktopBridge || !desktopWslState) return;
-      const nextDistro = value === BACKEND_VALUE_DEFAULT_WSL ? null : value;
       const defaultDistroName =
         desktopWslState.distros.find((distro) => distro.isDefault)?.name ?? null;
-      // Treat null and "the actual default distro" as the same selection
-      // so picking the highlighted row doesn't trigger a setting change.
-      const resolvedCurrent = desktopWslState.distro ?? defaultDistroName;
+      if (value === BACKEND_VALUE_WSL_OFF) {
+        if (!desktopWslState.enabled) return;
+        // Disabling only prompts when there's actual WSL state in the
+        // registry the user might lose access to.
+        if (hasWslRegistrationToLose) {
+          setPendingWslChange({ kind: "disable" });
+          return;
+        }
+        void applyWslSettingChange(() => desktopBridge.setWslBackendEnabled(false));
+        return;
+      }
+      const nextDistro = value === BACKEND_VALUE_DEFAULT_WSL ? null : value;
       const resolvedNext = nextDistro ?? defaultDistroName;
+      if (!desktopWslState.enabled) {
+        // Was off, user picked a distro: turn the backend on. No state
+        // to lose, no confirmation. Write the distro first if it
+        // differs from what's persisted so the backend comes up on the
+        // right one.
+        const persistedDistro = desktopWslState.distro;
+        const distroChanged = persistedDistro !== nextDistro;
+        void applyWslSettingChange(async () => {
+          if (distroChanged) {
+            await desktopBridge.setWslDistro(nextDistro);
+          }
+          return await desktopBridge.setWslBackendEnabled(true);
+        });
+        return;
+      }
+      // Already enabled — treat as a distro switch. Skip the change if
+      // the user re-picked the row that's already selected.
+      const resolvedCurrent = desktopWslState.distro ?? defaultDistroName;
       if (resolvedCurrent === resolvedNext) return;
-      // Switching distros restarts the WSL backend on a different
-      // Linux home, which interrupts whatever's running on the current
-      // distro. Prompt before doing that, but only when there's
-      // already-registered WSL state worth warning about.
       if (hasWslRegistrationToLose) {
         setPendingWslChange({ kind: "distro", nextDistro });
         return;
@@ -2498,68 +2508,60 @@ export function ConnectionsSettings() {
     // dropdown then renders a single placeholder that matches).
     const defaultDistroName =
       desktopWslState.distros.find((distro) => distro.isDefault)?.name ?? null;
-    const distroSelectValue =
-      desktopWslState.distro ?? defaultDistroName ?? BACKEND_VALUE_DEFAULT_WSL;
+    const selectValue = !desktopWslState.enabled
+      ? BACKEND_VALUE_WSL_OFF
+      : (desktopWslState.distro ?? defaultDistroName ?? BACKEND_VALUE_DEFAULT_WSL);
+    const selectLabel =
+      selectValue === BACKEND_VALUE_WSL_OFF
+        ? "Off"
+        : selectValue === BACKEND_VALUE_DEFAULT_WSL
+          ? "Default distro"
+          : selectValue;
     return (
       <>
         <SettingsRow
           title="WSL backend"
-          description="Run a second backend inside a WSL distro alongside the Windows one. Projects opened against the WSL backend live on the Linux side; Windows projects stay where they are."
+          description="Run a second backend inside a WSL distro alongside the Windows one. Pick a distro to start it; pick Off to stop it. Projects opened against the WSL backend live on the Linux side; Windows projects stay where they are."
           status={
             desktopWslError ? (
               <span className="block text-destructive">{desktopWslError}</span>
             ) : null
           }
           control={
-            <Switch
-              checked={desktopWslState.enabled}
-              disabled={isUpdatingWslBackend}
-              onCheckedChange={(checked) => handleToggleWslBackend(checked)}
-              aria-label="Enable WSL backend"
-            />
+            <Select
+              value={selectValue}
+              onValueChange={(value) => {
+                if (typeof value !== "string") return;
+                handleSelectWslMode(value);
+              }}
+            >
+              <SelectTrigger
+                className="w-full sm:w-56"
+                aria-label="WSL backend"
+                disabled={isUpdatingWslBackend}
+              >
+                <SelectValue>{selectLabel}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value={BACKEND_VALUE_WSL_OFF}>
+                  Off
+                </SelectItem>
+                {desktopWslState.distros.length === 0 ? (
+                  <SelectItem hideIndicator value={BACKEND_VALUE_DEFAULT_WSL}>
+                    Default distro
+                  </SelectItem>
+                ) : (
+                  desktopWslState.distros.map((distro) => (
+                    <SelectItem hideIndicator key={distro.name} value={distro.name}>
+                      {distro.name}
+                      {distro.isDefault ? " (default)" : ""}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectPopup>
+            </Select>
           }
         />
-        {desktopWslState.enabled ? (
-          <SettingsRow
-            title="WSL distro"
-            description="Which WSL distro the second backend runs inside. Changing the selection restarts just the WSL backend; the Windows one is not affected."
-            control={
-              <Select
-                value={distroSelectValue}
-                onValueChange={(value) => {
-                  if (typeof value !== "string") return;
-                  handleSelectWslDistro(value);
-                }}
-              >
-                <SelectTrigger
-                  className="w-full sm:w-56"
-                  aria-label="WSL distro"
-                  disabled={isUpdatingWslBackend}
-                >
-                  <SelectValue>
-                    {distroSelectValue === BACKEND_VALUE_DEFAULT_WSL
-                      ? "Default distro"
-                      : distroSelectValue}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  {desktopWslState.distros.length === 0 ? (
-                    <SelectItem hideIndicator value={BACKEND_VALUE_DEFAULT_WSL}>
-                      Default distro
-                    </SelectItem>
-                  ) : (
-                    desktopWslState.distros.map((distro) => (
-                      <SelectItem hideIndicator key={distro.name} value={distro.name}>
-                        {distro.name}
-                        {distro.isDefault ? " (default)" : ""}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectPopup>
-              </Select>
-            }
-          />
-        ) : null}
         {desktopWslState.enabled ? (
           <SettingsRow
             title="Run WSL only"
