@@ -176,7 +176,12 @@ export interface BackendInstanceSpec {
   readonly id: BackendInstanceId;
   readonly label: string;
   readonly configResolve: Effect.Effect<DesktopBackendStartConfig>;
-  readonly onReady?: () => Effect.Effect<void>;
+  // Receives the *resolved* httpBaseUrl of the run that just became
+  // ready. The window service uses this to decide what URL to load
+  // (the WSL backend reports its distro IP, the Windows backend reports
+  // 127.0.0.1). Splitting this off from configResolve avoids races
+  // between "fired onReady" and "currentConfig already advanced".
+  readonly onReady?: (httpBaseUrl: URL) => Effect.Effect<void>;
   readonly onShutdown?: () => Effect.Effect<void>;
 }
 
@@ -533,7 +538,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
               return;
             }
 
-            yield* spec.onReady?.() ?? Effect.void;
+            yield* spec.onReady?.(config.httpBaseUrl) ?? Effect.void;
           }),
           onReadinessFailure: (error) =>
             logInstanceWarning("backend readiness check failed during bootstrap", {

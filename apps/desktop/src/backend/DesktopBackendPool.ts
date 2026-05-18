@@ -216,7 +216,8 @@ export const layer = Layer.effect(
       // swallowed here on purpose: they're logged by the window service
       // and we don't want a stuck splash window to block the readiness
       // callback (which would prevent restartAttempt from being reset).
-      onReady: () => desktopWindow.handleBackendReady.pipe(Effect.catch(() => Effect.void)),
+      onReady: (httpBaseUrl) =>
+        desktopWindow.handleBackendReady(httpBaseUrl).pipe(Effect.catch(() => Effect.void)),
       onShutdown: () => desktopWindow.handleBackendNotReady,
     });
 
