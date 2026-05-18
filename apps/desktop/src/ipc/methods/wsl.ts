@@ -2,6 +2,7 @@ import { DesktopWslStateSchema, type DesktopWslState } from "@t3tools/contracts"
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+import * as DesktopLifecycle from "../../app/DesktopLifecycle.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "../../wsl/DesktopWslEnvironment.ts";
@@ -73,13 +74,18 @@ export const setWslOnly = makeIpcMethod({
   payload: Schema.Boolean,
   result: DesktopWslStateSchema,
   handler: Effect.fn("desktop.ipc.wsl.setOnly")(function* (enabled) {
-    // wsl-only changes the pool's primary spec, which is captured
-    // once at layer init. Persist the new setting here; the actual
-    // mode flip lands on the next desktop launch. The renderer
-    // surfaces "T3 Code will restart" in the confirmation dialog so
-    // the user knows what to expect.
+    // wsl-only decides which backend the pool spins up as "primary",
+    // and that decision is captured once at layer init. After
+    // persisting the new value we relaunch so the user lands in the
+    // mode they just picked instead of having to close + reopen
+    // themselves. Same pattern as the server-exposure-mode change.
     const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
-    yield* appSettings.setWslOnly(enabled);
-    return yield* readWslState;
+    const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
+    const change = yield* appSettings.setWslOnly(enabled);
+    const state = yield* readWslState;
+    if (change.changed) {
+      yield* lifecycle.relaunch(`wslOnly=${enabled}`);
+    }
+    return state;
   }),
 });

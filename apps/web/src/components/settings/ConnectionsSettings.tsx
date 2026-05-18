@@ -2563,7 +2563,7 @@ export function ConnectionsSettings() {
         {desktopWslState.enabled ? (
           <SettingsRow
             title="Run WSL only"
-            description="Stop the Windows backend and run only the WSL backend. Useful if you develop entirely inside WSL and don't want a second backend process. Requires an app restart."
+            description="Stop the Windows backend and run only the WSL backend. Useful if you develop entirely inside WSL and don't want a second backend process. T3 Code restarts when you change this."
             control={
               <Switch
                 checked={desktopWslState.wslOnly}
@@ -2811,8 +2811,8 @@ export function ConnectionsSettings() {
                     : pendingWslChange?.kind === "distro"
                       ? "T3 Code will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."
                       : pendingWslChange?.nextValue
-                        ? "T3 Code will save this preference and switch to running only the WSL backend on the next app launch. Your Windows-side projects won't be accessible until you turn this off again."
-                        : "T3 Code will save this preference and bring the Windows backend back up alongside WSL on the next app launch."}
+                        ? "T3 Code will restart and start only the WSL backend. Your Windows-side projects won't be accessible until you turn this off again."
+                        : "T3 Code will restart and bring the Windows backend back up alongside WSL."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -2842,9 +2842,9 @@ export function ConnectionsSettings() {
                   ) : pendingWslChange?.kind === "distro" ? (
                     "Switch distro"
                   ) : pendingWslChange?.nextValue ? (
-                    "Save and restart later"
+                    "Restart and enable"
                   ) : (
-                    "Save and restart later"
+                    "Restart and disable"
                   )}
                 </Button>
               </AlertDialogFooter>
