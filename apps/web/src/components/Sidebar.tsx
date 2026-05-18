@@ -2267,6 +2267,7 @@ function LocalSecondaryStatus() {
   const errors = useLocalSecondaryReconcileStore((state) => state.registrationErrors);
   const bootstraps = useLocalSecondaryReconcileStore((state) => state.bootstrapsSeen);
   const budgetExhausted = useLocalSecondaryReconcileStore((state) => state.budgetExhausted);
+  const savedEnvRegistry = useSavedEnvironmentRegistryStore((state) => state.byId);
 
   const labelForId = useCallback(
     (id: string) => {
@@ -2276,14 +2277,45 @@ function LocalSecondaryStatus() {
     [bootstraps],
   );
 
-  // Pending takes precedence: while a registration is in flight, show
-  // "Connecting" even if a previous attempt left an error in the store.
-  // Once nothing is pending and the auto-retry budget has run out, the
-  // remaining errors are the user-actionable failures.
-  const pendingSet = new Set(pendingIds);
-  const failedIds = budgetExhausted ? Object.keys(errors).filter((id) => !pendingSet.has(id)) : [];
+  // The set of secondary instances that haven't landed in the saved-env
+  // registry yet. We derive this rather than tracking it directly so the
+  // indicator stays steady between retry attempts: pendingInstanceIds
+  // empties out during the backoff delay between attempts, but the
+  // "we're still trying" state hasn't actually changed.
+  const registryInstanceIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const record of Object.values(savedEnvRegistry)) {
+      const instanceId = record.desktopLocal?.instanceId;
+      if (instanceId !== undefined) ids.add(instanceId);
+    }
+    return ids;
+  }, [savedEnvRegistry]);
 
-  if (pendingIds.length === 0 && failedIds.length === 0) return null;
+  const unsettledSecondaryIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const entry of bootstraps) {
+      if (entry.id === "primary") continue;
+      if (!registryInstanceIds.has(entry.id)) ids.push(entry.id);
+    }
+    return ids;
+  }, [bootstraps, registryInstanceIds]);
+
+  // "Connecting" stays true through the entire retry budget so the
+  // user sees a single steady indicator while the backend cold-boots,
+  // rather than the alert flickering once per setTimeout fire. The
+  // pendingIds.length > 0 disjunct handles the case where the user
+  // hits Retry after the budget exhausted: budget gets reset to
+  // false but pendingIds will populate as soon as the new attempt
+  // starts.
+  const connectingIds = pendingIds.length > 0 || !budgetExhausted ? unsettledSecondaryIds : [];
+
+  // Failures only become user-actionable once the auto-retry budget
+  // has run out and the instance still isn't in the registry. While
+  // we're still retrying we suppress the failure alert because a
+  // transient error from the prior attempt is just noise.
+  const failedIds = budgetExhausted ? unsettledSecondaryIds.filter((id) => id in errors) : [];
+
+  if (connectingIds.length === 0 && failedIds.length === 0) return null;
 
   const handleRetry = () => {
     void reconcileLocalSecondaryEnvironments();
@@ -2291,14 +2323,14 @@ function LocalSecondaryStatus() {
 
   return (
     <SidebarGroup className="px-2 pt-2 pb-0">
-      {pendingIds.length > 0 ? (
+      {connectingIds.length > 0 ? (
         <Alert
           variant="default"
           className="rounded-2xl border-border/40 bg-accent/40 text-muted-foreground"
         >
           <LoaderIcon className="animate-spin" />
           <AlertTitle className="text-xs font-medium text-foreground">
-            Connecting {pendingIds.map(labelForId).join(", ")}
+            Connecting {connectingIds.map(labelForId).join(", ")}
           </AlertTitle>
         </Alert>
       ) : null}
