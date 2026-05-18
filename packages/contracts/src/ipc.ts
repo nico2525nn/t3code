@@ -407,6 +407,11 @@ export interface DesktopWslState {
   // null means "track the current WSL default distro".
   distro: string | null;
   available: boolean;
+  // When true (and `enabled` is also true) the desktop runs only the
+  // WSL backend as the primary; the Windows-side Node backend is not
+  // started. Toggling this requires an app restart because the
+  // primary backend's spec is captured once at layer init.
+  wslOnly: boolean;
   distros: readonly DesktopWslDistro[];
 }
 
@@ -414,6 +419,7 @@ export const DesktopWslStateSchema = Schema.Struct({
   enabled: Schema.Boolean,
   distro: Schema.NullOr(Schema.String),
   available: Schema.Boolean,
+  wslOnly: Schema.Boolean,
   distros: Schema.Array(DesktopWslDistroSchema),
 });
 
@@ -460,6 +466,7 @@ export interface DesktopBridge {
   getWslState: () => Promise<DesktopWslState>;
   setWslBackendEnabled: (enabled: boolean) => Promise<DesktopWslState>;
   setWslDistro: (distro: string | null) => Promise<DesktopWslState>;
+  setWslOnly: (enabled: boolean) => Promise<DesktopWslState>;
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;

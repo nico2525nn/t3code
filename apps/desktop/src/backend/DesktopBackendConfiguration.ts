@@ -13,6 +13,7 @@ import * as DesktopBackendManager from "./DesktopBackendManager.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopServerExposure from "./DesktopServerExposure.ts";
+import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopWslEnvironment from "../wsl/DesktopWslEnvironment.ts";
 
 export interface DesktopBackendConfigurationShape {
@@ -413,6 +414,7 @@ export const layer = Layer.effect(
     const fileSystem = yield* FileSystem.FileSystem;
     const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
     const wslEnvironment = yield* DesktopWslEnvironment.DesktopWslEnvironment;
+    const settings = yield* DesktopAppSettings.DesktopAppSettings;
     const tokenRef = yield* Ref.make(Option.none<string>());
 
     // Both resolvers share the same bootstrap token: the renderer holds a
@@ -429,13 +431,47 @@ export const layer = Layer.effect(
       return { bootstrapToken, observabilitySettings } satisfies SharedBootstrapInput;
     });
 
+    const buildWslPrimaryConfig = Effect.gen(function* () {
+      // wsl-only mode pipes the WSL backend through the same port the
+      // Windows primary would normally take. That way the renderer
+      // still loads from the local-only endpoint advertised by
+      // DesktopServerExposure, and primary-aware code paths (cookie
+      // auth, the env switcher's "primary" id) keep working without
+      // a parallel "secondary" registration.
+      const backendExposure = yield* serverExposure.backendConfig;
+      const persistedSettings = yield* settings.get;
+      const shared = yield* sharedInputs;
+      return yield* resolveWslStartConfig({
+        ...shared,
+        port: backendExposure.port,
+        distro: persistedSettings.wslDistro,
+      }).pipe(
+        Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
+        Effect.provideService(DesktopWslEnvironment.DesktopWslEnvironment, wslEnvironment),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+      );
+    });
+
+    const buildWindowsPrimaryConfig = Effect.gen(function* () {
+      const shared = yield* sharedInputs;
+      return yield* resolvePrimaryStartConfig(shared).pipe(
+        Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
+        Effect.provideService(DesktopServerExposure.DesktopServerExposure, serverExposure),
+      );
+    });
+
     return DesktopBackendConfiguration.of({
       resolvePrimary: Effect.gen(function* () {
-        const shared = yield* sharedInputs;
-        return yield* resolvePrimaryStartConfig(shared).pipe(
-          Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
-          Effect.provideService(DesktopServerExposure.DesktopServerExposure, serverExposure),
-        );
+        // Dispatch on the wsl-only setting at resolve time so the
+        // user toggling the mode between restarts picks up the new
+        // path on the next start cycle. The pool's primary
+        // BackendInstance is created once at layer init, but its
+        // configResolve fires each time the backend (re)starts.
+        const persistedSettings = yield* settings.get;
+        if (persistedSettings.wslOnly && persistedSettings.wslBackendEnabled) {
+          return yield* buildWslPrimaryConfig;
+        }
+        return yield* buildWindowsPrimaryConfig;
       }).pipe(Effect.withSpan("desktop.backendConfiguration.resolvePrimary")),
       resolveWsl: (input) =>
         Effect.gen(function* () {

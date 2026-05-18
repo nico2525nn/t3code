@@ -161,7 +161,12 @@ export const layer = Layer.effect(
       const existing = yield* findExistingWslInstance;
       const existingId = Option.map(existing, (instance) => instance.id);
 
-      const shouldRun = settings.wslBackendEnabled && available;
+      // In wsl-only mode the pool's primary IS the WSL backend (see
+      // DesktopBackendConfiguration.resolvePrimary), so the
+      // orchestrator skips registering a parallel "wsl:<distro>"
+      // secondary. Without this skip we'd spin up two WSL processes
+      // on the same distro for users who explicitly asked for one.
+      const shouldRun = settings.wslBackendEnabled && available && !settings.wslOnly;
       const targetId = shouldRun
         ? Option.some(resolveTargetInstanceId(settings.wslDistro))
         : Option.none<DesktopBackendPool.BackendInstanceId>();

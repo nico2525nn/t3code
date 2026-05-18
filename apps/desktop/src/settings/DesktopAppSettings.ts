@@ -34,6 +34,14 @@ export interface DesktopSettings {
   // value are migrated to `wslBackendEnabled: true` on load.
   readonly wslBackendEnabled: boolean;
   readonly wslDistro: string | null;
+  // When true (and wslBackendEnabled is also true) the desktop runs only
+  // the WSL backend as the primary, and the Windows-side Node backend is
+  // not started. Designed for users who develop entirely inside WSL and
+  // don't want a second backend process running. Defaults to false so
+  // existing setups stay on the parallel-backends behavior. Changing
+  // this requires a desktop restart because the pool's primary spec is
+  // chosen once at layer init.
+  readonly wslOnly: boolean;
 }
 
 export interface DesktopSettingsChange {
@@ -51,6 +59,7 @@ export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   updateChannelConfiguredByUser: false,
   wslBackendEnabled: false,
   wslDistro: null,
+  wslOnly: false,
 };
 
 const DesktopSettingsDocument = Schema.Struct({
@@ -65,6 +74,7 @@ const DesktopSettingsDocument = Schema.Struct({
   wslBackendEnabled: Schema.optionalKey(Schema.Boolean),
   wslMode: Schema.optionalKey(Schema.Literals(["local", "wsl"])),
   wslDistro: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  wslOnly: Schema.optionalKey(Schema.Boolean),
 });
 
 type DesktopSettingsDocument = typeof DesktopSettingsDocument.Type;
@@ -105,6 +115,9 @@ export interface DesktopAppSettingsShape {
   ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
   readonly setWslDistro: (
     distro: string | null,
+  ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
+  readonly setWslOnly: (
+    enabled: boolean,
   ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
 }
 
@@ -159,6 +172,7 @@ function normalizeDesktopSettingsDocument(
     updateChannelConfiguredByUser,
     wslBackendEnabled,
     wslDistro: normalizeWslDistro(parsed.wslDistro),
+    wslOnly: parsed.wslOnly === true,
   };
 }
 
@@ -188,6 +202,9 @@ function toDesktopSettingsDocument(
   }
   if (settings.wslDistro !== defaults.wslDistro) {
     document.wslDistro = settings.wslDistro;
+  }
+  if (settings.wslOnly !== defaults.wslOnly) {
+    document.wslOnly = settings.wslOnly;
   }
 
   return document;
@@ -251,6 +268,15 @@ function setWslDistro(settings: DesktopSettings, distro: string | null): Desktop
     : {
         ...settings,
         wslDistro: normalized,
+      };
+}
+
+function setWslOnly(settings: DesktopSettings, enabled: boolean): DesktopSettings {
+  return settings.wslOnly === enabled
+    ? settings
+    : {
+        ...settings,
+        wslOnly: enabled,
       };
 }
 
@@ -355,6 +381,10 @@ export const layer = Layer.effect(
             attributes: { distro: distro ?? null },
           }),
         ),
+      setWslOnly: (enabled) =>
+        persist((settings) => setWslOnly(settings, enabled)).pipe(
+          Effect.withSpan("desktop.settings.setWslOnly", { attributes: { enabled } }),
+        ),
     });
   }),
 );
@@ -386,6 +416,7 @@ export const layerTest = (initialSettings: DesktopSettings = DEFAULT_DESKTOP_SET
         setWslBackendEnabled: (enabled) =>
           update((settings) => setWslBackendEnabled(settings, enabled)),
         setWslDistro: (distro) => update((settings) => setWslDistro(settings, distro)),
+        setWslOnly: (enabled) => update((settings) => setWslOnly(settings, enabled)),
       });
     }),
   );

@@ -1505,13 +1505,15 @@ export function ConnectionsSettings() {
   const [isUpdatingWslBackend, setIsUpdatingWslBackend] = useState(false);
   const [desktopWslError, setDesktopWslError] = useState<string | null>(null);
   // Pending WSL setting change waiting on user confirmation. Set when
-  // the user tries a destructive change (disable, switch distro) while
-  // the WSL backend has saved-env state on this machine. Confirming
-  // applies the change; cancelling drops it without touching the
-  // persisted setting. Null when nothing is pending.
+  // the user tries a destructive change (disable, switch distro,
+  // toggle wsl-only) while the WSL backend has saved-env state on this
+  // machine. Confirming applies the change; cancelling drops it
+  // without touching the persisted setting. Null when nothing is
+  // pending.
   type PendingWslChange =
     | { readonly kind: "disable" }
-    | { readonly kind: "distro"; readonly nextDistro: string | null };
+    | { readonly kind: "distro"; readonly nextDistro: string | null }
+    | { readonly kind: "wsl-only"; readonly nextValue: boolean };
   const [pendingWslChange, setPendingWslChange] = useState<PendingWslChange | null>(null);
   const isWslConfirmDialogOpen = pendingWslChange !== null;
   const [pendingTailscaleServeEndpoint, setPendingTailscaleServeEndpoint] =
@@ -2459,6 +2461,20 @@ export function ConnectionsSettings() {
     [applyWslSettingChange, desktopBridge, desktopWslState, hasWslRegistrationToLose],
   );
 
+  const handleToggleWslOnly = useCallback(
+    (enabled: boolean) => {
+      if (!desktopBridge || !desktopWslState || desktopWslState.wslOnly === enabled) return;
+      // wsl-only changes which backend the pool uses as "primary",
+      // which is decided once at app launch. The desktop side persists
+      // the setting immediately but doesn't tear down or restart
+      // anything itself; the renderer warns the user to expect a
+      // restart and (in a follow-up) can trigger it automatically.
+      // Always prompt — even enabling is consequential here.
+      setPendingWslChange({ kind: "wsl-only", nextValue: enabled });
+    },
+    [desktopBridge, desktopWslState],
+  );
+
   const handleConfirmWslChange = useCallback(() => {
     if (!desktopBridge || !pendingWslChange) return;
     const change = pendingWslChange;
@@ -2467,7 +2483,11 @@ export function ConnectionsSettings() {
       void applyWslSettingChange(() => desktopBridge.setWslBackendEnabled(false));
       return;
     }
-    void applyWslSettingChange(() => desktopBridge.setWslDistro(change.nextDistro));
+    if (change.kind === "distro") {
+      void applyWslSettingChange(() => desktopBridge.setWslDistro(change.nextDistro));
+      return;
+    }
+    void applyWslSettingChange(() => desktopBridge.setWslOnly(change.nextValue));
   }, [applyWslSettingChange, desktopBridge, pendingWslChange]);
 
   const renderWslRow = () => {
@@ -2537,6 +2557,20 @@ export function ConnectionsSettings() {
                   )}
                 </SelectPopup>
               </Select>
+            }
+          />
+        ) : null}
+        {desktopWslState.enabled ? (
+          <SettingsRow
+            title="Run WSL only"
+            description="Stop the Windows backend and run only the WSL backend. Useful if you develop entirely inside WSL and don't want a second backend process. Requires an app restart."
+            control={
+              <Switch
+                checked={desktopWslState.wslOnly}
+                disabled={isUpdatingWslBackend}
+                onCheckedChange={(checked) => handleToggleWslOnly(checked)}
+                aria-label="Run WSL only"
+              />
             }
           />
         ) : null}
@@ -2765,12 +2799,20 @@ export function ConnectionsSettings() {
                 <AlertDialogTitle>
                   {pendingWslChange?.kind === "disable"
                     ? "Disable WSL backend?"
-                    : "Switch WSL distro?"}
+                    : pendingWslChange?.kind === "distro"
+                      ? "Switch WSL distro?"
+                      : pendingWslChange?.nextValue
+                        ? "Run only the WSL backend?"
+                        : "Re-enable the Windows backend?"}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {pendingWslChange?.kind === "disable"
                     ? "The WSL backend will stop. Threads and projects opened against WSL stay safe inside the distro, but they'll be unavailable in T3 Code until you re-enable WSL."
-                    : "T3 Code will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."}
+                    : pendingWslChange?.kind === "distro"
+                      ? "T3 Code will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."
+                      : pendingWslChange?.nextValue
+                        ? "T3 Code will save this preference and switch to running only the WSL backend on the next app launch. Your Windows-side projects won't be accessible until you turn this off again."
+                        : "T3 Code will save this preference and bring the Windows backend back up alongside WSL on the next app launch."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -2781,7 +2823,12 @@ export function ConnectionsSettings() {
                   Cancel
                 </AlertDialogClose>
                 <Button
-                  variant={pendingWslChange?.kind === "disable" ? "destructive" : "default"}
+                  variant={
+                    pendingWslChange?.kind === "disable" ||
+                    (pendingWslChange?.kind === "wsl-only" && pendingWslChange.nextValue)
+                      ? "destructive"
+                      : "default"
+                  }
                   onClick={handleConfirmWslChange}
                   disabled={isUpdatingWslBackend}
                 >
@@ -2792,8 +2839,12 @@ export function ConnectionsSettings() {
                     </>
                   ) : pendingWslChange?.kind === "disable" ? (
                     "Disable WSL"
-                  ) : (
+                  ) : pendingWslChange?.kind === "distro" ? (
                     "Switch distro"
+                  ) : pendingWslChange?.nextValue ? (
+                    "Save and restart later"
+                  ) : (
+                    "Save and restart later"
                   )}
                 </Button>
               </AlertDialogFooter>

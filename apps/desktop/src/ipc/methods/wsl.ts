@@ -24,6 +24,7 @@ const readWslState: Effect.Effect<
     enabled: settings.wslBackendEnabled,
     distro: settings.wslDistro,
     available,
+    wslOnly: settings.wslOnly,
     distros,
   };
 });
@@ -63,6 +64,22 @@ export const setWslDistro = makeIpcMethod({
     const wslBackend = yield* DesktopWslBackend.DesktopWslBackend;
     yield* appSettings.setWslDistro(distro);
     yield* wslBackend.reconcile;
+    return yield* readWslState;
+  }),
+});
+
+export const setWslOnly = makeIpcMethod({
+  channel: IpcChannels.SET_WSL_ONLY_CHANNEL,
+  payload: Schema.Boolean,
+  result: DesktopWslStateSchema,
+  handler: Effect.fn("desktop.ipc.wsl.setOnly")(function* (enabled) {
+    // wsl-only changes the pool's primary spec, which is captured
+    // once at layer init. Persist the new setting here; the actual
+    // mode flip lands on the next desktop launch. The renderer
+    // surfaces "T3 Code will restart" in the confirmation dialog so
+    // the user knows what to expect.
+    const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
+    yield* appSettings.setWslOnly(enabled);
     return yield* readWslState;
   }),
 });

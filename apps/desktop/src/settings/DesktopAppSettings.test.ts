@@ -99,6 +99,7 @@ describe("DesktopSettings", () => {
       updateChannel: "nightly",
       updateChannelConfiguredByUser: false,
       wslBackendEnabled: false,
+      wslOnly: false,
       wslDistro: null,
     } satisfies DesktopSettingsValue);
   });
@@ -122,6 +123,7 @@ describe("DesktopSettings", () => {
           updateChannel: "latest",
           updateChannelConfiguredByUser: true,
           wslBackendEnabled: false,
+          wslOnly: false,
           wslDistro: null,
         } satisfies DesktopSettingsValue);
 
@@ -203,6 +205,7 @@ describe("DesktopSettings", () => {
           updateChannel: "latest",
           updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,
+          wslOnly: false,
           wslDistro: null,
         } satisfies DesktopSettingsValue);
       }),
@@ -244,6 +247,7 @@ describe("DesktopSettings", () => {
           updateChannel: "nightly",
           updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,
+          wslOnly: false,
           wslDistro: null,
         } satisfies DesktopSettingsValue);
       }),
@@ -268,6 +272,7 @@ describe("DesktopSettings", () => {
           updateChannel: "latest",
           updateChannelConfiguredByUser: true,
           wslBackendEnabled: false,
+          wslOnly: false,
           wslDistro: null,
         } satisfies DesktopSettingsValue);
       }),
@@ -291,6 +296,7 @@ describe("DesktopSettings", () => {
           updateChannel: "latest",
           updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,
+          wslOnly: false,
           wslDistro: null,
         } satisfies DesktopSettingsValue);
       }),

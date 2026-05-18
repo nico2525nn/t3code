@@ -35,4 +35,5 @@ export const GET_ADVERTISED_ENDPOINTS_CHANNEL = "desktop:get-advertised-endpoint
 export const GET_WSL_STATE_CHANNEL = "desktop:get-wsl-state";
 export const SET_WSL_BACKEND_ENABLED_CHANNEL = "desktop:set-wsl-backend-enabled";
 export const SET_WSL_DISTRO_CHANNEL = "desktop:set-wsl-distro";
+export const SET_WSL_ONLY_CHANNEL = "desktop:set-wsl-only";
 export const SSH_PASSWORD_PROMPT_CANCELLED_RESULT = "ssh-password-prompt-cancelled";
