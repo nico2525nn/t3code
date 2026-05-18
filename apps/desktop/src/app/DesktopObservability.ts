@@ -399,7 +399,13 @@ const backendOutputLogFactoryLayer = Layer.effect(
 
     const makeForId = (id: string): Effect.Effect<DesktopBackendOutputLogShape> =>
       SynchronizedRef.modifyEffect(cacheRef, (cache) => {
-        const cached = cache.get(id);
+        // Key the cache by the resolved file path, not the raw id.
+        // Otherwise two ids that sanitize to the same filename (e.g.
+        // `wsl:default` and `wsl_default`) would each create their
+        // own RotatingLogFileWriter pointing at the same file, with
+        // independent currentSize tracking and a race on writes.
+        const cacheKey = backendLogFilePathForInstance(environment, id);
+        const cached = cache.get(cacheKey);
         if (cached !== undefined) return Effect.succeed([cached, cache] as const);
         return makeBackendOutputLogForInstance(environment, id).pipe(
           Effect.provideService(FileSystem.FileSystem, fileSystem),
@@ -407,7 +413,7 @@ const backendOutputLogFactoryLayer = Layer.effect(
           Scope.provide(factoryScope),
           Effect.map((shape) => {
             const next = new Map(cache);
-            next.set(id, shape);
+            next.set(cacheKey, shape);
             return [shape, next as ReadonlyMap<string, DesktopBackendOutputLogShape>] as const;
           }),
         );

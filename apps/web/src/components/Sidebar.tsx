@@ -364,7 +364,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   // desktopLocal entries (e.g. the WSL backend) live in the
   // saved-environment registry alongside true remote envs, but they
   // run on the user's own machine. The cloud icon is misleading for
-  // them, so we render a container icon instead.
+  // them. The project header already shows a container icon for
+  // desktopLocal-only projects (see sidebarProjectGrouping), so for
+  // threads we just suppress the cloud icon instead of doubling up.
   const isDesktopLocalThread = useSavedEnvironmentRegistryStore((s) =>
     Boolean(s.byId[thread.environmentId]?.desktopLocal),
   );

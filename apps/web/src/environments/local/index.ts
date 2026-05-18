@@ -484,11 +484,14 @@ export function markSecondariesConfigured(configured: boolean): void {
 
 if (typeof window !== "undefined") {
   // Best-effort: any failure (no bridge, IPC error, missing field)
-  // keeps the default "stay polling" behavior intact.
+  // keeps the default "stay polling" behavior intact. wsl-only mode
+  // also counts as "no secondaries": the desktop pool runs WSL as
+  // primary and skips the wsl:<distro> secondary registration, so
+  // the auto-retry loop has nothing to wait for.
   void (async () => {
     try {
       const state = await window.desktopBridge?.getWslState();
-      if (state && !state.enabled) {
+      if (state && (!state.enabled || state.wslOnly)) {
         knownNoSecondariesConfigured = true;
       }
     } catch {

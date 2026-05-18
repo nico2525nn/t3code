@@ -187,6 +187,14 @@ export const layer = Layer.effect(
     const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
     const desktopWindow = yield* DesktopWindow.DesktopWindow;
     const settings = yield* DesktopAppSettings.DesktopAppSettings;
+    // Anchor the pool's lifetime to its layer scope so registered
+    // instance scopes can be forked off it. Without this, instance
+    // scopes are orphaned: they only close via explicit unregister()
+    // calls, so on app shutdown the WSL backend child process gets
+    // hard-killed by the OS instead of receiving the graceful
+    // SIGTERM + grace period the instance's stop finalizer would
+    // otherwise run.
+    const layerScope = yield* Scope.Scope;
     // Capture the services needed to build any future instance from the
     // pool's layer scope. register() runs `makeBackendInstance` against
     // a fresh child scope but reuses these services so the instance gets
@@ -235,7 +243,10 @@ export const layer = Layer.effect(
           return Effect.fail(new DesktopBackendPoolInstanceAlreadyRegisteredError({ id: spec.id }));
         }
         return Effect.gen(function* () {
-          const instanceScope = yield* Scope.make("sequential");
+          // Forked from the pool's layer scope so the registered
+          // instance auto-stops on layer teardown. unregister() still
+          // closes the scope eagerly when invoked.
+          const instanceScope = yield* Scope.fork(layerScope, "sequential");
           const instance = yield* DesktopBackendManager.makeBackendInstance(spec).pipe(
             Scope.provide(instanceScope),
             Effect.provide(factoryContext),

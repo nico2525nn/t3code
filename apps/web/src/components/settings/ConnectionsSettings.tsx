@@ -2392,11 +2392,15 @@ export function ConnectionsSettings() {
       try {
         const next = await apply();
         setDesktopWslState(next);
-        // Keep the renderer's auto-retry loop awake while the user has
-        // WSL enabled, and let it park otherwise. Without this the
-        // loop would never resume after a fresh desktop install where
-        // the initial probe latched "no WSL configured".
-        markSecondariesConfigured(next.enabled);
+        // Keep the renderer's auto-retry loop awake while the user is
+        // running both backends, and let it park otherwise. wsl-only
+        // mode counts as "no secondaries": the desktop pool routes
+        // wsl through the primary slot and doesn't register a
+        // separate wsl: instance (DesktopWslBackend.reconcile gates
+        // on `!wslOnly`). Without this the loop would never resume
+        // after a fresh desktop install where the initial probe
+        // latched "no WSL configured".
+        markSecondariesConfigured(next.enabled && !next.wslOnly);
         // The desktop orchestrator may take a moment to register the new
         // WSL instance with bootstrap info — fire the renderer reconciler
         // now to remove stale entries (toggle-off, distro change), then
