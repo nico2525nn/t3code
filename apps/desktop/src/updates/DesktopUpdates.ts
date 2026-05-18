@@ -188,7 +188,6 @@ function isArm64HostRunningIntelBuild(runtimeInfo: DesktopRuntimeInfo): boolean 
 const make = Effect.gen(function* () {
   const config = yield* DesktopConfig.DesktopConfig;
   const pool = yield* DesktopBackendPool.DesktopBackendPool;
-  const primaryBackend = yield* pool.primary;
   const desktopState = yield* DesktopState.DesktopState;
   const electronUpdater = yield* ElectronUpdater.ElectronUpdater;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
@@ -369,7 +368,19 @@ const make = Effect.gen(function* () {
     yield* Ref.set(updateInstallInFlightRef, true);
 
     return yield* Effect.gen(function* () {
-      yield* primaryBackend.stop({ timeout: Duration.seconds(5) });
+      // Stop every backend in the pool, not just the primary. With
+      // parallel WSL + Windows backends, leaving the WSL instance up
+      // means quitAndInstall's app.quit() exits before the pool's
+      // scope cascade has a chance to run its stop finalizer, so the
+      // WSL child gets hard-killed by the OS instead of receiving
+      // SIGTERM + grace. Stops run concurrently with the same 5s
+      // budget the primary had on its own.
+      const instances = yield* pool.list;
+      yield* Effect.forEach(
+        instances,
+        (instance) => instance.stop({ timeout: Duration.seconds(5) }),
+        { concurrency: "unbounded" },
+      );
       yield* electronWindow.destroyAll;
       yield* electronUpdater.quitAndInstall({
         isSilent: true,
