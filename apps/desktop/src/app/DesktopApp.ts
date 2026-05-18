@@ -235,10 +235,19 @@ const scopedProgram = Effect.scoped(
 
     const shutdown = yield* DesktopLifecycle.DesktopShutdown;
     const pool = yield* DesktopBackendPool.DesktopBackendPool;
-    const primaryBackend = yield* pool.primary;
 
     yield* Effect.addFinalizer(() =>
-      primaryBackend.stop().pipe(Effect.ensuring(shutdown.markComplete)),
+      Effect.gen(function* () {
+        // Stop every backend in the pool, not just the primary. The
+        // electronApp.quit() path can race ahead of the layer-scope
+        // cascade, so leaving the WSL instance for its parent scope
+        // finalizer means it gets hard-killed by the OS instead of
+        // receiving SIGTERM + grace. Stops run concurrently.
+        const instances = yield* pool.list;
+        yield* Effect.forEach(instances, (instance) => instance.stop(), {
+          concurrency: "unbounded",
+        });
+      }).pipe(Effect.ensuring(shutdown.markComplete)),
     );
 
     yield* startup;
