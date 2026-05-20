@@ -1204,6 +1204,7 @@ describe("GeneralSettingsPanel observability", () => {
           "This provider harness version 0.128.0 is known to be incompatible with this T3 Code release. Use 0.129.0.",
         recommendedRange: ">=0.129.0",
         recommendedVersion: "0.129.0",
+        canUpdate: true,
         ranges: [{ status: "broken", range: "<0.129.0" }],
       },
     };

@@ -22,10 +22,18 @@ import {
   TerminalOpenInput,
 } from "@t3tools/contracts";
 import {
+  beginProviderCompatibilityUpdate,
+  canRunProviderCompatibilityUpdate,
+  createProviderCompatibilityUpdateTracker,
+  endProviderCompatibilityUpdate,
+  getProviderCompatibilityUpdateCommand,
+  getProviderCompatibilityUpdateRequest,
+  isProviderCompatibilityUpdateRunning,
   parseScopedThreadKey,
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
+  stripProviderCompatibilityInstallHint,
 } from "@t3tools/client-runtime";
 import {
   applyClaudePromptEffortPrefix,
@@ -104,14 +112,7 @@ import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import {
-  ChevronDownIcon,
-  CircleAlertIcon,
-  DownloadIcon,
-  LoaderIcon,
-  TriangleAlertIcon,
-  WifiOffIcon,
-} from "lucide-react";
+import { ChevronDownIcon, CircleAlertIcon, TriangleAlertIcon, WifiOffIcon } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -192,11 +193,7 @@ import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
 import { RightPanelSheet } from "./RightPanelSheet";
 import { Button } from "./ui/button";
-import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
-import {
-  canRunProviderCompatibilityUpdate,
-  getProviderCompatibilityUpdateCommand,
-} from "./settings/providerStatus";
+import { ProviderUpdateActionPopover } from "./ProviderUpdateActionPopover";
 import {
   buildVersionMismatchDismissalKey,
   dismissVersionMismatch,
@@ -211,14 +208,6 @@ const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
-
-function stripProviderCompatibilityInstallHint(message: string, recommendedVersion: string | null) {
-  if (!recommendedVersion) {
-    return message;
-  }
-  const escapedVersion = recommendedVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return message.replace(new RegExp(`\\s*Use\\s+${escapedVersion}\\.?\\s*$`, "i"), "").trim();
-}
 
 function ProviderCompatibilityBannerAction({
   providerLabel,
@@ -236,47 +225,23 @@ function ProviderCompatibilityBannerAction({
   readonly onRunUpdate: () => void;
 }) {
   return (
-    <Popover>
-      <PopoverTrigger
-        render={
-          <Button type="button" size="xs" variant="outline">
-            Install {recommendedVersion}
-          </Button>
-        }
-      />
-      <PopoverPopup side="top" align="end" className="w-84">
-        <div className="grid gap-3">
-          <div className="grid gap-0.5">
-            <p className="text-[13px] font-semibold leading-tight text-foreground">
-              Install compatible {providerLabel}
-            </p>
-            <p className="text-xs leading-snug text-muted-foreground">
-              Install provider harness version {recommendedVersion}.
-            </p>
-          </div>
-          {canRunUpdate ? (
-            <Button
-              type="button"
-              size="xs"
-              variant="default"
-              className="w-full"
-              disabled={updating}
-              onClick={onRunUpdate}
-            >
-              {updating ? <LoaderIcon className="animate-spin" /> : <DownloadIcon />}
-              {updating ? "Installing" : "Install now"}
-            </Button>
-          ) : null}
-          {updateCommand ? (
-            <div className="rounded-md border border-border/70 bg-muted/40 px-2 py-1.5">
-              <code className="block overflow-x-auto whitespace-nowrap font-mono text-[11px] text-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {updateCommand}
-              </code>
-            </div>
-          ) : null}
-        </div>
-      </PopoverPopup>
-    </Popover>
+    <ProviderUpdateActionPopover
+      trigger={
+        <Button type="button" size="xs" variant="outline">
+          Install {recommendedVersion}
+        </Button>
+      }
+      title={`Install compatible ${providerLabel}`}
+      detail={`Install provider harness version ${recommendedVersion}.`}
+      updateCommand={updateCommand}
+      canRunUpdate={canRunUpdate}
+      isUpdating={updating}
+      runLabel="Install now"
+      runningLabel="Installing"
+      onRunUpdate={onRunUpdate}
+      side="top"
+      align="end"
+    />
   );
 }
 
@@ -1230,8 +1195,9 @@ export default function ChatView(props: ChatViewProps) {
   const [dismissedVersionMismatchKey, setDismissedVersionMismatchKey] = useState<string | null>(
     null,
   );
-  const [compatibilityUpdatingProviderId, setCompatibilityUpdatingProviderId] =
-    useState<ProviderInstanceId | null>(null);
+  const [compatibilityUpdateTracker, setCompatibilityUpdateTracker] = useState(() =>
+    createProviderCompatibilityUpdateTracker(),
+  );
   const versionMismatchDismissed =
     versionMismatchDismissKey === dismissedVersionMismatchKey ||
     isVersionMismatchDismissed(versionMismatchDismissKey);
@@ -1287,18 +1253,23 @@ export default function ChatView(props: ChatViewProps) {
   }, [activeProviderInstanceId, providerStatuses, selectedProvider]);
   const runActiveProviderCompatibilityUpdate = useCallback(async () => {
     const provider = activeProviderStatus;
-    const targetVersion = provider?.compatibilityAdvisory?.recommendedVersion ?? null;
-    if (!provider || !targetVersion) {
+    const request = getProviderCompatibilityUpdateRequest(provider);
+    if (!provider || !request) {
       return;
     }
 
-    setCompatibilityUpdatingProviderId(provider.instanceId);
+    let started = false;
+    setCompatibilityUpdateTracker((previous) => {
+      const result = beginProviderCompatibilityUpdate(previous, provider);
+      started = result.started;
+      return result.tracker;
+    });
+    if (!started) {
+      return;
+    }
+
     try {
-      await ensureLocalApi().server.updateProvider({
-        provider: provider.driver,
-        instanceId: provider.instanceId,
-        targetVersion,
-      });
+      await ensureLocalApi().server.updateProvider(request);
     } catch (error) {
       toastManager.add(
         stackedThreadToast({
@@ -1311,9 +1282,7 @@ export default function ChatView(props: ChatViewProps) {
         }),
       );
     } finally {
-      setCompatibilityUpdatingProviderId((current) =>
-        current === provider.instanceId ? null : current,
-      );
+      setCompatibilityUpdateTracker((current) => endProviderCompatibilityUpdate(current, provider));
     }
   }, [activeProviderStatus]);
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
@@ -1332,8 +1301,10 @@ export default function ChatView(props: ChatViewProps) {
       const compatibilityUpdateCommand =
         getProviderCompatibilityUpdateCommand(activeProviderStatus);
       const canRunCompatibilityUpdate = canRunProviderCompatibilityUpdate(activeProviderStatus);
-      const compatibilityUpdating =
-        compatibilityUpdatingProviderId === activeProviderStatus.instanceId;
+      const compatibilityUpdating = isProviderCompatibilityUpdateRunning(
+        compatibilityUpdateTracker,
+        activeProviderStatus,
+      );
       const hasCompatibilityInstallAction =
         activeProviderStatus.compatibilityAdvisory?.status !== "supported" &&
         recommendedVersion !== null &&
@@ -1435,7 +1406,7 @@ export default function ChatView(props: ChatViewProps) {
   }, [
     activeEnvironmentUnavailableState,
     activeProviderStatus,
-    compatibilityUpdatingProviderId,
+    compatibilityUpdateTracker,
     handleReconnectActiveEnvironment,
     navigate,
     reconnectingEnvironmentId,

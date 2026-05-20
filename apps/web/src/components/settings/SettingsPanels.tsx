@@ -12,7 +12,14 @@ import {
   type ScopedThreadRef,
   type ServerProvider,
 } from "@t3tools/contracts";
-import { scopeThreadRef } from "@t3tools/client-runtime";
+import {
+  beginProviderCompatibilityUpdate,
+  createProviderCompatibilityUpdateTracker,
+  endProviderCompatibilityUpdate,
+  getProviderCompatibilityUpdateRequest,
+  isProviderCompatibilityUpdateRunning,
+  scopeThreadRef,
+} from "@t3tools/client-runtime";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Duration from "effect/Duration";
@@ -928,6 +935,9 @@ export function ProviderSettingsPanel() {
   const [updatingProviderDrivers, setUpdatingProviderDrivers] = useState<
     ReadonlySet<ProviderDriverKind>
   >(() => new Set());
+  const [compatibilityUpdateTracker, setCompatibilityUpdateTracker] = useState(() =>
+    createProviderCompatibilityUpdateTracker(),
+  );
   const [openInstanceDetails, setOpenInstanceDetails] = useState<Record<string, boolean>>({});
   const refreshingRef = useRef(false);
 
@@ -1016,31 +1026,23 @@ export function ProviderSettingsPanel() {
   }, []);
 
   const runProviderCompatibilityUpdate = useCallback(async (provider: ServerProvider) => {
-    const targetVersion = provider.compatibilityAdvisory?.recommendedVersion ?? null;
-    if (!targetVersion) {
+    const request = getProviderCompatibilityUpdateRequest(provider);
+    if (!request) {
       return;
     }
 
     let started = false;
-    setUpdatingProviderDrivers((previous) => {
-      if (previous.has(provider.driver)) {
-        return previous;
-      }
-      started = true;
-      const next = new Set(previous);
-      next.add(provider.driver);
-      return next;
+    setCompatibilityUpdateTracker((previous) => {
+      const result = beginProviderCompatibilityUpdate(previous, provider);
+      started = result.started;
+      return result.tracker;
     });
     if (!started) {
       return;
     }
 
     try {
-      await ensureLocalApi().server.updateProvider({
-        provider: provider.driver,
-        instanceId: provider.instanceId,
-        targetVersion,
-      });
+      await ensureLocalApi().server.updateProvider(request);
     } catch (error) {
       toastManager.add(
         stackedThreadToast({
@@ -1053,14 +1055,9 @@ export function ProviderSettingsPanel() {
         }),
       );
     } finally {
-      setUpdatingProviderDrivers((previous) => {
-        if (!previous.has(provider.driver)) {
-          return previous;
-        }
-        const next = new Set(previous);
-        next.delete(provider.driver);
-        return next;
-      });
+      setCompatibilityUpdateTracker((previous) =>
+        endProviderCompatibilityUpdate(previous, provider),
+      );
     }
   }, []);
 
@@ -1306,15 +1303,12 @@ export function ProviderSettingsPanel() {
             Boolean(liveProvider?.compatibilityAdvisory?.recommendedVersion);
           const isCompatibilityUpdateRunning =
             liveProvider !== undefined &&
-            (updatingProviderDrivers.has(liveProvider.driver) ||
-              serverProviders.some(
-                (provider) =>
-                  provider.driver === liveProvider.driver && isProviderUpdateActive(provider),
-              ));
+            (isProviderCompatibilityUpdateRunning(compatibilityUpdateTracker, liveProvider) ||
+              isProviderUpdateActive(liveProvider));
           const canRunInlineCompatibilityUpdate =
             showInlineCompatibilityUpdateButton &&
             liveProvider !== undefined &&
-            !updatingProviderDrivers.has(liveProvider.driver);
+            !isCompatibilityUpdateRunning;
           const modelPreferences = settings.providerModelPreferences?.[row.instanceId] ?? {
             hiddenModels: [],
             modelOrder: [],

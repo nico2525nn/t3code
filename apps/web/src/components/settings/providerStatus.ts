@@ -1,8 +1,14 @@
-import type {
-  ServerProvider,
-  ServerProviderCompatibilityAdvisory,
-  ServerProviderVersionAdvisory,
-} from "@t3tools/contracts";
+import type { ServerProvider } from "@t3tools/contracts";
+
+export {
+  canRunProviderCompatibilityUpdate,
+  getProviderCompatibilityAdvisoryPresentation,
+  getProviderCompatibilityUpdateCommand,
+  getProviderCompatibilityUpdateRequest,
+  getProviderVersionAdvisoryPresentation,
+  getProviderVersionLabel,
+  stripProviderCompatibilityInstallHint,
+} from "@t3tools/client-runtime";
 
 /**
  * Visual treatment for each server-reported provider status. Centralized so
@@ -81,123 +87,5 @@ export function getProviderSummary(provider: ServerProvider | undefined) {
   return {
     headline: "Available",
     detail: provider.message ?? "Installed and ready, but authentication could not be verified.",
-  };
-}
-
-/**
- * Normalize a version string for display. Adds the `v` prefix when the
- * driver reported a bare version (e.g. `1.2.3`) so cards render
- * consistently regardless of driver.
- */
-export function getProviderVersionLabel(version: string | null | undefined) {
-  if (!version) return null;
-  return version.startsWith("v") ? version : `v${version}`;
-}
-
-export function getProviderVersionAdvisoryPresentation(
-  advisory: ServerProviderVersionAdvisory | undefined,
-): {
-  readonly detail: string;
-  readonly updateCommand: string | null;
-  readonly emphasis: "normal" | "strong";
-} | null {
-  if (!advisory || advisory.status === "current" || advisory.status === "unknown") {
-    return null;
-  }
-
-  const label = "Update available";
-  const version = advisory.latestVersion;
-  const versionLabel = getProviderVersionLabel(version);
-
-  return {
-    detail:
-      advisory.message ??
-      (versionLabel
-        ? `${label}: install ${versionLabel}.`
-        : `${label}: install the latest provider version.`),
-    updateCommand: advisory.updateCommand,
-    emphasis: "normal" as const,
-  };
-}
-
-function makeTargetedUpdateCommand(input: {
-  readonly updateCommand: string | null | undefined;
-  readonly recommendedVersion: string | null | undefined;
-}): string | null {
-  if (!input.updateCommand || !input.recommendedVersion) {
-    return null;
-  }
-  if (!input.updateCommand.includes("@latest")) {
-    const packageNameMatch = input.updateCommand.match(
-      /(?:^|\s)(@[^\s]+\/[^\s@]+|[^\s@]+)(?=\s*$)/,
-    );
-    if (!packageNameMatch?.[1]) {
-      return null;
-    }
-    return input.updateCommand.replace(
-      packageNameMatch[1],
-      `${packageNameMatch[1]}@${input.recommendedVersion}`,
-    );
-  }
-  return input.updateCommand.replace("@latest", `@${input.recommendedVersion}`);
-}
-
-export function getProviderCompatibilityUpdateCommand(
-  provider: Pick<ServerProvider, "compatibilityAdvisory" | "versionAdvisory"> | null | undefined,
-): string | null {
-  const compatibilityAdvisory = provider?.compatibilityAdvisory;
-  if (!compatibilityAdvisory || compatibilityAdvisory.status === "supported") {
-    return null;
-  }
-  return (
-    compatibilityAdvisory.updateCommand ??
-    makeTargetedUpdateCommand({
-      updateCommand: provider.versionAdvisory?.updateCommand,
-      recommendedVersion: compatibilityAdvisory.recommendedVersion,
-    })
-  );
-}
-
-export function canRunProviderCompatibilityUpdate(
-  provider: Pick<ServerProvider, "compatibilityAdvisory" | "versionAdvisory"> | null | undefined,
-): boolean {
-  const compatibilityAdvisory = provider?.compatibilityAdvisory;
-  if (!compatibilityAdvisory || compatibilityAdvisory.status === "supported") {
-    return false;
-  }
-  return (
-    compatibilityAdvisory.canUpdate === true ||
-    (provider?.versionAdvisory?.canUpdate === true &&
-      getProviderCompatibilityUpdateCommand(provider) !== null)
-  );
-}
-
-export function getProviderCompatibilityAdvisoryPresentation(
-  advisory: ServerProviderCompatibilityAdvisory | undefined,
-): {
-  readonly title: string;
-  readonly detail: string;
-  readonly updateCommand: string | null;
-  readonly canUpdate: boolean;
-  readonly emphasis: "normal" | "strong";
-} | null {
-  if (!advisory || advisory.status === "supported") {
-    return null;
-  }
-
-  const recommendedTarget = advisory.recommendedVersion ?? advisory.recommendedRange;
-  const recommended = recommendedTarget ? ` Recommended: ${recommendedTarget}.` : "";
-  const fallback =
-    advisory.status === "unknown"
-      ? `Compatibility unknown.${recommended}`
-      : `This provider harness is outside the supported range.${recommended}`;
-
-  return {
-    title:
-      advisory.status === "broken" ? "Incompatible provider version" : "Provider version warning",
-    detail: advisory.message ?? fallback,
-    updateCommand: advisory.updateCommand ?? null,
-    canUpdate: advisory.canUpdate === true,
-    emphasis: advisory.severity === "error" ? "strong" : "normal",
   };
 }
