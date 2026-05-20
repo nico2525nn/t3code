@@ -50,12 +50,15 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
   const activeIndex =
     imageCount > 0 ? (preview.index + navigationOffset + imageCount) % imageCount : preview.index;
 
-  const navigateImage = useCallback((direction: -1 | 1) => {
-    setNavigationOffset((offset) => {
-      if (imageCount <= 1) return offset;
-      return offset + direction;
-    });
-  }, [imageCount]);
+  const navigateImage = useCallback(
+    (direction: -1 | 1) => {
+      setNavigationOffset((offset) => {
+        if (imageCount <= 1) return offset;
+        return offset + direction;
+      });
+    },
+    [imageCount],
+  );
 
   useExpandedImageDialogKeyboardShortcuts({
     imageCount,
