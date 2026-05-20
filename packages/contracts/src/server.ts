@@ -165,6 +165,8 @@ export const ServerProviderCompatibilityAdvisory = Schema.Struct({
   ranges: Schema.Array(ServerProviderCompatibilityRange).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  preAdvisoryStatus: Schema.optionalKey(ServerProviderState),
+  preAdvisoryMessage: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type ServerProviderCompatibilityAdvisory = typeof ServerProviderCompatibilityAdvisory.Type;
 

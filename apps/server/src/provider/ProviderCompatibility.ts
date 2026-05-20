@@ -252,13 +252,6 @@ const fetchRemoteCompatibilityDocument = Effect.fn("fetchRemoteCompatibilityDocu
     ),
 );
 
-export const resolveRemoteProviderCompatibilityDocument = Effect.fn(
-  "resolveRemoteProviderCompatibilityDocument",
-)(function* () {
-  const compatibility = yield* ProviderCompatibilityService;
-  return yield* compatibility.resolveRemoteDocument;
-});
-
 function applyCompatibilityAdvisory<Snapshot extends ProviderCompatibilitySnapshot>(
   snapshot: Snapshot,
   compatibilityAdvisory: ServerProviderCompatibilityAdvisory | undefined,
@@ -268,18 +261,23 @@ function applyCompatibilityAdvisory<Snapshot extends ProviderCompatibilitySnapsh
     return baseSnapshot;
   }
 
-  const compatibilityMessage =
-    compatibilityAdvisory.severity !== "info"
-      ? (compatibilityAdvisory.message ?? undefined)
-      : undefined;
   const status =
-    snapshot.enabled && compatibilityAdvisory.severity === "error"
+    baseSnapshot.enabled && compatibilityAdvisory.severity === "error"
       ? "error"
-      : snapshot.enabled &&
+      : baseSnapshot.enabled &&
           compatibilityAdvisory.severity === "warning" &&
           baseSnapshot.status === "ready"
         ? "warning"
         : baseSnapshot.status;
+  const compatibilityMessage =
+    status !== baseSnapshot.status && compatibilityAdvisory.severity !== "info"
+      ? (compatibilityAdvisory.message ?? undefined)
+      : undefined;
+  const advisoryWithPreState: ServerProviderCompatibilityAdvisory = {
+    ...compatibilityAdvisory,
+    preAdvisoryStatus: baseSnapshot.status,
+    ...(baseSnapshot.message ? { preAdvisoryMessage: baseSnapshot.message } : {}),
+  };
 
   return {
     ...baseSnapshot,
@@ -287,7 +285,7 @@ function applyCompatibilityAdvisory<Snapshot extends ProviderCompatibilitySnapsh
     ...(compatibilityMessage || baseSnapshot.message
       ? { message: compatibilityMessage ?? baseSnapshot.message }
       : {}),
-    compatibilityAdvisory,
+    compatibilityAdvisory: advisoryWithPreState,
   } as Snapshot;
 }
 
@@ -305,9 +303,20 @@ function removeExistingCompatibilityAdvisory<Snapshot extends ProviderCompatibil
       : undefined;
   if (compatibilityMessage && baseSnapshot.message === compatibilityMessage) {
     const { message: _message, ...snapshotWithoutCompatibilityMessage } = baseSnapshot;
+    const restoredStatus =
+      existingCompatibilityAdvisory.preAdvisoryStatus ?? (snapshot.enabled ? "ready" : "disabled");
     return {
       ...snapshotWithoutCompatibilityMessage,
-      status: snapshot.enabled ? "ready" : "disabled",
+      status: restoredStatus,
+      ...(existingCompatibilityAdvisory.preAdvisoryMessage
+        ? { message: existingCompatibilityAdvisory.preAdvisoryMessage }
+        : {}),
+    } as Snapshot;
+  }
+  if (existingCompatibilityAdvisory.preAdvisoryStatus !== undefined) {
+    return {
+      ...baseSnapshot,
+      status: existingCompatibilityAdvisory.preAdvisoryStatus,
     } as Snapshot;
   }
   return baseSnapshot as Snapshot;
@@ -371,7 +380,10 @@ export const makeProviderCompatibilityService = Effect.fn("makeProviderCompatibi
   function* () {
     const remoteDocumentCache = yield* Cache.makeWith(fetchRemoteCompatibilityDocument, {
       capacity: REMOTE_COMPATIBILITY_CACHE_CAPACITY,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? REMOTE_COMPATIBILITY_CACHE_TTL : Duration.zero),
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) && exit.value !== null
+          ? REMOTE_COMPATIBILITY_CACHE_TTL
+          : Duration.zero,
     });
 
     const resolveRemoteDocument = Effect.gen(function* () {

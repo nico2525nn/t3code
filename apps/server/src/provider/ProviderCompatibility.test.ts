@@ -286,6 +286,42 @@ describe("provider compatibility", () => {
     );
   });
 
+  it.effect("does not cache failed remote compatibility fetches", () => {
+    const remoteDocument = {
+      version: 1,
+      policies: [
+        {
+          t3CodeRange: ">=0.0.0",
+          driver: "codex",
+          recommendedRange: "<0.130.0",
+          recommendedVersion: "0.129.0",
+          ranges: [{ status: "broken", range: ">=0.130.0" }],
+        },
+      ],
+    };
+    const requestedUrls: string[] = [];
+    let attempt = 0;
+
+    return Effect.gen(function* () {
+      yield* ProviderCompatibility.enrichProviderSnapshotWithCompatibilityAdvisory(baseProvider);
+      const enriched =
+        yield* ProviderCompatibility.enrichProviderSnapshotWithCompatibilityAdvisory(baseProvider);
+
+      expect(requestedUrls).toEqual([
+        ProviderCompatibility.DEFAULT_PROVIDER_COMPATIBILITY_MAP_URL,
+        ProviderCompatibility.GITHUB_PROVIDER_COMPATIBILITY_MAP_URL,
+        ProviderCompatibility.DEFAULT_PROVIDER_COMPATIBILITY_MAP_URL,
+      ]);
+      expect(enriched.compatibilityAdvisory).toMatchObject({ status: "broken" });
+    }).pipe(
+      provideCompatibility((url) => {
+        requestedUrls.push(url);
+        attempt += 1;
+        return attempt === 3 ? { payload: remoteDocument } : { payload: {}, status: 404 };
+      }),
+    );
+  });
+
   it.effect("falls back from the hosted map to the GitHub raw mirror", () => {
     const remoteDocument = {
       version: 1,
@@ -401,6 +437,79 @@ describe("provider compatibility", () => {
       expect(enriched.status).toBe("ready");
       expect(enriched.message).toBeUndefined();
       expect(enriched.compatibilityAdvisory).toMatchObject({ status: "supported" });
+    });
+  });
+
+  it.effect("preserves genuine probe errors when the remote map relaxes a bundled advisory", () => {
+    const bundledMessage =
+      "This provider harness version 0.130.0 is known to be incompatible with this T3 Code release. Use 0.129.0.";
+    const probeErrorMessage = "CLI health-check failed: process exited with code 1";
+    const remoteDocument = {
+      version: 1,
+      policies: [
+        {
+          t3CodeRange: ">=0.0.0",
+          driver: "codex",
+          recommendedRange: ">=0.130.0",
+          recommendedVersion: "0.130.0",
+          ranges: [{ status: "supported", range: ">=0.130.0" }],
+        },
+      ],
+    };
+
+    return Effect.gen(function* () {
+      const enriched = yield* ProviderCompatibility.enrichProviderSnapshotWithCompatibilityAdvisory(
+        {
+          ...baseProvider,
+          status: "error",
+          message: bundledMessage,
+          compatibilityAdvisory: {
+            status: "broken",
+            severity: "error",
+            currentVersion: "0.130.0",
+            message: bundledMessage,
+            recommendedRange: "<0.130.0",
+            recommendedVersion: "0.129.0",
+            ranges: [{ status: "broken", range: ">=0.130.0" }],
+            preAdvisoryStatus: "error",
+            preAdvisoryMessage: probeErrorMessage,
+          },
+        },
+      ).pipe(provideCompatibility(() => ({ payload: remoteDocument })));
+
+      expect(enriched.status).toBe("error");
+      expect(enriched.message).toBe(probeErrorMessage);
+      expect(enriched.compatibilityAdvisory).toMatchObject({ status: "supported" });
+    });
+  });
+
+  it.effect("keeps probe error messages when warning advisories do not change status", () => {
+    const probeErrorMessage = "Authentication failed";
+    const remoteDocument = {
+      version: 1,
+      policies: [
+        {
+          t3CodeRange: ">=0.0.0",
+          driver: "codex",
+          recommendedRange: ">=0.130.0",
+          recommendedVersion: "0.130.0",
+          ranges: [{ status: "graceful", range: ">=0.130.0" }],
+        },
+      ],
+    };
+
+    return Effect.gen(function* () {
+      const enriched = yield* ProviderCompatibility.enrichProviderSnapshotWithCompatibilityAdvisory(
+        {
+          ...baseProvider,
+          status: "error",
+          message: probeErrorMessage,
+        },
+      ).pipe(provideCompatibility(() => ({ payload: remoteDocument })));
+
+      expect(enriched.status).toBe("error");
+      expect(enriched.message).toBe(probeErrorMessage);
+      expect(enriched.compatibilityAdvisory).toMatchObject({ status: "graceful" });
     });
   });
 
