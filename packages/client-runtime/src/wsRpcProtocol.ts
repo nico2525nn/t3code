@@ -15,10 +15,34 @@ import {
 export interface WsProtocolLifecycleHandlers {
   readonly getConnectionLabel?: () => string | null;
   readonly getVersionMismatchHint?: () => string | null;
+  readonly isCloseIntentional?: () => boolean;
+  readonly isActive?: () => boolean;
   readonly onAttempt?: (socketUrl: string) => void;
   readonly onOpen?: () => void;
+  readonly onHeartbeatPing?: () => void;
+  readonly onHeartbeatPong?: () => void;
+  readonly onHeartbeatTimeout?: () => void;
+  readonly onRequestStart?: (info: {
+    readonly id: string;
+    readonly tag: string;
+    readonly stream: boolean;
+  }) => void;
+  readonly onRequestChunk?: (info: {
+    readonly id: string;
+    readonly tag: string;
+    readonly chunkCount: number;
+  }) => void;
+  readonly onRequestExit?: (info: {
+    readonly id: string;
+    readonly tag: string;
+    readonly stream: boolean;
+  }) => void;
+  readonly onRequestInterrupt?: (info: { readonly id: string; readonly tag?: string }) => void;
   readonly onError?: (message: string) => void;
-  readonly onClose?: (details: { readonly code: number; readonly reason: string }) => void;
+  readonly onClose?: (
+    details: { readonly code: number; readonly reason: string },
+    context: { readonly intentional: boolean },
+  ) => void;
 }
 
 export interface WsRpcProtocolRequestTelemetry {
@@ -63,48 +87,107 @@ function resolveWsRpcSocketUrl(rawUrl: string): string {
   return resolved.toString();
 }
 
-function defaultLifecycleHandlers(): Required<WsProtocolLifecycleHandlers> {
+type ResolvedLifecycleHandlers = Required<
+  Pick<
+    WsProtocolLifecycleHandlers,
+    | "getConnectionLabel"
+    | "getVersionMismatchHint"
+    | "isCloseIntentional"
+    | "isActive"
+    | "onAttempt"
+    | "onOpen"
+    | "onHeartbeatPing"
+    | "onHeartbeatPong"
+    | "onHeartbeatTimeout"
+    | "onError"
+    | "onClose"
+  >
+>;
+
+function defaultLifecycleHandlers(): ResolvedLifecycleHandlers {
   return {
     onAttempt: () => undefined,
     onOpen: () => undefined,
+    onHeartbeatPing: () => undefined,
+    onHeartbeatPong: () => undefined,
+    onHeartbeatTimeout: () => undefined,
     onError: () => undefined,
     onClose: () => undefined,
     getConnectionLabel: () => null,
     getVersionMismatchHint: () => null,
+    isCloseIntentional: () => false,
+    isActive: () => true,
   };
 }
 
 function resolveLifecycleHandlers(
   handlers: WsProtocolLifecycleHandlers | undefined,
   telemetryLifecycle: WsProtocolLifecycleHandlers | undefined,
-): Required<WsProtocolLifecycleHandlers> {
-  if (telemetryLifecycle === undefined) {
-    return {
-      ...defaultLifecycleHandlers(),
-      ...handlers,
-    };
-  }
+): ResolvedLifecycleHandlers {
+  const defaults = defaultLifecycleHandlers();
+  const isActive = handlers?.isActive ?? telemetryLifecycle?.isActive ?? defaults.isActive;
+  const isCloseIntentional =
+    handlers?.isCloseIntentional ??
+    telemetryLifecycle?.isCloseIntentional ??
+    defaults.isCloseIntentional;
 
   return {
     getConnectionLabel: () =>
-      handlers?.getConnectionLabel?.() ?? telemetryLifecycle.getConnectionLabel?.() ?? null,
+      handlers?.getConnectionLabel?.() ?? telemetryLifecycle?.getConnectionLabel?.() ?? null,
     getVersionMismatchHint: () =>
-      handlers?.getVersionMismatchHint?.() ?? telemetryLifecycle.getVersionMismatchHint?.() ?? null,
+      handlers?.getVersionMismatchHint?.() ??
+      telemetryLifecycle?.getVersionMismatchHint?.() ??
+      null,
+    isActive,
+    isCloseIntentional,
     onAttempt: (socketUrl) => {
-      telemetryLifecycle.onAttempt?.(socketUrl);
+      if (!isActive()) {
+        return;
+      }
+      telemetryLifecycle?.onAttempt?.(socketUrl);
       handlers?.onAttempt?.(socketUrl);
     },
     onOpen: () => {
-      telemetryLifecycle.onOpen?.();
+      if (!isActive()) {
+        return;
+      }
+      telemetryLifecycle?.onOpen?.();
       handlers?.onOpen?.();
     },
+    onHeartbeatPing: () => {
+      if (!isActive()) {
+        return;
+      }
+      telemetryLifecycle?.onHeartbeatPing?.();
+      handlers?.onHeartbeatPing?.();
+    },
+    onHeartbeatPong: () => {
+      if (!isActive()) {
+        return;
+      }
+      telemetryLifecycle?.onHeartbeatPong?.();
+      handlers?.onHeartbeatPong?.();
+    },
+    onHeartbeatTimeout: () => {
+      if (!isActive()) {
+        return;
+      }
+      telemetryLifecycle?.onHeartbeatTimeout?.();
+      handlers?.onHeartbeatTimeout?.();
+    },
     onError: (message) => {
-      telemetryLifecycle.onError?.(message);
+      if (!isActive()) {
+        return;
+      }
+      telemetryLifecycle?.onError?.(message);
       handlers?.onError?.(message);
     },
-    onClose: (details) => {
-      telemetryLifecycle.onClose?.(details);
-      handlers?.onClose?.(details);
+    onClose: (details, context) => {
+      if (!isActive()) {
+        return;
+      }
+      telemetryLifecycle?.onClose?.(details, context);
+      handlers?.onClose?.(details, context);
     },
   };
 }
@@ -158,10 +241,15 @@ export function createWsRpcProtocolLayer(
       socket.addEventListener(
         "close",
         (event) => {
-          lifecycle.onClose({
-            code: event.code,
-            reason: event.reason,
-          });
+          lifecycle.onClose(
+            {
+              code: event.code,
+              reason: event.reason,
+            },
+            {
+              intentional: lifecycle.isCloseIntentional(),
+            },
+          );
         },
         { once: true },
       );
@@ -210,6 +298,77 @@ export function createWsRpcProtocolLayer(
           retryTransientErrors: true,
         }),
   );
+  const requestHooksLayer = Layer.succeed(
+    RpcClient.RequestHooks,
+    RpcClient.RequestHooks.of({
+      onRequestStart: (info) =>
+        Effect.sync(() => {
+          if (!lifecycle.isActive()) {
+            return;
+          }
+          handlers?.onRequestStart?.({
+            id: String(info.id),
+            tag: info.tag,
+            stream: info.stream,
+          });
+        }),
+      onRequestChunk: (info) =>
+        Effect.sync(() => {
+          if (!lifecycle.isActive()) {
+            return;
+          }
+          handlers?.onRequestChunk?.({
+            id: String(info.id),
+            tag: info.tag,
+            chunkCount: info.chunkCount,
+          });
+        }),
+      onRequestExit: (info) =>
+        Effect.sync(() => {
+          if (!lifecycle.isActive()) {
+            return;
+          }
+          handlers?.onRequestExit?.({
+            id: String(info.id),
+            tag: info.tag,
+            stream: info.stream,
+          });
+        }),
+      onRequestInterrupt: (info) =>
+        Effect.sync(() => {
+          if (!lifecycle.isActive()) {
+            return;
+          }
+          handlers?.onRequestInterrupt?.({
+            id: String(info.id),
+            ...(info.tag === undefined ? {} : { tag: info.tag }),
+          });
+        }),
+    }),
+  );
+  const connectionHooksLayer = Layer.succeed(
+    RpcClient.ConnectionHooks,
+    RpcClient.ConnectionHooks.of({
+      onConnect: Effect.void,
+      onDisconnect: Effect.void,
+      onPing: Effect.sync(() => {
+        lifecycle.onHeartbeatPing();
+      }),
+      onPong: Effect.sync(() => {
+        lifecycle.onHeartbeatPong();
+      }),
+      onPingTimeout: Effect.sync(() => {
+        requestTelemetry?.onClearTrackedRequests?.();
+        lifecycle.onHeartbeatTimeout();
+      }),
+    }),
+  );
 
-  return protocolLayer.pipe(Layer.provide(Layer.mergeAll(socketLayer, RpcSerialization.layerJson)));
+  return Layer.mergeAll(
+    protocolLayer.pipe(
+      Layer.provide(Layer.mergeAll(socketLayer, RpcSerialization.layerJson, connectionHooksLayer)),
+    ),
+    requestHooksLayer,
+    connectionHooksLayer,
+  );
 }

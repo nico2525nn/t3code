@@ -31,8 +31,11 @@ function createWsRpcProtocolLayer(
         clearAllTrackedRpcRequests();
         recordWsConnectionErrored(message);
       },
-      onClose: (details) => {
+      onClose: (details, context) => {
         clearAllTrackedRpcRequests();
+        if (context.intentional) {
+          return;
+        }
         recordWsConnectionClosed(details);
       },
     },

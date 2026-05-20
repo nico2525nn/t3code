@@ -43,12 +43,13 @@ describe("createWsRpcClient", () => {
       reconnect: vi.fn(async () => {
         order.push("reconnect");
       }),
+      isHeartbeatFresh: vi.fn(() => true),
       request: vi.fn(),
       requestStream: vi.fn(),
       subscribe: vi.fn(() => () => undefined),
     } satisfies Pick<
       WsTransport,
-      "dispose" | "reconnect" | "request" | "requestStream" | "subscribe"
+      "dispose" | "isHeartbeatFresh" | "reconnect" | "request" | "requestStream" | "subscribe"
     >;
 
     const client = createWsRpcClient(transport as unknown as WsTransport, {
@@ -59,6 +60,26 @@ describe("createWsRpcClient", () => {
 
     await client.reconnect();
     expect(order).toEqual(["beforeReconnect", "reconnect"]);
+  });
+
+  it("delegates heartbeat freshness to the transport", () => {
+    const isHeartbeatFresh = vi.fn(() => true);
+    const transport = {
+      dispose: vi.fn(async () => undefined),
+      reconnect: vi.fn(async () => undefined),
+      isHeartbeatFresh,
+      request: vi.fn(),
+      requestStream: vi.fn(),
+      subscribe: vi.fn(() => () => undefined),
+    } satisfies Pick<
+      WsTransport,
+      "dispose" | "isHeartbeatFresh" | "reconnect" | "request" | "requestStream" | "subscribe"
+    >;
+
+    const client = createWsRpcClient(transport as unknown as WsTransport);
+
+    expect(client.isHeartbeatFresh()).toBe(true);
+    expect(isHeartbeatFresh).toHaveBeenCalledOnce();
   });
 
   it("reduces vcs status stream events into flat status snapshots", () => {
@@ -89,12 +110,13 @@ describe("createWsRpcClient", () => {
     const transport = {
       dispose: vi.fn(async () => undefined),
       reconnect: vi.fn(async () => undefined),
+      isHeartbeatFresh: vi.fn(() => true),
       request: vi.fn(),
       requestStream: vi.fn(),
       subscribe,
     } satisfies Pick<
       WsTransport,
-      "dispose" | "reconnect" | "request" | "requestStream" | "subscribe"
+      "dispose" | "isHeartbeatFresh" | "reconnect" | "request" | "requestStream" | "subscribe"
     >;
 
     const client = createWsRpcClient(transport as unknown as WsTransport);
@@ -134,12 +156,13 @@ describe("createWsRpcClient", () => {
     const transport = {
       dispose: vi.fn(async () => undefined),
       reconnect: vi.fn(async () => undefined),
+      isHeartbeatFresh: vi.fn(() => true),
       request: vi.fn(),
       requestStream: vi.fn(),
       subscribe,
     } satisfies Pick<
       WsTransport,
-      "dispose" | "reconnect" | "request" | "requestStream" | "subscribe"
+      "dispose" | "isHeartbeatFresh" | "reconnect" | "request" | "requestStream" | "subscribe"
     >;
 
     const client = createWsRpcClient(transport as unknown as WsTransport);

@@ -125,7 +125,9 @@ export interface WsRpcClient {
   };
   readonly server: {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
-    readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
+    readonly refreshProviders: (
+      input?: RpcInput<typeof WS_METHODS.serverRefreshProviders>,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverRefreshProviders>>;
     readonly discoverSourceControl: RpcUnaryNoArgMethod<
       typeof WS_METHODS.serverDiscoverSourceControl
     >;
@@ -171,7 +173,7 @@ export function createWsRpcClient(
 ): WsRpcClient {
   return {
     dispose: () => transport.dispose(),
-    isHeartbeatFresh: () => false,
+    isHeartbeatFresh: () => transport.isHeartbeatFresh(),
     reconnect: async () => {
       options?.beforeReconnect?.();
       await transport.reconnect();
@@ -278,8 +280,8 @@ export function createWsRpcClient(
     },
     server: {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
-      refreshProviders: () =>
-        transport.request((client) => client[WS_METHODS.serverRefreshProviders]({})),
+      refreshProviders: (input) =>
+        transport.request((client) => client[WS_METHODS.serverRefreshProviders](input ?? {})),
       discoverSourceControl: () =>
         transport.request((client) => client[WS_METHODS.serverDiscoverSourceControl]({})),
       updateProvider: (input) =>

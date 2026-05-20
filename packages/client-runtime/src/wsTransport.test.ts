@@ -202,11 +202,107 @@ describe("WsTransport", () => {
     socket.close(1012, "service restart");
 
     await waitFor(() => {
-      expect(onClose).toHaveBeenCalledWith({
-        code: 1012,
-        reason: "service restart",
-      });
+      expect(onClose).toHaveBeenCalledWith(
+        {
+          code: 1012,
+          reason: "service restart",
+        },
+        {
+          intentional: false,
+        },
+      );
     });
+
+    await transport.dispose();
+  });
+
+  it("tracks heartbeat freshness from websocket pongs", async () => {
+    const nowSpy = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const onHeartbeatPong = vi.fn();
+    const transport = createTransport("ws://localhost:3020", { onHeartbeatPong });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    expect(transport.isHeartbeatFresh()).toBe(false);
+
+    const socket = getSocket();
+    socket.open();
+    socket.serverMessage(JSON.stringify({ _tag: "Pong" }));
+
+    await waitFor(() => {
+      expect(onHeartbeatPong).toHaveBeenCalledOnce();
+    });
+
+    expect(transport.isHeartbeatFresh()).toBe(true);
+    expect(transport.isHeartbeatFresh(500)).toBe(true);
+
+    nowSpy.mockReturnValue(1_501);
+    expect(transport.isHeartbeatFresh(500)).toBe(false);
+
+    await transport.dispose();
+  });
+
+  it("clears heartbeat freshness when reconnecting", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const onHeartbeatPong = vi.fn();
+    const transport = createTransport("ws://localhost:3020", { onHeartbeatPong });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const firstSocket = getSocket();
+    firstSocket.open();
+    firstSocket.serverMessage(JSON.stringify({ _tag: "Pong" }));
+
+    await waitFor(() => {
+      expect(onHeartbeatPong).toHaveBeenCalledOnce();
+    });
+    expect(transport.isHeartbeatFresh()).toBe(true);
+
+    await transport.reconnect();
+
+    expect(transport.isHeartbeatFresh()).toBe(false);
+
+    await transport.dispose();
+  });
+
+  it("does not report an intentional dispose as a close", async () => {
+    const onClose = vi.fn();
+    const transport = createTransport("ws://localhost:3020", { onClose });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    getSocket().open();
+    await transport.dispose();
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("ignores stale socket lifecycle events after reconnect starts a new session", async () => {
+    const onClose = vi.fn();
+    const transport = createTransport("ws://localhost:3020", { onClose });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const firstSocket = getSocket();
+    firstSocket.open();
+
+    await transport.reconnect();
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(2);
+    });
+
+    firstSocket.close(1006, "stale close");
+
+    expect(onClose).not.toHaveBeenCalled();
 
     await transport.dispose();
   });

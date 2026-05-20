@@ -41,6 +41,7 @@ export interface WsTransportOptions {
 interface SubscribeOptions {
   readonly retryDelay?: Duration.Input;
   readonly onResubscribe?: () => void;
+  readonly tag?: string;
 }
 
 const DEFAULT_SUBSCRIPTION_RETRY_DELAY = Duration.millis(250);
@@ -66,6 +67,13 @@ export class WsTransport {
   private readonly options: WsTransportOptions | undefined;
   private disposed = false;
   private hasReportedTransportDisconnect = false;
+  private intentionalCloseDepth = 0;
+  private nextSessionId = 0;
+  private activeSessionId = 0;
+  private lastHeartbeatPongAt: number | null = null;
+  private readonly streamRequestStartListeners = new Set<
+    (info: { readonly tag: string }) => void
+  >();
   private reconnectChain: Promise<void> = Promise.resolve();
   private session: TransportSession;
 
@@ -130,6 +138,22 @@ export class WsTransport {
       Duration.fromInputUnsafe(options?.retryDelay ?? DEFAULT_SUBSCRIPTION_RETRY_DELAY),
     );
     let cancelCurrentStream: () => void = NOOP;
+    const onStreamRequestStart = (info: { readonly tag: string }) => {
+      if (
+        !hasReceivedValue ||
+        !active ||
+        (options?.tag !== undefined && info.tag !== options.tag)
+      ) {
+        return;
+      }
+
+      try {
+        options?.onResubscribe?.();
+      } catch {
+        // Ignore reconnect hook failures so the stream can recover.
+      }
+    };
+    this.streamRequestStartListeners.add(onStreamRequestStart);
 
     void (async () => {
       for (;;) {
@@ -139,14 +163,6 @@ export class WsTransport {
 
         const session = this.session;
         try {
-          if (hasReceivedValue) {
-            try {
-              options?.onResubscribe?.();
-            } catch {
-              // Ignore reconnect hook failures so the stream can recover.
-            }
-          }
-
           const runningStream = this.runStreamOnSession(
             session,
             connect,
@@ -190,6 +206,7 @@ export class WsTransport {
 
     return () => {
       active = false;
+      this.streamRequestStartListeners.delete(onStreamRequestStart);
       cancelCurrentStream();
     };
   }
@@ -210,6 +227,7 @@ export class WsTransport {
         // Ignore hook failures so reconnect can proceed.
       }
 
+      this.lastHeartbeatPongAt = null;
       const previousSession = this.session;
       this.session = this.createSession();
       await this.closeSession(previousSession);
@@ -217,6 +235,12 @@ export class WsTransport {
 
     this.reconnectChain = reconnectOperation.catch(() => undefined);
     await reconnectOperation;
+  }
+
+  isHeartbeatFresh(maxAgeMs = 15_000): boolean {
+    return (
+      this.lastHeartbeatPongAt !== null && performance.now() - this.lastHeartbeatPongAt <= maxAgeMs
+    );
   }
 
   async dispose() {
@@ -229,14 +253,43 @@ export class WsTransport {
   }
 
   private closeSession(session: TransportSession) {
+    this.intentionalCloseDepth += 1;
     return session.runtime.runPromise(Scope.close(session.clientScope, Exit.void)).finally(() => {
+      this.intentionalCloseDepth = Math.max(0, this.intentionalCloseDepth - 1);
       session.runtime.dispose();
     });
   }
 
   private createSession(): TransportSession {
     const protocolFactory = this.options?.createProtocolLayer ?? createWsRpcProtocolLayer;
-    const protocolLayer = protocolFactory(this.url, this.lifecycleHandlers);
+    const sessionId = this.nextSessionId + 1;
+    this.nextSessionId = sessionId;
+    this.activeSessionId = sessionId;
+    const lifecycleHandlers = this.lifecycleHandlers;
+    const protocolLayer = protocolFactory(this.url, {
+      ...lifecycleHandlers,
+      isActive: () =>
+        !this.disposed &&
+        this.activeSessionId === sessionId &&
+        (lifecycleHandlers?.isActive?.() ?? true),
+      isCloseIntentional: () =>
+        this.disposed ||
+        this.intentionalCloseDepth > 0 ||
+        lifecycleHandlers?.isCloseIntentional?.() === true,
+      onHeartbeatPong: () => {
+        this.lastHeartbeatPongAt = performance.now();
+        lifecycleHandlers?.onHeartbeatPong?.();
+      },
+      onRequestStart: (info) => {
+        lifecycleHandlers?.onRequestStart?.(info);
+        if (!info.stream) {
+          return;
+        }
+        for (const listener of this.streamRequestStartListeners) {
+          listener({ tag: info.tag });
+        }
+      },
+    });
     const rootLayer = this.options?.tracingLayer
       ? Layer.mergeAll(protocolLayer, this.options.tracingLayer)
       : protocolLayer;
