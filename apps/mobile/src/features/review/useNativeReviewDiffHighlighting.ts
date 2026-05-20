@@ -7,6 +7,12 @@ import {
 } from "../diffs/nativeReviewDiffHighlighter";
 import type { NativeReviewDiffRow } from "../diffs/nativeReviewDiffSurface";
 import type { NativeReviewDiffFile } from "../diffs/nativeReviewDiffTypes";
+import { resolveReviewHighlighterEnginePreference } from "./reviewHighlighterEngine";
+
+const CONFIGURED_ENGINE: NativeReviewDiffHighlightEngine = resolveReviewHighlighterEnginePreference(
+  process.env.EXPO_PUBLIC_REVIEW_HIGHLIGHTER_ENGINE ??
+    (process.env.NODE_ENV === "test" ? "javascript" : "native"),
+);
 
 interface NativeReviewVisibleRange {
   readonly firstRowIndex: number;
@@ -68,7 +74,7 @@ export function useNativeReviewDiffHighlighting(input: {
 
     const abortController = new AbortController();
     const requestRange = visibleRangeRef.current;
-    const engine: NativeReviewDiffHighlightEngine = "native";
+    const engine: NativeReviewDiffHighlightEngine = CONFIGURED_ENGINE;
 
     void (async () => {
       try {

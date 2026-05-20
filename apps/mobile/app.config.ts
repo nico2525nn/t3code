@@ -44,7 +44,7 @@ function resolveAppVariant(value: string | undefined): AppVariant {
     case "production":
       return value;
     default:
-      return "production";
+      return "development";
   }
 }
 
