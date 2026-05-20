@@ -203,6 +203,17 @@ describe("provider compatibility", () => {
     expect(classify(cursorDriver, "2026.05.08")).toBe("unknown");
   });
 
+  it("marks OpenCode versions above the recommended compatibility cap as broken", () => {
+    const classify = (currentVersion: string) =>
+      ProviderCompatibility.createProviderCompatibilityAdvisory({
+        driver: opencodeDriver,
+        currentVersion,
+      })?.status;
+
+    expect(classify("1.14.40")).toBe("supported");
+    expect(classify("1.14.41")).toBe("broken");
+  });
+
   it("matches T3 Code nightly versions against their base release policy", () => {
     const document: ProviderCompatibility.ProviderCompatibilityDocument = {
       version: 1,
