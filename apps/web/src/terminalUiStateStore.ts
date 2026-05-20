@@ -12,6 +12,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";
 import {
   DEFAULT_THREAD_TERMINAL_HEIGHT,
+  DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ThreadTerminalGroup,
 } from "./types";
@@ -33,6 +34,20 @@ interface PersistedTerminalUiStateStoreState {
   terminalStateByThreadKey?: Record<string, ThreadTerminalUiState>;
 }
 
+function migrateTerminalId(id: string): string {
+  return id === "default" ? DEFAULT_THREAD_TERMINAL_ID : id;
+}
+
+function migrateThreadTerminalUiState(state: ThreadTerminalUiState): ThreadTerminalUiState {
+  const terminalIds = state.terminalIds.map(migrateTerminalId);
+  const activeTerminalId = migrateTerminalId(state.activeTerminalId);
+  const terminalGroups: ThreadTerminalGroup[] = state.terminalGroups.map((group) => ({
+    id: group.id,
+    terminalIds: group.terminalIds.map(migrateTerminalId),
+  }));
+  return { ...state, terminalIds, activeTerminalId, terminalGroups };
+}
+
 export function migratePersistedTerminalUiStateStoreState(
   persistedState: unknown,
   _version: number,
@@ -45,9 +60,9 @@ export function migratePersistedTerminalUiStateStoreState(
   const persistedUiStateByThreadKey =
     candidate.terminalUiStateByThreadKey ?? candidate.terminalStateByThreadKey ?? {};
   const terminalUiStateByThreadKey = Object.fromEntries(
-    Object.entries(persistedUiStateByThreadKey).filter(([threadKey]) =>
-      parseScopedThreadKey(threadKey),
-    ),
+    Object.entries(persistedUiStateByThreadKey)
+      .filter(([threadKey]) => parseScopedThreadKey(threadKey))
+      .map(([threadKey, state]) => [threadKey, migrateThreadTerminalUiState(state)]),
   );
 
   return { terminalUiStateByThreadKey };

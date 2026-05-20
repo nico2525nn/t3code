@@ -1087,7 +1087,7 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   if (tag === WS_METHODS.terminalOpen) {
     return {
       threadId: typeof body.threadId === "string" ? body.threadId : THREAD_ID,
-      terminalId: typeof body.terminalId === "string" ? body.terminalId : "default",
+      terminalId: typeof body.terminalId === "string" ? body.terminalId : DEFAULT_TERMINAL_ID,
       cwd: typeof body.cwd === "string" ? body.cwd : "/repo/project",
       worktreePath:
         typeof body.worktreePath === "string"
@@ -1944,10 +1944,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
         [THREAD_KEY]: {
           terminalOpen: true,
           terminalHeight: 280,
-          terminalIds: ["default"],
-          activeTerminalId: "default",
-          terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
-          activeTerminalGroupId: "group-default",
+          terminalIds: [DEFAULT_TERMINAL_ID],
+          activeTerminalId: DEFAULT_TERMINAL_ID,
+          terminalGroups: [
+            { id: `group-${DEFAULT_TERMINAL_ID}`, terminalIds: [DEFAULT_TERMINAL_ID] },
+          ],
+          activeTerminalGroupId: `group-${DEFAULT_TERMINAL_ID}`,
         },
       },
     });
