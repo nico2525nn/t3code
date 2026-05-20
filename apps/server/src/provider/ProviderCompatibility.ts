@@ -204,12 +204,26 @@ export function createProviderCompatibilityAdvisory(input: {
   readonly maintenanceCapabilities?: ProviderMaintenanceCapabilities | undefined;
   readonly t3CodeVersion?: string;
 }): ServerProviderCompatibilityAdvisory | undefined {
-  return createProviderCompatibilityAdvisoryFromDocument({
-    document: input.document ?? bundledProviderCompatibilityDocument,
+  const shared = {
     driver: input.driver,
     currentVersion: input.currentVersion,
     maintenanceCapabilities: input.maintenanceCapabilities,
     ...(input.t3CodeVersion ? { t3CodeVersion: input.t3CodeVersion } : {}),
+  };
+
+  if (input.document) {
+    const advisory = createProviderCompatibilityAdvisoryFromDocument({
+      document: input.document,
+      ...shared,
+    });
+    if (advisory) {
+      return advisory;
+    }
+  }
+
+  return createProviderCompatibilityAdvisoryFromDocument({
+    document: bundledProviderCompatibilityDocument,
+    ...shared,
   });
 }
 
