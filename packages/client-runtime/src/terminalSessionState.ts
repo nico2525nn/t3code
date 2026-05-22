@@ -402,6 +402,10 @@ export function createTerminalSessionManager(config: TerminalSessionManagerConfi
 
       for (const key of Object.keys(next)) {
         if (!retainedKeys.has(key)) {
+          const removedEntry = next[key];
+          if (removedEntry) {
+            setBuffer(removedEntry.target, EMPTY_TERMINAL_BUFFER_STATE);
+          }
           delete next[key];
         }
       }

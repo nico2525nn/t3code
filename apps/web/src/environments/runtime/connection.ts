@@ -143,11 +143,13 @@ export function createEnvironmentConnection(
     },
   );
 
-  const unsubTerminalEvent = input.client.terminal.onEvent(
-    (event: Parameters<Parameters<WsRpcClient["terminal"]["onEvent"]>[0]>[0]) => {
-      input.applyTerminalEvent?.(event, environmentId);
-    },
-  );
+  const unsubTerminalEvent = input.applyTerminalEvent
+    ? input.client.terminal.onEvent(
+        (event: Parameters<Parameters<WsRpcClient["terminal"]["onEvent"]>[0]>[0]) => {
+          input.applyTerminalEvent!(event, environmentId);
+        },
+      )
+    : () => undefined;
 
   const cleanup = () => {
     disposed = true;
