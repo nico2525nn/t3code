@@ -9,6 +9,7 @@
  */
 import * as Scope from "effect/Scope";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as TxQueue from "effect/TxQueue";
 import * as TxRef from "effect/TxRef";
 
@@ -22,6 +23,9 @@ interface KeyedCoalescingWorkerState<K, V> {
   readonly queuedKeys: Set<K>;
   readonly activeKeys: Set<K>;
 }
+
+const getMapValue = <K, V>(map: ReadonlyMap<K, V>, key: K): Option.Option<V> =>
+  map.has(key) ? Option.some(map.get(key) as V) : Option.none();
 
 export const makeKeyedCoalescingWorker = <K, V, E, R>(options: {
   readonly merge: (current: V, next: V) => V;
@@ -39,11 +43,11 @@ export const makeKeyedCoalescingWorker = <K, V, E, R>(options: {
       options.process(key, value).pipe(
         Effect.flatMap(() =>
           TxRef.modify(stateRef, (state) => {
-            const nextValue = state.latestByKey.get(key);
-            if (nextValue === undefined) {
+            const nextValue = getMapValue(state.latestByKey, key);
+            if (Option.isNone(nextValue)) {
               const activeKeys = new Set(state.activeKeys);
               activeKeys.delete(key);
-              return [null, { ...state, activeKeys }] as const;
+              return [Option.none<V>(), { ...state, activeKeys }] as const;
             }
 
             const latestByKey = new Map(state.latestByKey);
@@ -52,7 +56,10 @@ export const makeKeyedCoalescingWorker = <K, V, E, R>(options: {
           }).pipe(Effect.tx),
         ),
         Effect.flatMap((nextValue) =>
-          nextValue === null ? Effect.void : processKey(key, nextValue),
+          Option.match(nextValue, {
+            onNone: () => Effect.void,
+            onSome: (value) => processKey(key, value),
+          }),
         ),
       );
 
@@ -81,9 +88,12 @@ export const makeKeyedCoalescingWorker = <K, V, E, R>(options: {
           const queuedKeys = new Set(state.queuedKeys);
           queuedKeys.delete(key);
 
-          const value = state.latestByKey.get(key);
-          if (value === undefined) {
-            return [null, { ...state, queuedKeys }] as const;
+          const value = getMapValue(state.latestByKey, key);
+          if (Option.isNone(value)) {
+            return [
+              Option.none<{ readonly key: K; readonly value: V }>(),
+              { ...state, queuedKeys },
+            ] as const;
           }
 
           const latestByKey = new Map(state.latestByKey);
@@ -92,17 +102,17 @@ export const makeKeyedCoalescingWorker = <K, V, E, R>(options: {
           activeKeys.add(key);
 
           return [
-            { key, value } as const,
+            Option.some({ key, value: value.value }),
             { ...state, latestByKey, queuedKeys, activeKeys },
           ] as const;
         }).pipe(Effect.tx),
       ),
       Effect.flatMap((item) =>
-        item === null
-          ? Effect.void
-          : processKey(item.key, item.value).pipe(
-              Effect.catchCause(() => cleanupFailedKey(item.key)),
-            ),
+        Option.match(item, {
+          onNone: () => Effect.void,
+          onSome: ({ key, value }) =>
+            processKey(key, value).pipe(Effect.catchCause(() => cleanupFailedKey(key))),
+        }),
       ),
       Effect.forever,
       Effect.forkScoped,
@@ -111,8 +121,14 @@ export const makeKeyedCoalescingWorker = <K, V, E, R>(options: {
     const enqueue: KeyedCoalescingWorker<K, V>["enqueue"] = (key, value) =>
       TxRef.modify(stateRef, (state) => {
         const latestByKey = new Map(state.latestByKey);
-        const existing = latestByKey.get(key);
-        latestByKey.set(key, existing === undefined ? value : options.merge(existing, value));
+        const existing = getMapValue(latestByKey, key);
+        latestByKey.set(
+          key,
+          Option.match(existing, {
+            onNone: () => value,
+            onSome: (current) => options.merge(current, value),
+          }),
+        );
 
         if (state.queuedKeys.has(key) || state.activeKeys.has(key)) {
           return [false, { ...state, latestByKey }] as const;

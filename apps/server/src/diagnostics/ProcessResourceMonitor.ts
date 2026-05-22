@@ -6,10 +6,12 @@ import type {
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schedule from "effect/Schedule";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
@@ -19,8 +21,11 @@ import {
   readProcessRows,
 } from "./ProcessDiagnostics.ts";
 
-const SAMPLE_INTERVAL_MS = 5_000;
-const RETENTION_MS = 60 * 60_000;
+const SAMPLE_INTERVAL = Duration.seconds(5);
+const RETENTION = Duration.minutes(60);
+const MIN_HISTORY_DURATION = Duration.seconds(1);
+const SAMPLE_INTERVAL_MS = Duration.toMillis(SAMPLE_INTERVAL);
+const RETENTION_MS = Duration.toMillis(RETENTION);
 const MAX_RETAINED_SAMPLES = 20_000;
 
 export interface ProcessResourceSample {
@@ -38,7 +43,7 @@ export interface ProcessResourceSample {
 
 interface MonitorState {
   readonly samples: ReadonlyArray<ProcessResourceSample>;
-  readonly lastError: string | null;
+  readonly lastError: Option.Option<string>;
 }
 
 export interface ProcessResourceMonitorShape {
@@ -60,8 +65,11 @@ function sampleKey(row: Pick<ProcessRow, "pid" | "command">): string {
   return `${row.pid}:${row.command}`;
 }
 
-function findServerRootRow(rows: ReadonlyArray<ProcessRow>, serverPid: number): ProcessRow | null {
-  return rows.find((row) => row.pid === serverPid) ?? null;
+function findServerRootRow(
+  rows: ReadonlyArray<ProcessRow>,
+  serverPid: number,
+): Option.Option<ProcessRow> {
+  return Option.fromUndefinedOr(rows.find((row) => row.pid === serverPid));
 }
 
 export function collectMonitoredSamples(input: {
@@ -75,16 +83,16 @@ export function collectMonitoredSamples(input: {
   const descendants = buildDescendantEntries(rows, input.serverPid);
   const samples: ProcessResourceSample[] = [];
 
-  if (root) {
+  if (Option.isSome(root)) {
     samples.push({
       sampledAt: input.sampledAt,
       sampledAtMs: input.sampledAtMs,
-      processKey: sampleKey(root),
-      pid: root.pid,
-      ppid: root.ppid,
-      command: root.command,
-      cpuPercent: root.cpuPercent,
-      rssBytes: root.rssBytes,
+      processKey: sampleKey(root.value),
+      pid: root.value.pid,
+      ppid: root.value.ppid,
+      command: root.value.command,
+      cpuPercent: root.value.cpuPercent,
+      rssBytes: root.value.rssBytes,
       depth: 0,
       isServerRoot: true,
     });
@@ -166,11 +174,12 @@ function summarizeProcesses(
 function buildBuckets(input: {
   readonly samples: ReadonlyArray<ProcessResourceSample>;
   readonly nowMs: number;
-  readonly windowMs: number;
-  readonly bucketMs: number;
+  readonly window: Duration.Duration;
+  readonly bucket: Duration.Duration;
 }): ReadonlyArray<ServerProcessResourceHistoryBucket> {
-  const bucketMs = Math.max(1_000, input.bucketMs);
-  const windowStartMs = input.nowMs - input.windowMs;
+  const bucketMs = Duration.toMillis(Duration.max(MIN_HISTORY_DURATION, input.bucket));
+  const windowMs = Duration.toMillis(input.window);
+  const windowStartMs = input.nowMs - windowMs;
   const buckets: ServerProcessResourceHistoryBucket[] = [];
 
   for (let startedAtMs = windowStartMs; startedAtMs < input.nowMs; startedAtMs += bucketMs) {
@@ -220,10 +229,12 @@ export function aggregateProcessResourceHistory(input: {
   readonly readAtMs: number;
   readonly windowMs: number;
   readonly bucketMs: number;
-  readonly lastError: string | null;
+  readonly lastError: Option.Option<string>;
 }): ServerProcessResourceHistoryResult {
-  const windowMs = Math.max(1_000, input.windowMs);
-  const bucketMs = Math.max(1_000, input.bucketMs);
+  const window = Duration.max(MIN_HISTORY_DURATION, Duration.millis(input.windowMs));
+  const bucket = Duration.max(MIN_HISTORY_DURATION, Duration.millis(input.bucketMs));
+  const windowMs = Duration.toMillis(window);
+  const bucketMs = Duration.toMillis(bucket);
   const minSampledAtMs = input.readAtMs - windowMs;
   const samples = input.samples.filter((sample) => sample.sampledAtMs >= minSampledAtMs);
   const topProcesses = summarizeProcesses(samples);
@@ -239,15 +250,15 @@ export function aggregateProcessResourceHistory(input: {
     sampleIntervalMs: SAMPLE_INTERVAL_MS,
     retainedSampleCount: input.samples.length,
     totalCpuSecondsApprox,
-    buckets: buildBuckets({ samples, nowMs: input.readAtMs, windowMs, bucketMs }),
+    buckets: buildBuckets({ samples, nowMs: input.readAtMs, window, bucket }),
     topProcesses,
-    error: input.lastError ? Option.some({ message: input.lastError }) : Option.none(),
+    error: Option.map(input.lastError, (message) => ({ message })),
   };
 }
 
 export const make = Effect.fn("makeProcessResourceMonitor")(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const state = yield* Ref.make<MonitorState>({ samples: [], lastError: null });
+  const state = yield* Ref.make<MonitorState>({ samples: [], lastError: Option.none() });
 
   const sampleOnce = Effect.gen(function* () {
     const sampledAt = yield* DateTime.now;
@@ -263,20 +274,20 @@ export const make = Effect.fn("makeProcessResourceMonitor")(function* () {
     });
     yield* Ref.update(state, (current) => ({
       samples: trimSamples([...current.samples, ...samples], sampledAtMs),
-      lastError: null,
+      lastError: Option.none(),
     }));
   }).pipe(
     Effect.catch((error: unknown) =>
       Ref.update(state, (current) => ({
         ...current,
-        lastError: error instanceof Error ? error.message : "Failed to sample process resources.",
+        lastError: Option.some(
+          error instanceof Error ? error.message : "Failed to sample process resources.",
+        ),
       })),
     ),
   );
 
-  yield* Effect.forever(sampleOnce.pipe(Effect.andThen(Effect.sleep(SAMPLE_INTERVAL_MS)))).pipe(
-    Effect.forkScoped,
-  );
+  yield* sampleOnce.pipe(Effect.repeat(Schedule.spaced(SAMPLE_INTERVAL)), Effect.forkScoped);
 
   const readHistory: ProcessResourceMonitorShape["readHistory"] = (input) =>
     Effect.gen(function* () {

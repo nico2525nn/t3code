@@ -1,5 +1,4 @@
-import { it } from "@effect/vitest";
-import { describe, expect } from "vitest";
+import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 
@@ -47,12 +46,12 @@ describe("makeKeyedCoalescingWorker", () => {
         yield* Deferred.succeed(releaseFirst, undefined);
         yield* Deferred.await(secondStarted);
 
-        expect(yield* Deferred.isDone(drained)).toBe(false);
+        assert.equal(yield* Deferred.isDone(drained), false);
 
         yield* Deferred.succeed(releaseSecond, undefined);
         yield* Deferred.await(drained);
 
-        expect(processed).toEqual(["terminal-1:first", "terminal-1:second"]);
+        assert.deepStrictEqual(processed, ["terminal-1:first", "terminal-1:second"]);
       }),
     ),
   );
@@ -90,7 +89,28 @@ describe("makeKeyedCoalescingWorker", () => {
         yield* Deferred.await(secondProcessed);
         yield* worker.drainKey("terminal-1");
 
-        expect(processed).toEqual(["terminal-1:first", "terminal-1:second"]);
+        assert.deepStrictEqual(processed, ["terminal-1:first", "terminal-1:second"]);
+      }),
+    ),
+  );
+
+  it.live("treats an undefined value as present queued work", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const processed: Array<string | undefined> = [];
+
+        const worker = yield* makeKeyedCoalescingWorker<string, string | undefined, never, never>({
+          merge: (_current, next) => next,
+          process: (_key, value) =>
+            Effect.sync(() => {
+              processed.push(value);
+            }),
+        });
+
+        yield* worker.enqueue("terminal-1", undefined);
+        yield* worker.drainKey("terminal-1");
+
+        assert.deepStrictEqual(processed, [undefined]);
       }),
     ),
   );
