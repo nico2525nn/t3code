@@ -8,6 +8,7 @@ import { useThemeColor } from "../../lib/useThemeColor";
 
 import { AppText as Text } from "../../components/AppText";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
+import { NewTaskSheetHeader } from "../../features/threads/NewTaskSheetHeader";
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
 import { type RemoteCatalogState, useRemoteCatalog } from "../../state/use-remote-catalog";
 import { useRemoteEnvironmentState } from "../../state/use-remote-environment-registry";
@@ -103,17 +104,7 @@ export default function NewTaskRoute() {
     <View collapsable={false} className="flex-1 bg-sheet">
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={{ minHeight: 16, paddingTop: 8 }} />
-
-      <View className="items-center gap-1 px-5 pb-3 pt-4">
-        <Text
-          className="text-[12px] font-t3-bold uppercase text-foreground-muted"
-          style={{ letterSpacing: 1 }}
-        >
-          New task
-        </Text>
-        <Text className="text-[28px] font-t3-bold">Choose project</Text>
-      </View>
+      <NewTaskSheetHeader title="Choose project" />
 
       <ScrollView
         showsVerticalScrollIndicator={false}

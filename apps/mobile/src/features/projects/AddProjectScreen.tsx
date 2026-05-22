@@ -29,7 +29,6 @@ import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
-import { ControlPill } from "../../components/ControlPill";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { SourceControlIcon } from "../../components/SourceControlIcon";
 import { useThemeColor } from "../../lib/useThemeColor";
@@ -42,6 +41,7 @@ import {
   refreshSourceControlDiscoveryForEnvironment,
   useSourceControlDiscovery,
 } from "../../state/use-source-control-discovery";
+import { NewTaskSheetHeader } from "../threads/NewTaskSheetHeader";
 
 interface EnvironmentOption {
   readonly environmentId: EnvironmentId;
@@ -115,21 +115,21 @@ function AddProjectShell(props: {
 
   return (
     <View className="flex-1 bg-sheet">
-      <View className="flex-row items-center justify-between px-5 pb-1 pt-3">
-        <ControlPill
-          icon={props.closeToNew ? "xmark" : "chevron.left"}
-          onPress={() => router.back()}
-        />
-        <Text className="text-[17px] font-t3-bold">{props.title}</Text>
-        <View className="h-11 w-11" />
-      </View>
+      <NewTaskSheetHeader
+        eyebrow="New project"
+        title={props.title}
+        control={{
+          icon: props.closeToNew ? "xmark" : "chevron.left",
+          onPress: () => router.back(),
+        }}
+      />
 
       <ScrollView
         keyboardShouldPersistTaps="handled"
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
-          paddingHorizontal: 18,
-          paddingTop: 8,
+          paddingHorizontal: 20,
+          paddingTop: 16,
           paddingBottom: Math.max(insets.bottom, 18) + 18,
           gap: 10,
         }}
@@ -141,7 +141,7 @@ function AddProjectShell(props: {
 }
 
 function ListSection(props: { readonly children: ReactNode }) {
-  return <View className="overflow-hidden rounded-2xl bg-card">{props.children}</View>;
+  return <View className="overflow-hidden rounded-[24px] bg-card">{props.children}</View>;
 }
 
 function ListRow(props: {
@@ -193,6 +193,48 @@ function ListRow(props: {
         ) : null}
       </View>
     </Pressable>
+  );
+}
+
+function PrimaryActionButton(props: {
+  readonly label: string;
+  readonly disabled?: boolean;
+  readonly loading?: boolean;
+  readonly onPress: () => void;
+}) {
+  const primaryForeground = useThemeColor("--color-primary-foreground");
+
+  return (
+    <Pressable
+      disabled={props.disabled}
+      onPress={props.onPress}
+      className="h-12 items-center justify-center rounded-full bg-primary active:opacity-70 disabled:opacity-45"
+    >
+      {props.loading ? (
+        <ActivityIndicator color={String(primaryForeground)} />
+      ) : (
+        <Text className="text-[14px] font-t3-bold text-primary-foreground">{props.label}</Text>
+      )}
+    </Pressable>
+  );
+}
+
+function ProjectPathInput(props: {
+  readonly value: string;
+  readonly onChangeText: (value: string) => void;
+  readonly onSubmit: () => void;
+}) {
+  return (
+    <TextInput
+      className="h-12 min-h-12 rounded-[24px] px-4 py-0 text-[15px] leading-[20px]"
+      value={props.value}
+      onChangeText={props.onChangeText}
+      autoCapitalize="none"
+      autoCorrect={false}
+      placeholder="~/projects/my-app"
+      returnKeyType="done"
+      onSubmitEditing={props.onSubmit}
+    />
   );
 }
 
@@ -321,7 +363,7 @@ export function AddProjectSourceScreen() {
   }, [selectedEnvironment]);
 
   return (
-    <AddProjectShell title="Add project" closeToNew>
+    <AddProjectShell title="Select source" closeToNew>
       {environmentOptions.length === 0 ? <EmptyEnvironmentState /> : null}
 
       {environmentOptions.length > 1 ? (
@@ -362,7 +404,6 @@ export function AddProjectSourceScreen() {
 
       {selectedEnvironment ? (
         <>
-          <SectionTitle>Sources</SectionTitle>
           <ListSection>
             <ListRow
               title="Local folder"
@@ -473,7 +514,6 @@ export function AddProjectRepositoryScreen() {
   const params = useLocalSearchParams<{ environmentId?: string; source?: string }>();
   const environment = useEnvironmentFromParam();
   const source = sourceFromParam(params.source);
-  const primaryForeground = useThemeColor("--color-primary-foreground");
   const [repositoryInput, setRepositoryInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -524,7 +564,7 @@ export function AddProjectRepositoryScreen() {
     <AddProjectShell title={source === "url" ? "Git URL" : addProjectRemoteSourceLabel(source)}>
       {error ? <ErrorBanner message={error} /> : null}
       <TextInput
-        className="h-12 min-h-12 rounded-xl px-3 py-0 text-[15px] leading-[20px]"
+        className="h-12 min-h-12 rounded-[24px] px-4 py-0 text-[15px] leading-[20px]"
         value={repositoryInput}
         onChangeText={setRepositoryInput}
         autoCapitalize="none"
@@ -537,19 +577,12 @@ export function AddProjectRepositoryScreen() {
         returnKeyType="next"
         onSubmitEditing={() => void lookupRepository()}
       />
-      <Pressable
+      <PrimaryActionButton
+        label={source === "url" ? "Continue" : "Lookup repository"}
         disabled={isSubmitting || repositoryInput.trim().length === 0}
         onPress={() => void lookupRepository()}
-        className="h-11 items-center justify-center rounded-full bg-primary active:opacity-70 disabled:opacity-45"
-      >
-        {isSubmitting ? (
-          <ActivityIndicator color={String(primaryForeground)} />
-        ) : (
-          <Text className="text-[14px] font-t3-bold text-primary-foreground">
-            {source === "url" ? "Continue" : "Lookup repository"}
-          </Text>
-        )}
-      </Pressable>
+        loading={isSubmitting}
+      />
     </AddProjectShell>
   );
 }
@@ -643,7 +676,6 @@ function FolderBrowser(props: {
 export function AddProjectLocalFolderScreen() {
   const environment = useEnvironmentFromParam();
   const createProject = useCreateProject(environment);
-  const primaryForeground = useThemeColor("--color-primary-foreground");
   const [pathInput, setPathInput] = useState(() =>
     getAddProjectInitialQuery(environment?.baseDirectory),
   );
@@ -683,27 +715,17 @@ export function AddProjectLocalFolderScreen() {
       {error ? <ErrorBanner message={error} /> : null}
       {environment ? (
         <>
-          <TextInput
-            className="h-12 min-h-12 rounded-xl px-3 py-0 text-[15px] leading-[20px]"
+          <ProjectPathInput
             value={pathInput}
             onChangeText={setPathInput}
-            autoCapitalize="none"
-            autoCorrect={false}
-            placeholder="~/projects/my-app"
-            returnKeyType="done"
-            onSubmitEditing={() => void submitPath()}
+            onSubmit={() => void submitPath()}
           />
-          <Pressable
+          <PrimaryActionButton
+            label="Add project"
             disabled={isSubmitting}
             onPress={() => void submitPath()}
-            className="h-11 items-center justify-center rounded-full bg-primary active:opacity-70"
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color={String(primaryForeground)} />
-            ) : (
-              <Text className="text-[14px] font-t3-bold text-primary-foreground">Add project</Text>
-            )}
-          </Pressable>
+            loading={isSubmitting}
+          />
           <FolderBrowser
             environment={environment}
             pathInput={pathInput}
@@ -725,7 +747,6 @@ export function AddProjectDestinationScreen() {
   }>();
   const environment = useEnvironmentFromParam();
   const createProject = useCreateProject(environment);
-  const primaryForeground = useThemeColor("--color-primary-foreground");
   const remoteUrl = stringParam(params.remoteUrl);
   const repositoryTitle = stringParam(params.repositoryTitle);
   const [pathInput, setPathInput] = useState(() =>
@@ -772,7 +793,7 @@ export function AddProjectDestinationScreen() {
     <AddProjectShell title="Clone destination">
       {error ? <ErrorBanner message={error} /> : null}
       {repositoryTitle ? (
-        <View className="rounded-xl bg-card px-3.5 py-2.5">
+        <View className="rounded-[24px] bg-card px-4 py-3">
           <Text className="text-[14px] font-t3-bold">{repositoryTitle}</Text>
           <Text className="mt-0.5 text-[12px] text-foreground-muted" numberOfLines={2}>
             {remoteUrl}
@@ -781,29 +802,17 @@ export function AddProjectDestinationScreen() {
       ) : null}
       {environment ? (
         <>
-          <TextInput
-            className="h-12 min-h-12 rounded-xl px-3 py-0 text-[15px] leading-[20px]"
+          <ProjectPathInput
             value={pathInput}
             onChangeText={setPathInput}
-            autoCapitalize="none"
-            autoCorrect={false}
-            placeholder="~/projects/my-app"
-            returnKeyType="done"
-            onSubmitEditing={() => void submitPath()}
+            onSubmit={() => void submitPath()}
           />
-          <Pressable
+          <PrimaryActionButton
+            label="Clone project"
             disabled={isSubmitting || !remoteUrl}
             onPress={() => void submitPath()}
-            className="h-11 items-center justify-center rounded-full bg-primary active:opacity-70 disabled:opacity-45"
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color={String(primaryForeground)} />
-            ) : (
-              <Text className="text-[14px] font-t3-bold text-primary-foreground">
-                Clone project
-              </Text>
-            )}
-          </Pressable>
+            loading={isSubmitting}
+          />
           <FolderBrowser
             environment={environment}
             pathInput={pathInput}

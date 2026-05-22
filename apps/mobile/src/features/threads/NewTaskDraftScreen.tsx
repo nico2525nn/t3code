@@ -1,16 +1,15 @@
 import { MenuView } from "@react-native-menu/menu";
 import { useRouter } from "expo-router";
-import { SymbolView } from "expo-symbols";
 import { TextInputWrapper } from "expo-paste-input";
 import { useCallback, useEffect, useMemo } from "react";
-import { Pressable, View, useColorScheme } from "react-native";
+import { View, useColorScheme } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../lib/useThemeColor";
 
 import { EnvironmentId, type ModelSelection } from "@t3tools/contracts";
 
-import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { AppTextInput as TextInput } from "../../components/AppText";
 import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
 import { ControlPill } from "../../components/ControlPill";
 import { ProviderIcon } from "../../components/ProviderIcon";
@@ -20,6 +19,7 @@ import { buildThreadRoutePath } from "../../lib/routes";
 import { useRemoteCatalog } from "../../state/use-remote-catalog";
 import { useNativePaste } from "../../lib/useNativePaste";
 import { CLAUDE_AGENT_EFFORT_OPTIONS } from "./claudeEffortOptions";
+import { NewTaskSheetHeader } from "./NewTaskSheetHeader";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 import { useProjectActions } from "./use-project-actions";
 
@@ -50,7 +50,6 @@ export function NewTaskDraftScreen(props: {
   const controlsBottomPadding = Math.max(insets.bottom, 10);
   const { logicalProjects, selectedProject, setProject } = flow;
 
-  const iconColor = useThemeColor("--color-icon");
   const borderColor = useThemeColor("--color-border");
 
   useEffect(() => {
@@ -394,48 +393,21 @@ export function NewTaskDraftScreen(props: {
   if (!selectedProject) {
     return (
       <View className="flex-1 bg-sheet">
-        <View style={{ minHeight: 16, paddingTop: 8 }} />
-        <View className="items-center gap-1 px-5 pb-3 pt-4">
-          <Text
-            className="text-[12px] font-t3-bold uppercase text-foreground-muted"
-            style={{ letterSpacing: 1 }}
-          >
-            New task
-          </Text>
-          <Text className="text-[28px] font-t3-bold">Loading task</Text>
-        </View>
+        <NewTaskSheetHeader title="Loading task" />
       </View>
     );
   }
 
   return (
     <View className="flex-1 bg-sheet">
-      <View style={{ minHeight: 16, paddingTop: 8 }} />
-
-      <View className="items-center gap-1 px-5 pb-3 pt-4">
-        {flow.logicalProjects.length > 1 ? (
-          <Pressable
-            className="absolute left-3 top-4 h-9 w-9 items-center justify-center rounded-full bg-subtle"
-            style={{ zIndex: 1 }}
-            onPress={() => router.back()}
-          >
-            <SymbolView
-              name="chevron.left"
-              size={16}
-              tintColor={iconColor}
-              type="monochrome"
-              weight="medium"
-            />
-          </Pressable>
-        ) : null}
-        <Text
-          className="text-[12px] font-t3-bold uppercase text-foreground-muted"
-          style={{ letterSpacing: 1 }}
-        >
-          New task
-        </Text>
-        <Text className="text-[28px] font-t3-bold">{selectedProject.title}</Text>
-      </View>
+      <NewTaskSheetHeader
+        title={selectedProject.title}
+        control={
+          flow.logicalProjects.length > 1
+            ? { icon: "chevron.left", onPress: () => router.back() }
+            : undefined
+        }
+      />
 
       <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 8 }}>
         <TextInputWrapper
