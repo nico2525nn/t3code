@@ -62,7 +62,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"
-              className="gap-2 px-2 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="gap-2 p-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={handleBackClick}
             >
               <ArrowLeftIcon className="size-4" />

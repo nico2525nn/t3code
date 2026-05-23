@@ -15,7 +15,7 @@ export const SettingsSidebarNavItem = memo(function SettingsSidebarNavItem({
   onSelect,
 }: SettingsSidebarNavItemProps) {
   const Icon = item.icon;
-  const handleClick = useCallback(() => {
+  const selectSettingsSection = useCallback(() => {
     onSelect(item.to);
   }, [item.to, onSelect]);
 
@@ -29,7 +29,7 @@ export const SettingsSidebarNavItem = memo(function SettingsSidebarNavItem({
             ? "gap-2.5 px-2.5 py-2 text-left text-[13px] font-medium text-foreground"
             : "gap-2.5 px-2.5 py-2 text-left text-[13px] text-muted-foreground/70 hover:text-foreground/80"
         }
-        onClick={handleClick}
+        onClick={selectSettingsSection}
       >
         <Icon
           className={
