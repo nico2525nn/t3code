@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -41,16 +42,15 @@ function mockSpawnerLayer(
     args: ReadonlyArray<string>,
   ) => { stdout?: string; stderr?: string; code?: number },
 ) {
-  return Layer.succeed(
-    ChildProcessSpawner.ChildProcessSpawner,
-    ChildProcessSpawner.make((command) => {
+  return Layer.mock(ChildProcessSpawner.ChildProcessSpawner, {
+    spawn: (command) => {
       const childProcess = command as unknown as {
         readonly command: string;
         readonly args: ReadonlyArray<string>;
       };
       return Effect.succeed(mockHandle(handler(childProcess.command, childProcess.args)));
-    }),
-  );
+    },
+  });
 }
 
 describe("tailscale", () => {
@@ -66,8 +66,8 @@ describe("tailscale", () => {
   it.effect("parses MagicDNS names from tailscale status", () =>
     Effect.gen(function* () {
       const dnsName = yield* parseTailscaleMagicDnsName(tailscaleStatusJson);
-      assert.equal(dnsName, "desktop.tail.ts.net");
-      assert.equal(yield* parseTailscaleMagicDnsName("{}"), null);
+      assert.deepEqual(dnsName, Option.some("desktop.tail.ts.net"));
+      assert.deepEqual(yield* parseTailscaleMagicDnsName("{}"), Option.none());
     }),
   );
 
@@ -75,7 +75,7 @@ describe("tailscale", () => {
     Effect.gen(function* () {
       const status = yield* parseTailscaleStatus(tailscaleStatusJson);
       assert.deepEqual(status, {
-        magicDnsName: "desktop.tail.ts.net",
+        magicDnsName: Option.some("desktop.tail.ts.net"),
         tailnetIpv4Addresses: ["100.100.100.100"],
       });
     }),
@@ -106,7 +106,7 @@ describe("tailscale", () => {
     return Effect.gen(function* () {
       const status = yield* readTailscaleStatus.pipe(Effect.provide(layer));
       assert.deepEqual(status, {
-        magicDnsName: "desktop.tail.ts.net",
+        magicDnsName: Option.some("desktop.tail.ts.net"),
         tailnetIpv4Addresses: ["100.90.1.2"],
       });
     });

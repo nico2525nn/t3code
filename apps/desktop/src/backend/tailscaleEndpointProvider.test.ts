@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
@@ -15,10 +16,7 @@ const unusedTailscaleExternalServicesLayer = Layer.mergeAll(
     HttpClient.HttpClient,
     HttpClient.make(() => Effect.die("unexpected Tailscale HTTPS probe")),
   ),
-  Layer.succeed(
-    ChildProcessSpawner.ChildProcessSpawner,
-    ChildProcessSpawner.make(() => Effect.die("unexpected tailscale status process")),
-  ),
+  Layer.mock(ChildProcessSpawner.ChildProcessSpawner, {}),
 );
 
 describe("tailscale endpoint provider", () => {
@@ -34,8 +32,8 @@ describe("tailscale endpoint provider", () => {
       const dnsName = yield* parseTailscaleMagicDnsName(
         `{"Self":{"DNSName":"desktop.tail.ts.net."}}`,
       );
-      assert.equal(dnsName, "desktop.tail.ts.net");
-      assert.equal(yield* parseTailscaleMagicDnsName("{}"), null);
+      assert.deepEqual(dnsName, Option.some("desktop.tail.ts.net"));
+      assert.deepEqual(yield* parseTailscaleMagicDnsName("{}"), Option.none());
       const malformed = yield* Effect.result(parseTailscaleMagicDnsName("not-json"));
       assert.isTrue(malformed._tag === "Failure");
     }),
