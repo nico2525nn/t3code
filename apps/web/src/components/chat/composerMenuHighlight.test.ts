@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
+import {
+  resolveComposerMenuActiveItemId,
+  resolveComposerMenuNudgedItemId,
+} from "./composerMenuHighlight";
 
 describe("resolveComposerMenuActiveItemId", () => {
   const items = [{ id: "top" }, { id: "second" }, { id: "third" }] as const;
@@ -47,5 +50,63 @@ describe("resolveComposerMenuActiveItemId", () => {
         highlightedSearchKey: "skill:ui",
       }),
     ).toBe("top");
+  });
+});
+
+describe("resolveComposerMenuNudgedItemId", () => {
+  const items = [{ id: "top" }, { id: "second" }, { id: "third" }] as const;
+
+  it("moves from the active item", () => {
+    expect(
+      resolveComposerMenuNudgedItemId({
+        items,
+        activeItemId: "second",
+        direction: "next",
+      }),
+    ).toBe("third");
+
+    expect(
+      resolveComposerMenuNudgedItemId({
+        items,
+        activeItemId: "second",
+        direction: "previous",
+      }),
+    ).toBe("top");
+  });
+
+  it("wraps around at either edge", () => {
+    expect(
+      resolveComposerMenuNudgedItemId({
+        items,
+        activeItemId: "third",
+        direction: "next",
+      }),
+    ).toBe("top");
+
+    expect(
+      resolveComposerMenuNudgedItemId({
+        items,
+        activeItemId: "top",
+        direction: "previous",
+      }),
+    ).toBe("third");
+  });
+
+  it("starts from the first visible item when active state is stale", () => {
+    expect(
+      resolveComposerMenuNudgedItemId({
+        items,
+        activeItemId: "missing",
+        direction: "next",
+      }),
+    ).toBe("top");
+
+    expect(
+      resolveComposerMenuNudgedItemId({
+        items,
+        activeItemId: "missing",
+        direction: "previous",
+      }),
+    ).toBe("third");
   });
 });
