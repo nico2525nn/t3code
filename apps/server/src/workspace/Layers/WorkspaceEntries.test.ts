@@ -37,9 +37,13 @@ const WorkspaceEntriesWithFileSystem = (
 ) =>
   WorkspaceEntriesLive.pipe(
     Layer.provide(
-      Layer.effect(FileSystem.FileSystem, Effect.map(FileSystem.FileSystem, makeFileSystem)).pipe(
-        Layer.provide(NodeServices.layer),
-      ),
+      Layer.effect(
+        FileSystem.FileSystem,
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          return makeFileSystem(fileSystem);
+        }),
+      ).pipe(Layer.provide(NodeServices.layer)),
     ),
   );
 
