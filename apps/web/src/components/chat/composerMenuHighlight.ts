@@ -29,8 +29,7 @@ export function resolveComposerMenuNudgedItemId(input: {
   }
 
   const activeIndex = input.items.findIndex((item) => item.id === input.activeItemId);
-  const normalizedIndex =
-    activeIndex >= 0 ? activeIndex : input.direction === "next" ? -1 : 0;
+  const normalizedIndex = activeIndex >= 0 ? activeIndex : input.direction === "next" ? -1 : 0;
   const offset = input.direction === "next" ? 1 : -1;
   const nextIndex = (normalizedIndex + offset + input.items.length) % input.items.length;
 
