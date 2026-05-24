@@ -13,58 +13,43 @@ import { ServerConfig } from "../../config.ts";
 import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
 import { WorkspaceEntries } from "../Services/WorkspaceEntries.ts";
-import { WorkspaceEntriesLive } from "./WorkspaceEntries.ts";
+import { makeWorkspaceEntries, WorkspaceEntriesLive } from "./WorkspaceEntries.ts";
 import { WorkspacePathsLive } from "./WorkspacePaths.ts";
 
-const makeTestLayer = (workspaceEntriesLayer = WorkspaceEntriesLive) =>
-  Layer.empty.pipe(
-    Layer.provideMerge(workspaceEntriesLayer.pipe(Layer.provide(WorkspacePathsLive))),
-    Layer.provideMerge(WorkspacePathsLive),
-    Layer.provideMerge(VcsProcess.layer),
-    Layer.provideMerge(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProcess.layer))),
-    Layer.provide(
-      ServerConfig.layerTest(process.cwd(), {
-        prefix: "t3-workspace-entries-test-",
-      }),
-    ),
-    Layer.provideMerge(NodeServices.layer),
-  );
+const TestLayer = Layer.empty.pipe(
+  Layer.provideMerge(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
+  Layer.provideMerge(WorkspacePathsLive),
+  Layer.provideMerge(VcsProcess.layer),
+  Layer.provideMerge(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProcess.layer))),
+  Layer.provide(
+    ServerConfig.layerTest(process.cwd(), {
+      prefix: "t3-workspace-entries-test-",
+    }),
+  ),
+  Layer.provideMerge(NodeServices.layer),
+);
 
-const TestLayer = makeTestLayer();
-
-const WorkspaceEntriesWithFileSystem = (
+const makeWorkspaceEntriesWithFileSystem = (
   makeFileSystem: (fileSystem: FileSystem.FileSystem) => FileSystem.FileSystem,
 ) =>
-  WorkspaceEntriesLive.pipe(
-    Layer.provide(
-      Layer.effect(
-        FileSystem.FileSystem,
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          return makeFileSystem(fileSystem);
-        }),
-      ).pipe(Layer.provide(NodeServices.layer)),
-    ),
-  );
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    return yield* makeWorkspaceEntries.pipe(
+      Effect.provideService(FileSystem.FileSystem, makeFileSystem(fileSystem)),
+    );
+  });
 
-const instrumentWorkspaceReadDirectory = (
+const makeWorkspaceEntriesWithReadDirectory = (
   onReadDirectory: (
     path: string,
     run: () => Effect.Effect<Array<string>, PlatformError.PlatformError>,
   ) => Effect.Effect<Array<string>, PlatformError.PlatformError>,
 ) =>
-  WorkspaceEntriesWithFileSystem((fileSystem) => ({
+  makeWorkspaceEntriesWithFileSystem((fileSystem) => ({
     ...fileSystem,
     readDirectory: (inputPath, options) =>
       onReadDirectory(inputPath, () => fileSystem.readDirectory(inputPath, options)),
   }));
-
-const TestLayerWithReadDirectory = (
-  onReadDirectory: (
-    path: string,
-    run: () => Effect.Effect<Array<string>, PlatformError.PlatformError>,
-  ) => Effect.Effect<Array<string>, PlatformError.PlatformError>,
-) => makeTestLayer(instrumentWorkspaceReadDirectory(onReadDirectory));
 
 const makeTempDir = Effect.fn(function* (opts?: { prefix?: string; git?: boolean }) {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -261,7 +246,7 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
 
         let rootReadCount = 0;
         const rootReadGate = yield* Deferred.make<void>();
-        const instrumentedLayer = TestLayerWithReadDirectory((inputPath, run) =>
+        const workspaceEntries = yield* makeWorkspaceEntriesWithReadDirectory((inputPath, run) =>
           inputPath === cwd
             ? Effect.gen(function* () {
                 rootReadCount += 1;
@@ -273,12 +258,12 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
 
         const searches = yield* Effect.all(
           [
-            searchWorkspaceEntries({ cwd, query: "", limit: 100 }),
-            searchWorkspaceEntries({ cwd, query: "comp", limit: 100 }),
-            searchWorkspaceEntries({ cwd, query: "src", limit: 100 }),
+            workspaceEntries.search({ cwd, query: "", limit: 100 }),
+            workspaceEntries.search({ cwd, query: "comp", limit: 100 }),
+            workspaceEntries.search({ cwd, query: "src", limit: 100 }),
           ],
           { concurrency: "unbounded" },
-        ).pipe(Effect.provide(instrumentedLayer), Effect.forkScoped);
+        ).pipe(Effect.forkScoped);
         for (let attempt = 0; attempt < 50; attempt += 1) {
           if (rootReadCount > 0) {
             break;
@@ -304,7 +289,7 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
         let activeReads = 0;
         let peakReads = 0;
         const readsGate = yield* Deferred.make<void>();
-        const instrumentedLayer = TestLayerWithReadDirectory((inputPath, run) =>
+        const workspaceEntries = yield* makeWorkspaceEntriesWithReadDirectory((inputPath, run) =>
           inputPath !== cwd && inputPath.startsWith(cwd)
             ? Effect.gen(function* () {
                 activeReads += 1;
@@ -321,10 +306,9 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
             : run(),
         );
 
-        const search = yield* searchWorkspaceEntries({ cwd, query: "", limit: 200 }).pipe(
-          Effect.provide(instrumentedLayer),
-          Effect.forkScoped,
-        );
+        const search = yield* workspaceEntries
+          .search({ cwd, query: "", limit: 200 })
+          .pipe(Effect.forkScoped);
         for (let attempt = 0; attempt < 50; attempt += 1) {
           if (activeReads > 0) {
             break;
