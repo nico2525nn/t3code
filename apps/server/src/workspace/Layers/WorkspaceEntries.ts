@@ -1,14 +1,14 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as OS from "node:os";
-import fsPromises from "node:fs/promises";
-import type { Dirent } from "node:fs";
 
 import * as Cache from "effect/Cache";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import { type FilesystemBrowseInput, type ProjectEntry } from "@t3tools/contracts";
@@ -54,6 +54,11 @@ interface WorkspaceIndex {
 interface SearchableWorkspaceEntry extends ProjectEntry {
   normalizedPath: string;
   normalizedName: string;
+}
+
+interface DirectoryEntry {
+  readonly name: string;
+  readonly kind: ProjectEntry["kind"];
 }
 
 type RankedWorkspaceEntry = RankedSearchResult<SearchableWorkspaceEntry>;
@@ -180,6 +185,7 @@ const resolveBrowseTarget = (
   });
 
 export const makeWorkspaceEntries = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const vcsRegistry = yield* VcsDriverRegistry;
   const workspacePaths = yield* WorkspacePaths;
@@ -269,30 +275,64 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
     },
   );
 
+  const readDirectoryEntry = Effect.fn("WorkspaceEntries.readDirectoryEntry")(function* (
+    absoluteDir: string,
+    name: string,
+  ): Effect.fn.Return<Option.Option<DirectoryEntry>, never> {
+    const absolutePath = path.join(absoluteDir, name);
+    const linkTarget = yield* fileSystem.readLink(absolutePath).pipe(Effect.option);
+    if (Option.isSome(linkTarget)) {
+      return Option.none();
+    }
+
+    return yield* fileSystem.stat(absolutePath).pipe(
+      Effect.map((info) =>
+        info.type === "Directory"
+          ? Option.some({ name, kind: "directory" as const })
+          : info.type === "File"
+            ? Option.some({ name, kind: "file" as const })
+            : Option.none<DirectoryEntry>(),
+      ),
+      Effect.catch(() => Effect.succeed(Option.none<DirectoryEntry>())),
+    );
+  });
+
   const readDirectoryEntries = Effect.fn("WorkspaceEntries.readDirectoryEntries")(function* (
     cwd: string,
     relativeDir: string,
   ): Effect.fn.Return<
-    { readonly relativeDir: string; readonly dirents: Dirent[] | null },
+    {
+      readonly relativeDir: string;
+      readonly entries: Option.Option<ReadonlyArray<DirectoryEntry>>;
+    },
     WorkspaceEntriesError
   > {
-    return yield* Effect.tryPromise({
-      try: async () => {
-        const absoluteDir = relativeDir ? path.join(cwd, relativeDir) : cwd;
-        const dirents = await fsPromises.readdir(absoluteDir, { withFileTypes: true });
-        return { relativeDir, dirents };
-      },
-      catch: (cause) =>
-        new WorkspaceEntriesError({
-          cwd,
-          operation: "workspaceEntries.readDirectoryEntries",
-          detail: cause instanceof Error ? cause.message : String(cause),
-          cause,
-        }),
-    }).pipe(
+    const absoluteDir = relativeDir ? path.join(cwd, relativeDir) : cwd;
+    return yield* fileSystem.readDirectory(absoluteDir).pipe(
+      Effect.flatMap((names) =>
+        Effect.forEach(
+          names.toSorted((left, right) => left.localeCompare(right)),
+          (name) => readDirectoryEntry(absoluteDir, name),
+          { concurrency: "unbounded" },
+        ),
+      ),
+      Effect.map((entries) => ({
+        relativeDir,
+        entries: Option.some(entries.filter(Option.isSome).map((entry) => entry.value)),
+      })),
+      Effect.mapError(
+        (cause) =>
+          new WorkspaceEntriesError({
+            cwd,
+            operation: "workspaceEntries.readDirectoryEntries",
+            detail: cause.message,
+            cause,
+          }),
+      ),
       Effect.catchIf(
         () => relativeDir.length > 0,
-        () => Effect.succeed({ relativeDir, dirents: null }),
+        () =>
+          Effect.succeed({ relativeDir, entries: Option.none<ReadonlyArray<DirectoryEntry>>() }),
       ),
     );
   });
@@ -317,29 +357,26 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
       );
 
       const candidateEntriesByDirectory = directoryEntries.map((directoryEntry) => {
-        const { relativeDir, dirents } = directoryEntry;
-        if (!dirents) return [] as Array<{ dirent: Dirent; relativePath: string }>;
+        const { relativeDir, entries } = directoryEntry;
+        if (Option.isNone(entries))
+          return [] as Array<{ entry: DirectoryEntry; relativePath: string }>;
 
-        dirents.sort((left, right) => left.name.localeCompare(right.name));
-        const candidates: Array<{ dirent: Dirent; relativePath: string }> = [];
-        for (const dirent of dirents) {
-          if (!dirent.name || dirent.name === "." || dirent.name === "..") {
+        const candidates: Array<{ entry: DirectoryEntry; relativePath: string }> = [];
+        for (const entry of entries.value) {
+          if (!entry.name || entry.name === "." || entry.name === "..") {
             continue;
           }
-          if (dirent.isDirectory() && IGNORED_DIRECTORY_NAMES.has(dirent.name)) {
-            continue;
-          }
-          if (!dirent.isDirectory() && !dirent.isFile()) {
+          if (entry.kind === "directory" && IGNORED_DIRECTORY_NAMES.has(entry.name)) {
             continue;
           }
 
           const relativePath = toPosixPath(
-            relativeDir ? path.join(relativeDir, dirent.name) : dirent.name,
+            relativeDir ? path.join(relativeDir, entry.name) : entry.name,
           );
           if (isPathInIgnoredDirectory(relativePath)) {
             continue;
           }
-          candidates.push({ dirent, relativePath });
+          candidates.push({ entry, relativePath });
         }
         return candidates;
       });
@@ -359,12 +396,12 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
 
           const entry = toSearchableWorkspaceEntry({
             path: candidate.relativePath,
-            kind: candidate.dirent.isDirectory() ? "directory" : "file",
+            kind: candidate.entry.kind,
             parentPath: parentPathOf(candidate.relativePath),
           });
           entries.push(entry);
 
-          if (candidate.dirent.isDirectory()) {
+          if (candidate.entry.kind === "directory") {
             pendingDirectories.push(candidate.relativePath);
           }
 
@@ -442,33 +479,40 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
       const parentPath = endsWithSeparator ? resolvedInputPath : path.dirname(resolvedInputPath);
       const prefix = endsWithSeparator ? "" : path.basename(resolvedInputPath);
 
-      const dirents = yield* Effect.tryPromise({
-        try: () => fsPromises.readdir(parentPath, { withFileTypes: true }),
-        catch: (cause) =>
-          new WorkspaceEntriesBrowseError({
-            cwd: input.cwd,
-            partialPath: input.partialPath,
-            operation: "workspaceEntries.browse.readDirectory",
-            detail: `Unable to browse '${parentPath}': ${cause instanceof Error ? cause.message : String(cause)}`,
-            cause,
+      const entries = yield* fileSystem.readDirectory(parentPath).pipe(
+        Effect.flatMap((names) =>
+          Effect.forEach(names, (name) => readDirectoryEntry(parentPath, name), {
+            concurrency: "unbounded",
           }),
-      });
+        ),
+        Effect.map((entries) => entries.filter(Option.isSome).map((entry) => entry.value)),
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceEntriesBrowseError({
+              cwd: input.cwd,
+              partialPath: input.partialPath,
+              operation: "workspaceEntries.browse.readDirectory",
+              detail: `Unable to browse '${parentPath}': ${cause.message}`,
+              cause,
+            }),
+        ),
+      );
 
       const showHidden = endsWithSeparator || prefix.startsWith(".");
       const lowerPrefix = prefix.toLowerCase();
 
       return {
         parentPath,
-        entries: dirents
+        entries: entries
           .filter(
-            (dirent) =>
-              dirent.isDirectory() &&
-              dirent.name.toLowerCase().startsWith(lowerPrefix) &&
-              (showHidden || !dirent.name.startsWith(".")),
+            (entry) =>
+              entry.kind === "directory" &&
+              entry.name.toLowerCase().startsWith(lowerPrefix) &&
+              (showHidden || !entry.name.startsWith(".")),
           )
-          .map((dirent) => ({
-            name: dirent.name,
-            fullPath: path.join(parentPath, dirent.name),
+          .map((entry) => ({
+            name: entry.name,
+            fullPath: path.join(parentPath, entry.name),
           }))
           .toSorted((left, right) => left.name.localeCompare(right.name)),
       };

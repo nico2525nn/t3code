@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import fsPromises from "node:fs/promises";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { it, afterEach, describe, expect, vi } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -16,18 +16,51 @@ import { WorkspaceEntries } from "../Services/WorkspaceEntries.ts";
 import { WorkspaceEntriesLive } from "./WorkspaceEntries.ts";
 import { WorkspacePathsLive } from "./WorkspacePaths.ts";
 
-const TestLayer = Layer.empty.pipe(
-  Layer.provideMerge(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
-  Layer.provideMerge(WorkspacePathsLive),
-  Layer.provideMerge(VcsProcess.layer),
-  Layer.provideMerge(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProcess.layer))),
-  Layer.provide(
-    ServerConfig.layerTest(process.cwd(), {
-      prefix: "t3-workspace-entries-test-",
-    }),
-  ),
-  Layer.provideMerge(NodeServices.layer),
-);
+const makeTestLayer = (workspaceEntriesLayer = WorkspaceEntriesLive) =>
+  Layer.empty.pipe(
+    Layer.provideMerge(workspaceEntriesLayer.pipe(Layer.provide(WorkspacePathsLive))),
+    Layer.provideMerge(WorkspacePathsLive),
+    Layer.provideMerge(VcsProcess.layer),
+    Layer.provideMerge(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProcess.layer))),
+    Layer.provide(
+      ServerConfig.layerTest(process.cwd(), {
+        prefix: "t3-workspace-entries-test-",
+      }),
+    ),
+    Layer.provideMerge(NodeServices.layer),
+  );
+
+const TestLayer = makeTestLayer();
+
+const WorkspaceEntriesWithFileSystem = (
+  makeFileSystem: (fileSystem: FileSystem.FileSystem) => FileSystem.FileSystem,
+) =>
+  WorkspaceEntriesLive.pipe(
+    Layer.provide(
+      Layer.effect(FileSystem.FileSystem, Effect.map(FileSystem.FileSystem, makeFileSystem)).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
+  );
+
+const instrumentWorkspaceReadDirectory = (
+  onReadDirectory: (
+    path: string,
+    run: () => Effect.Effect<Array<string>, PlatformError.PlatformError>,
+  ) => Effect.Effect<Array<string>, PlatformError.PlatformError>,
+) =>
+  WorkspaceEntriesWithFileSystem((fileSystem) => ({
+    ...fileSystem,
+    readDirectory: (inputPath, options) =>
+      onReadDirectory(inputPath, () => fileSystem.readDirectory(inputPath, options)),
+  }));
+
+const TestLayerWithReadDirectory = (
+  onReadDirectory: (
+    path: string,
+    run: () => Effect.Effect<Array<string>, PlatformError.PlatformError>,
+  ) => Effect.Effect<Array<string>, PlatformError.PlatformError>,
+) => makeTestLayer(instrumentWorkspaceReadDirectory(onReadDirectory));
 
 const makeTempDir = Effect.fn(function* (opts?: { prefix?: string; git?: boolean }) {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -80,10 +113,6 @@ const appendSeparator = (input: string) =>
     : `${input}${process.platform === "win32" ? "\\" : "/"}`;
 
 it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   describe("search", () => {
     it.effect("returns files and directories relative to cwd", () =>
       Effect.gen(function* () {
@@ -227,20 +256,16 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
         yield* writeTextFile(cwd, "src/components/Composer.tsx");
 
         let rootReadCount = 0;
-        let releaseRootRead: (() => void) | undefined;
-        const rootReadGate = new Promise<void>((resolve) => {
-          releaseRootRead = resolve;
-        });
-        const originalReaddir = fsPromises.readdir.bind(fsPromises);
-        vi.spyOn(fsPromises, "readdir").mockImplementation((async (
-          ...args: Parameters<typeof fsPromises.readdir>
-        ) => {
-          if (args[0] === cwd) {
-            rootReadCount += 1;
-            await rootReadGate;
-          }
-          return originalReaddir(...args);
-        }) as typeof fsPromises.readdir);
+        const rootReadGate = yield* Deferred.make<void>();
+        const instrumentedLayer = TestLayerWithReadDirectory((inputPath, run) =>
+          inputPath === cwd
+            ? Effect.gen(function* () {
+                rootReadCount += 1;
+                yield* Deferred.await(rootReadGate);
+                return yield* run();
+              })
+            : run(),
+        );
 
         const searches = yield* Effect.all(
           [
@@ -249,17 +274,17 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
             searchWorkspaceEntries({ cwd, query: "src", limit: 100 }),
           ],
           { concurrency: "unbounded" },
-        ).pipe(Effect.forkScoped);
+        ).pipe(Effect.provide(instrumentedLayer), Effect.forkScoped);
         for (let attempt = 0; attempt < 50; attempt += 1) {
           if (rootReadCount > 0) {
             break;
           }
           yield* Effect.yieldNow;
         }
-        releaseRootRead?.();
+        yield* Deferred.succeed(rootReadGate, undefined);
         yield* Fiber.join(searches);
 
-        expect(rootReadCount).toBe(1);
+        assert.equal(rootReadCount, 1);
       }),
     );
 
@@ -274,29 +299,26 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
 
         let activeReads = 0;
         let peakReads = 0;
-        let releaseReads: (() => void) | undefined;
-        const readsGate = new Promise<void>((resolve) => {
-          releaseReads = resolve;
-        });
-        const originalReaddir = fsPromises.readdir.bind(fsPromises);
-        vi.spyOn(fsPromises, "readdir").mockImplementation((async (
-          ...args: Parameters<typeof fsPromises.readdir>
-        ) => {
-          const target = args[0];
-          if (typeof target === "string" && target.startsWith(cwd)) {
-            activeReads += 1;
-            peakReads = Math.max(peakReads, activeReads);
-            await readsGate;
-            try {
-              return await originalReaddir(...args);
-            } finally {
-              activeReads -= 1;
-            }
-          }
-          return originalReaddir(...args);
-        }) as typeof fsPromises.readdir);
+        const readsGate = yield* Deferred.make<void>();
+        const instrumentedLayer = TestLayerWithReadDirectory((inputPath, run) =>
+          inputPath !== cwd && inputPath.startsWith(cwd)
+            ? Effect.gen(function* () {
+                activeReads += 1;
+                peakReads = Math.max(peakReads, activeReads);
+                yield* Deferred.await(readsGate);
+                return yield* run().pipe(
+                  Effect.ensuring(
+                    Effect.sync(() => {
+                      activeReads -= 1;
+                    }),
+                  ),
+                );
+              })
+            : run(),
+        );
 
         const search = yield* searchWorkspaceEntries({ cwd, query: "", limit: 200 }).pipe(
+          Effect.provide(instrumentedLayer),
           Effect.forkScoped,
         );
         for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -305,10 +327,10 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
           }
           yield* Effect.yieldNow;
         }
-        releaseReads?.();
+        yield* Deferred.succeed(readsGate, undefined);
         yield* Fiber.join(search);
 
-        expect(peakReads).toBeLessThanOrEqual(32);
+        assert.isAtMost(peakReads, 32);
       }),
     );
   });
