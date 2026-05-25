@@ -6,10 +6,12 @@ import type {
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schedule from "effect/Schedule";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
@@ -20,6 +22,7 @@ import {
 } from "./ProcessDiagnostics.ts";
 
 const SAMPLE_INTERVAL_MS = 5_000;
+const SAMPLE_INTERVAL = Duration.millis(SAMPLE_INTERVAL_MS);
 const RETENTION_MS = 60 * 60_000;
 const MAX_RETAINED_SAMPLES = 20_000;
 
@@ -274,7 +277,8 @@ export const make = Effect.fn("makeProcessResourceMonitor")(function* () {
     ),
   );
 
-  yield* Effect.forever(sampleOnce.pipe(Effect.andThen(Effect.sleep(SAMPLE_INTERVAL_MS)))).pipe(
+  yield* sampleOnce.pipe(
+    Effect.repeat(Schedule.spaced(SAMPLE_INTERVAL)),
     Effect.forkScoped,
   );
 
