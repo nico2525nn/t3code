@@ -877,9 +877,9 @@ export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(functio
   readonly probeTimeout?: Duration.Input;
   readonly path?: string;
 }): Effect.fn.Return<void, SshReadinessError, HttpClient.HttpClient> {
-  const timeout = input.timeout ?? DEFAULT_HTTP_READY_TIMEOUT;
-  const interval = input.interval ?? HTTP_READY_RETRY_INTERVAL;
-  const probeTimeout = input.probeTimeout ?? SSH_READY_PROBE_TIMEOUT;
+  const timeout = Duration.fromInputUnsafe(input.timeout ?? DEFAULT_HTTP_READY_TIMEOUT);
+  const interval = Duration.fromInputUnsafe(input.interval ?? HTTP_READY_RETRY_INTERVAL);
+  const probeTimeout = Duration.fromInputUnsafe(input.probeTimeout ?? SSH_READY_PROBE_TIMEOUT);
   const timeoutMs = Duration.toMillis(timeout);
   const intervalMs = Duration.toMillis(interval);
   const probeTimeoutMs = Duration.toMillis(probeTimeout);
