@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
@@ -15,16 +16,9 @@ const ProjectVcsConfig = Schema.Struct({
   ),
   vcsKind: Schema.optional(VcsDriverKind),
 });
-const isProjectVcsConfig = Schema.is(ProjectVcsConfig);
-
-interface ProjectVcsConfigFile {
-  readonly vcs?:
-    | {
-        readonly kind?: VcsDriverKindType | undefined;
-      }
-    | undefined;
-  readonly vcsKind?: VcsDriverKindType | undefined;
-}
+const ProjectVcsConfigJson = Schema.fromJsonString(ProjectVcsConfig);
+const decodeProjectVcsConfigJson = Schema.decodeUnknownOption(ProjectVcsConfigJson);
+type ProjectVcsConfigFile = typeof ProjectVcsConfig.Type;
 
 export interface VcsProjectConfigResolveInput {
   readonly cwd: string;
@@ -45,13 +39,8 @@ function configuredKind(config: ProjectVcsConfigFile): VcsDriverKindType | "auto
   return config.vcs?.kind ?? config.vcsKind ?? "auto";
 }
 
-function parseConfig(raw: string): ProjectVcsConfigFile | null {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return isProjectVcsConfig(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
+function parseConfig(raw: string): Option.Option<ProjectVcsConfigFile> {
+  return decodeProjectVcsConfigJson(raw);
 }
 
 export const make = Effect.fn("makeVcsProjectConfig")(function* () {
@@ -90,14 +79,14 @@ export const make = Effect.fn("makeVcsProjectConfig")(function* () {
     }
 
     const parsed = parseConfig(raw);
-    if (parsed === null) {
+    if (Option.isNone(parsed)) {
       yield* Effect.logWarning("invalid VCS project config", {
         configPath,
       });
       return "auto" as const;
     }
 
-    return configuredKind(parsed);
+    return configuredKind(parsed.value);
   });
 
   const resolveKind: VcsProjectConfigShape["resolveKind"] = Effect.fn(
