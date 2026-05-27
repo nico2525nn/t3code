@@ -920,10 +920,15 @@ export function ProviderSettingsPanel() {
   const serverProviders = useServerProviders();
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
   const [isAddInstanceDialogOpen, setIsAddInstanceDialogOpen] = useState(false);
+  const [addInstanceDialogSession, setAddInstanceDialogSession] = useState(0);
   const [updatingProviderDrivers, setUpdatingProviderDrivers] = useState<
     ReadonlySet<ProviderDriverKind>
   >(() => new Set());
   const [openInstanceDetails, setOpenInstanceDetails] = useState<Record<string, boolean>>({});
+  const openAddInstanceDialog = useCallback(() => {
+    setAddInstanceDialogSession((session) => session + 1);
+    setIsAddInstanceDialogOpen(true);
+  }, []);
   const refreshingRef = useRef(false);
 
   const providerUpdateCandidates = useMemo(
@@ -1190,7 +1195,7 @@ export function ProviderSettingsPanel() {
                     size="icon-xs"
                     variant="ghost"
                     className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
-                    onClick={() => setIsAddInstanceDialogOpen(true)}
+                    onClick={openAddInstanceDialog}
                     aria-label="Add provider instance"
                   >
                     <PlusIcon className="size-3" />
@@ -1324,6 +1329,7 @@ export function ProviderSettingsPanel() {
       </SettingsSection>
 
       <AddProviderInstanceDialog
+        key={addInstanceDialogSession}
         open={isAddInstanceDialogOpen}
         onOpenChange={setIsAddInstanceDialogOpen}
       />

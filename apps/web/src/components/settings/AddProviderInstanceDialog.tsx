@@ -2,7 +2,7 @@
 
 import { CheckIcon } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ProviderInstanceId,
   ProviderDriverKind,
@@ -121,7 +121,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
   const [driver, setDriver] = useState<ProviderDriverKind>(DEFAULT_DRIVER_KIND);
   const [label, setLabel] = useState("");
   const [accentColor, setAccentColor] = useState<string>("");
-  const [instanceId, setInstanceId] = useState("");
+  const [customInstanceId, setCustomInstanceId] = useState("");
   const [instanceIdDirty, setInstanceIdDirty] = useState(false);
   // Driver-specific config drafts keyed by driver so toggling between drivers
   // during the same dialog session does not lose in-progress input.
@@ -134,27 +134,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
     () => new Set(Object.keys(settings.providerInstances ?? {})),
     [settings.providerInstances],
   );
-
-  // Reset the form every time the dialog opens so each creation starts
-  // from a clean slate.
-  useEffect(() => {
-    if (!open) return;
-    setDriver(DEFAULT_DRIVER_KIND);
-    setLabel("");
-    setAccentColor("");
-    setInstanceId("");
-    setWizardStep(0);
-    setInstanceIdDirty(false);
-    setConfigByDriver({});
-    setHasAttemptedSubmit(false);
-  }, [open]);
-
-  // Auto-derive the instance id from driver + label until the user types
-  // in the Instance ID field directly (after which they own its value).
-  useEffect(() => {
-    if (instanceIdDirty) return;
-    setInstanceId(deriveInstanceId(driver, label));
-  }, [driver, label, instanceIdDirty]);
+  const instanceId = instanceIdDirty ? customInstanceId : deriveInstanceId(driver, label);
 
   const driverOption = DRIVER_OPTION_BY_VALUE[driver] ?? DEFAULT_DRIVER_OPTION;
   const driverSettingsFields = useMemo(
@@ -380,7 +360,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
                   value={instanceId}
                   onChange={(event) => {
                     setInstanceIdDirty(true);
-                    setInstanceId(event.target.value);
+                    setCustomInstanceId(event.target.value);
                   }}
                   aria-invalid={showInstanceIdError}
                 />
