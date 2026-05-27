@@ -4,7 +4,9 @@ import {
   ProviderInstanceId,
   type OrchestrationV2ProviderCapabilities,
 } from "@t3tools/contracts";
-import { Effect, Layer, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 
 import { ServerSettingsService } from "../serverSettings.ts";
 import type { ProviderAdapterDriver } from "./ProviderAdapterDriver.ts";
@@ -126,18 +128,15 @@ const codexDriver = ProviderDriverKind.make("codex");
 const claudeDriver = ProviderDriverKind.make("claudeAgent");
 const codexWork = ProviderInstanceId.make("codex_work");
 const claudeWork = ProviderInstanceId.make("claude_work");
+const TestSettingsLayer = ServerSettingsService.layerTest({
+  providerInstances: {
+    [codexWork]: { driver: codexDriver, config: {} },
+    [claudeWork]: { driver: claudeDriver, config: {} },
+  },
+});
 const TestLayer = makeDriverLayerFromSettings({
   drivers: [makeFakeDriver(codexDriver), makeFakeDriver(claudeDriver)],
-}).pipe(
-  Layer.provide(
-    ServerSettingsService.layerTest({
-      providerInstances: {
-        [codexWork]: { driver: codexDriver, config: {} },
-        [claudeWork]: { driver: claudeDriver, config: {} },
-      },
-    }),
-  ),
-);
+}).pipe(Layer.provideMerge(TestSettingsLayer));
 
 it.effect("builds one V2 adapter per configured provider instance", () =>
   Effect.gen(function* () {
@@ -154,5 +153,25 @@ it.effect("builds one V2 adapter per configured provider instance", () =>
     ]);
     assert.equal(codexWorkAdapter.instanceId, codexWork);
     assert.equal(claudeWorkAdapter.instanceId, claudeWork);
+  }).pipe(Effect.provide(TestLayer)),
+);
+
+it.effect("resolves provider instances added after the V2 registry was constructed", () =>
+  Effect.gen(function* () {
+    const registry = yield* ProviderAdapterRegistryV2;
+    const settings = yield* ServerSettingsService;
+    const codexAfterStart = ProviderInstanceId.make("codex_after_start");
+
+    yield* settings.updateSettings({
+      providerInstances: {
+        [codexAfterStart]: { driver: codexDriver, config: {} },
+      },
+    });
+
+    const adapter = yield* registry.get(codexAfterStart);
+    const instances = yield* registry.list();
+
+    assert.equal(adapter.instanceId, codexAfterStart);
+    assert.isTrue(instances.includes(codexAfterStart));
   }).pipe(Effect.provide(TestLayer)),
 );

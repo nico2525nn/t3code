@@ -3,8 +3,9 @@ import {
   ProviderInstanceId,
   type ProviderInstanceEnvironment,
 } from "@t3tools/contracts";
-import { Schema } from "effect";
-import type { Effect, Scope } from "effect";
+import * as Schema from "effect/Schema";
+import type * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";
 
 import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
 

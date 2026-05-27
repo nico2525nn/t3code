@@ -1,4 +1,4 @@
-import { Layer } from "effect";
+import * as Layer from "effect/Layer";
 
 import { claudeAgentSdkQueryRunnerLiveLayer } from "./Adapters/ClaudeAdapterV2.ts";
 import { codexAppServerClientFactoryFromSettingsLayer } from "./Adapters/CodexAdapterV2.ts";

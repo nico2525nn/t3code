@@ -7,7 +7,8 @@ import {
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
-import { Effect, Layer } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 
 import { CheckpointStoreLive } from "../checkpointing/Layers/CheckpointStore.ts";
 import { ServerConfig } from "../config.ts";
