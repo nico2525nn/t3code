@@ -29,8 +29,8 @@ import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { useTheme } from "../hooks/useTheme";
 import {
-  normalizeMarkdownLinkDestination,
   resolveMarkdownFileLinkMeta,
+  resolveMarkdownFileLinkTarget,
   rewriteMarkdownFileUriHref,
 } from "../markdown-links";
 import { readLocalApi } from "../localApi";
@@ -286,11 +286,20 @@ interface MarkdownFileLinkProps {
   className?: string | undefined;
 }
 
-const MARKDOWN_LINK_HREF_PATTERN = /\[[^\]]*]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
 const MARKDOWN_FILE_LINK_CLASS_NAME =
   "chat-markdown-file-link relative top-[2px] max-w-full no-underline";
 const MARKDOWN_FILE_LINK_ICON_CLASS_NAME = "chat-markdown-file-link-icon size-3.5 shrink-0";
 const MARKDOWN_FILE_LINK_LABEL_CLASS_NAME = "chat-markdown-file-link-label truncate";
+const FILE_LINK_PARENT_SUFFIX_DATA_ATTR = "data-file-link-parent-suffix";
+
+interface MarkdownAstNode {
+  type?: string;
+  url?: string;
+  children?: MarkdownAstNode[];
+  data?: {
+    hProperties?: Record<string, unknown>;
+  };
+}
 
 function pathParentSegments(path: string): string[] {
   const normalized = path.replaceAll("\\", "/");
@@ -352,19 +361,42 @@ function buildFileLinkParentSuffixByPath(filePaths: ReadonlyArray<string>): Map<
   return suffixByPath;
 }
 
-function extractMarkdownLinkHrefs(text: string): string[] {
-  const hrefs: string[] = [];
-  for (const match of text.matchAll(MARKDOWN_LINK_HREF_PATTERN)) {
-    const href = match[1]?.trim();
-    if (!href) continue;
-    hrefs.push(href);
-  }
-  return hrefs;
-}
+function createFileLinkDisambiguationPlugin(cwd: string | undefined) {
+  return () => (tree: MarkdownAstNode) => {
+    const fileLinks: Array<{
+      node: MarkdownAstNode;
+      meta: NonNullable<ReturnType<typeof resolveMarkdownFileLinkMeta>>;
+    }> = [];
 
-function normalizeMarkdownLinkHrefKey(href: string): string {
-  const normalizedHref = normalizeMarkdownLinkDestination(href);
-  return rewriteMarkdownFileUriHref(normalizedHref) ?? normalizedHref;
+    const visit = (node: MarkdownAstNode) => {
+      if (node.type === "link" && typeof node.url === "string") {
+        const meta = resolveMarkdownFileLinkMeta(node.url, cwd);
+        if (meta) {
+          fileLinks.push({ node, meta });
+        }
+      }
+      for (const child of node.children ?? []) {
+        visit(child);
+      }
+    };
+
+    visit(tree);
+
+    const suffixByPath = buildFileLinkParentSuffixByPath(
+      fileLinks.map((fileLink) => fileLink.meta.filePath),
+    );
+    for (const { node, meta } of fileLinks) {
+      const parentSuffix = suffixByPath.get(meta.filePath);
+      if (!parentSuffix) continue;
+      node.data = {
+        ...node.data,
+        hProperties: {
+          ...node.data?.hProperties,
+          [FILE_LINK_PARENT_SUFFIX_DATA_ATTR]: parentSuffix,
+        },
+      };
+    }
+  };
 }
 
 const MarkdownFileLink = memo(function MarkdownFileLink({
@@ -520,28 +552,16 @@ function ChatMarkdown({
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
-  const markdownFileLinkMetaByHref = useMemo(() => {
-    const metaByHref = new Map<
-      string,
-      NonNullable<ReturnType<typeof resolveMarkdownFileLinkMeta>>
-    >();
-    for (const href of extractMarkdownLinkHrefs(text)) {
-      const normalizedHref = normalizeMarkdownLinkHrefKey(href);
-      if (metaByHref.has(normalizedHref)) continue;
-      const meta = resolveMarkdownFileLinkMeta(normalizedHref, cwd);
-      if (meta) {
-        metaByHref.set(normalizedHref, meta);
-      }
-    }
-    return metaByHref;
-  }, [cwd, text]);
-  const fileLinkParentSuffixByPath = useMemo(() => {
-    const filePaths = [...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath);
-    return buildFileLinkParentSuffixByPath(filePaths);
-  }, [markdownFileLinkMetaByHref]);
-  const markdownUrlTransform = useCallback((href: string) => {
-    return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
-  }, []);
+  const remarkPlugins = useMemo(() => [remarkGfm, createFileLinkDisambiguationPlugin(cwd)], [cwd]);
+  const markdownUrlTransform = useCallback(
+    (href: string) => {
+      return (
+        rewriteMarkdownFileUriHref(href) ??
+        (resolveMarkdownFileLinkTarget(href, cwd) ? href : defaultUrlTransform(href))
+      );
+    },
+    [cwd],
+  );
   const markdownComponents = useMemo<Components>(
     () => ({
       p({ node: _node, children, ...props }) {
@@ -551,15 +571,18 @@ function ChatMarkdown({
         return <li {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</li>;
       },
       a({ node: _node, href, ...props }) {
-        const normalizedHref = href ? normalizeMarkdownLinkHrefKey(href) : "";
-        const fileLinkMeta = normalizedHref ? markdownFileLinkMetaByHref.get(normalizedHref) : null;
+        const fileLinkMeta = href ? resolveMarkdownFileLinkMeta(href, cwd) : null;
         if (!fileLinkMeta) {
           return <a {...props} href={href} target="_blank" rel="noopener noreferrer" />;
         }
 
-        const parentSuffix = fileLinkParentSuffixByPath.get(fileLinkMeta.filePath);
+        const anchorProps = props as typeof props & Record<string, unknown>;
+        const parentSuffix =
+          typeof anchorProps[FILE_LINK_PARENT_SUFFIX_DATA_ATTR] === "string"
+            ? anchorProps[FILE_LINK_PARENT_SUFFIX_DATA_ATTR]
+            : undefined;
         const labelParts = [fileLinkMeta.basename];
-        if (typeof parentSuffix === "string" && parentSuffix.length > 0) {
+        if (parentSuffix) {
           labelParts.push(parentSuffix);
         }
         if (fileLinkMeta.line) {
@@ -602,20 +625,13 @@ function ChatMarkdown({
         );
       },
     }),
-    [
-      diffThemeName,
-      fileLinkParentSuffixByPath,
-      isStreaming,
-      markdownFileLinkMetaByHref,
-      resolvedTheme,
-      skills,
-    ],
+    [diffThemeName, cwd, isStreaming, resolvedTheme, skills],
   );
 
   return (
     <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={remarkPlugins}
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >

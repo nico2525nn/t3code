@@ -5,8 +5,6 @@ const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
 const WINDOWS_UNC_PATH_PATTERN = /^\\\\/;
 const EXTERNAL_SCHEME_PATTERN = /^([A-Za-z][A-Za-z0-9+.-]*):(.*)$/;
 const RELATIVE_PATH_PREFIX_PATTERN = /^(~\/|\.{1,2}\/)/;
-const RELATIVE_FILE_PATH_PATTERN = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+(?::\d+){0,2}$/;
-const RELATIVE_FILE_NAME_PATTERN = /^[A-Za-z0-9._-]+\.[A-Za-z0-9_-]+(?::\d+){0,2}$/;
 const POSITION_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
 const POSITION_ONLY_PATTERN = /^\d+(?::\d+)?$/;
 const POSIX_FILE_ROOT_PREFIXES = [
@@ -39,12 +37,10 @@ function safeDecode(value: string): string {
   }
 }
 
-function unwrapMarkdownLinkDestination(value: string): string {
-  return value.startsWith("<") && value.endsWith(">") ? value.slice(1, -1) : value;
-}
+const MARKDOWN_ESCAPE_PATTERN = /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g;
 
 export function normalizeMarkdownLinkDestination(value: string): string {
-  return unwrapMarkdownLinkDestination(value.trim());
+  return value.trim().replace(MARKDOWN_ESCAPE_PATTERN, "$1");
 }
 
 function stripSearchAndHash(value: string): { path: string; hash: string } {
@@ -112,7 +108,19 @@ function isLikelyPathCandidate(path: string): boolean {
   if (WINDOWS_DRIVE_PATH_PATTERN.test(path) || WINDOWS_UNC_PATH_PATTERN.test(path)) return true;
   if (RELATIVE_PATH_PREFIX_PATTERN.test(path)) return true;
   if (path.startsWith("/")) return looksLikePosixFilesystemPath(path);
-  return RELATIVE_FILE_PATH_PATTERN.test(path) || RELATIVE_FILE_NAME_PATTERN.test(path);
+  const { path: actualPath } = splitPathAndPosition(path);
+  if (actualPath.length === 0) return false;
+  if (["\0", "\r", "\n", '"', "'", "`", "<", ">"].some((char) => actualPath.includes(char))) {
+    return false;
+  }
+
+  const normalizedPath = actualPath.replaceAll("\\", "/");
+  const segments = normalizedPath.split("/");
+  if (segments.length > 1) {
+    return segments.every((segment) => segment.length > 0);
+  }
+
+  return /\.[A-Za-z0-9_-]+$/.test(actualPath);
 }
 
 function isRelativePath(path: string): boolean {

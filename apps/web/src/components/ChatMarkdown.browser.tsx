@@ -34,8 +34,7 @@ describe("ChatMarkdown", () => {
   });
 
   it("rewrites file uri hrefs into direct paths before rendering", async () => {
-    const filePath =
-      "/Users/yashsingh/p/sco/claude-code-extract/src/utils/permissions/PermissionRule.ts";
+    const filePath = "/Users/lol/p/sco/claude-code-extract/src/utils/permissions/PermissionRule.ts";
     const screen = await render(
       <ChatMarkdown text={`[PermissionRule.ts](file://${filePath})`} cwd="/repo/project" />,
     );
@@ -56,8 +55,7 @@ describe("ChatMarkdown", () => {
   });
 
   it("keeps line anchors working after rewriting file uri hrefs", async () => {
-    const filePath =
-      "/Users/yashsingh/p/sco/claude-code-extract/src/utils/permissions/PermissionRule.ts";
+    const filePath = "/Users/lol/p/sco/claude-code-extract/src/utils/permissions/PermissionRule.ts";
     const screen = await render(
       <ChatMarkdown text={`[PermissionRule.ts:1](file://${filePath}#L1)`} cwd="/repo/project" />,
     );
@@ -77,9 +75,89 @@ describe("ChatMarkdown", () => {
     }
   });
 
+  it("opens markdown file links containing parentheses and square brackets", async () => {
+    const filePath = "/Users/lol/p/t3code/apps/web/src/routes/(chat)/[threadId].tsx";
+    const screen = await render(<ChatMarkdown text={`[route](${filePath})`} cwd="/repo/project" />);
+
+    try {
+      const link = page.getByRole("link", { name: "[threadId].tsx" });
+      await expect.element(link).toBeInTheDocument();
+
+      await link.click();
+
+      await vi.waitFor(() => {
+        expect(openInPreferredEditorMock).toHaveBeenCalledWith(expect.anything(), filePath);
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("opens encoded markdown file links containing parentheses and square brackets", async () => {
+    const targetPath = "/repo/project/apps/web/src/routes/(chat)/[threadId].tsx";
+    const screen = await render(
+      <ChatMarkdown
+        text="[route](apps/web/src/routes/%28chat%29/%5BthreadId%5D.tsx)"
+        cwd="/repo/project"
+      />,
+    );
+
+    try {
+      const link = page.getByRole("link", { name: "[threadId].tsx" });
+      await expect.element(link).toBeInTheDocument();
+
+      await link.click();
+
+      await vi.waitFor(() => {
+        expect(openInPreferredEditorMock).toHaveBeenCalledWith(expect.anything(), targetPath);
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("opens angle-bracketed markdown file links", async () => {
+    const filePath = "/Users/lol/p/t3code/apps/web/src/routes/(chat)/My Route [thread].tsx";
+    const screen = await render(
+      <ChatMarkdown text={`[route](<${filePath}>)`} cwd="/repo/project" />,
+    );
+
+    try {
+      const link = page.getByRole("link", { name: "My Route [thread].tsx" });
+      await expect.element(link).toBeInTheDocument();
+
+      await link.click();
+
+      await vi.waitFor(() => {
+        expect(openInPreferredEditorMock).toHaveBeenCalledWith(expect.anything(), filePath);
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("opens Windows drive markdown file links", async () => {
+    const targetPath = "D:/Users/lol/t3code/apps/web/src/routes/(chat)/[threadId].tsx:42";
+    const screen = await render(
+      <ChatMarkdown text={`[route](${targetPath})`} cwd="/repo/project" />,
+    );
+
+    try {
+      const link = page.getByRole("link", { name: "[threadId].tsx · L42" });
+      await expect.element(link).toBeInTheDocument();
+
+      await link.click();
+
+      await vi.waitFor(() => {
+        expect(openInPreferredEditorMock).toHaveBeenCalledWith(expect.anything(), targetPath);
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("shows column information inline when present", async () => {
-    const filePath =
-      "/Users/yashsingh/p/sco/claude-code-extract/src/utils/permissions/PermissionRule.ts";
+    const filePath = "/Users/lol/p/sco/claude-code-extract/src/utils/permissions/PermissionRule.ts";
     const screen = await render(
       <ChatMarkdown text={`[PermissionRule.ts](file://${filePath}#L1C7)`} cwd="/repo/project" />,
     );
@@ -103,8 +181,8 @@ describe("ChatMarkdown", () => {
   });
 
   it("disambiguates duplicate file basenames inline", async () => {
-    const firstPath = "/Users/yashsingh/p/t3code/apps/web/src/components/chat/MessagesTimeline.tsx";
-    const secondPath = "/Users/yashsingh/p/t3code/apps/web/src/components/MessagesTimeline.tsx";
+    const firstPath = "/Users/lol/p/t3code/apps/web/src/components/chat/MessagesTimeline.tsx";
+    const secondPath = "/Users/lol/p/t3code/apps/web/src/components/MessagesTimeline.tsx";
     const screen = await render(
       <ChatMarkdown
         text={`See [MessagesTimeline.tsx](file://${firstPath}) and [MessagesTimeline.tsx](file://${secondPath}).`}
