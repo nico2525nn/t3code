@@ -12,6 +12,7 @@ import { ProviderDriverKind } from "@t3tools/contracts";
 import type * as EffectAcpSchema from "effect-acp/schema";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
@@ -19,6 +20,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import {
@@ -53,8 +55,8 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
 });
 
-const CURSOR_ACP_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
-const CURSOR_ACP_MODEL_CAPABILITY_TIMEOUT = "4 seconds";
+const CURSOR_ACP_MODEL_DISCOVERY_TIMEOUT = Duration.seconds(15);
+const CURSOR_ACP_MODEL_CAPABILITY_TIMEOUT = Duration.seconds(4);
 const CURSOR_ACP_MODEL_DISCOVERY_CONCURRENCY = 4;
 const CURSOR_PARAMETERIZED_MODEL_PICKER_MIN_VERSION_DATE = 2026_04_08;
 export const CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES = {
@@ -756,11 +758,22 @@ export function buildCursorProviderSnapshot(input: {
   });
 }
 
-interface CursorAboutJsonPayload {
-  readonly cliVersion?: unknown;
-  readonly subscriptionTier?: unknown;
-  readonly userEmail?: unknown;
-}
+const CursorCliConfigJson = Schema.Struct({
+  channel: Schema.optional(Schema.String),
+});
+const decodeCursorCliConfigJson = Schema.decodeUnknownOption(
+  Schema.fromJsonString(CursorCliConfigJson),
+);
+
+const CursorAboutJsonPayload = Schema.Struct({
+  cliVersion: Schema.optional(Schema.Unknown),
+  subscriptionTier: Schema.optional(Schema.Unknown),
+  userEmail: Schema.optional(Schema.Unknown),
+});
+type CursorAboutJsonPayload = typeof CursorAboutJsonPayload.Type;
+const decodeCursorAboutJsonPayload = Schema.decodeUnknownOption(
+  Schema.fromJsonString(CursorAboutJsonPayload),
+);
 
 export function parseCursorVersionDate(version: string | null | undefined): number | undefined {
   const match = version?.trim().match(/^(\d{4})\.(\d{2})\.(\d{2})(?:\b|-|$)/);
@@ -772,21 +785,13 @@ export function parseCursorVersionDate(version: string | null | undefined): numb
 }
 
 export function parseCursorCliConfigChannel(raw: string): string | undefined {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "channel" in parsed &&
-      typeof parsed.channel === "string"
-    ) {
-      const channel = parsed.channel.trim().toLowerCase();
-      return channel.length > 0 ? channel : undefined;
-    }
-  } catch {
+  const parsed = decodeCursorCliConfigJson(raw);
+  if (Option.isNone(parsed)) {
     return undefined;
   }
-  return undefined;
+
+  const channel = parsed.value.channel?.trim().toLowerCase();
+  return channel && channel.length > 0 ? channel : undefined;
 }
 
 function toTitleCaseWords(value: string): string {
@@ -835,15 +840,7 @@ function parseCursorAboutJsonPayload(raw: string): CursorAboutJsonPayload | unde
   if (!trimmed.startsWith("{")) {
     return undefined;
   }
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return undefined;
-    }
-    return parsed as CursorAboutJsonPayload;
-  } catch {
-    return undefined;
-  }
+  return Option.getOrUndefined(decodeCursorAboutJsonPayload(trimmed));
 }
 
 function hasOwn(record: object, key: string): boolean {
@@ -1184,7 +1181,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
   if (parsed.auth.status !== "unauthenticated") {
     const discoveryExit = yield* Effect.exit(
       discoverCursorModelsViaAcp(cursorSettings, environment).pipe(
-        Effect.timeoutOption(CURSOR_ACP_MODEL_DISCOVERY_TIMEOUT_MS),
+        Effect.timeoutOption(CURSOR_ACP_MODEL_DISCOVERY_TIMEOUT),
       ),
     );
     if (Exit.isFailure(discoveryExit)) {
@@ -1193,7 +1190,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       });
       discoveryWarning = "Cursor ACP model discovery failed. Check server logs for details.";
     } else if (Option.isNone(discoveryExit.value)) {
-      discoveryWarning = `Cursor ACP model discovery timed out after ${CURSOR_ACP_MODEL_DISCOVERY_TIMEOUT_MS}ms.`;
+      discoveryWarning = `Cursor ACP model discovery timed out after ${Duration.toMillis(CURSOR_ACP_MODEL_DISCOVERY_TIMEOUT)}ms.`;
     } else if (discoveryExit.value.value.length === 0) {
       discoveryWarning = "Cursor ACP model discovery returned no built-in models.";
     } else {
