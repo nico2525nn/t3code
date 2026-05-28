@@ -1410,7 +1410,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
           );
           assert.strictEqual(
             status.message,
-            "Claude Code v2.1.110 is too old for Claude Opus 4.7. Upgrade to v2.1.111 or newer to access it.",
+            "Claude Code v2.1.110 is too old for Claude Opus 4.8. Upgrade to v2.1.111 or newer to access it.",
           );
         }).pipe(
           Effect.provide(
