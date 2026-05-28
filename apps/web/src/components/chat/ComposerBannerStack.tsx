@@ -43,12 +43,15 @@ export interface ComposerBannerStackItem {
 
 function useDismissTimeoutCleanup(timeoutRef: RefObject<ReturnType<typeof setTimeout> | null>) {
   useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
+    return () => clearDismissTimeout(timeoutRef);
   }, [timeoutRef]);
+}
+
+function clearDismissTimeout(timeoutRef: RefObject<ReturnType<typeof setTimeout> | null>) {
+  const timeout = timeoutRef.current;
+  if (timeout) {
+    clearTimeout(timeout);
+  }
 }
 
 interface ComposerBannerStackProps {
