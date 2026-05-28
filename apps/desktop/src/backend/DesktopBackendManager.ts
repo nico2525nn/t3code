@@ -656,7 +656,15 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
             restartFiber: Option.none<Fiber.Fiber<void, never>>(),
           },
         ]);
-        yield* spec.onShutdown?.() ?? Effect.void;
+        // Ignore failures from spec.onShutdown so a downstream throw
+        // can't abort the rest of stop(). Ref.modify above already
+        // flipped state to "no active run / no restart fiber", and the
+        // physical cleanup (Fiber.interrupt + closeRun) runs after the
+        // mutex releases. If onShutdown were allowed to propagate, both
+        // would be skipped and the child process + restart fiber would
+        // be orphaned while state claimed nothing was running — the
+        // next start() would then spawn a second backend on top.
+        yield* (spec.onShutdown?.() ?? Effect.void).pipe(Effect.ignore);
         return result;
       }),
     );
