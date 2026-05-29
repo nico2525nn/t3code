@@ -82,7 +82,10 @@ it.layer(NodeServices.layer)("providerStatusCache", (it) => {
         provider: openCodeProvider,
       });
 
-      assert.deepStrictEqual(Option.getOrNull(yield* readProviderStatusCache(codexPath)), codexProvider);
+      assert.deepStrictEqual(
+        Option.getOrNull(yield* readProviderStatusCache(codexPath)),
+        codexProvider,
+      );
       assert.deepStrictEqual(
         Option.getOrNull(yield* readProviderStatusCache(claudePath)),
         claudeProvider,
