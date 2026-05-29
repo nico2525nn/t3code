@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -752,7 +753,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
             ]);
             yield* PubSub.publish(changes, refreshedProvider);
 
-            let cachedProvider = yield* readProviderStatusCache(filePath);
+            let cachedProvider = Option.getOrUndefined(yield* readProviderStatusCache(filePath));
             for (
               let attempt = 0;
               attempt < 50 && cachedProvider?.checkedAt !== refreshedProvider.checkedAt;
@@ -760,7 +761,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
             ) {
               yield* TestClock.adjust("10 millis");
               yield* Effect.yieldNow;
-              cachedProvider = yield* readProviderStatusCache(filePath);
+              cachedProvider = Option.getOrUndefined(yield* readProviderStatusCache(filePath));
             }
 
             assert.deepStrictEqual(cachedProvider, {

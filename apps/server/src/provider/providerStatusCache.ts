@@ -4,17 +4,19 @@ import {
   type ServerProvider,
   ServerProvider as ServerProviderSchema,
 } from "@t3tools/contracts";
+import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import { writeFileStringAtomically } from "../atomicWrite.ts";
 
-const decodeProviderStatusCache = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(ServerProviderSchema),
-);
+const ProviderStatusCacheJson = fromJsonStringPretty(ServerProviderSchema);
+const decodeProviderStatusCache = Schema.decodeUnknownEffect(ProviderStatusCacheJson);
+const encodeProviderStatusCache = Schema.encodeEffect(ProviderStatusCacheJson);
 
 const mergeProviderModels = (
   fallbackModels: ReadonlyArray<ServerProvider["models"][number]>,
@@ -120,13 +122,13 @@ export const readProviderStatusCache = (filePath: string) =>
     const fs = yield* FileSystem.FileSystem;
     const exists = yield* fs.exists(filePath).pipe(Effect.orElseSucceed(() => false));
     if (!exists) {
-      return undefined;
+      return Option.none<ServerProvider>();
     }
 
     const raw = yield* fs.readFileString(filePath).pipe(Effect.orElseSucceed(() => ""));
     const trimmed = raw.trim();
     if (trimmed.length === 0) {
-      return undefined;
+      return Option.none<ServerProvider>();
     }
 
     return yield* decodeProviderStatusCache(trimmed).pipe(
@@ -135,8 +137,8 @@ export const readProviderStatusCache = (filePath: string) =>
           Effect.logWarning("failed to parse provider status cache, ignoring", {
             path: filePath,
             issues: Cause.pretty(cause),
-          }).pipe(Effect.as(undefined)),
-        onSuccess: Effect.succeed,
+          }).pipe(Effect.as(Option.none<ServerProvider>())),
+        onSuccess: (provider) => Effect.succeed(Option.some(provider)),
       }),
     );
   });
@@ -146,8 +148,12 @@ export const writeProviderStatusCache = (input: {
   readonly provider: ServerProvider;
 }) => {
   const { updateState: _updateState, ...cacheableProvider } = input.provider;
-  return writeFileStringAtomically({
-    filePath: input.filePath,
-    contents: `${JSON.stringify(cacheableProvider, null, 2)}\n`,
-  });
+  return encodeProviderStatusCache(cacheableProvider).pipe(
+    Effect.flatMap((contents) =>
+      writeFileStringAtomically({
+        filePath: input.filePath,
+        contents: `${contents}\n`,
+      }),
+    ),
+  );
 };

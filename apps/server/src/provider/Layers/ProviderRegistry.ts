@@ -34,6 +34,7 @@ import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -237,25 +238,27 @@ export const ProviderRegistryLive = Layer.effect(
           }
           return yield* readProviderStatusCache(filePath).pipe(
             Effect.provideService(FileSystem.FileSystem, fileSystem),
-            Effect.flatMap((cachedProvider) => {
-              if (cachedProvider === undefined) {
-                return Effect.void.pipe(Effect.as(undefined as ServerProvider | undefined));
-              }
-              const correlation = {
-                cachedProvider,
-                fallbackProvider,
-              } as const;
-              if (!isCachedProviderCorrelated(correlation)) {
-                return Effect.logWarning("provider status cache identity mismatch, ignoring", {
-                  path: filePath,
-                  instanceId: source.instanceId,
-                  cachedInstanceId: cachedProvider.instanceId ?? null,
-                  driver: source.driverKind,
-                  cachedDriver: cachedProvider.driver ?? null,
-                }).pipe(Effect.as(undefined as ServerProvider | undefined));
-              }
-              return Effect.succeed(hydrateCachedProvider(correlation));
-            }),
+            Effect.flatMap((cachedProvider) =>
+              Option.match(cachedProvider, {
+                onNone: () => Effect.succeed(undefined as ServerProvider | undefined),
+                onSome: (cachedProvider) => {
+                  const correlation = {
+                    cachedProvider,
+                    fallbackProvider,
+                  } as const;
+                  if (!isCachedProviderCorrelated(correlation)) {
+                    return Effect.logWarning("provider status cache identity mismatch, ignoring", {
+                      path: filePath,
+                      instanceId: source.instanceId,
+                      cachedInstanceId: cachedProvider.instanceId ?? null,
+                      driver: source.driverKind,
+                      cachedDriver: cachedProvider.driver ?? null,
+                    }).pipe(Effect.as(undefined as ServerProvider | undefined));
+                  }
+                  return Effect.succeed(hydrateCachedProvider(correlation));
+                },
+              }),
+            ),
           );
         }),
       { concurrency: "unbounded" },

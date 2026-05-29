@@ -9,6 +9,7 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 
 import {
   hydrateCachedProvider,
@@ -81,9 +82,41 @@ it.layer(NodeServices.layer)("providerStatusCache", (it) => {
         provider: openCodeProvider,
       });
 
-      assert.deepStrictEqual(yield* readProviderStatusCache(codexPath), codexProvider);
-      assert.deepStrictEqual(yield* readProviderStatusCache(claudePath), claudeProvider);
-      assert.deepStrictEqual(yield* readProviderStatusCache(openCodePath), openCodeProvider);
+      assert.deepStrictEqual(Option.getOrNull(yield* readProviderStatusCache(codexPath)), codexProvider);
+      assert.deepStrictEqual(
+        Option.getOrNull(yield* readProviderStatusCache(claudePath)),
+        claudeProvider,
+      );
+      assert.deepStrictEqual(
+        Option.getOrNull(yield* readProviderStatusCache(openCodePath)),
+        openCodeProvider,
+      );
+    }),
+  );
+
+  it.effect("returns none for missing, empty, or invalid cache files", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-provider-cache-invalid-" });
+      const missingPath = yield* resolveProviderStatusCachePath({
+        cacheDir: tempDir,
+        instanceId: defaultInstanceIdForDriver(CODEX_DRIVER),
+      });
+      const emptyPath = yield* resolveProviderStatusCachePath({
+        cacheDir: tempDir,
+        instanceId: ProviderInstanceId.make("codex_empty"),
+      });
+      const invalidPath = yield* resolveProviderStatusCachePath({
+        cacheDir: tempDir,
+        instanceId: ProviderInstanceId.make("codex_invalid"),
+      });
+
+      yield* fs.writeFileString(emptyPath, "\n");
+      yield* fs.writeFileString(invalidPath, "{ invalid json");
+
+      assert.strictEqual(Option.isNone(yield* readProviderStatusCache(missingPath)), true);
+      assert.strictEqual(Option.isNone(yield* readProviderStatusCache(emptyPath)), true);
+      assert.strictEqual(Option.isNone(yield* readProviderStatusCache(invalidPath)), true);
     }),
   );
 
