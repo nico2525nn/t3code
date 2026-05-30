@@ -138,7 +138,7 @@ describe("tailscale", () => {
     });
 
     return Effect.gen(function* () {
-      const fiber = yield* Effect.fork(
+      const fiber = yield* Effect.forkChild(
         readTailscaleStatus.pipe(Effect.provide(layer), Effect.result),
       );
       yield* Effect.yieldNow;
