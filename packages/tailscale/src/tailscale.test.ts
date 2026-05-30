@@ -138,7 +138,11 @@ describe("tailscale", () => {
     });
 
     return Effect.gen(function* () {
-      const fiber = yield* readTailscaleStatus.pipe(Effect.provide(layer), Effect.result, Effect.fork);
+      const fiber = yield* readTailscaleStatus.pipe(
+        Effect.provide(layer),
+        Effect.result,
+        Effect.fork,
+      );
       yield* Effect.yieldNow;
       yield* TestClock.adjust(Duration.sum(TAILSCALE_STATUS_TIMEOUT, Duration.millis(1)));
       const result = yield* Fiber.join(fiber);

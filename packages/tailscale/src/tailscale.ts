@@ -329,7 +329,7 @@ export const resolveTailscaleHttpsBaseUrl = (
       Option.map(status.magicDnsName, (magicDnsName) =>
         buildTailscaleHttpsBaseUrl({
           magicDnsName,
-            ...(input.servePort === undefined ? {} : { servePort: input.servePort }),
+          ...(input.servePort === undefined ? {} : { servePort: input.servePort }),
         }),
       ),
     ),
