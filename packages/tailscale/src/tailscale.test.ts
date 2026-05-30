@@ -1,8 +1,12 @@
 import { assert, describe, it } from "@effect/vitest";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
@@ -13,6 +17,7 @@ import {
   parseTailscaleMagicDnsName,
   parseTailscaleStatus,
   readTailscaleStatus,
+  TAILSCALE_STATUS_TIMEOUT,
 } from "./tailscale.ts";
 
 const encoder = new TextEncoder();
@@ -35,22 +40,37 @@ function mockHandle(result: { stdout?: string; stderr?: string; code?: number })
   });
 }
 
+function mockHangingHandle() {
+  return ChildProcessSpawner.makeHandle({
+    pid: ChildProcessSpawner.ProcessId(1),
+    exitCode: Effect.never,
+    isRunning: Effect.succeed(true),
+    kill: () => Effect.void,
+    unref: Effect.succeed(Effect.void),
+    stdin: Sink.drain,
+    stdout: Stream.empty,
+    stderr: Stream.empty,
+    all: Stream.empty,
+    getInputFd: () => Sink.drain,
+    getOutputFd: () => Stream.empty,
+  });
+}
+
 function mockSpawnerLayer(
   handler: (
     command: string,
     args: ReadonlyArray<string>,
   ) => { stdout?: string; stderr?: string; code?: number },
 ) {
-  return Layer.succeed(
-    ChildProcessSpawner.ChildProcessSpawner,
-    ChildProcessSpawner.make((command) => {
+  return Layer.mock(ChildProcessSpawner.ChildProcessSpawner, {
+    spawn: (command) => {
       const childProcess = command as unknown as {
         readonly command: string;
         readonly args: ReadonlyArray<string>;
       };
       return Effect.succeed(mockHandle(handler(childProcess.command, childProcess.args)));
-    }),
-  );
+    },
+  });
 }
 
 describe("tailscale", () => {
@@ -66,8 +86,8 @@ describe("tailscale", () => {
   it.effect("parses MagicDNS names from tailscale status", () =>
     Effect.gen(function* () {
       const dnsName = yield* parseTailscaleMagicDnsName(tailscaleStatusJson);
-      assert.equal(dnsName, "desktop.tail.ts.net");
-      assert.equal(yield* parseTailscaleMagicDnsName("{}"), null);
+      assert.deepEqual(dnsName, Option.some("desktop.tail.ts.net"));
+      assert.deepEqual(yield* parseTailscaleMagicDnsName("{}"), Option.none());
     }),
   );
 
@@ -75,7 +95,7 @@ describe("tailscale", () => {
     Effect.gen(function* () {
       const status = yield* parseTailscaleStatus(tailscaleStatusJson);
       assert.deepEqual(status, {
-        magicDnsName: "desktop.tail.ts.net",
+        magicDnsName: Option.some("desktop.tail.ts.net"),
         tailnetIpv4Addresses: ["100.100.100.100"],
       });
     }),
@@ -106,10 +126,29 @@ describe("tailscale", () => {
     return Effect.gen(function* () {
       const status = yield* readTailscaleStatus.pipe(Effect.provide(layer));
       assert.deepEqual(status, {
-        magicDnsName: "desktop.tail.ts.net",
+        magicDnsName: Option.some("desktop.tail.ts.net"),
         tailnetIpv4Addresses: ["100.90.1.2"],
       });
     });
+  });
+
+  it.effect("times out tailscale status with TestClock", () => {
+    const layer = Layer.mock(ChildProcessSpawner.ChildProcessSpawner, {
+      spawn: () => Effect.succeed(mockHangingHandle()),
+    });
+
+    return Effect.gen(function* () {
+      const fiber = yield* readTailscaleStatus.pipe(Effect.provide(layer), Effect.result, Effect.fork);
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.sum(TAILSCALE_STATUS_TIMEOUT, Duration.millis(1)));
+      const result = yield* Fiber.join(fiber);
+
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure") {
+        assert.equal(result.failure._tag, "TailscaleCommandError");
+        assert.equal(result.failure.message, "Tailscale status timed out.");
+      }
+    }).pipe(Effect.provide(TestClock.layer()));
   });
 
   it.effect("configures tailscale serve through the process spawner service", () => {

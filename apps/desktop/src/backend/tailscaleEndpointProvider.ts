@@ -61,17 +61,17 @@ function resolveTailscaleIpAdvertisedEndpoints(input: {
 const resolveTailscaleMagicDnsAdvertisedEndpoint = Effect.fn(
   "resolveTailscaleMagicDnsAdvertisedEndpoint",
 )(function* (input: {
-  readonly dnsName: string | null;
+  readonly dnsName: Option.Option<string>;
   readonly serveEnabled: boolean;
   readonly servePort?: number;
   readonly probe?: (baseUrl: string) => Effect.Effect<boolean, never, HttpClient.HttpClient>;
 }): Effect.fn.Return<Option.Option<AdvertisedEndpoint>, never, HttpClient.HttpClient> {
-  if (!input.dnsName) {
+  if (Option.isNone(input.dnsName)) {
     return Option.none();
   }
 
   const httpBaseUrl = buildTailscaleHttpsBaseUrl({
-    magicDnsName: input.dnsName,
+    magicDnsName: input.dnsName.value,
     ...(input.servePort === undefined ? {} : { servePort: input.servePort }),
   });
   const probe =
@@ -116,13 +116,13 @@ export const resolveTailscaleAdvertisedEndpoints = Effect.fn("resolveTailscaleAd
       input.statusJson === undefined
         ? yield* readTailscaleStatus.pipe(
             Effect.map((status) => status.magicDnsName),
-            Effect.catch(() => Effect.succeed(null)),
+            Effect.catch(() => Effect.succeed(Option.none())),
           )
         : input.statusJson
           ? yield* parseTailscaleMagicDnsName(input.statusJson).pipe(
-              Effect.catch(() => Effect.succeed(null)),
+              Effect.catch(() => Effect.succeed(Option.none())),
             )
-          : null;
+          : Option.none();
     const magicDnsEndpoint = yield* resolveTailscaleMagicDnsAdvertisedEndpoint({
       dnsName,
       serveEnabled: input.serveEnabled === true,
