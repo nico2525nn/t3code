@@ -1507,7 +1507,14 @@ export default function ChatView(props: ChatViewProps) {
   );
   const selectedProvider: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
   const phase = derivePhase(activeThread?.session ?? null);
-  const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
+  const threadActivities =
+    activeThread?.activities && activeThread.activities.length > 0
+      ? activeThread.activities
+      : EMPTY_ACTIVITIES;
+  const proposedPlans =
+    activeThread?.proposedPlans && activeThread.proposedPlans.length > 0
+      ? activeThread.proposedPlans
+      : EMPTY_PROPOSED_PLANS;
   const workLogEntries = useMemo(
     () => deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined),
     [activeLatestTurn?.turnId, threadActivities],
@@ -1561,11 +1568,8 @@ export default function ChatView(props: ChatViewProps) {
     if (!latestTurnSettled) {
       return null;
     }
-    return findLatestProposedPlan(
-      activeThread?.proposedPlans ?? [],
-      activeLatestTurn?.turnId ?? null,
-    );
-  }, [activeLatestTurn?.turnId, activeThread?.proposedPlans, latestTurnSettled]);
+    return findLatestProposedPlan(proposedPlans, activeLatestTurn?.turnId ?? null);
+  }, [activeLatestTurn?.turnId, latestTurnSettled, proposedPlans]);
   const sidebarProposedPlan = useMemo(
     () =>
       findSidebarProposedPlan({
@@ -1803,9 +1807,8 @@ export default function ChatView(props: ChatViewProps) {
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
   const timelineEntries = useMemo(
-    () =>
-      deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
-    [activeThread?.proposedPlans, timelineMessages, workLogEntries],
+    () => deriveTimelineEntries(timelineMessages, proposedPlans, workLogEntries),
+    [proposedPlans, timelineMessages, workLogEntries],
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
