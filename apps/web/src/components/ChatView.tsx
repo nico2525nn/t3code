@@ -3777,6 +3777,7 @@ export default function ChatView(props: ChatViewProps) {
   const handleRuntimeModeChangeForComposer = useEventCallback(handleRuntimeModeChange);
   const handleInteractionModeChangeForComposer = useEventCallback(handleInteractionModeChange);
   const togglePlanSidebarForComposer = useEventCallback(togglePlanSidebar);
+  const setThreadErrorForComposer = useEventCallback(setThreadError);
 
   // Empty state: no active thread
   if (!activeThread) {
@@ -3963,7 +3964,7 @@ export default function ChatView(props: ChatViewProps) {
                   togglePlanSidebar={togglePlanSidebarForComposer}
                   focusComposer={focusComposer}
                   scheduleComposerFocus={scheduleComposerFocus}
-                  setThreadError={setThreadError}
+                  setThreadError={setThreadErrorForComposer}
                   onExpandImage={onExpandTimelineImage}
                 />
               </div>
