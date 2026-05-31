@@ -40,7 +40,8 @@ import {
   bootstrapRemoteBearerSession,
   fetchRemoteEnvironmentDescriptor,
   fetchRemoteSessionState,
-} from "../remote/api";
+} from "@t3tools/client-runtime";
+import { remoteHttpRuntime } from "../../lib/runtime";
 import {
   ensureSavedEnvironmentConnection,
   removeSavedEnvironmentByInstance,
@@ -241,10 +242,12 @@ async function tryReuseStoredBearer(input: {
   const stored = await readSavedEnvironmentBearerToken(input.environmentId);
   if (!stored) return null;
   try {
-    const session = await fetchRemoteSessionState({
-      httpBaseUrl: input.httpBaseUrl,
-      bearerToken: stored,
-    });
+    const session = await remoteHttpRuntime.runPromise(
+      fetchRemoteSessionState({
+        httpBaseUrl: input.httpBaseUrl,
+        bearerToken: stored,
+      }),
+    );
     if (!session.authenticated || !session.role) return null;
     return { bearerToken: stored, role: session.role };
   } catch {
@@ -267,9 +270,11 @@ async function registerSecondaryLocalEnvironment(
     return null;
   }
 
-  const descriptor = await fetchRemoteEnvironmentDescriptor({
-    httpBaseUrl: bootstrap.httpBaseUrl,
-  });
+  const descriptor = await remoteHttpRuntime.runPromise(
+    fetchRemoteEnvironmentDescriptor({
+      httpBaseUrl: bootstrap.httpBaseUrl,
+    }),
+  );
   const environmentId = descriptor.environmentId;
 
   // Drop any stale record pointing at a different bootstrap (URL
@@ -291,10 +296,12 @@ async function registerSecondaryLocalEnvironment(
     bearerToken = reused.bearerToken;
     role = reused.role;
   } else {
-    const bearerSession = await bootstrapRemoteBearerSession({
-      httpBaseUrl: bootstrap.httpBaseUrl,
-      credential,
-    });
+    const bearerSession = await remoteHttpRuntime.runPromise(
+      bootstrapRemoteBearerSession({
+        httpBaseUrl: bootstrap.httpBaseUrl,
+        credential,
+      }),
+    );
     bearerToken = bearerSession.sessionToken;
     role = bearerSession.role;
     // Only the fresh-bootstrap path needs to write the token: the

@@ -18,6 +18,7 @@ import {
   type DesktopWslState,
   type EnvironmentId,
 } from "@t3tools/contracts";
+import { WsRpcClient } from "@t3tools/client-runtime";
 import * as DateTime from "effect/DateTime";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -88,7 +89,6 @@ import {
   markSecondariesConfigured,
   reconcileLocalSecondaryEnvironments,
 } from "~/environments/local";
-import type { WsRpcClient } from "~/rpc/wsRpcClient";
 import {
   type SavedEnvironmentRecord,
   type SavedEnvironmentRuntimeState,
