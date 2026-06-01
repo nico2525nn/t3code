@@ -10,6 +10,7 @@ import {
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
   hasUnseenCompletion,
+  hasUnseenCompletionSinceVisit,
   isContextMenuPointerDown,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
@@ -62,6 +63,32 @@ describe("hasUnseenCompletion", () => {
         latestTurn: makeLatestTurn(),
         lastVisitedAt: "2026-03-09T10:04:00.000Z",
         session: null,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("hasUnseenCompletionSinceVisit", () => {
+  it("returns false when repeated visit updates stay after the completion", () => {
+    expect(
+      hasUnseenCompletionSinceVisit({
+        completedAt: "2026-03-09T10:05:00.000Z",
+        lastVisitedAt: "2026-03-09T10:06:00.000Z",
+      }),
+    ).toBe(false);
+    expect(
+      hasUnseenCompletionSinceVisit({
+        completedAt: "2026-03-09T10:05:00.000Z",
+        lastVisitedAt: "2026-03-09T10:07:00.000Z",
+      }),
+    ).toBe(false);
+  });
+
+  it("preserves the invalid last-visit fallback as unseen", () => {
+    expect(
+      hasUnseenCompletionSinceVisit({
+        completedAt: "2026-03-09T10:05:00.000Z",
+        lastVisitedAt: "not-a-date",
       }),
     ).toBe(true);
   });

@@ -160,6 +160,7 @@ import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import {
   getSidebarThreadIdsToPrewarm,
+  hasUnseenCompletionSinceVisit,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
   resolveProjectStatusIndicator,
@@ -1047,14 +1048,21 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const projectExpanded = useUiStateStore(
     (state) => state.projectExpandedById[project.projectKey] ?? true,
   );
-  const threadLastVisitedAts = useUiStateStore(
-    useShallow((state) =>
-      projectThreads.map(
-        (thread) =>
-          state.threadLastVisitedAtById[
-            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))
-          ] ?? null,
-      ),
+  const projectThreadHasUnseenCompletions = useUiStateStore(
+    useShallow(
+      useMemo(() => {
+        const completionInputs = projectThreads.map((thread) => ({
+          completedAt: thread.latestTurn?.completedAt ?? null,
+          threadKey: scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        }));
+        return (state) =>
+          completionInputs.map(({ completedAt, threadKey }) =>
+            hasUnseenCompletionSinceVisit({
+              completedAt,
+              lastVisitedAt: state.threadLastVisitedAtById[threadKey],
+            }),
+          );
+      }, [projectThreads]),
     ),
   );
   const [renamingThreadKey, setRenamingThreadKey] = useState<string | null>(null);
@@ -1099,20 +1107,25 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   }, [memberProjectByScopedKey, project.memberProjects, projectThreads]);
 
   const { projectStatus, visibleProjectThreads, orderedProjectThreadKeys } = useMemo(() => {
-    const lastVisitedAtByThreadKey = new Map(
-      projectThreads.map((thread, index) => [
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        threadLastVisitedAts[index] ?? null,
-      ]),
+    const hasUnseenCompletionByThreadKey = new Map(
+      projectThreads.map(
+        (thread, index) =>
+          [
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+            projectThreadHasUnseenCompletions[index] ?? false,
+          ] as const,
+      ),
     );
     const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
-      const lastVisitedAt = lastVisitedAtByThreadKey.get(
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      );
+      const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      const hasUnseenCompletion = hasUnseenCompletionByThreadKey.get(threadKey) ?? false;
+      const lastVisitedAt = hasUnseenCompletion
+        ? undefined
+        : (thread.latestTurn?.completedAt ?? undefined);
       return resolveThreadStatusPill({
         thread: {
           ...thread,
-          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
+          ...(lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
         },
       });
     };
@@ -1130,7 +1143,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       projectStatus,
       visibleProjectThreads,
     };
-  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
+  }, [projectThreadHasUnseenCompletions, projectThreads, threadSortOrder]);
 
   const pinnedCollapsedThread = useMemo(() => {
     const activeThreadKey = activeRouteThreadKey ?? undefined;
@@ -1152,20 +1165,25 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     showEmptyThreadState,
     shouldShowThreadPanel,
   } = useMemo(() => {
-    const lastVisitedAtByThreadKey = new Map(
-      projectThreads.map((thread, index) => [
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        threadLastVisitedAts[index] ?? null,
-      ]),
+    const hasUnseenCompletionByThreadKey = new Map(
+      projectThreads.map(
+        (thread, index) =>
+          [
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+            projectThreadHasUnseenCompletions[index] ?? false,
+          ] as const,
+      ),
     );
     const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
-      const lastVisitedAt = lastVisitedAtByThreadKey.get(
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      );
+      const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      const hasUnseenCompletion = hasUnseenCompletionByThreadKey.get(threadKey) ?? false;
+      const lastVisitedAt = hasUnseenCompletion
+        ? undefined
+        : (thread.latestTurn?.completedAt ?? undefined);
       return resolveThreadStatusPill({
         thread: {
           ...thread,
-          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
+          ...(lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
         },
       });
     };
@@ -1202,8 +1220,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     pinnedCollapsedThread,
     projectExpanded,
     projectThreads,
+    projectThreadHasUnseenCompletions,
     sidebarThreadPreviewCount,
-    threadLastVisitedAts,
     visibleProjectThreads,
   ]);
 

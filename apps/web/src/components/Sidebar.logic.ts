@@ -144,15 +144,25 @@ export function useThreadJumpHintVisibility(): {
   };
 }
 
-export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
-  if (!thread.latestTurn?.completedAt) return false;
-  const completedAt = Date.parse(thread.latestTurn.completedAt);
+export function hasUnseenCompletionSinceVisit(input: {
+  completedAt: string | null | undefined;
+  lastVisitedAt?: string | null | undefined;
+}): boolean {
+  if (!input.completedAt) return false;
+  const completedAt = Date.parse(input.completedAt);
   if (Number.isNaN(completedAt)) return false;
-  if (!thread.lastVisitedAt) return true;
+  if (!input.lastVisitedAt) return true;
 
-  const lastVisitedAt = Date.parse(thread.lastVisitedAt);
+  const lastVisitedAt = Date.parse(input.lastVisitedAt);
   if (Number.isNaN(lastVisitedAt)) return true;
   return completedAt > lastVisitedAt;
+}
+
+export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
+  return hasUnseenCompletionSinceVisit({
+    completedAt: thread.latestTurn?.completedAt,
+    lastVisitedAt: thread.lastVisitedAt,
+  });
 }
 
 export function shouldClearThreadSelectionOnMouseDown(target: HTMLElement | null): boolean {
