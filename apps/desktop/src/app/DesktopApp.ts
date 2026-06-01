@@ -235,10 +235,10 @@ const scopedProgram = Effect.scoped(
     yield* Effect.annotateCurrentSpan({ scope: "desktop", runId });
 
     const shutdown = yield* DesktopLifecycle.DesktopShutdown;
-    const pool = yield* DesktopBackendPool.DesktopBackendPool;
 
     yield* Effect.addFinalizer(() =>
       Effect.gen(function* () {
+        const pool = yield* DesktopBackendPool.DesktopBackendPool;
         // Stop every backend in the pool, not just the primary. The
         // electronApp.quit() path can race ahead of the layer-scope
         // cascade, so leaving the WSL instance for its parent scope

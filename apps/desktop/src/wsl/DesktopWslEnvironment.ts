@@ -546,20 +546,8 @@ export const layer = Layer.effect(
         return resolved;
       }).pipe(Effect.withSpan("desktop.wsl.getUserHome"));
 
-    // Cache the distro IP per distro for the life of the desktop
-    // process; WSL's eth0 IP only changes on full WSL restarts (which
-    // also restart the orchestrator's instance), so we don't need to
-    // re-probe on every config resolve.
-    const distroIpCache = new Map<string, string>();
     const getDistroIp = (distro: string | null) =>
-      Effect.gen(function* () {
-        const key = distro ?? "__default__";
-        const cached = distroIpCache.get(key);
-        if (cached !== undefined) return Option.some(cached);
-        const resolved = yield* provideSpawner(getDistroIpImpl(distro));
-        if (Option.isSome(resolved)) distroIpCache.set(key, resolved.value);
-        return resolved;
-      }).pipe(Effect.withSpan("desktop.wsl.getDistroIp"));
+      provideSpawner(getDistroIpImpl(distro)).pipe(Effect.withSpan("desktop.wsl.getDistroIp"));
 
     return DesktopWslEnvironment.of({
       isAvailable,

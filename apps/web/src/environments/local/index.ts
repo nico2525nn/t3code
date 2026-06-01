@@ -63,18 +63,18 @@ let pendingReconcileRun: Promise<void> | null = null;
 
 // Backoff schedule for the auto-retry loop. WSL cold boot routinely
 // takes 30-60 seconds (distro spin-up + node-pty preflight + node
-// startup + migrations), and the backend's desktop-bootstrap grant
-// has a 5-minute TTL after seeding. This schedule comfortably covers
-// the cold-boot window while leaving headroom inside the TTL.
+// startup + migrations). The backend's desktop-bootstrap grant lives
+// for the backend process, so this budget is about user feedback rather
+// than credential expiry.
 const AUTO_RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 45_000, 60_000, 60_000] as const;
 let autoRetryHandle: ReturnType<typeof setTimeout> | null = null;
 let autoRetryAttempt = 0;
 
 // Latched once we've confirmed the user has no WSL backend configured
 // on this host. The auto-retry loop polls getLocalEnvironmentBootstraps
-// every few seconds for up to ~4 minutes (the desktop-bootstrap TTL
-// window); on machines where the user will never enable WSL that's
-// just wasted IPC. setWslBackendEnabled IPC handlers in the settings
+// every few seconds for a bounded window; on machines where the user
+// will never enable WSL that's just wasted IPC. setWslBackendEnabled
+// IPC handlers in the settings
 // page already call reconcile with resetBudget: true, so flipping the
 // switch on later resumes the loop. We default to false (keep
 // retrying) so any pre-existing WSL setup still gets retried during
@@ -474,8 +474,7 @@ function runReconcile(options: { readonly resetBudget: boolean }): Promise<void>
 // concurrent calls share a single underlying reconcile pass. When a
 // secondary's registration fails (typical cause: WSL backend still
 // cold-booting), an internal backoff loop keeps retrying until either
-// the secondary lands in the registry or the desktop-bootstrap TTL
-// runs out and we give up.
+// the secondary lands in the registry or the retry budget runs out.
 export function reconcileLocalSecondaryEnvironments(): Promise<void> {
   return runReconcile({ resetBudget: true });
 }

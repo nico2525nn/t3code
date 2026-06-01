@@ -7,6 +7,7 @@ import {
   parseWslDistroList,
   resolveWslHomeUncPath,
   resolveWslPickFolderDefaultPath,
+  wslUncPathToLinuxPath,
 } from "./wslPathParsing.ts";
 
 function makeUtf16LeBuffer(text: string): Buffer {
@@ -94,6 +95,24 @@ describe("extractDistroFromUncPath", () => {
 
   it("returns null when the segment is not a valid distro name", () => {
     expect(extractDistroFromUncPath("\\\\wsl.localhost\\bad name!\\home")).toBeNull();
+  });
+});
+
+describe("wslUncPathToLinuxPath", () => {
+  it("maps WSL UNC paths back to Linux absolute paths", () => {
+    expect(wslUncPathToLinuxPath("\\\\wsl.localhost\\Ubuntu-22.04\\home\\josh\\repo")).toBe(
+      "/home/josh/repo",
+    );
+  });
+
+  it("maps a distro UNC root to Linux root", () => {
+    expect(wslUncPathToLinuxPath("\\\\wsl$\\Debian")).toBe("/");
+    expect(wslUncPathToLinuxPath("\\\\wsl.localhost\\Debian\\")).toBe("/");
+  });
+
+  it("rejects invalid distro names and non-WSL paths", () => {
+    expect(wslUncPathToLinuxPath("\\\\wsl.localhost\\bad!name\\home")).toBeNull();
+    expect(wslUncPathToLinuxPath("C:\\Users\\Josh\\repo")).toBeNull();
   });
 });
 

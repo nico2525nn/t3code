@@ -1819,10 +1819,9 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
 
   // Bring up the desktop-managed secondary local environments (today
   // just the WSL backend, if enabled). The reconcile call owns its
-  // own retry loop: WSL cold boot routinely takes 30-60 seconds, and
-  // the desktop-bootstrap grant on each backend has a 5-minute TTL.
+  // own retry loop: WSL cold boot routinely takes 30-60 seconds.
   // reconcileLocalSecondaryEnvironments() backs off internally until
-  // every secondary lands or the TTL window closes.
+  // every secondary lands or the retry budget closes.
   void reconcileLocalSecondaryEnvironments();
 
   const unsubscribeSavedEnvironments = useSavedEnvironmentRegistryStore.subscribe(() => {

@@ -23,7 +23,11 @@ import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as IpcChannels from "../channels.ts";
 import { makeIpcMethod, makeSyncIpcMethod } from "../DesktopIpc.ts";
-import { resolveWslPickFolderDefaultPath } from "../../wsl/wslPathParsing.ts";
+import {
+  extractDistroFromUncPath,
+  resolveWslPickFolderDefaultPath,
+  wslUncPathToLinuxPath,
+} from "../../wsl/wslPathParsing.ts";
 
 const ContextMenuPosition = Schema.Struct({
   x: Schema.Number,
@@ -144,7 +148,23 @@ export const pickFolder = makeIpcMethod({
       owner: yield* electronWindow.focusedMainOrFirst,
       defaultPath,
     });
-    return Option.getOrNull(selectedPath);
+    if (Option.isNone(selectedPath)) {
+      return null;
+    }
+    if (!useWsl) {
+      return selectedPath.value;
+    }
+
+    const linuxUncPath = wslUncPathToLinuxPath(selectedPath.value);
+    if (linuxUncPath !== null) {
+      return linuxUncPath;
+    }
+
+    const converted = yield* wslEnvironment.windowsToWslPath(
+      extractDistroFromUncPath(selectedPath.value) ?? wslDistro,
+      selectedPath.value,
+    );
+    return Option.getOrElse(converted, () => selectedPath.value);
   }),
 });
 
