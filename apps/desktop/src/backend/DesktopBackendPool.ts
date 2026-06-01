@@ -98,6 +98,9 @@ import * as DesktopBackendManager from "./DesktopBackendManager.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 
+const { logWarning: logBackendPoolWarning } =
+  DesktopObservability.makeComponentLogger("desktop-backend-pool");
+
 export type BackendInstanceId = DesktopBackendManager.BackendInstanceId;
 export const BackendInstanceId = DesktopBackendManager.BackendInstanceId;
 export const PRIMARY_INSTANCE_ID = DesktopBackendManager.PRIMARY_INSTANCE_ID;
@@ -220,12 +223,20 @@ export const layer = Layer.effect(
       id: DesktopBackendManager.PRIMARY_INSTANCE_ID,
       label: primaryLabel,
       configResolve: configuration.resolvePrimary,
-      // Window creation errors propagating out of handleBackendReady are
-      // swallowed here on purpose: they're logged by the window service
-      // and we don't want a stuck splash window to block the readiness
-      // callback (which would prevent restartAttempt from being reset).
+      // Window creation errors propagating out of handleBackendReady must
+      // not block the readiness callback (that would prevent restartAttempt
+      // from being reset), so we absorb them here. The window service only
+      // logs on success, so log the failure here before swallowing it —
+      // otherwise a post-readiness window-open failure vanishes silently and
+      // is near-impossible to diagnose in production.
       onReady: (httpBaseUrl) =>
-        desktopWindow.handleBackendReady(httpBaseUrl).pipe(Effect.catch(() => Effect.void)),
+        desktopWindow.handleBackendReady(httpBaseUrl).pipe(
+          Effect.catch((error) =>
+            logBackendPoolWarning("failed to open main window after backend readiness", {
+              error: error.message,
+            }),
+          ),
+        ),
       onShutdown: () => desktopWindow.handleBackendNotReady,
     });
 
