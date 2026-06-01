@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { mobileAuthClientMetadata, redactPairingCredential } from "./connection";
 
 vi.mock("./runtime", () => ({
-  mobileRemoteHttpRuntime: {
+  mobileRuntime: {
     runPromise: vi.fn(),
   },
 }));
