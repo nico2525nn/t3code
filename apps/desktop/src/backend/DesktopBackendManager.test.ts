@@ -338,6 +338,42 @@ describe("DesktopBackendManager", () => {
     ),
   );
 
+  it.effect("does not notify shutdown before the first start has prior state", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        let shutdownCount = 0;
+        const closed = yield* Deferred.make<void>();
+        const startedPids = yield* Queue.unbounded<number>();
+
+        const spawnerLayer = Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() =>
+            Effect.gen(function* () {
+              yield* Queue.offer(startedPids, 123);
+              const close = Deferred.succeed(closed, void 0).pipe(Effect.asVoid);
+              return makeProcess({
+                exitCode: Deferred.await(closed).pipe(Effect.as(ChildProcessSpawner.ExitCode(0))),
+                kill: () => close,
+              });
+            }),
+          ),
+        );
+
+        const instance = yield* makeTestInstance({
+          spawnerLayer,
+          httpClientLayer: httpClientLayer(() => Effect.never),
+          onShutdown: Effect.sync(() => {
+            shutdownCount += 1;
+          }),
+        });
+
+        yield* instance.start;
+        assert.equal(yield* Queue.take(startedPids), 123);
+        assert.equal(shutdownCount, 0);
+      }),
+    ),
+  );
+
   it.effect("restarts an unexpectedly exited backend with the Effect clock", () =>
     Effect.scoped(
       Effect.gen(function* () {

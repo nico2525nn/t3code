@@ -1,3 +1,4 @@
+import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
 import { makeLocalFileTracer, makeTraceSink } from "@t3tools/shared/observability";
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import * as Context from "effect/Context";
@@ -308,7 +309,7 @@ const writeBackendChildLogRecord = Effect.fn("desktop.observability.writeBackend
   },
 );
 
-const PRIMARY_BACKEND_LOG_INSTANCE_ID = "primary";
+const PRIMARY_BACKEND_LOG_INSTANCE_ID = PRIMARY_LOCAL_ENVIRONMENT_ID;
 
 const sanitizeInstanceIdForFileName = (id: string): string => id.replace(/[^a-zA-Z0-9._-]+/g, "_");
 

@@ -408,7 +408,9 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
           return;
         }
 
-        yield* spec.onShutdown?.() ?? Effect.void;
+        if (current.ready || Option.isSome(current.config)) {
+          yield* spec.onShutdown?.() ?? Effect.void;
+        }
         const config = yield* spec.configResolve.pipe(
           Effect.tapError((error) =>
             logInstanceError("failed to generate desktop backend configuration", {
