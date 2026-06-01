@@ -9,7 +9,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
-import * as Ref from "effect/Ref";
+import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import serverPackageJson from "../../../server/package.json" with { type: "json" };
 
@@ -437,17 +437,26 @@ export const layer = Layer.effect(
     const wslEnvironment = yield* DesktopWslEnvironment.DesktopWslEnvironment;
     const settings = yield* DesktopAppSettings.DesktopAppSettings;
     const crypto = yield* Crypto.Crypto;
-    const tokenRef = yield* Ref.make(Option.none<string>());
-    const getOrCreateBootstrapToken = Effect.gen(function* () {
-      const existing = yield* Ref.get(tokenRef);
-      if (Option.isSome(existing)) {
-        return existing.value;
-      }
-
-      const token = Encoding.encodeHex(yield* crypto.randomBytes(24));
-      yield* Ref.set(tokenRef, Option.some(token));
-      return token;
-    });
+    // SynchronizedRef (not a plain Ref) so the read-generate-write is atomic.
+    // crypto.randomBytes is a yield point, and resolvePrimary + resolveWsl can
+    // resolve concurrently; with a plain Ref both could observe None, generate
+    // distinct tokens, and one would overwrite the other — leaving the two
+    // backends holding mismatched tokens and breaking the shared-token
+    // invariant the renderer relies on. modifyEffect serializes the whole
+    // get-or-create so the first caller wins and the rest reuse its token.
+    const tokenRef = yield* SynchronizedRef.make(Option.none<string>());
+    const getOrCreateBootstrapToken = SynchronizedRef.modifyEffect(tokenRef, (current) =>
+      Option.match(current, {
+        onSome: (token) => Effect.succeed([token, current] as const),
+        onNone: () =>
+          crypto.randomBytes(24).pipe(
+            Effect.map((bytes) => {
+              const token = Encoding.encodeHex(bytes);
+              return [token, Option.some(token)] as const;
+            }),
+          ),
+      }),
+    );
 
     // Both resolvers share the same bootstrap token: the renderer holds a
     // single token and uses it against whichever backend it's currently

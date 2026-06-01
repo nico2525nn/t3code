@@ -154,6 +154,26 @@ describe("DesktopBackendConfiguration", () => {
     ),
   );
 
+  it.effect("resolvePrimary and resolveWsl share one token under concurrent resolution", () =>
+    withHarness(
+      Effect.gen(function* () {
+        const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+
+        // Resolve both before any token is cached, concurrently, so the
+        // generate step (a yield point) can interleave. The atomic
+        // get-or-create must still hand both the same token; a non-atomic
+        // Ref would let each generate its own and break the shared-token
+        // invariant.
+        const [primary, wsl] = yield* Effect.all(
+          [configuration.resolvePrimary, configuration.resolveWsl({ port: 5000, distro: null })],
+          { concurrency: "unbounded" },
+        );
+
+        assert.equal(wsl.bootstrap.desktopBootstrapToken, primary.bootstrap.desktopBootstrapToken);
+      }),
+    ),
+  );
+
   it.effect("resolvePrimary surfaces persisted backend observability endpoints", () =>
     withHarness(
       Effect.gen(function* () {
