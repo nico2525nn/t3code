@@ -30,11 +30,13 @@
 import { create } from "zustand";
 
 import {
+  AuthEnvironmentScope,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
-  type AuthSessionRole,
+  type AuthEnvironmentScope as AuthEnvironmentScopeType,
   type DesktopEnvironmentBootstrap,
   type EnvironmentId,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 
 import {
   bootstrapRemoteBearerSession,
@@ -60,6 +62,7 @@ interface PendingRegistration {
 
 const pendingByInstanceId = new Map<string, PendingRegistration>();
 let pendingReconcileRun: Promise<void> | null = null;
+const decodeIssuedBearerScopes = Schema.decodeUnknownSync(Schema.Array(AuthEnvironmentScope));
 
 // Backoff schedule for the auto-retry loop. WSL cold boot routinely
 // takes 30-60 seconds (distro spin-up + node-pty preflight + node
@@ -230,7 +233,10 @@ function isRegisteredForBootstrap(
 async function tryReuseStoredBearer(input: {
   readonly environmentId: EnvironmentId;
   readonly httpBaseUrl: string;
-}): Promise<{ readonly bearerToken: string; readonly role: AuthSessionRole } | null> {
+}): Promise<{
+  readonly bearerToken: string;
+  readonly scopes: ReadonlyArray<AuthEnvironmentScopeType> | null;
+} | null> {
   // The bearer session token we got from the first bootstrap is
   // persisted in the desktop secret store keyed by environmentId, and
   // it stays valid for 30 days. Check the backend's view of the bearer
@@ -248,11 +254,15 @@ async function tryReuseStoredBearer(input: {
         bearerToken: stored,
       }),
     );
-    if (!session.authenticated || !session.role) return null;
-    return { bearerToken: stored, role: session.role };
+    if (!session.authenticated) return null;
+    return { bearerToken: stored, scopes: session.scopes ?? null };
   } catch {
     return null;
   }
+}
+
+function readIssuedBearerScopes(scope: string): ReadonlyArray<AuthEnvironmentScopeType> {
+  return decodeIssuedBearerScopes(scope.split(" "));
 }
 
 async function registerSecondaryLocalEnvironment(
@@ -287,14 +297,14 @@ async function registerSecondaryLocalEnvironment(
   }
 
   let bearerToken: string;
-  let role: AuthSessionRole;
+  let scopes: ReadonlyArray<AuthEnvironmentScopeType> | null;
   const reused = await tryReuseStoredBearer({
     environmentId,
     httpBaseUrl: bootstrap.httpBaseUrl,
   });
   if (reused) {
     bearerToken = reused.bearerToken;
-    role = reused.role;
+    scopes = reused.scopes;
   } else {
     const bearerSession = await remoteHttpRuntime.runPromise(
       bootstrapRemoteBearerSession({
@@ -302,8 +312,8 @@ async function registerSecondaryLocalEnvironment(
         credential,
       }),
     );
-    bearerToken = bearerSession.sessionToken;
-    role = bearerSession.role;
+    bearerToken = bearerSession.access_token;
+    scopes = readIssuedBearerScopes(bearerSession.scope);
     // Only the fresh-bootstrap path needs to write the token: the
     // reuse path already had it in the secret store.
     await writeSavedEnvironmentBearerToken(environmentId, bearerToken);
@@ -330,7 +340,7 @@ async function registerSecondaryLocalEnvironment(
   useSavedEnvironmentRegistryStore.getState().upsert(record);
   await ensureSavedEnvironmentConnection(record, {
     bearerToken,
-    role,
+    scopes,
   });
   return record;
 }

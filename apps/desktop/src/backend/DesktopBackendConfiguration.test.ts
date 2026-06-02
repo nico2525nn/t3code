@@ -373,6 +373,16 @@ describe("DesktopBackendConfiguration", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("resolvePrimaryLabel reports the local environment on non-Windows platforms", () =>
+    withHarness(
+      Effect.gen(function* () {
+        const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+        const label = yield* configuration.resolvePrimaryLabel;
+        assert.equal(label, "Local environment");
+      }),
+    ),
+  );
+
   it.effect("resolvePrimaryLabel reports Windows when wsl-only but WSL is unavailable", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

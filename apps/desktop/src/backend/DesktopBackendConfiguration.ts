@@ -541,7 +541,9 @@ export const layer = Layer.effect(
       }).pipe(Effect.withSpan("desktop.backendConfiguration.resolvePrimary")),
       resolvePrimaryLabel: Effect.gen(function* () {
         const { useWsl, distro } = yield* describePrimary;
-        if (!useWsl) return "Windows";
+        if (!useWsl) {
+          return environment.platform === "win32" ? "Windows" : "Local environment";
+        }
         return distro ? `WSL (${distro})` : "WSL";
       }).pipe(Effect.withSpan("desktop.backendConfiguration.resolvePrimaryLabel")),
       resolveWsl: (input) =>

@@ -1,5 +1,6 @@
 import {
-  type AuthSessionRole,
+  AuthEnvironmentScope,
+  AuthStandardClientScopes,
   type DesktopSshEnvironmentBootstrap,
   type DesktopSshEnvironmentTarget,
   type EnvironmentId,
@@ -7,6 +8,7 @@ import {
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
   type ServerConfig,
+  EnvironmentAuthInvalidError,
   ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -15,12 +17,12 @@ import {
   bootstrapRemoteBearerSession,
   fetchRemoteEnvironmentDescriptor,
   fetchRemoteSessionState,
-  isRemoteEnvironmentAuthHttpError,
   resolveRemoteWebSocketConnectionUrl,
 } from "@t3tools/client-runtime";
 
 import { type QueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
+import * as Schema from "effect/Schema";
 import {
   createKnownEnvironment,
   getKnownEnvironmentWsBaseUrl,
@@ -77,6 +79,8 @@ import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKey,
 } from "../../logicalProject";
+
+const decodeIssuedBearerScopes = Schema.decodeUnknownSync(Schema.Array(AuthEnvironmentScope));
 import { getClientSettings } from "~/hooks/useSettings";
 import { subscribeTerminalMetadata, terminalSessionManager } from "../../terminalSessionState";
 import { resetWsReconnectBackoff } from "~/rpc/wsConnectionState";
@@ -100,6 +104,7 @@ type ThreadDetailSubscriptionEntry = {
 };
 
 const environmentConnections = new Map<EnvironmentId, EnvironmentConnection>();
+const isEnvironmentAuthInvalidError = Schema.is(EnvironmentAuthInvalidError);
 
 function isSavedEnvironmentConnectionCancelledError(
   error: unknown,
@@ -739,6 +744,10 @@ async function bootstrapDesktopSshBearerSession(httpBaseUrl: string, credential:
   return await getDesktopSshBridge().bootstrapSshBearerSession(httpBaseUrl, credential);
 }
 
+function readIssuedBearerScopes(scope: string): ReadonlyArray<AuthEnvironmentScope> {
+  return decodeIssuedBearerScopes(scope.split(" "));
+}
+
 async function fetchDesktopSshSessionState(httpBaseUrl: string, bearerToken: string) {
   return await getDesktopSshBridge().fetchSshSessionState(httpBaseUrl, bearerToken);
 }
@@ -748,9 +757,9 @@ async function resolveDesktopSshWebSocketConnectionUrl(
   httpBaseUrl: string,
   bearerToken: string,
 ) {
-  const issued = await getDesktopSshBridge().issueSshWebSocketToken(httpBaseUrl, bearerToken);
+  const issued = await getDesktopSshBridge().issueSshWebSocketTicket(httpBaseUrl, bearerToken);
   const url = new URL(wsBaseUrl, window.location.origin);
-  url.searchParams.set("wsToken", issued.token);
+  url.searchParams.set("wsTicket", issued.ticket);
   return url.toString();
 }
 
@@ -800,7 +809,7 @@ async function prepareSavedEnvironmentRecordForConnection(
 async function issueDesktopSshBearerSession(record: SavedEnvironmentRecord): Promise<{
   readonly record: SavedEnvironmentRecord;
   readonly bearerToken: string;
-  readonly role: AuthSessionRole | null;
+  readonly scopes: ReadonlyArray<AuthEnvironmentScope> | null;
 }> {
   const registrySnapshot = snapshotSavedEnvironmentRegistry([record.environmentId]);
   const prepared = await prepareSavedEnvironmentRecordForConnection(record, {
@@ -828,7 +837,7 @@ async function issueDesktopSshBearerSession(record: SavedEnvironmentRecord): Pro
   });
   const didPersistBearerToken = await writeSavedEnvironmentBearerToken(
     prepared.record.environmentId,
-    bearerSession.sessionToken,
+    bearerSession.access_token,
   );
   if (!didPersistBearerToken) {
     await persistSavedEnvironmentRegistryRollback(registrySnapshot);
@@ -837,8 +846,8 @@ async function issueDesktopSshBearerSession(record: SavedEnvironmentRecord): Pro
 
   return {
     record: prepared.record,
-    bearerToken: bearerSession.sessionToken,
-    role: bearerSession.role ?? null,
+    bearerToken: bearerSession.access_token,
+    scopes: readIssuedBearerScopes(bearerSession.scope),
   };
 }
 
@@ -1215,7 +1224,7 @@ async function refreshSavedEnvironmentMetadata(
   environmentId: EnvironmentId,
   bearerToken: string,
   client: WsRpcClient,
-  roleHint?: AuthSessionRole | null,
+  scopeHint?: ReadonlyArray<AuthEnvironmentScope> | null,
   configHint?: ServerConfig | null,
 ): Promise<void> {
   const record = getSavedEnvironmentRecord(environmentId);
@@ -1239,7 +1248,7 @@ async function refreshSavedEnvironmentMetadata(
     authState: sessionState.authenticated ? "authenticated" : "requires-auth",
     descriptor: serverConfig.environment,
     serverConfig,
-    role: sessionState.authenticated ? (sessionState.role ?? roleHint ?? null) : null,
+    scopes: sessionState.authenticated ? (sessionState.scopes ?? scopeHint ?? null) : null,
   });
   useSavedEnvironmentRegistryStore
     .getState()
@@ -1312,7 +1321,7 @@ export async function ensureSavedEnvironmentConnection(
   options?: {
     readonly client?: WsRpcClient;
     readonly bearerToken?: string;
-    readonly role?: AuthSessionRole | null;
+    readonly scopes?: ReadonlyArray<AuthEnvironmentScope> | null;
     readonly serverConfig?: ServerConfig | null;
   },
 ): Promise<EnvironmentConnection> {
@@ -1331,7 +1340,7 @@ export async function ensureSavedEnvironmentConnection(
     isCurrent: attempt.isCurrent,
     promise: Promise.resolve().then(async () => {
       let activeRecord = record;
-      let roleHint = options?.role ?? null;
+      let scopeHint = options?.scopes ?? null;
       let bearerToken =
         options?.bearerToken ?? (await readSavedEnvironmentBearerToken(record.environmentId));
       if (!bearerToken) {
@@ -1339,11 +1348,11 @@ export async function ensureSavedEnvironmentConnection(
           const issued = await issueDesktopSshBearerSession(record);
           activeRecord = issued.record;
           bearerToken = issued.bearerToken;
-          roleHint = issued.role;
+          scopeHint = [...AuthStandardClientScopes];
         } else {
           useSavedEnvironmentRuntimeStore.getState().patch(record.environmentId, {
             authState: "requires-auth",
-            role: null,
+            scopes: null,
             connectionState: "disconnected",
             lastError: "Saved environment is missing its saved credential. Pair it again.",
             lastErrorAt: isoNow(),
@@ -1410,13 +1419,13 @@ export async function ensureSavedEnvironmentConnection(
             activeRecord.environmentId,
             activeBearerToken,
             client,
-            roleHint,
+            scopeHint,
             initialServerConfig,
           );
         } catch (error) {
           const isAuthError = activeRecord.desktopSsh
             ? isSshHttpAuthError(error, 401)
-            : isRemoteEnvironmentAuthHttpError(error) && error.status === 401;
+            : isEnvironmentAuthInvalidError(error);
           if (!isAuthError) {
             throw error;
           }
@@ -1430,12 +1439,12 @@ export async function ensureSavedEnvironmentConnection(
           const issued = await issueDesktopSshBearerSession(activeRecord);
           activeRecord = issued.record;
           bearerToken = issued.bearerToken;
-          roleHint = issued.role;
+          scopeHint = [...AuthStandardClientScopes];
           await connection.dispose().catch(() => undefined);
           pendingSavedEnvironmentConnections.delete(activeRecord.environmentId);
           return await ensureSavedEnvironmentConnection(activeRecord, {
             bearerToken,
-            role: roleHint,
+            scopes: scopeHint,
             serverConfig: options?.serverConfig ?? null,
           });
         }
@@ -1639,7 +1648,7 @@ export async function reconnectSavedEnvironment(environmentId: EnvironmentId): P
         await removeConnection(environmentId).catch(() => false);
         await ensureSavedEnvironmentConnection(issued.record, {
           bearerToken: issued.bearerToken,
-          role: issued.role,
+          scopes: [...AuthStandardClientScopes],
         });
         return;
       } catch (recoveryError) {
@@ -1730,7 +1739,7 @@ export async function addSavedEnvironment(input: {
   await persistSavedEnvironmentRecord(record);
   const didPersistBearerToken = await writeSavedEnvironmentBearerToken(
     environmentId,
-    bearerSession.sessionToken,
+    bearerSession.access_token,
   );
   if (!didPersistBearerToken) {
     await persistSavedEnvironmentRegistryRollback(registrySnapshot);
@@ -1742,8 +1751,8 @@ export async function addSavedEnvironment(input: {
   }
   await removeConnection(environmentId).catch(() => false);
   await ensureSavedEnvironmentConnection(record, {
-    bearerToken: bearerSession.sessionToken,
-    role: bearerSession.role,
+    bearerToken: bearerSession.access_token,
+    scopes: readIssuedBearerScopes(bearerSession.scope),
   });
   return record;
 }

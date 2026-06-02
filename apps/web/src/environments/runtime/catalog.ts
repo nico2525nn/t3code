@@ -1,6 +1,6 @@
 import { getKnownEnvironmentHttpBaseUrl } from "@t3tools/client-runtime";
 import type {
-  AuthSessionRole,
+  AuthEnvironmentScope,
   EnvironmentId,
   ExecutionEnvironmentDescriptor,
   PersistedSavedEnvironmentRecord,
@@ -298,7 +298,7 @@ export interface SavedEnvironmentRuntimeState {
   readonly authState: SavedEnvironmentAuthState;
   readonly lastError: string | null;
   readonly lastErrorAt: string | null;
-  readonly role: AuthSessionRole | null;
+  readonly scopes: ReadonlyArray<AuthEnvironmentScope> | null;
   readonly descriptor: ExecutionEnvironmentDescriptor | null;
   readonly serverConfig: ServerConfig | null;
   readonly connectedAt: string | null;
@@ -321,7 +321,7 @@ const DEFAULT_SAVED_ENVIRONMENT_RUNTIME_STATE: SavedEnvironmentRuntimeState = Ob
   authState: "unknown",
   lastError: null,
   lastErrorAt: null,
-  role: null,
+  scopes: null,
   descriptor: null,
   serverConfig: null,
   connectedAt: null,
