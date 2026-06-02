@@ -3,8 +3,10 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
@@ -404,4 +406,42 @@ describe("DesktopBackendConfiguration", () => {
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
+
+  it("resolvePrimaryLabel is runSync-safe against the real WSL availability probe", async () => {
+    // getLocalEnvironmentBootstraps is a sync IPC method: it resolves the
+    // primary instance's lazy label through Effect.runSync. The label chains
+    // to wslEnvironment.isAvailable, whose real layer probes the filesystem.
+    // That probe must run once at layer build and expose a resolved value, not
+    // a live async effect — otherwise runSync throws in the handler. Build the
+    // real WSL layer (not the sync test stub) and resolve the label with a
+    // top-level runSync, exactly as the handler does.
+    const runtime = ManagedRuntime.make(
+      DesktopBackendConfiguration.layer.pipe(
+        Layer.provideMerge(serverExposureLayer),
+        Layer.provideMerge(DesktopAppSettings.layerTest()),
+        Layer.provideMerge(DesktopWslEnvironment.layer),
+        // isAvailable on win32 only touches the filesystem, never the spawner,
+        // so a die-stub is enough to satisfy the layer's deps.
+        Layer.provideMerge(
+          Layer.succeed(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make(() =>
+              Effect.die("spawner should not be used while probing WSL availability"),
+            ),
+          ),
+        ),
+        Layer.provideMerge(makeEnvironmentLayer("/tmp/t3-wsl-isavailable", { platform: "win32" })),
+        Layer.provide(NodeServices.layer),
+      ),
+    );
+    try {
+      const configuration = await runtime.runPromise(
+        DesktopBackendConfiguration.DesktopBackendConfiguration,
+      );
+      const label = Effect.runSync(configuration.resolvePrimaryLabel);
+      assert.equal(typeof label, "string");
+    } finally {
+      await runtime.dispose();
+    }
+  });
 });
