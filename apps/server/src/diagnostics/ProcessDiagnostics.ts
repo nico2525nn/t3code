@@ -208,7 +208,7 @@ export function parseWindowsProcessRows(output: string): Effect.Effect<ReadonlyA
         }),
       );
     }),
-    Effect.catchAll(() => Effect.succeed([])),
+    Effect.catch(() => Effect.succeed([])),
   );
 }
 
