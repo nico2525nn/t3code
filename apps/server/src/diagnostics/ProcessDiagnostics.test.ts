@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -63,6 +63,51 @@ describe("ProcessDiagnostics", () => {
           command: "codex app-server --config /tmp/one two",
         },
       ]);
+    }),
+  );
+
+  it.effect("parses Windows process rows from schema-decoded JSON output", () =>
+    Effect.gen(function* () {
+      const rows = yield* ProcessDiagnostics.parseWindowsProcessRows(
+        [
+          "[",
+          '{"ProcessId":10,"ParentProcessId":1,"Name":"node.exe","CommandLine":"node server.js","Status":"Running","WorkingSetSize":1024,"PercentProcessorTime":1.5},',
+          '{"ProcessId":0,"ParentProcessId":1,"Name":"invalid.exe","WorkingSetSize":2048,"PercentProcessorTime":2},',
+          '{"ProcessId":11,"ParentProcessId":10,"Name":"agent.exe","CommandLine":null,"Status":null,"WorkingSetSize":2048.4,"PercentProcessorTime":3.25}',
+          "]",
+        ].join(""),
+      );
+
+      assert.deepEqual(rows, [
+        {
+          pid: 10,
+          ppid: 1,
+          pgid: null,
+          status: "Running",
+          cpuPercent: 1.5,
+          rssBytes: 1024,
+          elapsed: "",
+          command: "node server.js",
+        },
+        {
+          pid: 11,
+          ppid: 10,
+          pgid: null,
+          status: "Live",
+          cpuPercent: 3.25,
+          rssBytes: 2048,
+          elapsed: "",
+          command: "agent.exe",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("ignores malformed Windows process JSON output", () =>
+    Effect.gen(function* () {
+      const rows = yield* ProcessDiagnostics.parseWindowsProcessRows("{not-json");
+
+      assert.deepEqual(rows, []);
     }),
   );
 

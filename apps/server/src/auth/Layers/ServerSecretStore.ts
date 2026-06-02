@@ -1,8 +1,8 @@
-import * as Crypto from "node:crypto";
-
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as PlatformError from "effect/PlatformError";
@@ -15,6 +15,7 @@ import {
 } from "../Services/ServerSecretStore.ts";
 
 export const makeServerSecretStore = Effect.gen(function* () {
+  const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig;
@@ -37,10 +38,10 @@ export const makeServerSecretStore = Effect.gen(function* () {
 
   const get: ServerSecretStoreShape["get"] = (name) =>
     fileSystem.readFile(resolveSecretPath(name)).pipe(
-      Effect.map((bytes) => Uint8Array.from(bytes)),
+      Effect.map((bytes) => Option.some(Uint8Array.from(bytes))),
       Effect.catch((cause) =>
         cause.reason._tag === "NotFound"
-          ? Effect.succeed(null)
+          ? Effect.succeed(Option.none())
           : Effect.fail(
               new SecretStoreError({
                 message: `Failed to read secret ${name}.`,
@@ -52,26 +53,37 @@ export const makeServerSecretStore = Effect.gen(function* () {
 
   const set: ServerSecretStoreShape["set"] = (name, value) => {
     const secretPath = resolveSecretPath(name);
-    const tempPath = `${secretPath}.${Crypto.randomUUID()}.tmp`;
-    return Effect.gen(function* () {
-      yield* fileSystem.writeFile(tempPath, value);
-      yield* fileSystem.chmod(tempPath, 0o600);
-      yield* fileSystem.rename(tempPath, secretPath);
-      yield* fileSystem.chmod(secretPath, 0o600);
-    }).pipe(
-      Effect.catch((cause) =>
-        fileSystem.remove(tempPath).pipe(
-          Effect.ignore,
-          Effect.flatMap(() =>
-            Effect.fail(
-              new SecretStoreError({
-                message: `Failed to persist secret ${name}.`,
-                cause,
-              }),
+    return crypto.randomUUIDv4.pipe(
+      Effect.mapError(
+        (cause) =>
+          new SecretStoreError({
+            message: `Failed to generate temporary secret path for ${name}.`,
+            cause,
+          }),
+      ),
+      Effect.flatMap((uuid) => {
+        const tempPath = `${secretPath}.${uuid}.tmp`;
+        return Effect.gen(function* () {
+          yield* fileSystem.writeFile(tempPath, value);
+          yield* fileSystem.chmod(tempPath, 0o600);
+          yield* fileSystem.rename(tempPath, secretPath);
+          yield* fileSystem.chmod(secretPath, 0o600);
+        }).pipe(
+          Effect.catch((cause) =>
+            fileSystem.remove(tempPath).pipe(
+              Effect.ignore,
+              Effect.flatMap(() =>
+                Effect.fail(
+                  new SecretStoreError({
+                    message: `Failed to persist secret ${name}.`,
+                    cause,
+                  }),
+                ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      }),
     );
   };
 
@@ -101,27 +113,39 @@ export const makeServerSecretStore = Effect.gen(function* () {
   const getOrCreateRandom: ServerSecretStoreShape["getOrCreateRandom"] = (name, bytes) =>
     get(name).pipe(
       Effect.flatMap((existing) => {
-        if (existing) {
-          return Effect.succeed(existing);
+        if (Option.isSome(existing)) {
+          return Effect.succeed(existing.value);
         }
 
-        const generated = Crypto.randomBytes(bytes);
-        return create(name, generated).pipe(
-          Effect.as(Uint8Array.from(generated)),
-          Effect.catchTag("SecretStoreError", (error) =>
-            isPlatformError(error.cause) && error.cause.reason._tag === "AlreadyExists"
-              ? get(name).pipe(
-                  Effect.flatMap((created) =>
-                    created !== null
-                      ? Effect.succeed(created)
-                      : Effect.fail(
-                          new SecretStoreError({
-                            message: `Failed to read secret ${name} after concurrent creation.`,
-                          }),
-                        ),
-                  ),
-                )
-              : Effect.fail(error),
+        return crypto.randomBytes(bytes).pipe(
+          Effect.mapError(
+            (cause) =>
+              new SecretStoreError({
+                message: `Failed to generate secret ${name}.`,
+                cause,
+              }),
+          ),
+          Effect.flatMap((generated) =>
+            create(name, generated).pipe(
+              Effect.as(Uint8Array.from(generated)),
+              Effect.catchTag("SecretStoreError", (error) =>
+                isPlatformError(error.cause) && error.cause.reason._tag === "AlreadyExists"
+                  ? get(name).pipe(
+                      Effect.flatMap((created) =>
+                        Option.match(created, {
+                          onSome: Effect.succeed,
+                          onNone: () =>
+                            Effect.fail(
+                              new SecretStoreError({
+                                message: `Failed to read secret ${name} after concurrent creation.`,
+                              }),
+                            ),
+                        }),
+                      ),
+                    )
+                  : Effect.fail(error),
+              ),
+            ),
           ),
         );
       }),

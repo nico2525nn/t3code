@@ -30,6 +30,21 @@ const PROCESS_QUERY_TIMEOUT_MS = 1_000;
 const POSIX_PROCESS_QUERY_COMMAND = "pid=,ppid=,pgid=,stat=,pcpu=,rss=,etime=,command=";
 const PROCESS_QUERY_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 
+const WindowsProcessRecord = Schema.Struct({
+  ProcessId: Schema.Number,
+  ParentProcessId: Schema.Number,
+  Name: Schema.optional(Schema.NullOr(Schema.String)),
+  CommandLine: Schema.optional(Schema.NullOr(Schema.String)),
+  Status: Schema.optional(Schema.NullOr(Schema.String)),
+  WorkingSetSize: Schema.optional(Schema.NullOr(Schema.Number)),
+  PercentProcessorTime: Schema.optional(Schema.NullOr(Schema.Number)),
+});
+type WindowsProcessRecord = Schema.Schema.Type<typeof WindowsProcessRecord>;
+const WindowsProcessRecordsJson = Schema.fromJsonString(
+  Schema.Union(Schema.Array(WindowsProcessRecord), WindowsProcessRecord),
+);
+const decodeWindowsProcessRecordsJson = Schema.decodeUnknownEffect(WindowsProcessRecordsJson);
+
 export interface ProcessDiagnosticsShape {
   readonly read: Effect.Effect<ServerProcessDiagnosticsResult>;
   readonly signal: (input: {
@@ -139,51 +154,62 @@ export function parsePosixProcessRows(output: string): ReadonlyArray<ProcessRow>
   return rows;
 }
 
-function normalizeWindowsProcessRow(value: unknown): ProcessRow | null {
-  if (typeof value !== "object" || value === null) return null;
-  const record = value as Record<string, unknown>;
-  const pid = typeof record.ProcessId === "number" ? record.ProcessId : null;
-  const ppid = typeof record.ParentProcessId === "number" ? record.ParentProcessId : null;
+function normalizeWindowsProcessRow(record: WindowsProcessRecord): Option.Option<ProcessRow> {
+  const pid = record.ProcessId;
+  const ppid = record.ParentProcessId;
   const commandLine =
-    typeof record.CommandLine === "string" && record.CommandLine.trim().length > 0
+    record.CommandLine !== null &&
+    record.CommandLine !== undefined &&
+    record.CommandLine.trim().length > 0
       ? record.CommandLine
-      : typeof record.Name === "string"
+      : record.Name !== null && record.Name !== undefined && record.Name.trim().length > 0
         ? record.Name
-        : null;
+        : undefined;
   const workingSet =
-    typeof record.WorkingSetSize === "number" && Number.isFinite(record.WorkingSetSize)
+    record.WorkingSetSize !== null &&
+    record.WorkingSetSize !== undefined &&
+    Number.isFinite(record.WorkingSetSize)
       ? Math.max(0, Math.round(record.WorkingSetSize))
       : 0;
   const cpuPercent =
-    typeof record.PercentProcessorTime === "number" && Number.isFinite(record.PercentProcessorTime)
+    record.PercentProcessorTime !== null &&
+    record.PercentProcessorTime !== undefined &&
+    Number.isFinite(record.PercentProcessorTime)
       ? Math.max(0, record.PercentProcessorTime)
       : 0;
 
-  if (!pid || pid <= 0 || ppid === null || ppid < 0 || !commandLine) return null;
-  return {
+  if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(ppid) || ppid < 0 || !commandLine) {
+    return Option.none();
+  }
+  return Option.some({
     pid,
     ppid,
     pgid: null,
-    status: typeof record.Status === "string" && record.Status.length > 0 ? record.Status : "Live",
+    status:
+      record.Status !== null && record.Status !== undefined && record.Status.length > 0
+        ? record.Status
+        : "Live",
     cpuPercent,
     rssBytes: workingSet,
     elapsed: "",
     command: commandLine,
-  };
+  });
 }
 
-function parseWindowsProcessRows(output: string): ReadonlyArray<ProcessRow> {
-  if (output.trim().length === 0) return [];
-  try {
-    const parsed = JSON.parse(output) as unknown;
-    const records = Array.isArray(parsed) ? parsed : [parsed];
-    return records.flatMap((record) => {
-      const row = normalizeWindowsProcessRow(record);
-      return row ? [row] : [];
-    });
-  } catch {
-    return [];
-  }
+export function parseWindowsProcessRows(output: string): Effect.Effect<ReadonlyArray<ProcessRow>> {
+  if (output.trim().length === 0) return Effect.succeed([]);
+  return decodeWindowsProcessRecordsJson(output).pipe(
+    Effect.map((parsed) => {
+      const records = Array.isArray(parsed) ? parsed : [parsed];
+      return records.flatMap((record) =>
+        Option.match(normalizeWindowsProcessRow(record), {
+          onNone: () => [],
+          onSome: (row) => [row],
+        }),
+      );
+    }),
+    Effect.catchAll(() => Effect.succeed([])),
+  );
 }
 
 export function buildDescendantEntries(
@@ -365,7 +391,7 @@ function readWindowsProcessRows(): Effect.Effect<
         ? Effect.fail(
             toProcessDiagnosticsError(result.stderr.trim() || "PowerShell process query failed."),
           )
-        : Effect.succeed(parseWindowsProcessRows(result.stdout)),
+        : parseWindowsProcessRows(result.stdout),
     ),
   );
 }

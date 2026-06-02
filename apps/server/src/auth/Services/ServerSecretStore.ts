@@ -1,14 +1,18 @@
-import * as Data from "effect/Data";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import type * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
-export class SecretStoreError extends Data.TaggedError("SecretStoreError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+export class SecretStoreError extends Schema.TaggedErrorClass<SecretStoreError>()(
+  "SecretStoreError",
+  {
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
 
 export interface ServerSecretStoreShape {
-  readonly get: (name: string) => Effect.Effect<Uint8Array | null, SecretStoreError>;
+  readonly get: (name: string) => Effect.Effect<Option.Option<Uint8Array>, SecretStoreError>;
   readonly set: (name: string, value: Uint8Array) => Effect.Effect<void, SecretStoreError>;
   readonly getOrCreateRandom: (
     name: string,

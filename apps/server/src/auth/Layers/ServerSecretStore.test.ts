@@ -1,10 +1,12 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { expect, it } from "@effect/vitest";
+import { assert, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
+import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as PlatformError from "effect/PlatformError";
 
@@ -17,6 +19,21 @@ const makeServerConfigLayer = () =>
 
 const makeServerSecretStoreLayer = () =>
   Layer.provide(ServerSecretStoreLive, makeServerConfigLayer());
+
+const makeDeterministicCryptoLayer = (fillByte: number) =>
+  Layer.succeed(
+    Crypto.Crypto,
+    Crypto.make({
+      randomBytes: (size) => new Uint8Array(size).fill(fillByte),
+      digest: (_algorithm, data) => Effect.succeed(data),
+    }),
+  );
+
+const makeDeterministicSecretStoreLayer = (fillByte: number) =>
+  ServerSecretStoreLive.pipe(
+    Layer.provide(makeServerConfigLayer()),
+    Layer.provideMerge(makeDeterministicCryptoLayer(fillByte)),
+  );
 
 const PermissionDeniedFileSystemLayer = Layer.effect(
   FileSystem.FileSystem,
@@ -146,14 +163,24 @@ const makeConcurrentCreateSecretStoreLayer = () =>
   );
 
 it.layer(NodeServices.layer)("ServerSecretStoreLive", (it) => {
-  it.effect("returns null when a secret file does not exist", () =>
+  it.effect("returns none when a secret file does not exist", () =>
     Effect.gen(function* () {
       const secretStore = yield* ServerSecretStore;
 
       const secret = yield* secretStore.get("missing-secret");
 
-      expect(secret).toBeNull();
+      assert.isTrue(Option.isNone(secret));
     }).pipe(Effect.provide(makeServerSecretStoreLayer())),
+  );
+
+  it.effect("uses the provided Crypto service when generating a new secret", () =>
+    Effect.gen(function* () {
+      const secretStore = yield* ServerSecretStore;
+
+      const secret = yield* secretStore.getOrCreateRandom("session-signing-key", 4);
+
+      assert.deepEqual(Array.from(secret), [0xab, 0xab, 0xab, 0xab]);
+    }).pipe(Effect.provide(makeDeterministicSecretStoreLayer(0xab))),
   );
 
   it.effect("reuses an existing secret instead of regenerating it", () =>
@@ -180,9 +207,9 @@ it.layer(NodeServices.layer)("ServerSecretStoreLive", (it) => {
       );
       const persisted = yield* secretStore.get("session-signing-key");
 
-      expect(persisted).not.toBeNull();
-      expect(Array.from(first)).toEqual(Array.from(persisted ?? new Uint8Array()));
-      expect(Array.from(second)).toEqual(Array.from(persisted ?? new Uint8Array()));
+      assert.isTrue(Option.isSome(persisted));
+      assert.deepEqual(Array.from(first), Array.from(persisted.value));
+      assert.deepEqual(Array.from(second), Array.from(persisted.value));
     }).pipe(Effect.provide(makeConcurrentCreateSecretStoreLayer())),
   );
 
