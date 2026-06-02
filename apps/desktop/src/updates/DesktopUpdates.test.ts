@@ -103,7 +103,7 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
 
   const stubBackendInstance: DesktopBackendPool.DesktopBackendInstance = {
     id: DesktopBackendPool.PRIMARY_INSTANCE_ID,
-    label: "Windows",
+    label: Effect.succeed("Windows"),
     start: Effect.void,
     stop: () => Effect.void,
     currentConfig: Effect.succeed(Option.none()),

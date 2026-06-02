@@ -135,7 +135,7 @@ function makeTestInstance(input: MakeInstanceInput) {
 
   const instance = DesktopBackendManager.makeBackendInstance({
     id: DesktopBackendManager.PRIMARY_INSTANCE_ID,
-    label: "Windows",
+    label: Effect.succeed("Windows"),
     configResolve: Effect.succeed(input.config ?? baseConfig),
     ...(input.onReady ? { onReady: () => input.onReady! } : {}),
     ...(input.onShutdown ? { onShutdown: () => input.onShutdown! } : {}),

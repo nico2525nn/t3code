@@ -154,7 +154,7 @@ export const PRIMARY_INSTANCE_ID: BackendInstanceId = BackendInstanceId(
 // + UI something to route on.
 export interface DesktopBackendInstance {
   readonly id: BackendInstanceId;
-  readonly label: string;
+  readonly label: Effect.Effect<string>;
   readonly start: Effect.Effect<void>;
   readonly stop: (options?: { readonly timeout?: Duration.Duration }) => Effect.Effect<void>;
   readonly currentConfig: Effect.Effect<Option.Option<DesktopBackendStartConfig>>;
@@ -174,7 +174,7 @@ export interface DesktopBackendInstance {
 // concerns; other instances pass them as undefined.
 export interface BackendInstanceSpec {
   readonly id: BackendInstanceId;
-  readonly label: string;
+  readonly label: Effect.Effect<string>;
   // configResolve can now fail with PlatformError because the
   // bootstrap-token closure inside DesktopBackendConfiguration uses
   // crypto.randomBytes (Effect 4 beta.73 migration).

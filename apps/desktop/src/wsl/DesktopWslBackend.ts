@@ -148,7 +148,7 @@ export const layer = Layer.effect(
       const instance = yield* pool
         .register({
           id: targetId,
-          label: buildLabel(input.distro),
+          label: Effect.succeed(buildLabel(input.distro)),
           configResolve: configuration.resolveWsl({ port: allocatedPort, distro: input.distro }),
         })
         .pipe(

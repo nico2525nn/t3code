@@ -203,17 +203,13 @@ export const layer = Layer.effect(
     // primary instance uses.
     const factoryContext = yield* Effect.context<BackendInstanceFactoryRequirements>();
 
-    // Primary label is captured once per process. The configuration derives
-    // it from the same decision resolvePrimary makes (wsl-only + WSL actually
-    // available, else Windows), so the label always matches the backend that
-    // resolves — including the fall-back to Windows when WSL is unavailable.
-    // We don't react to runtime setting changes here: the wsl-only switch
-    // requires an app restart, so this reflects the mode the user is in.
-    const primaryLabel = yield* configuration.resolvePrimaryLabel;
-
     const primary = yield* DesktopBackendManager.makeBackendInstance({
       id: DesktopBackendManager.PRIMARY_INSTANCE_ID,
-      label: primaryLabel,
+      // Keep this lazy. The pool layer is initialized before startup loads
+      // persisted desktop settings, so resolving the primary label here would
+      // permanently capture DEFAULT_DESKTOP_SETTINGS and mislabel WSL-only
+      // primaries as Windows.
+      label: configuration.resolvePrimaryLabel,
       configResolve: configuration.resolvePrimary,
       // Window creation errors propagating out of handleBackendReady must
       // not block the readiness callback (that would prevent restartAttempt

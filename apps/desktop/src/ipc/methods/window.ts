@@ -77,7 +77,7 @@ export const getLocalEnvironmentBootstraps = makeSyncIpcMethod({
       const { bootstrap, httpBaseUrl } = config.value;
       bootstraps.push({
         id: instance.id,
-        label: instance.label,
+        label: yield* instance.label,
         httpBaseUrl: httpBaseUrl.href,
         wsBaseUrl: toWebSocketBaseUrl(httpBaseUrl),
         ...(bootstrap.desktopBootstrapToken
