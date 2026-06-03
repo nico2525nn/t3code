@@ -5,7 +5,7 @@
   "scripts": {
     "deploy": "node -- scripts/deploy.ts",
     "destroy": "alchemy destroy",
-    "test": "vitest run",
+    "test": "vp test run",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
