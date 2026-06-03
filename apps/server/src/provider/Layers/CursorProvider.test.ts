@@ -6,18 +6,16 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { describe, expect, it } from "vitest";
 import type * as EffectAcpSchema from "effect-acp/schema";
-import type { CursorSettings, ServerProviderModel } from "@t3tools/contracts";
+import type { CursorSettings } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
 
 import {
   buildCursorProviderSnapshot,
   buildCursorCapabilitiesFromConfigOptions,
   checkCursorProviderStatus,
-  discoverCursorModelCapabilitiesViaAcp,
   discoverCursorModelsViaAcp,
   getCursorFallbackModels,
   getCursorParameterizedModelPickerUnsupportedMessage,
-  mergeCursorDiscoveredModelCapabilities,
   parseCursorAboutOutput,
   parseCursorCliConfigChannel,
   parseCursorVersionDate,
@@ -302,8 +300,6 @@ const baseCursorSettings: CursorSettings = {
   customModels: [],
 };
 
-const emptyCapabilities = createModelCapabilities({ optionDescriptors: [] });
-
 describe("getCursorFallbackModels", () => {
   it("does not publish any built-in cursor models before ACP discovery", () => {
     expect(
@@ -486,101 +482,6 @@ describe("discoverCursorModelsViaAcp", () => {
 
     const exitLog = await runNode(waitForFileContent(exitLogPath));
     expect(exitLog).toContain("SIGTERM");
-  });
-});
-
-describe("discoverCursorModelCapabilitiesViaAcp", () => {
-  it("discovers model capabilities through Cursor's list_available_models extension method", async () => {
-    const { exitLogPath, wrapperPath } = await runNode(
-      makeExitLogFixture("cursor-capabilities-exit-log-"),
-    );
-    const existingModels: ReadonlyArray<ServerProviderModel> = [
-      { slug: "default", name: "Auto", isCustom: false, capabilities: emptyCapabilities },
-      { slug: "composer-2", name: "Composer 2", isCustom: false, capabilities: emptyCapabilities },
-      { slug: "gpt-5.4", name: "GPT-5.4", isCustom: false, capabilities: emptyCapabilities },
-      {
-        slug: "claude-opus-4-6",
-        name: "Opus 4.6",
-        isCustom: false,
-        capabilities: emptyCapabilities,
-      },
-    ];
-
-    const models = await Effect.runPromise(
-      discoverCursorModelCapabilitiesViaAcp(
-        {
-          enabled: true,
-          binaryPath: wrapperPath,
-          apiEndpoint: "",
-          customModels: [],
-        },
-        existingModels,
-      ).pipe(Effect.provide(NodeServices.layer)),
-    );
-
-    expect(models.map((model) => model.slug)).toEqual([
-      "default",
-      "composer-2",
-      "gpt-5.4",
-      "claude-opus-4-6",
-    ]);
-    expect(models.find((model) => model.slug === "gpt-5.4")?.capabilities).toEqual(
-      createModelCapabilities({
-        optionDescriptors: [
-          selectDescriptor("reasoning", "Reasoning", [
-            { id: "low", label: "Low" },
-            { id: "medium", label: "Medium", isDefault: true },
-            { id: "high", label: "High" },
-            { id: "xhigh", label: "Extra High" },
-          ]),
-          selectDescriptor("contextWindow", "Context", [
-            { id: "272k", label: "272K", isDefault: true },
-            { id: "1m", label: "1M" },
-          ]),
-          booleanDescriptor("fastMode", "Fast", false),
-        ],
-      }),
-    );
-
-    const exitLog = await runNode(waitForFileContent(exitLogPath));
-    expect(exitLog.match(/SIGTERM/g)?.length ?? 0).toBe(1);
-  });
-});
-
-describe("mergeCursorDiscoveredModelCapabilities", () => {
-  it("keeps existing built-in models when the discovered response is partial", () => {
-    const reasoningCapabilities = createModelCapabilities({
-      optionDescriptors: [
-        selectDescriptor("reasoning", "Reasoning", [
-          { id: "low", label: "Low" },
-          { id: "high", label: "High", isDefault: true },
-        ]),
-      ],
-    });
-    const existingModels: ReadonlyArray<ServerProviderModel> = [
-      { slug: "default", name: "Auto", isCustom: false, capabilities: emptyCapabilities },
-      { slug: "composer-2", name: "Composer 2", isCustom: false, capabilities: emptyCapabilities },
-      {
-        slug: "custom-local",
-        name: "custom-local",
-        isCustom: true,
-        capabilities: emptyCapabilities,
-      },
-    ];
-
-    const merged = mergeCursorDiscoveredModelCapabilities(existingModels, [
-      {
-        slug: "composer-2",
-        name: "Composer 2",
-        isCustom: false,
-        capabilities: reasoningCapabilities,
-      },
-    ]);
-
-    expect(merged.map((model) => model.slug)).toEqual(["default", "composer-2"]);
-    expect(merged.find((model) => model.slug === "composer-2")?.capabilities).toEqual(
-      reasoningCapabilities,
-    );
   });
 });
 

@@ -367,50 +367,6 @@ function buildCursorDiscoveredModels(
   });
 }
 
-function hasCursorModelCapabilities(model: Pick<ServerProviderModel, "capabilities">): boolean {
-  return (model.capabilities?.optionDescriptors?.length ?? 0) > 0;
-}
-
-export function mergeCursorDiscoveredModelCapabilities(
-  existingModels: ReadonlyArray<ServerProviderModel>,
-  discoveredModels: ReadonlyArray<ServerProviderModel>,
-): ReadonlyArray<ServerProviderModel> {
-  const discoveredBySlug = new Map(
-    discoveredModels.filter((model) => !model.isCustom).map((model) => [model.slug, model]),
-  );
-  const seen = new Set<string>();
-  const mergedModels: Array<ServerProviderModel> = [];
-
-  for (const model of existingModels) {
-    if (model.isCustom || seen.has(model.slug)) {
-      continue;
-    }
-    seen.add(model.slug);
-    const discovered = discoveredBySlug.get(model.slug);
-    mergedModels.push(
-      discovered
-        ? {
-            ...model,
-            name: discovered.name || model.name,
-            capabilities: hasCursorModelCapabilities(discovered)
-              ? discovered.capabilities
-              : model.capabilities,
-          }
-        : model,
-    );
-  }
-
-  for (const model of discoveredModels) {
-    if (model.isCustom || seen.has(model.slug)) {
-      continue;
-    }
-    seen.add(model.slug);
-    mergedModels.push(model);
-  }
-
-  return mergedModels;
-}
-
 function buildCursorDiscoveredModelsFromAvailableModelsResponse(
   response: typeof CursorListAvailableModelsResponse.Type,
 ): ReadonlyArray<ServerProviderModel> {
@@ -603,19 +559,6 @@ export const discoverCursorModelsViaAcp = (
   cursorSettings: CursorSettings,
   environment: NodeJS.ProcessEnv = process.env,
 ) => discoverCursorModelsViaListAvailableModels(cursorSettings, environment);
-
-export const discoverCursorModelCapabilitiesViaAcp = (
-  cursorSettings: CursorSettings,
-  existingModels: ReadonlyArray<ServerProviderModel>,
-  environment: NodeJS.ProcessEnv = process.env,
-) =>
-  discoverCursorModelsViaListAvailableModels(cursorSettings, environment).pipe(
-    Effect.withSpan("cursor-acp-model-capability-discovery", {
-      attributes: {
-        "cursor.acp.existing_model_count": existingModels.length,
-      },
-    }),
-  );
 
 export function getCursorFallbackModels(
   cursorSettings: Pick<CursorSettings, "customModels">,
@@ -1147,36 +1090,30 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
   });
 });
 
-export function hasUncapturedCursorModels(snapshot: Pick<ServerProvider, "models">): boolean {
-  return snapshot.models.some((model) => !model.isCustom && !hasCursorModelCapabilities(model));
-}
-
 /**
- * Background capability enrichment for a Cursor snapshot.
+ * Background maintenance enrichment for a Cursor snapshot.
  *
  * Used by `CursorDriver` as the `makeManagedServerProvider.enrichSnapshot`
- * hook: runs the slow ACP per-model capability probe, and republishes the
- * snapshot through `publishSnapshot` when new capabilities arrive. Skips
- * the probe when the provider is disabled, unauthenticated, or has no
- * uncaptured models. Keeps `EMPTY_CAPABILITIES` and the `PROVIDER` literal
- * private to this module.
+ * hook: republishes update/version advisory metadata without performing any
+ * model or capability discovery. Cursor model data comes exclusively from
+ * `cursor/list_available_models` during provider status checks.
  */
 export const enrichCursorSnapshot = (input: {
   readonly settings: CursorSettings;
-  readonly environment?: NodeJS.ProcessEnv;
   readonly snapshot: ServerProvider;
   readonly maintenanceCapabilities: ProviderMaintenanceCapabilities;
   readonly publishSnapshot: (snapshot: ServerProvider) => Effect.Effect<void>;
   readonly stampIdentity?: (snapshot: ServerProvider) => ServerProvider;
   readonly httpClient: HttpClient.HttpClient;
-}): Effect.Effect<void, never, ChildProcessSpawner.ChildProcessSpawner> => {
+}): Effect.Effect<void> => {
   const { settings, snapshot, publishSnapshot } = input;
   const stampIdentity = input.stampIdentity ?? ((value) => value);
 
-  const enrichVersionAdvisory = enrichProviderSnapshotWithVersionAdvisory(
-    snapshot,
-    input.maintenanceCapabilities,
-  ).pipe(
+  if (!settings.enabled || snapshot.auth.status === "unauthenticated") {
+    return Effect.void;
+  }
+
+  return enrichProviderSnapshotWithVersionAdvisory(snapshot, input.maintenanceCapabilities).pipe(
     Effect.provideService(HttpClient.HttpClient, input.httpClient),
     Effect.flatMap((enrichedSnapshot) =>
       publishSnapshot(stampIdentity(enrichedSnapshot)).pipe(Effect.as(enrichedSnapshot)),
@@ -1184,48 +1121,7 @@ export const enrichCursorSnapshot = (input: {
     Effect.catchCause((cause) =>
       Effect.logWarning("Cursor version advisory enrichment failed", {
         cause: Cause.pretty(cause),
-      }).pipe(Effect.as(snapshot)),
+      }).pipe(Effect.asVoid),
     ),
-  );
-
-  return enrichVersionAdvisory.pipe(
-    Effect.flatMap((baseSnapshot) => {
-      if (
-        !settings.enabled ||
-        baseSnapshot.auth.status === "unauthenticated" ||
-        !hasUncapturedCursorModels(baseSnapshot)
-      ) {
-        return Effect.void;
-      }
-
-      return discoverCursorModelCapabilitiesViaAcp(
-        settings,
-        baseSnapshot.models,
-        input.environment,
-      ).pipe(
-        Effect.flatMap((discoveredModels) => {
-          if (discoveredModels.length === 0) {
-            return Effect.void;
-          }
-          return publishSnapshot(
-            stampIdentity({
-              ...baseSnapshot,
-              models: providerModelsFromSettings(
-                mergeCursorDiscoveredModelCapabilities(baseSnapshot.models, discoveredModels),
-                PROVIDER,
-                settings.customModels,
-                EMPTY_CAPABILITIES,
-              ),
-            }),
-          );
-        }),
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Cursor ACP background capability enrichment failed", {
-            models: baseSnapshot.models.map((model) => model.slug),
-            cause: Cause.pretty(cause),
-          }).pipe(Effect.asVoid),
-        ),
-      );
-    }),
   );
 };
