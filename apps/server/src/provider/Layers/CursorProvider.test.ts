@@ -12,12 +12,12 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import {
   buildCursorProviderSnapshot,
   buildCursorCapabilitiesFromConfigOptions,
-  buildCursorDiscoveredModelsFromConfigOptions,
   checkCursorProviderStatus,
   discoverCursorModelCapabilitiesViaAcp,
   discoverCursorModelsViaAcp,
   getCursorFallbackModels,
   getCursorParameterizedModelPickerUnsupportedMessage,
+  mergeCursorDiscoveredModelCapabilities,
   parseCursorAboutOutput,
   parseCursorCliConfigChannel,
   parseCursorVersionDate,
@@ -295,48 +295,6 @@ const parameterizedClaudeModelOptionConfigOptions = [
   },
 ] satisfies ReadonlyArray<EffectAcpSchema.SessionConfigOption>;
 
-const sessionNewCursorConfigOptions = [
-  {
-    type: "select",
-    currentValue: "agent",
-    options: [
-      { name: "Agent", value: "agent", description: "Full agent capabilities with tool access" },
-    ],
-    category: "mode",
-    id: "mode",
-    name: "Mode",
-    description: "Controls how the agent executes tasks",
-  },
-  {
-    type: "select",
-    currentValue: "composer-2",
-    options: [
-      { name: "Auto", value: "default" },
-      { name: "Composer 2", value: "composer-2" },
-      { name: "GPT-5.4", value: "gpt-5.4" },
-      { name: "Sonnet 4.6", value: "claude-sonnet-4-6" },
-      { name: "Opus 4.6", value: "claude-opus-4-6" },
-      { name: "Codex 5.3 Spark", value: "gpt-5.3-codex-spark" },
-    ],
-    category: "model",
-    id: "model",
-    name: "Model",
-    description: "Controls which model is used for responses",
-  },
-  {
-    type: "select",
-    currentValue: "true",
-    options: [
-      { name: "Off", value: "false" },
-      { name: "Fast", value: "true" },
-    ],
-    category: "model_config",
-    id: "fast",
-    name: "Fast",
-    description: "Faster speeds.",
-  },
-] satisfies ReadonlyArray<EffectAcpSchema.SessionConfigOption>;
-
 const baseCursorSettings: CursorSettings = {
   enabled: true,
   binaryPath: "agent",
@@ -459,51 +417,6 @@ describe("buildCursorCapabilitiesFromConfigOptions", () => {
         ],
       }),
     );
-  });
-});
-
-describe("buildCursorDiscoveredModelsFromConfigOptions", () => {
-  it("publishes ACP model choices immediately from session/new config options", () => {
-    expect(buildCursorDiscoveredModelsFromConfigOptions(sessionNewCursorConfigOptions)).toEqual([
-      {
-        slug: "default",
-        name: "Auto",
-        isCustom: false,
-        capabilities: emptyCapabilities,
-      },
-      {
-        slug: "composer-2",
-        name: "Composer 2",
-        isCustom: false,
-        capabilities: createModelCapabilities({
-          optionDescriptors: [booleanDescriptor("fastMode", "Fast", true)],
-        }),
-      },
-      {
-        slug: "gpt-5.4",
-        name: "GPT-5.4",
-        isCustom: false,
-        capabilities: emptyCapabilities,
-      },
-      {
-        slug: "claude-sonnet-4-6",
-        name: "Sonnet 4.6",
-        isCustom: false,
-        capabilities: emptyCapabilities,
-      },
-      {
-        slug: "claude-opus-4-6",
-        name: "Opus 4.6",
-        isCustom: false,
-        capabilities: emptyCapabilities,
-      },
-      {
-        slug: "gpt-5.3-codex-spark",
-        name: "Codex 5.3 Spark",
-        isCustom: false,
-        capabilities: emptyCapabilities,
-      },
-    ]);
   });
 });
 
@@ -631,6 +544,43 @@ describe("discoverCursorModelCapabilitiesViaAcp", () => {
 
     const exitLog = await runNode(waitForFileContent(exitLogPath));
     expect(exitLog.match(/SIGTERM/g)?.length ?? 0).toBe(1);
+  });
+});
+
+describe("mergeCursorDiscoveredModelCapabilities", () => {
+  it("keeps existing built-in models when the discovered response is partial", () => {
+    const reasoningCapabilities = createModelCapabilities({
+      optionDescriptors: [
+        selectDescriptor("reasoning", "Reasoning", [
+          { id: "low", label: "Low" },
+          { id: "high", label: "High", isDefault: true },
+        ]),
+      ],
+    });
+    const existingModels: ReadonlyArray<ServerProviderModel> = [
+      { slug: "default", name: "Auto", isCustom: false, capabilities: emptyCapabilities },
+      { slug: "composer-2", name: "Composer 2", isCustom: false, capabilities: emptyCapabilities },
+      {
+        slug: "custom-local",
+        name: "custom-local",
+        isCustom: true,
+        capabilities: emptyCapabilities,
+      },
+    ];
+
+    const merged = mergeCursorDiscoveredModelCapabilities(existingModels, [
+      {
+        slug: "composer-2",
+        name: "Composer 2",
+        isCustom: false,
+        capabilities: reasoningCapabilities,
+      },
+    ]);
+
+    expect(merged.map((model) => model.slug)).toEqual(["default", "composer-2"]);
+    expect(merged.find((model) => model.slug === "composer-2")?.capabilities).toEqual(
+      reasoningCapabilities,
+    );
   });
 });
 

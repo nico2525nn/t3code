@@ -154,12 +154,6 @@ function normalizeCursorReasoningValue(value: string | null | undefined): string
   }
 }
 
-function findCursorModelConfigOption(
-  configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
-): EffectAcpSchema.SessionConfigOption | undefined {
-  return configOptions.find((option) => option.category === "model");
-}
-
 function getCursorConfigOptionCategory(option: EffectAcpSchema.SessionConfigOption): string {
   return option.category?.trim().toLowerCase() ?? "";
 }
@@ -377,33 +371,44 @@ function hasCursorModelCapabilities(model: Pick<ServerProviderModel, "capabiliti
   return (model.capabilities?.optionDescriptors?.length ?? 0) > 0;
 }
 
-export function buildCursorDiscoveredModelsFromConfigOptions(
-  configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption> | null | undefined,
+export function mergeCursorDiscoveredModelCapabilities(
+  existingModels: ReadonlyArray<ServerProviderModel>,
+  discoveredModels: ReadonlyArray<ServerProviderModel>,
 ): ReadonlyArray<ServerProviderModel> {
-  if (!configOptions || configOptions.length === 0) {
-    return [];
-  }
-
-  const modelOption = findCursorModelConfigOption(configOptions);
-  const modelChoices = flattenSessionConfigSelectOptions(modelOption);
-  if (!modelOption || modelChoices.length === 0) {
-    return [];
-  }
-
-  const currentModelValue =
-    modelOption.type === "select" ? modelOption.currentValue?.trim() || undefined : undefined;
-  const currentModelCapabilities = buildCursorCapabilitiesFromConfigOptions(configOptions);
-
-  return buildCursorDiscoveredModels(
-    modelChoices.map((modelChoice) => ({
-      slug: modelChoice.value.trim(),
-      name: modelChoice.name.trim(),
-      capabilities:
-        currentModelValue === modelChoice.value.trim()
-          ? currentModelCapabilities
-          : EMPTY_CAPABILITIES,
-    })),
+  const discoveredBySlug = new Map(
+    discoveredModels.filter((model) => !model.isCustom).map((model) => [model.slug, model]),
   );
+  const seen = new Set<string>();
+  const mergedModels: Array<ServerProviderModel> = [];
+
+  for (const model of existingModels) {
+    if (model.isCustom || seen.has(model.slug)) {
+      continue;
+    }
+    seen.add(model.slug);
+    const discovered = discoveredBySlug.get(model.slug);
+    mergedModels.push(
+      discovered
+        ? {
+            ...model,
+            name: discovered.name || model.name,
+            capabilities: hasCursorModelCapabilities(discovered)
+              ? discovered.capabilities
+              : model.capabilities,
+          }
+        : model,
+    );
+  }
+
+  for (const model of discoveredModels) {
+    if (model.isCustom || seen.has(model.slug)) {
+      continue;
+    }
+    seen.add(model.slug);
+    mergedModels.push(model);
+  }
+
+  return mergedModels;
 }
 
 function buildCursorDiscoveredModelsFromAvailableModelsResponse(
@@ -597,21 +602,7 @@ const discoverCursorModelsViaListAvailableModels = (
 export const discoverCursorModelsViaAcp = (
   cursorSettings: CursorSettings,
   environment: NodeJS.ProcessEnv = process.env,
-) =>
-  discoverCursorModelsViaListAvailableModels(cursorSettings, environment).pipe(
-    Effect.catchCause(() =>
-      withCursorAcpProbeRuntime(
-        cursorSettings,
-        (acp) =>
-          Effect.map(acp.start(), (started) =>
-            buildCursorDiscoveredModelsFromConfigOptions(
-              started.sessionSetupResult.configOptions ?? [],
-            ),
-          ),
-        environment,
-      ),
-    ),
-  );
+) => discoverCursorModelsViaListAvailableModels(cursorSettings, environment);
 
 export const discoverCursorModelCapabilitiesViaAcp = (
   cursorSettings: CursorSettings,
@@ -1220,7 +1211,7 @@ export const enrichCursorSnapshot = (input: {
             stampIdentity({
               ...baseSnapshot,
               models: providerModelsFromSettings(
-                discoveredModels,
+                mergeCursorDiscoveredModelCapabilities(baseSnapshot.models, discoveredModels),
                 PROVIDER,
                 settings.customModels,
                 EMPTY_CAPABILITIES,
