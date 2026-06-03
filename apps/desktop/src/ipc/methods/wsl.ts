@@ -63,7 +63,20 @@ export const setWslDistro = makeIpcMethod({
   handler: Effect.fn("desktop.ipc.wsl.setDistro")(function* (distro) {
     const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
     const wslBackend = yield* DesktopWslBackend.DesktopWslBackend;
-    yield* appSettings.setWslDistro(distro);
+    const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
+    const change = yield* appSettings.setWslDistro(distro);
+    const settings = yield* appSettings.get;
+    // In wsl-only mode the pool's primary IS the WSL backend, and its distro
+    // is captured when that backend starts. reconcile only manages the
+    // dual-mode secondary (it skips registering one when wslOnly), so it can't
+    // swap the primary's distro — relaunch so the primary comes back up on the
+    // newly selected distro, same as the wsl-only toggle. In dual-backend mode
+    // the secondary wsl:<distro> instance is swapped by reconcile instead.
+    if (settings.wslOnly && change.changed) {
+      const state = yield* readWslState;
+      yield* lifecycle.relaunch(`wslDistro=${distro ?? "default"}`);
+      return state;
+    }
     yield* wslBackend.reconcile;
     return yield* readWslState;
   }),

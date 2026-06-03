@@ -2617,7 +2617,11 @@ export function ConnectionsSettings() {
       const defaultDistroName =
         desktopWslState.distros.find((distro) => distro.isDefault)?.name ?? null;
       if (value === BACKEND_VALUE_WSL_OFF) {
-        if (!desktopWslState.enabled) return;
+        // Match the recovery row's visibility (`enabled || wslOnly`): when WSL
+        // went unavailable while wsl-only was persisted, `enabled` can be false
+        // while `wslOnly` is true, and the "Switch to Windows" button must
+        // still clear that state instead of silently no-op'ing.
+        if (!desktopWslState.enabled && !desktopWslState.wslOnly) return;
         const wasWslOnly = desktopWslState.wslOnly;
         // Confirm when there's WSL state to lose, OR when wsl-only is
         // on (turning the only running backend off needs to switch
@@ -2643,7 +2647,11 @@ export function ConnectionsSettings() {
       // the user re-picked the row that's already selected.
       const resolvedCurrent = desktopWslState.distro ?? defaultDistroName;
       if (resolvedCurrent === resolvedNext) return;
-      if (hasWslRegistrationToLose) {
+      // Confirm when there's WSL registration to lose, OR in wsl-only mode:
+      // there the primary IS the WSL backend, so a distro change relaunches
+      // the app (the IPC handler does this) rather than swapping a secondary,
+      // and the user should see that coming.
+      if (hasWslRegistrationToLose || desktopWslState.wslOnly) {
         setPendingWslChange({ kind: "distro", nextDistro });
         return;
       }
