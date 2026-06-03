@@ -1,4 +1,4 @@
-import { type ReactNode, type RefObject, useEffect, useEffectEvent, useRef } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useRef } from "react";
 
 import { type SlowRpcAckRequest, useSlowRpcAckRequests } from "../rpc/requestLatencyState";
 import {
@@ -151,15 +151,7 @@ export function shouldRestartStalledReconnect(
   );
 }
 
-interface WebSocketConnectionRefs {
-  readonly lastForcedReconnectAtRef: RefObject<number>;
-  readonly previousDisconnectedAtRef: RefObject<string | null>;
-  readonly previousUiStateRef: RefObject<WsConnectionUiState>;
-  readonly toastIdRef: RefObject<ReturnType<typeof toastManager.add> | null>;
-  readonly toastResetTimerRef: RefObject<number | null>;
-}
-
-function useWebSocketConnectionRefs(status: WsConnectionStatus): WebSocketConnectionRefs {
+function useWebSocketConnectionCoordinator(status: WsConnectionStatus) {
   const lastForcedReconnectAtRef = useRef(0);
   const toastIdRef = useRef<ReturnType<typeof toastManager.add> | null>(null);
   const toastResetTimerRef = useRef<number | null>(null);
@@ -169,19 +161,6 @@ function useWebSocketConnectionRefs(status: WsConnectionStatus): WebSocketConnec
     previousUiStateRef.current = getWsConnectionUiState(status);
   }
 
-  return {
-    lastForcedReconnectAtRef,
-    previousDisconnectedAtRef,
-    previousUiStateRef: previousUiStateRef as RefObject<WsConnectionUiState>,
-    toastIdRef,
-    toastResetTimerRef,
-  };
-}
-
-function useWebSocketReconnectActions(
-  lastForcedReconnectAtRef: RefObject<number>,
-  toastResetTimerRef: RefObject<number | null>,
-) {
   const runReconnect = useEffectEvent((showFailureToast: boolean) => {
     if (toastResetTimerRef.current !== null) {
       window.clearTimeout(toastResetTimerRef.current);
@@ -229,18 +208,6 @@ function useWebSocketReconnectActions(
     runReconnect(false);
   });
 
-  return {
-    runReconnect,
-    syncBrowserOnlineStatus,
-    triggerAutoReconnect,
-    triggerManualReconnect,
-  };
-}
-
-function useWebSocketAutoReconnectEvents(
-  syncBrowserOnlineStatus: () => void,
-  triggerAutoReconnect: (trigger: WsAutoReconnectTrigger) => void,
-) {
   useEffect(() => {
     const handleOnline = () => {
       triggerAutoReconnect("online");
@@ -259,12 +226,7 @@ function useWebSocketAutoReconnectEvents(
       window.removeEventListener("focus", handleFocus);
     };
   }, []);
-}
 
-function useStalledReconnectGuard(
-  status: WsConnectionStatus,
-  runReconnect: (showFailureToast: boolean) => void,
-) {
   useEffect(() => {
     if (
       status.reconnectPhase !== "waiting" ||
@@ -296,17 +258,10 @@ function useStalledReconnectGuard(
     status.reconnectAttemptCount,
     status.reconnectPhase,
   ]);
-}
 
-function useWebSocketConnectionToast(
-  status: WsConnectionStatus,
-  triggerManualReconnect: () => void,
-  refs: WebSocketConnectionRefs,
-) {
-  const { previousDisconnectedAtRef, previousUiStateRef, toastIdRef, toastResetTimerRef } = refs;
   useEffect(() => {
     const uiState = getWsConnectionUiState(status);
-    const previousUiState = previousUiStateRef.current;
+    const previousUiState = previousUiStateRef.current ?? uiState;
     const previousDisconnectedAt = previousDisconnectedAtRef.current;
     const shouldShowReconnectToast = status.hasConnected && uiState === "reconnecting";
     const shouldShowOfflineToast = uiState === "offline" && status.disconnectedAt !== null;
@@ -400,13 +355,12 @@ function useWebSocketConnectionToast(
     previousUiStateRef.current = uiState;
     previousDisconnectedAtRef.current = status.disconnectedAt;
   }, [status]);
-}
 
-function useToastResetTimerCleanup(toastResetTimerRef: RefObject<number | null>) {
   useEffect(() => {
+    const timerRef = toastResetTimerRef;
     return () => {
-      if (toastResetTimerRef.current !== null) {
-        window.clearTimeout(toastResetTimerRef.current);
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
       }
     };
   }, []);
@@ -414,14 +368,8 @@ function useToastResetTimerCleanup(toastResetTimerRef: RefObject<number | null>)
 
 export function WebSocketConnectionCoordinator() {
   const status = useWsConnectionStatus();
-  const refs = useWebSocketConnectionRefs(status);
-  const { runReconnect, syncBrowserOnlineStatus, triggerAutoReconnect, triggerManualReconnect } =
-    useWebSocketReconnectActions(refs.lastForcedReconnectAtRef, refs.toastResetTimerRef);
 
-  useWebSocketAutoReconnectEvents(syncBrowserOnlineStatus, triggerAutoReconnect);
-  useStalledReconnectGuard(status, runReconnect);
-  useWebSocketConnectionToast(status, triggerManualReconnect, refs);
-  useToastResetTimerCleanup(refs.toastResetTimerRef);
+  useWebSocketConnectionCoordinator(status);
 
   return null;
 }
