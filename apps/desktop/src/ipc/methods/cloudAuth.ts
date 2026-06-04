@@ -2,6 +2,10 @@ import {
   DesktopCloudAuthFetchInputSchema,
   DesktopCloudAuthFetchResultSchema,
 } from "@t3tools/contracts";
+import {
+  clerkFrontendApiHostnameFromPublishableKey,
+  isAllowedClerkFrontendApiHostname,
+} from "@t3tools/shared/relayAuth";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -13,6 +17,8 @@ import * as DesktopCloudAuthTokenStore from "../../app/DesktopCloudAuthTokenStor
 import * as IpcChannels from "../channels.ts";
 import { makeIpcMethod } from "../DesktopIpc.ts";
 
+declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
+
 export class DesktopCloudAuthFetchError extends Data.TaggedError("DesktopCloudAuthFetchError")<{
   readonly reason: string;
   readonly cause?: unknown;
@@ -22,10 +28,21 @@ export class DesktopCloudAuthFetchError extends Data.TaggedError("DesktopCloudAu
   }
 }
 
-const allowedClerkFrontendApiHosts = (hostname: string): boolean =>
-  hostname.endsWith(".clerk.accounts.dev") || hostname.endsWith(".clerk.accounts.com");
+function configuredClerkFrontendApiHostname(): string | null {
+  const publishableKey =
+    process.env.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() ||
+    (typeof __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__ === "undefined"
+      ? ""
+      : __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__.trim());
+  if (!publishableKey) return null;
 
-function validateClerkFrontendApiUrl(rawUrl: string): URL {
+  return clerkFrontendApiHostnameFromPublishableKey(publishableKey);
+}
+
+const allowedClerkFrontendApiHosts = (hostname: string): boolean =>
+  isAllowedClerkFrontendApiHostname(hostname, configuredClerkFrontendApiHostname());
+
+export function validateClerkFrontendApiUrl(rawUrl: string): URL {
   const url = new URL(rawUrl);
   if (url.protocol !== "https:" || !allowedClerkFrontendApiHosts(url.hostname)) {
     throw new DesktopCloudAuthFetchError({

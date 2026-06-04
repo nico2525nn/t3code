@@ -20,6 +20,8 @@ import {
   RelayEnvironmentHealthResponseProofPayload,
   type RelayEnvironmentHealthResponse as RelayEnvironmentHealthResponseShape,
   RelayEnvironmentConfigRequest,
+  RelayEnvironmentLinkChallengeResponse,
+  RelayEnvironmentLinkResponse,
   RelayEnvironmentMintResponseProofPayload,
   type RelayEnvironmentMintResponse as RelayEnvironmentMintResponseShape,
   RelayEnvironmentLinkProof,
@@ -46,6 +48,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as HttpEffect from "effect/unstable/http/HttpEffect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
@@ -69,6 +72,9 @@ import {
   RELAY_ISSUER_SECRET,
   RELAY_URL_SECRET,
 } from "./config.ts";
+import { relayUrlConfig } from "./publicConfig.ts";
+import * as CliState from "./CliState.ts";
+import * as CliTokenManager from "./CliTokenManager.ts";
 import { getOrCreateEnvironmentKeyPairFromSecretStore } from "./environmentKeys.ts";
 
 const CLOUD_MINT_NONCE_PREFIX = "cloud-mint-nonce-";
@@ -94,6 +100,15 @@ const failEnvironmentCloudInternalError =
     Effect.logError(message, { cause }).pipe(
       Effect.flatMap(() => Effect.fail(new EnvironmentHttpInternalServerError({ message }))),
     );
+
+const requireRelayUrl = relayUrlConfig.pipe(
+  Effect.mapError(
+    () =>
+      new EnvironmentHttpInternalServerError({
+        message: "T3CODE_RELAY_URL must be configured as a secure absolute HTTPS origin.",
+      }),
+  ),
+);
 
 function bytesToString(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
@@ -322,59 +337,83 @@ interface CloudHttpDependencies {
   readonly environment: ServerEnvironmentShape;
   readonly endpointRuntime: CloudManagedEndpointRuntimeShape;
   readonly environmentAuth: EnvironmentAuth.EnvironmentAuthShape;
+  readonly cliTokenManager: CliTokenManager.CloudCliTokenManagerShape;
+  readonly httpClient: HttpClient.HttpClient;
 }
+
+const cloudHttpDependencies = Effect.gen(function* () {
+  return {
+    secrets: yield* ServerSecretStore.ServerSecretStore,
+    environment: yield* ServerEnvironment,
+    endpointRuntime: yield* CloudManagedEndpointRuntime,
+    environmentAuth: yield* EnvironmentAuth.EnvironmentAuth,
+    cliTokenManager: yield* CliTokenManager.CloudCliTokenManager,
+    httpClient: yield* HttpClient.HttpClient,
+  } satisfies CloudHttpDependencies;
+});
+
+const makeCloudLinkProof = Effect.fn("environment.cloud.makeLinkProof")(function* (
+  dependencies: CloudHttpDependencies,
+  request: RelayLinkProofRequest,
+  requestUrl: string,
+) {
+  const keyPair = yield* getOrCreateEnvironmentKeyPairFromSecretStore(dependencies.secrets);
+  if (
+    !providerKindMatchesRequestedLinkScopes(request) ||
+    !isAllowedEndpointOrigin({
+      origin: request.origin,
+      requestUrl,
+    })
+  ) {
+    return yield* new EnvironmentHttpBadRequestError({
+      message: "Invalid managed endpoint origin.",
+    });
+  }
+  const now = yield* DateTime.now;
+  const expiresAt = DateTime.add(now, { minutes: 5 });
+  const nowSeconds = Math.floor(now.epochMilliseconds / 1_000);
+  const descriptor = yield* dependencies.environment.getDescriptor;
+  const payload = {
+    iss: `t3-env:${descriptor.environmentId}`,
+    aud: normalizeRelayIssuer(request.relayIssuer),
+    sub: descriptor.environmentId,
+    jti: yield* Crypto.Crypto.pipe(Effect.flatMap((crypto) => crypto.randomUUIDv4)),
+    iat: nowSeconds,
+    exp: Math.floor(expiresAt.epochMilliseconds / 1_000),
+    challenge: request.challenge,
+    descriptor,
+    environmentId: descriptor.environmentId,
+    environmentPublicKey: normalizePemForSignedPayload(keyPair.publicKey),
+    endpoint: request.endpoint,
+    origin: request.origin,
+    scopes: ["agent_activity_notifications", "managed_tunnels"],
+  } satisfies RelayEnvironmentLinkProofPayload;
+  return yield* signRelayJwt({
+    privateKey: keyPair.privateKey,
+    typ: RELAY_LINK_PROOF_TYP,
+    payload,
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new EnvironmentAuth.ServerAuthInternalError({
+          message: "Failed to sign cloud link JWT.",
+          cause,
+        }),
+    ),
+  );
+});
 
 const cloudLinkProofHandler = Effect.fn("environment.cloud.linkProof")(
   function* (dependencies: CloudHttpDependencies, request: RelayLinkProofRequest) {
     yield* requireEnvironmentScope(AuthRelayWriteScope);
     const httpRequest = yield* HttpServerRequest.HttpServerRequest;
-    const keyPair = yield* getOrCreateEnvironmentKeyPairFromSecretStore(dependencies.secrets);
     const requestUrl = requestAbsoluteUrl(httpRequest);
-    if (
-      requestUrl === null ||
-      hasForwardedAuthorityHeaders(httpRequest) ||
-      !providerKindMatchesRequestedLinkScopes(request) ||
-      !isAllowedEndpointOrigin({
-        origin: request.origin,
-        requestUrl,
-      })
-    ) {
+    if (requestUrl === null || hasForwardedAuthorityHeaders(httpRequest)) {
       return yield* new EnvironmentHttpBadRequestError({
         message: "Invalid managed endpoint origin.",
       });
     }
-    const now = yield* DateTime.now;
-    const expiresAt = DateTime.add(now, { minutes: 5 });
-    const nowSeconds = Math.floor(now.epochMilliseconds / 1_000);
-    const descriptor = yield* dependencies.environment.getDescriptor;
-    const payload = {
-      iss: `t3-env:${descriptor.environmentId}`,
-      aud: normalizeRelayIssuer(request.relayIssuer),
-      sub: descriptor.environmentId,
-      jti: yield* Crypto.Crypto.pipe(Effect.flatMap((crypto) => crypto.randomUUIDv4)),
-      iat: nowSeconds,
-      exp: Math.floor(expiresAt.epochMilliseconds / 1_000),
-      challenge: request.challenge,
-      descriptor,
-      environmentId: descriptor.environmentId,
-      environmentPublicKey: normalizePemForSignedPayload(keyPair.publicKey),
-      endpoint: request.endpoint,
-      origin: request.origin,
-      scopes: ["agent_activity_notifications", "managed_tunnels"],
-    } satisfies RelayEnvironmentLinkProofPayload;
-    const proof = yield* signRelayJwt({
-      privateKey: keyPair.privateKey,
-      typ: RELAY_LINK_PROOF_TYP,
-      payload,
-    }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new EnvironmentAuth.ServerAuthInternalError({
-            message: "Failed to sign cloud link JWT.",
-            cause,
-          }),
-      ),
-    );
+    const proof = yield* makeCloudLinkProof(dependencies, request, requestUrl);
     yield* appendCloudCredentialResponseHeaders;
     return proof satisfies RelayEnvironmentLinkProof;
   },
@@ -389,51 +428,55 @@ const cloudLinkProofHandler = Effect.fn("environment.cloud.linkProof")(
   }),
 );
 
+const applyCloudRelayConfig = Effect.fn("environment.cloud.applyRelayConfig")(function* (
+  dependencies: CloudHttpDependencies,
+  payload: RelayEnvironmentConfigRequest,
+) {
+  yield* validateRelayConfigPayload(payload);
+  yield* validateLinkedCloudUser({
+    secrets: dependencies.secrets,
+    cloudUserId: payload.cloudUserId,
+  });
+  yield* validateCloudMintPublicKey(payload.cloudMintPublicKey);
+  const endpointRuntimeStatus = yield* dependencies.endpointRuntime.applyConfig(
+    payload.endpointRuntime,
+  );
+  const ok =
+    endpointRuntimeStatus.status === "disabled" || endpointRuntimeStatus.status === "running";
+  if (!ok) {
+    return yield* new EnvironmentCloudEndpointUnavailableError({
+      message: "Managed endpoint runtime could not be started.",
+      endpointRuntimeStatus,
+    });
+  }
+
+  yield* dependencies.secrets.set(RELAY_URL_SECRET, stringToBytes(payload.relayUrl));
+  yield* dependencies.secrets.set(
+    RELAY_ISSUER_SECRET,
+    stringToBytes(payload.relayIssuer ?? payload.relayUrl),
+  );
+  yield* dependencies.secrets.set(CLOUD_LINKED_USER_ID, stringToBytes(payload.cloudUserId));
+  yield* dependencies.secrets.set(
+    RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
+    stringToBytes(payload.environmentCredential),
+  );
+  yield* dependencies.secrets.set(CLOUD_MINT_PUBLIC_KEY, stringToBytes(payload.cloudMintPublicKey));
+  if (payload.endpointRuntime) {
+    const endpointRuntimeJson = yield* encodeEndpointRuntimeConfigJson(payload.endpointRuntime);
+    yield* dependencies.secrets.set(
+      CLOUD_ENDPOINT_RUNTIME_CONFIG,
+      stringToBytes(endpointRuntimeJson),
+    );
+  } else {
+    yield* dependencies.secrets.remove(CLOUD_ENDPOINT_RUNTIME_CONFIG);
+  }
+  return { ok, endpointRuntimeStatus } satisfies EnvironmentCloudRelayConfigResult;
+});
+
 const cloudRelayConfigHandler = Effect.fn("environment.cloud.relayConfig")(
   function* (dependencies: CloudHttpDependencies, payload: RelayEnvironmentConfigRequest) {
     yield* requireEnvironmentScope(AuthRelayWriteScope);
-    yield* validateRelayConfigPayload(payload);
-    yield* validateLinkedCloudUser({
-      secrets: dependencies.secrets,
-      cloudUserId: payload.cloudUserId,
-    });
-    yield* validateCloudMintPublicKey(payload.cloudMintPublicKey);
-    const endpointRuntimeStatus = yield* dependencies.endpointRuntime.applyConfig(
-      payload.endpointRuntime,
-    );
-    const ok =
-      endpointRuntimeStatus.status === "disabled" || endpointRuntimeStatus.status === "running";
-    if (!ok) {
-      return yield* new EnvironmentCloudEndpointUnavailableError({
-        message: "Managed endpoint runtime could not be started.",
-        endpointRuntimeStatus,
-      });
-    }
-
-    yield* dependencies.secrets.set(RELAY_URL_SECRET, stringToBytes(payload.relayUrl));
-    yield* dependencies.secrets.set(
-      RELAY_ISSUER_SECRET,
-      stringToBytes(payload.relayIssuer ?? payload.relayUrl),
-    );
-    yield* dependencies.secrets.set(CLOUD_LINKED_USER_ID, stringToBytes(payload.cloudUserId));
-    yield* dependencies.secrets.set(
-      RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
-      stringToBytes(payload.environmentCredential),
-    );
-    yield* dependencies.secrets.set(
-      CLOUD_MINT_PUBLIC_KEY,
-      stringToBytes(payload.cloudMintPublicKey),
-    );
-    if (payload.endpointRuntime) {
-      const endpointRuntimeJson = yield* encodeEndpointRuntimeConfigJson(payload.endpointRuntime);
-      yield* dependencies.secrets.set(
-        CLOUD_ENDPOINT_RUNTIME_CONFIG,
-        stringToBytes(endpointRuntimeJson),
-      );
-    } else {
-      yield* dependencies.secrets.remove(CLOUD_ENDPOINT_RUNTIME_CONFIG);
-    }
-    return { ok, endpointRuntimeStatus } satisfies EnvironmentCloudRelayConfigResult;
+    return yield* applyCloudRelayConfig(dependencies, payload);
   },
   Effect.catchTag("ServerAuthInternalError", (error) =>
     failEnvironmentCloudInternalError(error.message)(error.cause),
@@ -446,6 +489,121 @@ const cloudRelayConfigHandler = Effect.fn("environment.cloud.relayConfig")(
       "Could not persist environment relay configuration.",
     ),
   }),
+);
+
+const relayClientRequest = <A>(
+  dependencies: CloudHttpDependencies,
+  input: {
+    readonly url: string;
+    readonly token: string;
+    readonly payload: unknown;
+    readonly schema: Schema.Decoder<A>;
+  },
+) =>
+  HttpClientRequest.post(input.url).pipe(
+    HttpClientRequest.bearerToken(input.token),
+    HttpClientRequest.bodyJson(input.payload),
+    Effect.flatMap(dependencies.httpClient.execute),
+    Effect.flatMap(HttpClientResponse.filterStatusOk),
+    Effect.flatMap(HttpClientResponse.schemaBodyJson(input.schema)),
+    Effect.mapError(
+      (cause) =>
+        new EnvironmentHttpInternalServerError({
+          message: `T3 Cloud relay request failed: ${String(cause)}`,
+        }),
+    ),
+  );
+
+const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesiredLinkWith")(
+  function* (dependencies: CloudHttpDependencies, localOrigin: string) {
+    const localUrl = yield* Effect.try({
+      try: () => new URL(localOrigin),
+      catch: () =>
+        new EnvironmentHttpBadRequestError({
+          message: "Could not resolve local environment origin.",
+        }),
+    });
+    if (localUrl.origin !== localOrigin) {
+      return yield* new EnvironmentHttpBadRequestError({
+        message: "Could not resolve local environment origin.",
+      });
+    }
+    const localWsOrigin = localOrigin.replace(/^http/u, "ws");
+    const token = yield* dependencies.cliTokenManager.getExisting.pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () =>
+            Effect.fail(
+              new EnvironmentHttpUnauthorizedError({
+                message: "Run `t3 cloud link` to authorize this environment.",
+              }),
+            ),
+          onSome: Effect.succeed,
+        }),
+      ),
+    );
+    const relayUrl = yield* requireRelayUrl;
+    const challenge = yield* relayClientRequest(dependencies, {
+      url: `${relayUrl}/v1/client/environment-link-challenges`,
+      token: token.accessToken,
+      payload: {
+        notificationsEnabled: true,
+        liveActivitiesEnabled: true,
+        managedTunnelsEnabled: true,
+      },
+      schema: RelayEnvironmentLinkChallengeResponse,
+    });
+    const proof = yield* makeCloudLinkProof(
+      dependencies,
+      {
+        challenge: challenge.challenge,
+        relayIssuer: relayUrl,
+        endpoint: {
+          httpBaseUrl: localOrigin,
+          wsBaseUrl: localWsOrigin,
+          providerKind: "cloudflare_tunnel",
+        },
+        origin: {
+          localHttpHost: localUrl.hostname,
+          localHttpPort: endpointRequestPort(localUrl),
+        },
+      },
+      localOrigin,
+    );
+    const link = yield* relayClientRequest(dependencies, {
+      url: `${relayUrl}/v1/client/environment-links`,
+      token: token.accessToken,
+      payload: {
+        proof,
+        notificationsEnabled: true,
+        liveActivitiesEnabled: true,
+        managedTunnelsEnabled: true,
+      },
+      schema: RelayEnvironmentLinkResponse,
+    });
+    yield* CliState.setCliDesiredCloudLink(true);
+    return yield* applyCloudRelayConfig(dependencies, {
+      relayUrl,
+      relayIssuer: link.relayIssuer,
+      cloudUserId: link.cloudUserId,
+      environmentCredential: link.environmentCredential,
+      cloudMintPublicKey: link.cloudMintPublicKey,
+      endpointRuntime: link.endpointRuntime,
+    });
+  },
+  Effect.catchTags({
+    CloudCliTokenManagerError: (error) =>
+      failEnvironmentCloudInternalError(error.message)(error.cause),
+    SecretStoreError: failEnvironmentCloudInternalError(
+      "Could not persist desired T3 Cloud link state.",
+    ),
+  }),
+);
+
+export const reconcileDesiredCloudLink = Effect.fn("environment.cloud.reconcileDesiredLink")(
+  function* (localOrigin: string) {
+    return yield* reconcileDesiredCloudLinkWith(yield* cloudHttpDependencies, localOrigin);
+  },
 );
 
 const readCloudLinkState = Effect.fn("environment.cloud.readLinkState")(function* (
@@ -498,6 +656,7 @@ const cloudUnlinkHandler = Effect.fn("environment.cloud.unlink")(
       ],
       { concurrency: 7 },
     );
+    yield* CliState.setCliDesiredCloudLink(false);
     return { ok: true, endpointRuntimeStatus } satisfies EnvironmentCloudRelayConfigResult;
   },
   Effect.catchTag(
@@ -769,12 +928,7 @@ export const cloudHttpApiLayer = HttpApiBuilder.group(
   EnvironmentHttpApi,
   "cloud",
   Effect.fnUntraced(function* (handlers) {
-    const dependencies: CloudHttpDependencies = {
-      secrets: yield* ServerSecretStore.ServerSecretStore,
-      environment: yield* ServerEnvironment,
-      endpointRuntime: yield* CloudManagedEndpointRuntime,
-      environmentAuth: yield* EnvironmentAuth.EnvironmentAuth,
-    };
+    const dependencies = yield* cloudHttpDependencies;
     return handlers
       .handle("linkProof", ({ payload }) => cloudLinkProofHandler(dependencies, payload))
       .handle("relayConfig", ({ payload }) => cloudRelayConfigHandler(dependencies, payload))
