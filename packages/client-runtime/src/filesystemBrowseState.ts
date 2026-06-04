@@ -89,7 +89,9 @@ export function createFilesystemBrowseManager<TKey extends string = string>(
   const refreshVersions = new Map<string, number>();
   const watched = new Map<string, WatchedEntry>();
   const refreshTargets = new Map<string, FilesystemBrowseTarget<TKey>>();
-  const staleTimeMs = Duration.toMillis(config.staleTime ?? config.staleTimeMs ?? DEFAULT_STALE_TIME);
+  const staleTimeMs = Duration.toMillis(
+    config.staleTime ?? config.staleTimeMs ?? DEFAULT_STALE_TIME,
+  );
   const idleTtlMs = Duration.toMillis(config.idleTtl ?? config.idleTtlMs ?? DEFAULT_IDLE_TTL);
 
   const watchedRefreshAtom = Atom.family((targetKey: string) =>
