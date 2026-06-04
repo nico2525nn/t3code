@@ -145,7 +145,7 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
         chmodSync(packageToolPath, 0o755);
 
         expect(
-          packageToolUpdate.resolve({
+          yield* resolveProviderMaintenanceCapabilitiesEffect(packageToolUpdate, {
             binaryPath: "package-tool",
             platform: "darwin",
             env: {
@@ -178,7 +178,7 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
         writeFileSync(path.join(bunBinDir, "native-package-tool.exe"), "MZ");
 
         expect(
-          nativePackageToolUpdate.resolve({
+          yield* resolveProviderMaintenanceCapabilitiesEffect(nativePackageToolUpdate, {
             binaryPath: "native-package-tool",
             platform: "win32",
             env: {
@@ -214,7 +214,7 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
         chmodSync(scopedPackageToolPath, 0o755);
 
         expect(
-          scopedPackageToolUpdate.resolve({
+          yield* resolveProviderMaintenanceCapabilitiesEffect(scopedPackageToolUpdate, {
             binaryPath: "scoped-package-tool",
             platform: "darwin",
             env: {
@@ -273,7 +273,7 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
         chmodSync(nativePackageToolPath, 0o755);
 
         expect(
-          nativePackageToolUpdate.resolve({
+          yield* resolveProviderMaintenanceCapabilitiesEffect(nativePackageToolUpdate, {
             binaryPath: "native-package-tool",
             platform: "darwin",
             env: {
@@ -308,7 +308,7 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
         chmodSync(scopedPackageToolPath, 0o755);
 
         expect(
-          scopedPackageToolUpdate.resolve({
+          yield* resolveProviderMaintenanceCapabilitiesEffect(scopedPackageToolUpdate, {
             binaryPath: "scoped-package-tool",
             platform: "darwin",
             env: {

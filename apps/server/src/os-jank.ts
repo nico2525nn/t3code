@@ -1,4 +1,5 @@
 import * as NodeOS from "node:os";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 import {
@@ -15,7 +16,11 @@ import {
 type WindowsCommandAvailabilityChecker = (
   command: string,
   options?: CommandAvailabilityOptions,
-) => boolean;
+) => Effect.Effect<boolean, never>;
+
+class ShellPathReadError extends Data.TaggedError("ShellPathReadError")<{
+  readonly cause: unknown;
+}> {}
 
 function logPathHydrationWarning(message: string, error?: unknown): void {
   process.stderr.write(
@@ -23,7 +28,7 @@ function logPathHydrationWarning(message: string, error?: unknown): void {
   );
 }
 
-export function fixPath(
+export const fixPath = Effect.fn("fixPath")(function* (
   options: {
     env?: NodeJS.ProcessEnv;
     platform?: NodeJS.Platform;
@@ -34,15 +39,15 @@ export function fixPath(
     userShell?: string;
     logWarning?: (message: string, error?: unknown) => void;
   } = {},
-): void {
+) {
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   const logWarning = options.logWarning ?? logPathHydrationWarning;
   const readPath = options.readPath ?? readPathFromLoginShell;
 
-  try {
+  yield* Effect.gen(function* () {
     if (platform === "win32") {
-      const repairedEnvironment = resolveWindowsEnvironment(env, {
+      const repairedEnvironment = yield* resolveWindowsEnvironment(env, {
         readEnvironment: options.readWindowsEnvironment ?? readEnvironmentFromWindowsShell,
         ...(options.isWindowsCommandAvailable
           ? { commandAvailable: options.isWindowsCommandAvailable }
@@ -60,11 +65,17 @@ export function fixPath(
 
     let shellPath: string | undefined;
     for (const shell of listLoginShellCandidates(platform, env.SHELL, options.userShell)) {
-      try {
-        shellPath = readPath(shell);
-      } catch (error) {
-        logWarning(`Failed to read PATH from login shell ${shell}.`, error);
-      }
+      shellPath = yield* Effect.try({
+        try: () => readPath(shell),
+        catch: (error) => new ShellPathReadError({ cause: error }),
+      }).pipe(
+        Effect.catchTag("ShellPathReadError", (error) =>
+          Effect.sync(() => {
+            logWarning(`Failed to read PATH from login shell ${shell}.`, error.cause);
+            return undefined;
+          }),
+        ),
+      );
 
       if (shellPath) {
         break;
@@ -79,10 +90,8 @@ export function fixPath(
     if (mergedPath) {
       env.PATH = mergedPath;
     }
-  } catch (error) {
-    logWarning("Failed to hydrate PATH from the user environment.", error);
-  }
-}
+  });
+});
 
 export const expandHomePath = Effect.fn(function* (input: string) {
   const { join } = yield* Path.Path;

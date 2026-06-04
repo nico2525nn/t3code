@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 
 import {
+  CommandResolutionError,
   extractPathFromShellOutput,
   isCommandAvailable,
   listLoginShellCandidates,
@@ -14,6 +19,9 @@ import {
   resolveKnownWindowsCliDirs,
   resolveWindowsEnvironment,
 } from "./shell.ts";
+
+const runShellEffect = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>) =>
+  Effect.runPromise(effect.pipe(Effect.provide(NodeServices.layer)));
 
 describe("extractPathFromShellOutput", () => {
   it("extracts the path between capture markers", () => {
@@ -323,49 +331,55 @@ describe("resolveKnownWindowsCliDirs", () => {
 });
 
 describe("isCommandAvailable", () => {
-  it("returns false when PATH is empty", () => {
+  it("returns false when PATH is empty", async () => {
     expect(
-      isCommandAvailable("definitely-not-installed", {
-        platform: "win32",
-        env: { PATH: "", PATHEXT: ".COM;.EXE;.BAT;.CMD" },
-      }),
+      await runShellEffect(
+        isCommandAvailable("definitely-not-installed", {
+          platform: "win32",
+          env: { PATH: "", PATHEXT: ".COM;.EXE;.BAT;.CMD" },
+        }),
+      ),
     ).toBe(false);
   });
 });
 
 describe("resolveCommandPath", () => {
-  it("returns the first executable resolved from PATH", () => {
-    expect(
-      resolveCommandPath("definitely-not-installed", {
-        platform: "win32",
-        env: { PATH: "", PATHEXT: ".COM;.EXE;.BAT;.CMD" },
-      }),
-    ).toBeNull();
+  it("fails with a typed error when PATH is empty", async () => {
+    await expect(
+      runShellEffect(
+        resolveCommandPath("definitely-not-installed", {
+          platform: "win32",
+          env: { PATH: "", PATHEXT: ".COM;.EXE;.BAT;.CMD" },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(CommandResolutionError);
   });
 });
 
 describe("resolveWindowsEnvironment", () => {
-  it("returns the baseline no-profile PATH patch when node is already available", () => {
+  it("returns the baseline no-profile PATH patch when node is already available", async () => {
     const readEnvironment = vi.fn(
       (_names: ReadonlyArray<string>, options?: { loadProfile?: boolean }) =>
         options?.loadProfile
           ? { PATH: "C:\\Profile\\Bin" }
           : { PATH: "C:\\Shell\\Bin;C:\\Windows\\System32" },
     );
-    const commandAvailable = vi.fn(() => true);
+    const commandAvailable = vi.fn(() => Effect.succeed(true));
 
     expect(
-      resolveWindowsEnvironment(
-        {
-          PATH: "C:\\Windows\\System32",
-          APPDATA: "C:\\Users\\testuser\\AppData\\Roaming",
-          LOCALAPPDATA: "C:\\Users\\testuser\\AppData\\Local",
-          USERPROFILE: "C:\\Users\\testuser",
-        },
-        {
-          readEnvironment,
-          commandAvailable,
-        },
+      await runShellEffect(
+        resolveWindowsEnvironment(
+          {
+            PATH: "C:\\Windows\\System32",
+            APPDATA: "C:\\Users\\testuser\\AppData\\Roaming",
+            LOCALAPPDATA: "C:\\Users\\testuser\\AppData\\Local",
+            USERPROFILE: "C:\\Users\\testuser",
+          },
+          {
+            readEnvironment,
+            commandAvailable,
+          },
+        ),
       ),
     ).toEqual({
       PATH: [
@@ -389,7 +403,7 @@ describe("resolveWindowsEnvironment", () => {
     );
   });
 
-  it("loads the PowerShell profile when baseline env cannot resolve node", () => {
+  it("loads the PowerShell profile when baseline env cannot resolve node", async () => {
     const readEnvironment = vi.fn(
       (_names: ReadonlyArray<string>, options?: { loadProfile?: boolean }) =>
         options?.loadProfile
@@ -400,20 +414,22 @@ describe("resolveWindowsEnvironment", () => {
             }
           : { PATH: "C:\\Shell\\Bin;C:\\Windows\\System32" },
     );
-    const commandAvailable = vi.fn(() => false);
+    const commandAvailable = vi.fn(() => Effect.succeed(false));
 
     expect(
-      resolveWindowsEnvironment(
-        {
-          PATH: "C:\\Windows\\System32",
-          APPDATA: "C:\\Users\\testuser\\AppData\\Roaming",
-          LOCALAPPDATA: "C:\\Users\\testuser\\AppData\\Local",
-          USERPROFILE: "C:\\Users\\testuser",
-        },
-        {
-          readEnvironment,
-          commandAvailable,
-        },
+      await runShellEffect(
+        resolveWindowsEnvironment(
+          {
+            PATH: "C:\\Windows\\System32",
+            APPDATA: "C:\\Users\\testuser\\AppData\\Roaming",
+            LOCALAPPDATA: "C:\\Users\\testuser\\AppData\\Local",
+            USERPROFILE: "C:\\Users\\testuser",
+          },
+          {
+            readEnvironment,
+            commandAvailable,
+          },
+        ),
       ),
     ).toEqual({
       PATH: [
@@ -437,24 +453,26 @@ describe("resolveWindowsEnvironment", () => {
     expect(commandAvailable).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the baseline env when profiled probe still does not resolve node", () => {
+  it("keeps the baseline env when profiled probe still does not resolve node", async () => {
     const readEnvironment = vi.fn(
       (_names: ReadonlyArray<string>, options?: { loadProfile?: boolean }) =>
         options?.loadProfile ? { FNM_DIR: "C:\\Users\\testuser\\AppData\\Roaming\\fnm" } : {},
     );
-    const commandAvailable = vi.fn(() => false);
+    const commandAvailable = vi.fn(() => Effect.succeed(false));
 
     expect(
-      resolveWindowsEnvironment(
-        {
-          PATH: "C:\\Windows\\System32",
-          APPDATA: "C:\\Users\\testuser\\AppData\\Roaming",
-          USERPROFILE: "C:\\Users\\testuser",
-        },
-        {
-          readEnvironment,
-          commandAvailable,
-        },
+      await runShellEffect(
+        resolveWindowsEnvironment(
+          {
+            PATH: "C:\\Windows\\System32",
+            APPDATA: "C:\\Users\\testuser\\AppData\\Roaming",
+            USERPROFILE: "C:\\Users\\testuser",
+          },
+          {
+            readEnvironment,
+            commandAvailable,
+          },
+        ),
       ),
     ).toEqual({
       PATH: [

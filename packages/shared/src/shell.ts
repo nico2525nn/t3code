@@ -1,8 +1,10 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeOS from "node:os";
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, statSync } from "node:fs";
-import { extname, join } from "node:path";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 
 const PATH_CAPTURE_START = "__T3CODE_PATH_START__";
 const PATH_CAPTURE_END = "__T3CODE_PATH_END__";
@@ -21,6 +23,11 @@ export interface CommandAvailabilityOptions {
   readonly platform?: NodeJS.Platform;
   readonly env?: NodeJS.ProcessEnv;
 }
+
+export class CommandResolutionError extends Data.TaggedError("CommandResolutionError")<{
+  readonly command: string;
+  readonly reason: "not-found";
+}> {}
 
 export interface WindowsEnvironmentProbeOptions {
   readonly loadProfile?: boolean;
@@ -334,6 +341,7 @@ function resolveCommandCandidates(
   command: string,
   platform: NodeJS.Platform,
   windowsPathExtensions: ReadonlyArray<string>,
+  extname: (path: string) => string,
 ): ReadonlyArray<string> {
   if (platform !== "win32") return [command];
   const extension = extname(command);
@@ -358,46 +366,55 @@ function resolveCommandCandidates(
   return Array.from(new Set(candidates));
 }
 
-function isExecutableFile(
+const isExecutableFile = Effect.fn("shell.isExecutableFile")(function* (
   filePath: string,
   platform: NodeJS.Platform,
   windowsPathExtensions: ReadonlyArray<string>,
-): boolean {
-  try {
-    const stat = statSync(filePath);
-    if (!stat.isFile()) return false;
-    if (platform === "win32") {
-      const extension = extname(filePath);
-      if (extension.length === 0) return false;
-      return windowsPathExtensions.includes(extension.toUpperCase());
-    }
-    accessSync(filePath, constants.X_OK);
-    return true;
-  } catch {
+): Effect.fn.Return<boolean, never, FileSystem.FileSystem | Path.Path> {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const stat = yield* fileSystem.stat(filePath).pipe(Effect.catch(() => Effect.succeed(null)));
+  if (stat === null || stat.type !== "File") {
     return false;
   }
-}
 
-export function resolveCommandPath(
+  if (platform === "win32") {
+    const extension = path.extname(filePath);
+    if (extension.length === 0) return false;
+    return windowsPathExtensions.includes(extension.toUpperCase());
+  }
+
+  return (stat.mode & 0o111) !== 0;
+});
+
+export const resolveCommandPath = Effect.fn("shell.resolveCommandPath")(function* (
   command: string,
   options: CommandAvailabilityOptions = {},
-): string | null {
+): Effect.fn.Return<string, CommandResolutionError, FileSystem.FileSystem | Path.Path> {
+  const path = yield* Path.Path;
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   const windowsPathExtensions = platform === "win32" ? resolveWindowsPathExtensions(env) : [];
-  const commandCandidates = resolveCommandCandidates(command, platform, windowsPathExtensions);
+  const commandCandidates = resolveCommandCandidates(
+    command,
+    platform,
+    windowsPathExtensions,
+    path.extname,
+  );
 
   if (command.includes("/") || command.includes("\\")) {
     for (const candidate of commandCandidates) {
-      if (isExecutableFile(candidate, platform, windowsPathExtensions)) {
+      if (yield* isExecutableFile(candidate, platform, windowsPathExtensions)) {
         return candidate;
       }
     }
-    return null;
+    return yield* new CommandResolutionError({ command, reason: "not-found" });
   }
 
   const pathValue = resolvePathEnvironmentVariable(env);
-  if (pathValue.length === 0) return null;
+  if (pathValue.length === 0) {
+    return yield* new CommandResolutionError({ command, reason: "not-found" });
+  }
   const pathEntries: string[] = [];
   for (const entry of pathValue.split(pathDelimiterForPlatform(platform))) {
     const pathEntry = stripWrappingQuotes(entry.trim());
@@ -408,21 +425,24 @@ export function resolveCommandPath(
 
   for (const pathEntry of pathEntries) {
     for (const candidate of commandCandidates) {
-      const candidatePath = join(pathEntry, candidate);
-      if (isExecutableFile(candidatePath, platform, windowsPathExtensions)) {
+      const candidatePath = path.join(pathEntry, candidate);
+      if (yield* isExecutableFile(candidatePath, platform, windowsPathExtensions)) {
         return candidatePath;
       }
     }
   }
-  return null;
-}
+  return yield* new CommandResolutionError({ command, reason: "not-found" });
+});
 
-export function isCommandAvailable(
+export const isCommandAvailable = Effect.fn("shell.isCommandAvailable")(function* (
   command: string,
   options: CommandAvailabilityOptions = {},
-): boolean {
-  return resolveCommandPath(command, options) !== null;
-}
+): Effect.fn.Return<boolean, never, FileSystem.FileSystem | Path.Path> {
+  return yield* resolveCommandPath(command, options).pipe(
+    Effect.as(true),
+    Effect.catchTag("CommandResolutionError", () => Effect.succeed(false)),
+  );
+});
 
 export function resolveKnownWindowsCliDirs(env: NodeJS.ProcessEnv): ReadonlyArray<string> {
   const appData = env.APPDATA?.trim();
@@ -439,7 +459,10 @@ export function resolveKnownWindowsCliDirs(env: NodeJS.ProcessEnv): ReadonlyArra
 
 export interface WindowsEnvironmentResolverOptions {
   readonly readEnvironment?: WindowsShellEnvironmentReader;
-  readonly commandAvailable?: typeof isCommandAvailable;
+  readonly commandAvailable?: (
+    command: string,
+    options?: CommandAvailabilityOptions,
+  ) => Effect.Effect<boolean, never, FileSystem.FileSystem | Path.Path>;
 }
 
 function readWindowsEnvironmentSafely(
@@ -467,10 +490,10 @@ function mergeWindowsEnv(
   return nextEnv;
 }
 
-export function resolveWindowsEnvironment(
+export const resolveWindowsEnvironment = Effect.fn("shell.resolveWindowsEnvironment")(function* (
   env: NodeJS.ProcessEnv,
   options: WindowsEnvironmentResolverOptions = {},
-): Partial<NodeJS.ProcessEnv> {
+): Effect.fn.Return<Partial<NodeJS.ProcessEnv>, never, FileSystem.FileSystem | Path.Path> {
   const readEnvironment = options.readEnvironment ?? readEnvironmentFromWindowsShell;
   const commandAvailable = options.commandAvailable ?? isCommandAvailable;
   const inheritedPath = readEnvPath(env);
@@ -483,7 +506,7 @@ export function resolveWindowsEnvironment(
   const baselinePatch: Partial<NodeJS.ProcessEnv> = baselinePath ? { PATH: baselinePath } : {};
   const baselineEnv = mergeWindowsEnv(env, baselinePatch);
 
-  if (commandAvailable("node", { platform: "win32", env: baselineEnv })) {
+  if (yield* commandAvailable("node", { platform: "win32", env: baselineEnv })) {
     return baselinePatch;
   }
 
@@ -503,4 +526,4 @@ export function resolveWindowsEnvironment(
   return Object.keys(profiledPatch).length > 0
     ? { ...baselinePatch, ...profiledPatch }
     : baselinePatch;
-}
+});

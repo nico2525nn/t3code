@@ -672,17 +672,22 @@ it.layer(NodeServices.layer)("isCommandAvailable", (it) => {
         PATH: dir,
         PATHEXT: ".COM;.EXE;.BAT;.CMD",
       } satisfies NodeJS.ProcessEnv;
-      assert.equal(isCommandAvailable("code", { platform: "win32", env }), true);
+      assert.equal(yield* isCommandAvailable("code", { platform: "win32", env }), true);
     }),
   );
 
-  it("returns false when a command is not on PATH", () => {
-    const env = {
-      PATH: "",
-      PATHEXT: ".COM;.EXE;.BAT;.CMD",
-    } satisfies NodeJS.ProcessEnv;
-    assert.equal(isCommandAvailable("definitely-not-installed", { platform: "win32", env }), false);
-  });
+  it.effect("returns false when a command is not on PATH", () =>
+    Effect.gen(function* () {
+      const env = {
+        PATH: "",
+        PATHEXT: ".COM;.EXE;.BAT;.CMD",
+      } satisfies NodeJS.ProcessEnv;
+      assert.equal(
+        yield* isCommandAvailable("definitely-not-installed", { platform: "win32", env }),
+        false,
+      );
+    }),
+  );
 
   it.effect("does not treat bare files without executable extension as available on win32", () =>
     Effect.gen(function* () {
@@ -694,7 +699,7 @@ it.layer(NodeServices.layer)("isCommandAvailable", (it) => {
         PATH: dir,
         PATHEXT: ".COM;.EXE;.BAT;.CMD",
       } satisfies NodeJS.ProcessEnv;
-      assert.equal(isCommandAvailable("npm", { platform: "win32", env }), false);
+      assert.equal(yield* isCommandAvailable("npm", { platform: "win32", env }), false);
     }),
   );
 
@@ -708,7 +713,7 @@ it.layer(NodeServices.layer)("isCommandAvailable", (it) => {
         PATH: dir,
         PATHEXT: ".COM;.EXE;.BAT;.CMD",
       } satisfies NodeJS.ProcessEnv;
-      assert.equal(isCommandAvailable("my.tool", { platform: "win32", env }), true);
+      assert.equal(yield* isCommandAvailable("my.tool", { platform: "win32", env }), true);
     }),
   );
 
@@ -724,7 +729,7 @@ it.layer(NodeServices.layer)("isCommandAvailable", (it) => {
         PATH: `${firstDir};${secondDir}`,
         PATHEXT: ".COM;.EXE;.BAT;.CMD",
       } satisfies NodeJS.ProcessEnv;
-      assert.equal(isCommandAvailable("code", { platform: "win32", env }), true);
+      assert.equal(yield* isCommandAvailable("code", { platform: "win32", env }), true);
     }),
   );
 });
@@ -752,7 +757,7 @@ it.layer(NodeServices.layer)("resolveAvailableEditors", (it) => {
       yield* fs.writeFileString(path.join(dir, "rustrover.CMD"), "@echo off\r\n");
       yield* fs.writeFileString(path.join(dir, "webstorm.CMD"), "@echo off\r\n");
       yield* fs.writeFileString(path.join(dir, "explorer.CMD"), "MZ");
-      const editors = resolveAvailableEditors("win32", {
+      const editors = yield* resolveAvailableEditors("win32", {
         PATH: dir,
         PATHEXT: ".COM;.EXE;.BAT;.CMD",
       });
@@ -788,17 +793,19 @@ it.layer(NodeServices.layer)("resolveAvailableEditors", (it) => {
       yield* fs.chmod(path.join(dir, "zeditor"), 0o755);
       yield* fs.chmod(path.join(dir, "xdg-open"), 0o755);
 
-      const editors = resolveAvailableEditors("linux", {
+      const editors = yield* resolveAvailableEditors("linux", {
         PATH: dir,
       });
       assert.deepEqual(editors, ["zed", "file-manager"]);
     }),
   );
 
-  it("omits file-manager when the platform opener is unavailable", () => {
-    const editors = resolveAvailableEditors("linux", {
-      PATH: "",
-    });
-    assert.deepEqual(editors, []);
-  });
+  it.effect("omits file-manager when the platform opener is unavailable", () =>
+    Effect.gen(function* () {
+      const editors = yield* resolveAvailableEditors("linux", {
+        PATH: "",
+      });
+      assert.deepEqual(editors, []);
+    }),
+  );
 });

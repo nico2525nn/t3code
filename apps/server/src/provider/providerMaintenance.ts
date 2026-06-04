@@ -251,10 +251,7 @@ export function resolvePackageManagedProviderMaintenance(
   }
 
   const resolvedCommandPath =
-    resolveCommandPath(binaryPath, {
-      ...(options?.platform ? { platform: options.platform } : {}),
-      ...(options?.env ? { env: options.env } : {}),
-    }) ?? (hasPathSeparator(binaryPath) ? binaryPath : null);
+    options?.realCommandPath ?? (hasPathSeparator(binaryPath) ? binaryPath : null);
 
   if (resolvedCommandPath) {
     const commandPaths = [
@@ -336,10 +333,11 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
   }
 
   const resolvedCommandPath =
-    resolveCommandPath(binaryPath, {
+    (yield* resolveCommandPath(binaryPath, {
       ...(options?.platform ? { platform: options.platform } : {}),
       ...(options?.env ? { env: options.env } : {}),
-    }) ?? (hasPathSeparator(binaryPath) ? binaryPath : null);
+    }).pipe(Effect.catchTag("CommandResolutionError", () => Effect.succeed(null)))) ??
+    (hasPathSeparator(binaryPath) ? binaryPath : null);
   if (!resolvedCommandPath) {
     return resolver.resolve(options);
   }
