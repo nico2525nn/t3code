@@ -50,8 +50,8 @@ import {
 
 export const DEFAULT_REMOTE_PORT = 3773;
 const REMOTE_PORT_SCAN_WINDOW = 200;
-const SSH_READY_TIMEOUT_MS = 20_000;
-const SSH_READY_PROBE_TIMEOUT_MS = 1_000;
+const SSH_READY_TIMEOUT = Duration.seconds(20);
+const SSH_READY_PROBE_TIMEOUT = Duration.seconds(1);
 const TUNNEL_SHUTDOWN_TIMEOUT_MS = 2_000;
 const REMOTE_READY_TIMEOUT_MS = 15_000;
 const REMOTE_REUSE_READY_TIMEOUT_MS = 2_000;
@@ -683,7 +683,7 @@ export function buildRemoteLaunchScript(input?: RemoteT3RunnerOptions): string {
     T3_REMOTE_PORT_SCAN_WINDOW: String(REMOTE_PORT_SCAN_WINDOW),
     T3_READY_TIMEOUT_MS: String(REMOTE_READY_TIMEOUT_MS),
     T3_REUSE_READY_TIMEOUT_MS: String(REMOTE_REUSE_READY_TIMEOUT_MS),
-    T3_READY_PROBE_TIMEOUT_MS: String(SSH_READY_PROBE_TIMEOUT_MS),
+    T3_READY_PROBE_TIMEOUT_MS: String(Duration.toMillis(SSH_READY_PROBE_TIMEOUT)),
   });
 }
 
@@ -865,20 +865,28 @@ const readRemoteServerLogTail = Effect.fn("ssh/tunnel.readRemoteServerLogTail")(
 
 export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(function* (input: {
   readonly baseUrl: string;
+  readonly timeout?: Duration.Input;
+  readonly interval?: Duration.Input;
+  readonly probeTimeout?: Duration.Input;
   readonly timeoutMs?: number;
   readonly intervalMs?: number;
   readonly probeTimeoutMs?: number;
   readonly path?: string;
 }): Effect.fn.Return<void, SshReadinessError, HttpClient.HttpClient> {
-  const timeoutMs = input.timeoutMs ?? 30_000;
-  const intervalMs = input.intervalMs ?? 100;
-  const probeTimeoutMs = input.probeTimeoutMs ?? SSH_READY_PROBE_TIMEOUT_MS;
-  const retryPolicy = Schedule.spaced(Duration.millis(intervalMs)).pipe(
-    Schedule.take(Math.max(0, Math.ceil(timeoutMs / intervalMs))),
+  const timeout = Duration.fromInputUnsafe(input.timeout ?? input.timeoutMs ?? Duration.seconds(30));
+  const interval = Duration.fromInputUnsafe(input.interval ?? input.intervalMs ?? Duration.millis(100));
+  const probeTimeout = Duration.fromInputUnsafe(
+    input.probeTimeout ?? input.probeTimeoutMs ?? SSH_READY_PROBE_TIMEOUT,
   );
+  const timeoutMs = Duration.toMillis(timeout);
+  const intervalMs = Duration.toMillis(interval);
+  const probeTimeoutMs = Duration.toMillis(probeTimeout);
+  const retryPolicy = Schedule.spaced(interval);
   const requestUrl = new URL(input.path ?? "/", input.baseUrl).toString();
   const client = yield* HttpClient.HttpClient;
-  const lastProbeFailure = yield* Ref.make<unknown>(null);
+  const lastProbeFailure = yield* Ref.make<
+    Option.Option<{ readonly attempt: number; readonly cause: unknown }>
+  >(Option.none());
   let attempt = 0;
 
   yield* Effect.logDebug("ssh.tunnel.httpReady.start", {
@@ -895,7 +903,7 @@ export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(functio
       Effect.gen(function* () {
         attempt += 1;
         const responseOption = yield* effect.pipe(
-          Effect.timeoutOption(Duration.millis(probeTimeoutMs)),
+          Effect.timeoutOption(probeTimeout),
           Effect.mapError(
             (cause) =>
               new SshReadinessError({
@@ -928,10 +936,13 @@ export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(functio
               }),
         ),
         Effect.tapError((cause) =>
-          Ref.set(lastProbeFailure, {
-            attempt,
-            cause: describeReadinessCause(cause),
-          }),
+          Ref.set(
+            lastProbeFailure,
+            Option.some({
+              attempt,
+              cause: describeReadinessCause(cause),
+            }),
+          ),
         ),
       ),
     ),
@@ -948,7 +959,7 @@ export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(functio
             cause,
           }),
     ),
-    Effect.timeoutOption(Duration.millis(timeoutMs)),
+    Effect.timeoutOption(timeout),
   );
 
   return yield* Option.match(result, {
@@ -968,11 +979,18 @@ export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(functio
           intervalMs,
           probeTimeoutMs,
           attempts: attempt,
-          lastFailure,
+          ...Option.match(lastFailure, {
+            onNone: () => ({}),
+            onSome: (failure) => ({ lastFailure: failure }),
+          }),
+        });
+        const cause = Option.match(lastFailure, {
+          onNone: () => ({}),
+          onSome: (failure) => ({ cause: failure }),
         });
         return yield* new SshReadinessError({
           message: `Timed out waiting ${timeoutMs}ms for backend readiness at ${input.baseUrl}.`,
-          cause: lastFailure,
+          ...cause,
         });
       }),
   });
@@ -1166,7 +1184,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
   yield* Effect.raceFirst(
     waitForHttpReady({
       baseUrl: input.httpBaseUrl,
-      timeoutMs: SSH_READY_TIMEOUT_MS,
+      timeout: SSH_READY_TIMEOUT,
     }),
     exitFailure,
   ).pipe(
@@ -1524,7 +1542,7 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
         remotePort: entry.remotePort,
       });
       const readinessExit = yield* Effect.exit(
-        waitForHttpReady({ baseUrl: entry.httpBaseUrl, timeoutMs: 2_000 }),
+        waitForHttpReady({ baseUrl: entry.httpBaseUrl, timeout: Duration.seconds(2) }),
       );
       if (Exit.isSuccess(readinessExit)) {
         yield* Effect.logDebug("ssh.environment.tunnel.reused", {

@@ -1,4 +1,5 @@
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "@t3tools/contracts";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import { Atom, type AtomRegistry } from "effect/unstable/reactivity";
 
@@ -50,8 +51,8 @@ export const EMPTY_FILESYSTEM_BROWSE_ATOM = Atom.make(EMPTY_FILESYSTEM_BROWSE_ST
 );
 
 const NOOP: () => void = () => undefined;
-const DEFAULT_STALE_TIME_MS = 30_000;
-const DEFAULT_IDLE_TTL_MS = 5 * 60_000;
+const DEFAULT_STALE_TIME = Duration.seconds(30);
+const DEFAULT_IDLE_TTL = Duration.minutes(5);
 
 export function getFilesystemBrowseTargetKey<TKey extends string>(
   target: FilesystemBrowseTarget<TKey>,
@@ -69,6 +70,8 @@ export interface FilesystemBrowseManagerConfig<TKey extends string = string> {
   readonly getRegistry: () => AtomRegistry.AtomRegistry;
   readonly getClient: (key: TKey) => FilesystemBrowseClient | null;
   readonly subscribeClientChanges?: (listener: () => void) => () => void;
+  readonly staleTime?: Duration.Input;
+  readonly idleTtl?: Duration.Input;
   readonly staleTimeMs?: number;
   readonly idleTtlMs?: number;
 }
@@ -86,8 +89,8 @@ export function createFilesystemBrowseManager<TKey extends string = string>(
   const refreshVersions = new Map<string, number>();
   const watched = new Map<string, WatchedEntry>();
   const refreshTargets = new Map<string, FilesystemBrowseTarget<TKey>>();
-  const staleTimeMs = config.staleTimeMs ?? DEFAULT_STALE_TIME_MS;
-  const idleTtlMs = config.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
+  const staleTimeMs = Duration.toMillis(config.staleTime ?? config.staleTimeMs ?? DEFAULT_STALE_TIME);
+  const idleTtlMs = Duration.toMillis(config.idleTtl ?? config.idleTtlMs ?? DEFAULT_IDLE_TTL);
 
   const watchedRefreshAtom = Atom.family((targetKey: string) =>
     Atom.make(() =>

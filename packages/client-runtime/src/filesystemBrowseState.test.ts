@@ -1,5 +1,6 @@
-import { assert, beforeEach, it } from "vite-plus/test";
 import type { FilesystemBrowseResult } from "@t3tools/contracts";
+import { assert, beforeEach, it } from "@effect/vitest";
+import * as Duration from "effect/Duration";
 import { AtomRegistry } from "effect/unstable/reactivity";
 
 import {
@@ -104,7 +105,7 @@ it("keeps fresh watched browse results on remount", async () => {
         return ROOT_RESULT;
       },
     }),
-    staleTimeMs: 60_000,
+    staleTime: Duration.seconds(60),
   });
 
   const firstUnwatch = manager.watch(target);
