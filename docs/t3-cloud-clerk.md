@@ -12,6 +12,7 @@ or `.env.local` file:
 ```dotenv
 T3CODE_CLERK_PUBLISHABLE_KEY=<publishable key>
 T3CODE_CLERK_JWT_TEMPLATE=<JWT template name>
+T3CODE_CLERK_CLI_OAUTH_CLIENT_ID=<public OAuth application client ID>
 T3CODE_RELAY_URL=https://relay.example.com
 ```
 
@@ -25,14 +26,19 @@ Configuration precedence is:
 2. Repository-root `.env.local`.
 3. Repository-root `.env`.
 
-The Clerk publishable key, JWT template name, and relay URL are public identifiers, not secrets.
-Web, desktop, and mobile builds statically inject them during their build step. A built artifact
-does not need an environment file at runtime. CI release builds should set
-`T3CODE_CLERK_PUBLISHABLE_KEY`, `T3CODE_CLERK_JWT_TEMPLATE`, and `T3CODE_RELAY_URL` before building.
-EAS preview and production builds should define the same client-facing values in their EAS
+The Clerk publishable key, JWT template name, CLI OAuth client ID, and relay URL are public
+identifiers, not secrets.
+Web, desktop, mobile, and bundled server builds statically inject the values they consume during
+their build step. A built artifact does not need an environment file at runtime. CI release builds
+should set `T3CODE_CLERK_PUBLISHABLE_KEY`, `T3CODE_CLERK_JWT_TEMPLATE`,
+`T3CODE_CLERK_CLI_OAUTH_CLIENT_ID`, and `T3CODE_RELAY_URL` before building. EAS preview and
+production builds only need the Clerk publishable key, JWT template name, and relay URL in their EAS
 environment.
 
-When any client-facing public value is absent, cloud UI is omitted.
+When any client-facing public value is absent, cloud UI is omitted. When the CLI public values are
+absent, the `t3 cloud` CLI command group is omitted. The bundled server still accepts runtime
+overrides for self-hosted or operator-managed
+deployments.
 
 For a hosted relay deployment, copy `infra/relay/.env.example` to `infra/relay/.env`. The relay
 deployment reads `RELAY_DOMAIN`, `RELAY_ZONE_NAME`, `CLERK_PUBLISHABLE_KEY`, and
@@ -45,7 +51,55 @@ environment or commit it to the repository.
 
 The `prod` Alchemy stage owns the retained PlanetScale database. Non-production stages reference
 that database and provision isolated PlanetScale branches, so deploy `prod` before creating a
-preview or developer stage.
+personal developer stage.
+
+## Headless CLI OAuth Application
+
+The `t3 cloud` commands authorize a headless environment with a separate Clerk OAuth application.
+This uses an OAuth public client with PKCE, so the CLI stores no client secret.
+
+In **Clerk Dashboard > OAuth applications**:
+
+1. Create an OAuth application for the T3 CLI.
+2. Enable the **Public** option so authorization-code exchange uses PKCE.
+3. Add `http://127.0.0.1:34338/callback` as an allowed redirect URI.
+4. Enable the `openid`, `profile`, and `email` scopes.
+5. Set `T3CODE_CLERK_CLI_OAUTH_CLIENT_ID` in the repository-root `.env` file and release build
+   environment to the generated public client ID.
+
+The CLI derives Clerk's frontend API URL from the publishable key and calls Clerk's
+`/oauth/authorize` and `/oauth/token` endpoints directly. The relay is not involved in the OAuth
+handshake; it only validates the issued Clerk bearer token when the CLI manages an environment link.
+
+The CLI supports these headless operations:
+
+```sh
+t3 cloud login
+t3 cloud link
+t3 cloud status
+t3 cloud unlink
+t3 cloud logout
+t3 serve
+```
+
+`t3 cloud login` opens the Clerk authorization flow and stores the CLI credential without enabling
+cloud exposure. `t3 cloud link` installs the pinned managed `cloudflared` binary when needed,
+authorizes when needed, and records durable intent to expose the environment. It works without a
+running T3 server. The next `t3 serve` or `t3 start` reconciles the relay link and launches the
+managed tunnel. `t3 cloud unlink` records disabled intent immediately, stops a reachable running
+connector, and attempts to revoke the relay-side environment record. It retains the stored CLI
+authorization so `t3 cloud link` can re-enable exposure without another browser flow. `t3 cloud
+logout` performs the same cleanup and removes the stored CLI authorization.
+
+The current OAuth callback listener binds to loopback port `34338`. When running the CLI over SSH,
+forward that port before running `t3 cloud login` or `t3 cloud link`:
+
+```sh
+ssh -L 34338:127.0.0.1:34338 <host>
+```
+
+A relay-hosted callback broker can remove this port-forward requirement later without changing the
+stored PKCE token model.
 
 ## JWT Template
 
@@ -74,7 +128,11 @@ t3code://auth/callback
 ```
 
 The first entry is for local desktop development. The second is for packaged desktop builds.
-The app also adds a request-scoped `t3_state` query parameter and validates it on callback.
+The app also adds a request-scoped `t3_state` query parameter and validates it on callback. Initial
+sign-in and linked-account OAuth flows both return through this bridge. The desktop provider keeps
+Clerk's stock profile component, replaces its renderer-page callback with the custom-scheme callback,
+and opens the provider URL in the system browser. Do not add the local renderer URL as an OAuth
+redirect: an external browser cannot use it to reopen the packaged app.
 
 The current mobile UI uses Clerk's native authentication view. If a future mobile browser OAuth
 flow uses a custom redirect URI, add that exact URI to the same allowlist.
