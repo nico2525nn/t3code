@@ -2810,6 +2810,11 @@ export default function Sidebar() {
     select: (params) => resolveThreadRouteRef(params),
   });
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  const activeThreadTerminalOpen = useTerminalUiStateStore((state) =>
+    routeThreadRef
+      ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen
+      : false,
+  );
   const keybindings = useServerKeybindings();
   const openAddProjectCommandPalette = useCommandPaletteStore((store) => store.openAddProject);
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
@@ -2926,15 +2931,10 @@ export default function Sidebar() {
   const getCurrentSidebarShortcutContext = useCallback(
     () => ({
       terminalFocus: isTerminalFocused(),
-      terminalOpen: routeThreadRef
-        ? selectThreadTerminalUiState(
-            useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
-            routeThreadRef,
-          ).terminalOpen
-        : false,
+      terminalOpen: activeThreadTerminalOpen,
       modelPickerOpen,
     }),
-    [modelPickerOpen, routeThreadRef],
+    [activeThreadTerminalOpen, modelPickerOpen],
   );
   const newThreadShortcutLabelOptions = useMemo(
     () => ({
@@ -3134,15 +3134,10 @@ export default function Sidebar() {
   const sidebarShortcutContext = useMemo(
     () => ({
       terminalFocus: false,
-      terminalOpen: routeThreadRef
-        ? selectThreadTerminalUiState(
-            useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
-            routeThreadRef,
-          ).terminalOpen
-        : false,
+      terminalOpen: activeThreadTerminalOpen,
       modelPickerOpen,
     }),
-    [modelPickerOpen, routeThreadRef],
+    [activeThreadTerminalOpen, modelPickerOpen],
   );
   const threadJumpLabelByKey = useMemo(
     () =>
