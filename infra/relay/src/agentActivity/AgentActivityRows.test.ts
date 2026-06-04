@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { RelayDb, type RelayDatabase } from "../db.ts";
+import * as ResourceLimits from "../resourceLimits.ts";
 import * as AgentActivityRows from "./AgentActivityRows.ts";
 
 const state: RelayAgentActivityState = {
@@ -52,7 +53,7 @@ describe("AgentActivityRows", () => {
       );
 
       expect(error).toEqual(
-        new AgentActivityRows.AgentActivityRowQuotaExceeded({
+        new ResourceLimits.ResourceQuotaExceeded({
           resource: "active_agent_threads",
           limit: 50,
         }),

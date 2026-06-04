@@ -12,6 +12,7 @@ import { and, count, desc, eq, isNull } from "drizzle-orm";
 
 import { RelayDb } from "../db.ts";
 import { relayAgentActivityRows, relayEnvironmentLinks } from "../persistence/schema.ts";
+import * as ResourceLimits from "../resourceLimits.ts";
 
 export class AgentActivityRowUpsertPersistenceError extends Data.TaggedError(
   "AgentActivityRowUpsertPersistenceError",
@@ -31,20 +32,14 @@ export class AgentActivityRowListPersistenceError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-export class AgentActivityRowQuotaExceeded extends Data.TaggedError(
-  "AgentActivityRowQuotaExceeded",
-)<{
-  readonly resource: "active_agent_threads";
-  readonly limit: number;
-}> {}
-
-const MAX_ACTIVE_AGENT_THREADS_PER_ENVIRONMENT = 50;
-
 export interface AgentActivityRowsShape {
   readonly upsert: (input: {
     readonly environmentPublicKey: string;
     readonly state: RelayAgentActivityState;
-  }) => Effect.Effect<void, AgentActivityRowUpsertPersistenceError | AgentActivityRowQuotaExceeded>;
+  }) => Effect.Effect<
+    void,
+    AgentActivityRowUpsertPersistenceError | ResourceLimits.ResourceQuotaExceeded
+  >;
   readonly remove: (input: {
     readonly environmentId: string;
     readonly environmentPublicKey: string;
@@ -102,10 +97,12 @@ const make = Effect.gen(function* () {
                 .select({ value: count() })
                 .from(relayAgentActivityRows)
                 .where(keyCondition);
-              if ((rows[0]?.value ?? 0) >= MAX_ACTIVE_AGENT_THREADS_PER_ENVIRONMENT) {
-                return yield* new AgentActivityRowQuotaExceeded({
+              if (
+                (rows[0]?.value ?? 0) >= ResourceLimits.MAX_ACTIVE_AGENT_THREADS_PER_ENVIRONMENT
+              ) {
+                return yield* new ResourceLimits.ResourceQuotaExceeded({
                   resource: "active_agent_threads",
-                  limit: MAX_ACTIVE_AGENT_THREADS_PER_ENVIRONMENT,
+                  limit: ResourceLimits.MAX_ACTIVE_AGENT_THREADS_PER_ENVIRONMENT,
                 });
               }
             }
@@ -134,7 +131,7 @@ const make = Effect.gen(function* () {
         );
       },
       Effect.mapError((cause) =>
-        cause instanceof AgentActivityRowQuotaExceeded
+        cause instanceof ResourceLimits.ResourceQuotaExceeded
           ? cause
           : new AgentActivityRowUpsertPersistenceError({ cause }),
       ),

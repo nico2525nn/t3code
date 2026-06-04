@@ -10,6 +10,7 @@ import { RelayDb } from "../db.ts";
 import { isManagedEndpointHostname, managedEndpointForHostname } from "../deploymentConfig.ts";
 import * as Entitlements from "../entitlements/Entitlements.ts";
 import { relayEnvironmentLinks, relayManagedEndpointAllocations } from "../persistence/schema.ts";
+import * as ResourceLimits from "../resourceLimits.ts";
 
 export interface ManagedEndpointAllocation {
   readonly userId: string;
@@ -77,7 +78,7 @@ export interface ManagedEndpointAllocationsShape {
     input: ReserveManagedEndpointAllocationInput,
   ) => Effect.Effect<
     ManagedEndpointAllocation,
-    ManagedEndpointAllocationPersistenceError | Entitlements.UserResourceQuotaExceeded
+    ManagedEndpointAllocationPersistenceError | ResourceLimits.ResourceQuotaExceeded
   >;
   readonly recordTunnel: (
     input: RecordManagedEndpointTunnelInput,
@@ -133,7 +134,7 @@ const persistenceError = (cause: unknown) =>
     : new ManagedEndpointAllocationPersistenceError({ cause });
 
 const reservationError = (cause: unknown) =>
-  cause instanceof Entitlements.UserResourceQuotaExceeded ? cause : persistenceError(cause);
+  cause instanceof ResourceLimits.ResourceQuotaExceeded ? cause : persistenceError(cause);
 
 const make = Effect.gen(function* () {
   const db = yield* RelayDb;
@@ -153,6 +154,30 @@ const make = Effect.gen(function* () {
       );
   });
 
+  const reactivate = Effect.fn("relay.managed_endpoint_allocations.reactivate")(function* (
+    input: ManagedEndpointAllocationKey,
+  ) {
+    const reactivated = yield* db
+      .update(relayManagedEndpointAllocations)
+      .set({
+        readyAt: null,
+        deprovisionRequestedAt: null,
+        lastDeprovisionAttemptAt: null,
+        lastDeprovisionError: null,
+        updatedAt: DateTime.formatIso(yield* DateTime.now),
+      })
+      .where(whereAllocation(input))
+      .returning(allocationSelection)
+      .pipe(Effect.mapError(persistenceError));
+    const allocation = reactivated[0];
+    if (allocation === undefined) {
+      return yield* new ManagedEndpointAllocationPersistenceError({
+        cause: new Error("Managed endpoint allocation was not reactivated."),
+      });
+    }
+    return allocation;
+  });
+
   return ManagedEndpointAllocations.of({
     get,
     reserve: Effect.fn("relay.managed_endpoint_allocations.reserve")(function* (
@@ -163,7 +188,7 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           const existing = yield* get(input);
           if (existing !== null) {
-            return existing;
+            return existing.deprovisionRequestedAt === null ? existing : yield* reactivate(input);
           }
           const effective = yield* entitlements.getEffectiveForUser(input.userId);
           const allocationCounts = yield* db
@@ -172,7 +197,7 @@ const make = Effect.gen(function* () {
             .where(eq(relayManagedEndpointAllocations.userId, input.userId))
             .pipe(Effect.mapError(persistenceError));
           if ((allocationCounts[0]?.value ?? 0) >= effective.managedEndpointLimit) {
-            return yield* new Entitlements.UserResourceQuotaExceeded({
+            return yield* new ResourceLimits.ResourceQuotaExceeded({
               resource: "managed_endpoints",
               limit: effective.managedEndpointLimit,
             });

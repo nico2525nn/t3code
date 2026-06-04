@@ -18,7 +18,7 @@ import type {
 } from "@t3tools/contracts/relay";
 
 import * as RelayConfiguration from "../Config.ts";
-import * as Entitlements from "../entitlements/Entitlements.ts";
+import * as ResourceLimits from "../resourceLimits.ts";
 import {
   managedEndpointDigestInput,
   managedEndpointForHostname,
@@ -54,7 +54,7 @@ export type ManagedEndpointProviderError =
   | ManagedEndpointProvisioningNotConfigured
   | ManagedEndpointProvisioningFailed
   | ManagedEndpointOriginNotAllowed
-  | Entitlements.UserResourceQuotaExceeded;
+  | ResourceLimits.ResourceQuotaExceeded;
 
 export interface ManagedEndpointProvisioningResult {
   readonly endpoint: RelayManagedEndpoint;
@@ -381,7 +381,7 @@ const make = Effect.gen(function* () {
         })
         .pipe(
           Effect.mapError((cause) =>
-            cause instanceof Entitlements.UserResourceQuotaExceeded
+            cause instanceof ResourceLimits.ResourceQuotaExceeded
               ? cause
               : new ManagedEndpointProvisioningFailed({ cause }),
           ),

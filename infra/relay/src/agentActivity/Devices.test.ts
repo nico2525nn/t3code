@@ -9,6 +9,7 @@ import { RelayDb, type RelayDatabase } from "../db.ts";
 import { relayLiveActivities, relayMobileDevices } from "../persistence/schema.ts";
 import * as Devices from "./Devices.ts";
 import * as Entitlements from "../entitlements/Entitlements.ts";
+import * as ResourceLimits from "../resourceLimits.ts";
 
 const registration: RelayDeviceRegistrationRequest = {
   deviceId: "device-1" as RelayDeviceRegistrationRequest["deviceId"],
@@ -74,7 +75,7 @@ describe("Devices", () => {
       const error = yield* Effect.flip(devices.register({ userId: "user-2", registration }));
 
       expect(error).toEqual(
-        new Entitlements.UserResourceQuotaExceeded({
+        new ResourceLimits.ResourceQuotaExceeded({
           resource: "mobile_devices",
           limit: 5,
         }),

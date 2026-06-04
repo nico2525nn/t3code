@@ -30,6 +30,18 @@ function clients(
 }
 
 describe("RateLimits", () => {
+  it("maps every configured operation", () => {
+    expect(RateLimits.mapRelayRateLimitOperations((operation) => operation)).toEqual({
+      token_exchange: "token_exchange",
+      link_challenge: "link_challenge",
+      managed_endpoint_provision: "managed_endpoint_provision",
+      environment_connect: "environment_connect",
+      environment_status: "environment_status",
+      mobile_registration: "mobile_registration",
+      agent_activity_publish: "agent_activity_publish",
+    });
+  });
+
   it.effect("returns a typed denial when Cloudflare rejects the key", () =>
     Effect.gen(function* () {
       const rateLimits = yield* RateLimits.RateLimits;

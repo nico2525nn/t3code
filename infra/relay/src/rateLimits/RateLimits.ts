@@ -6,6 +6,18 @@ import * as Layer from "effect/Layer";
 
 import type { RelayRateLimitTier } from "@t3tools/contracts/relay";
 
+export const RELAY_RATE_LIMIT_OPERATIONS = [
+  "token_exchange",
+  "link_challenge",
+  "managed_endpoint_provision",
+  "environment_connect",
+  "environment_status",
+  "mobile_registration",
+  "agent_activity_publish",
+] as const;
+
+export type RelayRateLimitOperation = (typeof RELAY_RATE_LIMIT_OPERATIONS)[number];
+
 export const RELAY_RATE_LIMITS = {
   token_exchange: { limit: 20, period: 60 },
   link_challenge: { limit: 10, period: 60 },
@@ -14,10 +26,17 @@ export const RELAY_RATE_LIMITS = {
   environment_status: { limit: 30, period: 60 },
   mobile_registration: { limit: 10, period: 60 },
   agent_activity_publish: { limit: 60, period: 10 },
-} as const;
+} as const satisfies Readonly<Record<RelayRateLimitOperation, { limit: number; period: number }>>;
 
-export type RelayRateLimitOperation = keyof typeof RELAY_RATE_LIMITS;
 type ActiveRelayRateLimitTier = Exclude<RelayRateLimitTier, "blocked">;
+
+export function mapRelayRateLimitOperations<A>(
+  map: (operation: RelayRateLimitOperation) => A,
+): Readonly<Record<RelayRateLimitOperation, A>> {
+  return Object.fromEntries(
+    RELAY_RATE_LIMIT_OPERATIONS.map((operation) => [operation, map(operation)]),
+  ) as Record<RelayRateLimitOperation, A>;
+}
 
 export class RelayRateLimitExceeded extends Data.TaggedError("RelayRateLimitExceeded")<{
   readonly operation: RelayRateLimitOperation;

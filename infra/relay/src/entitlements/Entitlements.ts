@@ -9,11 +9,7 @@ import type { RelayRateLimitTier } from "@t3tools/contracts/relay";
 
 import { RelayDb } from "../db.ts";
 import { relayUserEntitlements } from "../persistence/schema.ts";
-
-export const DEFAULT_MANAGED_ENDPOINT_LIMIT = 3;
-export const DEFAULT_MOBILE_DEVICE_LIMIT = 5;
-
-export type RelayQuotaResource = "managed_endpoints" | "mobile_devices";
+import * as ResourceLimits from "../resourceLimits.ts";
 
 export interface EffectiveUserEntitlements {
   readonly managedEndpointLimit: number;
@@ -25,11 +21,6 @@ export class UserEntitlementPersistenceError extends Data.TaggedError(
   "UserEntitlementPersistenceError",
 )<{
   readonly cause: unknown;
-}> {}
-
-export class UserResourceQuotaExceeded extends Data.TaggedError("UserResourceQuotaExceeded")<{
-  readonly resource: RelayQuotaResource;
-  readonly limit: number;
 }> {}
 
 export interface EntitlementsShape {
@@ -70,8 +61,9 @@ const make = Effect.gen(function* () {
         .limit(1);
       const row = rows[0];
       return {
-        managedEndpointLimit: row?.managedEndpointLimit ?? DEFAULT_MANAGED_ENDPOINT_LIMIT,
-        mobileDeviceLimit: row?.mobileDeviceLimit ?? DEFAULT_MOBILE_DEVICE_LIMIT,
+        managedEndpointLimit:
+          row?.managedEndpointLimit ?? ResourceLimits.DEFAULT_MANAGED_ENDPOINT_LIMIT,
+        mobileDeviceLimit: row?.mobileDeviceLimit ?? ResourceLimits.DEFAULT_MOBILE_DEVICE_LIMIT,
         rateLimitTier: row?.rateLimitTier ?? "standard",
       };
     },

@@ -42,6 +42,7 @@ import {
   RelayEnvironmentLinkProofInvalidError,
   RelayEnvironmentLinkUnavailableError,
   RelayEnvironmentPrincipal,
+  type RelayClientPrincipalShape,
   type RelayEnvironmentConnectRequest,
   type RelayDpopAccessTokenScope,
   RelayInternalError,
@@ -70,6 +71,7 @@ import { withSpanAttributes } from "../observability.ts";
 import { RelayDb } from "../db.ts";
 import * as Entitlements from "../entitlements/Entitlements.ts";
 import * as RateLimits from "../rateLimits/RateLimits.ts";
+import * as ResourceLimits from "../resourceLimits.ts";
 
 const relayCorsAllowedMethods = ["GET", "POST", "DELETE", "OPTIONS"] as const;
 const relayCorsAllowedHeaders = [
@@ -332,13 +334,44 @@ const checkDpopUserRateLimit = Effect.fnUntraced(function* (
   rateLimits: RateLimits.RateLimitsShape,
   operation: RateLimits.RelayRateLimitOperation,
   key: string,
+  principal: RelayClientPrincipalShape,
 ) {
-  const principal = yield* RelayClientPrincipal;
   yield* rateLimits.check({
     operation,
     key,
     ...(principal.rateLimitTier ? { tier: principal.rateLimitTier } : {}),
   });
+});
+
+const authorizeDpopPrincipal = Effect.fnUntraced(function* (
+  dpopProofs: DpopProofs.DpopProofReplayShape,
+  scope: RelayDpopAccessTokenScope,
+  principal: RelayClientPrincipalShape,
+) {
+  const proofKeyThumbprint = yield* requireDpopPrincipalScope(scope);
+  yield* requireDpopThumbprint(proofKeyThumbprint, {
+    expectedAccessToken: principal.token,
+  }).pipe(Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs));
+  return { ...principal, proofKeyThumbprint };
+});
+
+const authorizeDpopRequest = Effect.fnUntraced(function* (
+  dpopProofs: DpopProofs.DpopProofReplayShape,
+  scope: RelayDpopAccessTokenScope,
+) {
+  return yield* authorizeDpopPrincipal(dpopProofs, scope, yield* RelayClientPrincipal);
+});
+
+const authorizeRateLimitedDpopRequest = Effect.fnUntraced(function* (
+  dpopProofs: DpopProofs.DpopProofReplayShape,
+  rateLimits: RateLimits.RateLimitsShape,
+  operation: RateLimits.RelayRateLimitOperation,
+  keyForPrincipal: (principal: RelayClientPrincipalShape) => string,
+  scope: RelayDpopAccessTokenScope,
+) {
+  const principal = yield* RelayClientPrincipal;
+  yield* checkDpopUserRateLimit(rateLimits, operation, keyForPrincipal(principal), principal);
+  return yield* authorizeDpopPrincipal(dpopProofs, scope, principal);
 });
 
 export const metadataApi = HttpApiBuilder.group(
@@ -410,12 +443,13 @@ export const mobileApi = HttpApiBuilder.group(
         "registerDevice",
         Effect.fn("relay.api.mobile.registerDevice")(function* (args) {
           const { payload } = args;
-          const { userId, token } = yield* RelayClientPrincipal;
-          yield* checkDpopUserRateLimit(rateLimits, "mobile_registration", userId);
-          const proofKeyThumbprint = yield* requireDpopPrincipalScope("mobile:registration");
-          yield* requireDpopThumbprint(proofKeyThumbprint, {
-            expectedAccessToken: token,
-          }).pipe(Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs));
+          const { userId } = yield* authorizeRateLimitedDpopRequest(
+            dpopProofs,
+            rateLimits,
+            "mobile_registration",
+            (principal) => principal.userId,
+            "mobile:registration",
+          );
           return yield* registrations.registerDevice({ userId, payload });
         }, mapRelayCommonApiErrors("invalid_dpop")),
       )
@@ -423,12 +457,13 @@ export const mobileApi = HttpApiBuilder.group(
         "registerLiveActivity",
         Effect.fn("relay.api.mobile.registerLiveActivity")(function* (args) {
           const { payload } = args;
-          const { userId, token } = yield* RelayClientPrincipal;
-          yield* checkDpopUserRateLimit(rateLimits, "mobile_registration", userId);
-          const proofKeyThumbprint = yield* requireDpopPrincipalScope("mobile:registration");
-          yield* requireDpopThumbprint(proofKeyThumbprint, {
-            expectedAccessToken: token,
-          }).pipe(Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs));
+          const { userId } = yield* authorizeRateLimitedDpopRequest(
+            dpopProofs,
+            rateLimits,
+            "mobile_registration",
+            (principal) => principal.userId,
+            "mobile:registration",
+          );
           return yield* registrations.registerLiveActivity({ userId, payload });
         }, mapRelayCommonApiErrors("invalid_dpop")),
       )
@@ -436,12 +471,7 @@ export const mobileApi = HttpApiBuilder.group(
         "unregisterDevice",
         Effect.fn("relay.api.mobile.unregisterDevice")(function* (args) {
           const { params } = args;
-          const { userId, token } = yield* RelayClientPrincipal;
-          yield* checkDpopUserRateLimit(rateLimits, "mobile_registration", userId);
-          const proofKeyThumbprint = yield* requireDpopPrincipalScope("mobile:registration");
-          yield* requireDpopThumbprint(proofKeyThumbprint, {
-            expectedAccessToken: token,
-          }).pipe(Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs));
+          const { userId } = yield* authorizeDpopRequest(dpopProofs, "mobile:registration");
           return yield* registrations.unregisterDevice({ userId, deviceId: params.deviceId });
         }, mapRelayCommonApiErrors("invalid_dpop")),
       );
@@ -712,11 +742,13 @@ export const dpopClientApi = HttpApiBuilder.group(
           function* (args) {
             const { params, payload } = args;
             yield* appendRelayCredentialResponseHeaders;
-            const { userId, token } = yield* RelayClientPrincipal;
+            const principal = yield* RelayClientPrincipal;
+            const { userId, token } = principal;
             yield* checkDpopUserRateLimit(
               rateLimits,
               "environment_connect",
               `${userId}:${params.environmentId}`,
+              principal,
             );
             const proofKeyThumbprint = yield* requireDpopPrincipalScope("environment:connect");
             const requestedThumbprint = resolveConnectClientKeyThumbprint(payload);
@@ -765,16 +797,13 @@ export const dpopClientApi = HttpApiBuilder.group(
         Effect.fn("relay.api.dpopClient.getEnvironmentStatus")(
           function* (args) {
             const { params } = args;
-            const { userId, token } = yield* RelayClientPrincipal;
-            yield* checkDpopUserRateLimit(
+            const { userId } = yield* authorizeRateLimitedDpopRequest(
+              dpopProofs,
               rateLimits,
               "environment_status",
-              `${userId}:${params.environmentId}`,
+              (principal) => `${principal.userId}:${params.environmentId}`,
+              "environment:status",
             );
-            const proofKeyThumbprint = yield* requireDpopPrincipalScope("environment:status");
-            yield* requireDpopThumbprint(proofKeyThumbprint, {
-              expectedAccessToken: token,
-            }).pipe(Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs));
             return yield* connector.status({
               userId,
               environmentId: params.environmentId,
@@ -909,7 +938,7 @@ const currentTraceId = Effect.currentParentSpan.pipe(
   Effect.orElseSucceed(() => "unavailable"),
 );
 
-const COMMON_AUTH_INVALID_REASONS = [
+const RELAY_COMMON_PERSISTENCE_ERRORS = [
   Devices.DeviceRegistrationPersistenceError,
   Devices.DeviceUnregistrationPersistenceError,
   Devices.DeviceListPersistenceError,
@@ -931,29 +960,25 @@ const COMMON_AUTH_INVALID_REASONS = [
   LiveActivities.LiveActivityDeliveryMarkPersistenceError,
   DeliveryAttempts.DeliveryAttemptRecordPersistenceError,
 ] as const;
-type RelayCommonPersistenceError = InstanceType<(typeof COMMON_AUTH_INVALID_REASONS)[number]>;
+type RelayCommonPersistenceError = InstanceType<(typeof RELAY_COMMON_PERSISTENCE_ERRORS)[number]>;
 
 type MapRelayCommonApiError<E> =
   | Exclude<
       E,
       | HttpApiError.Unauthorized
       | RelayCommonPersistenceError
-      | Entitlements.UserResourceQuotaExceeded
-      | AgentActivityRows.AgentActivityRowQuotaExceeded
+      | ResourceLimits.ResourceQuotaExceeded
       | RateLimits.RelayRateLimitExceeded
     >
   | (Extract<E, HttpApiError.Unauthorized> extends never ? never : RelayAuthInvalidError)
   | (Extract<E, RelayCommonPersistenceError> extends never ? never : RelayInternalError)
-  | (Extract<E, Entitlements.UserResourceQuotaExceeded> extends never
-      ? never
-      : RelayQuotaExceededError)
-  | (Extract<E, AgentActivityRows.AgentActivityRowQuotaExceeded> extends never
+  | (Extract<E, ResourceLimits.ResourceQuotaExceeded> extends never
       ? never
       : RelayQuotaExceededError)
   | (Extract<E, RateLimits.RelayRateLimitExceeded> extends never ? never : RelayRateLimitedError);
 
 function isRelayCommonPersistenceError(error: unknown): error is RelayCommonPersistenceError {
-  return COMMON_AUTH_INVALID_REASONS.some((ErrorType) => error instanceof ErrorType);
+  return RELAY_COMMON_PERSISTENCE_ERRORS.some((ErrorType) => error instanceof ErrorType);
 }
 
 function relayInternalErrorResponse(reason: RelayInternalError["reason"]) {
@@ -985,10 +1010,7 @@ function mapRelayCommonApiErrors(authReason: RelayAuthInvalidReason) {
         }) as MapRelayCommonApiError<E>,
       );
     }
-    if (
-      error instanceof Entitlements.UserResourceQuotaExceeded ||
-      error instanceof AgentActivityRows.AgentActivityRowQuotaExceeded
-    ) {
+    if (error instanceof ResourceLimits.ResourceQuotaExceeded) {
       return yield* Effect.fail(
         new RelayQuotaExceededError({
           code: "quota_exceeded",

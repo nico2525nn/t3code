@@ -9,12 +9,11 @@ import * as Layer from "effect/Layer";
 import * as Devices from "./Devices.ts";
 import * as LiveActivities from "./LiveActivities.ts";
 import * as AgentActivityPublisher from "./AgentActivityPublisher.ts";
-import * as Entitlements from "../entitlements/Entitlements.ts";
+import * as ResourceLimits from "../resourceLimits.ts";
 
 export type MobileRegistrationError =
   | Devices.DeviceRegistrationPersistenceError
-  | Devices.DeviceUnregistrationPersistenceError
-  | Entitlements.UserResourceQuotaExceeded
+  | ResourceLimits.ResourceQuotaExceeded
   | LiveActivities.LiveActivityRegistrationPersistenceError;
 
 export interface MobileRegistrationsShape {
@@ -29,7 +28,7 @@ export interface MobileRegistrationsShape {
   readonly unregisterDevice: (input: {
     readonly userId: string;
     readonly deviceId: string;
-  }) => Effect.Effect<{ readonly ok: true }, MobileRegistrationError>;
+  }) => Effect.Effect<{ readonly ok: true }, Devices.DeviceUnregistrationPersistenceError>;
 }
 
 export class MobileRegistrations extends Context.Service<

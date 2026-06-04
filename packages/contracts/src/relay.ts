@@ -489,7 +489,7 @@ export type RelayProtectedError = typeof RelayProtectedError.Type;
 
 const RelayAuthAndInternalErrors = [RelayAuthInvalidError, RelayInternalError] as const;
 
-const RelayMobileErrors = [
+const RelayMobileRegistrationErrors = [
   RelayAuthInvalidError,
   RelayQuotaExceededError,
   RelayRateLimitedError,
@@ -866,7 +866,7 @@ export const RelayRegisterDeviceEndpoint = HttpApiEndpoint.post(
     headers: RelayDpopRequestHeaders,
     payload: RelayDeviceRegistrationRequest,
     success: RelayOkResponse,
-    error: RelayMobileErrors,
+    error: RelayMobileRegistrationErrors,
   },
 ).annotate(OpenApi.Summary, "Register or update a mobile device");
 
@@ -877,7 +877,7 @@ export const RelayRegisterLiveActivityEndpoint = HttpApiEndpoint.post(
     headers: RelayDpopRequestHeaders,
     payload: RelayLiveActivityRegistrationRequest,
     success: RelayOkResponse,
-    error: RelayMobileErrors,
+    error: RelayMobileRegistrationErrors,
   },
 ).annotate(OpenApi.Summary, "Register a Live Activity push token");
 
@@ -888,7 +888,7 @@ export const RelayUnregisterDeviceEndpoint = HttpApiEndpoint.delete(
     headers: RelayDpopRequestHeaders,
     params: RelayDeviceUnregistrationParams,
     success: RelayOkResponse,
-    error: RelayMobileErrors,
+    error: RelayAuthAndInternalErrors,
   },
 ).annotate(OpenApi.Summary, "Unregister a mobile device");
 

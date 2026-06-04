@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 
 import { RelayDb, type RelayDatabase } from "../db.ts";
 import * as Entitlements from "../entitlements/Entitlements.ts";
+import * as ResourceLimits from "../resourceLimits.ts";
 import * as ManagedEndpointAllocations from "./ManagedEndpointAllocations.ts";
 
 function testLayer(fakeDb: RelayDatabase, managedEndpointLimit = 3) {
@@ -60,7 +61,7 @@ describe("ManagedEndpointAllocations", () => {
       );
 
       expect(error).toEqual(
-        new Entitlements.UserResourceQuotaExceeded({
+        new ResourceLimits.ResourceQuotaExceeded({
           resource: "managed_endpoints",
           limit: 3,
         }),
@@ -104,6 +105,62 @@ describe("ManagedEndpointAllocations", () => {
           tunnelName: "tunnel-env-1",
         }),
       ).toEqual(existing);
+    }).pipe(Effect.provide(testLayer(fakeDb, 0)));
+  });
+
+  it.effect("reactivates an existing reservation before provisioning retries", () => {
+    const existing: ManagedEndpointAllocations.ManagedEndpointAllocation = {
+      userId: "user-1",
+      environmentId: "env-1",
+      hostname: "env-1.example.test",
+      tunnelName: "tunnel-env-1",
+      tunnelId: "tunnel-1",
+      dnsRecordId: "dns-1",
+      readyAt: "2026-06-01T00:00:00.000Z",
+      deprovisionRequestedAt: "2026-06-02T00:00:00.000Z",
+      lastDeprovisionAttemptAt: "2026-06-02T00:01:00.000Z",
+      lastDeprovisionError: "upstream unavailable",
+    };
+    const reactivated = {
+      ...existing,
+      readyAt: null,
+      deprovisionRequestedAt: null,
+      lastDeprovisionAttemptAt: null,
+      lastDeprovisionError: null,
+    };
+    let updated = false;
+    const fakeDb = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: () => Effect.succeed([existing]),
+          }),
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: () => ({
+            returning: () =>
+              Effect.sync(() => {
+                updated = true;
+                return [reactivated];
+              }),
+          }),
+        }),
+      }),
+    } as unknown as RelayDatabase;
+
+    return Effect.gen(function* () {
+      const allocations = yield* ManagedEndpointAllocations.ManagedEndpointAllocations;
+      expect(
+        yield* allocations.reserve({
+          userId: "user-1",
+          environmentId: "env-1",
+          hostname: "env-1.example.test",
+          tunnelName: "tunnel-env-1",
+        }),
+      ).toEqual(reactivated);
+      expect(updated).toBe(true);
     }).pipe(Effect.provide(testLayer(fakeDb, 0)));
   });
 });

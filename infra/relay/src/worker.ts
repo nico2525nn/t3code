@@ -162,36 +162,14 @@ export default class Api extends Cloudflare.Worker<Api>()(
     const managedEndpointTunnelBinding = yield* Cloudflare.TunnelReadWrite.bind();
     const managedEndpointDnsBinding = yield* Cloudflare.DnsReadWrite.bind(managedEndpointZone);
     const managedEndpointZoneName = yield* managedEndpointZone.name;
-    const rateLimitClients = yield* Effect.all({
-      token_exchange: Effect.all({
-        standard: bindRelayRateLimit(stage, "token_exchange", "standard"),
-        trusted: bindRelayRateLimit(stage, "token_exchange", "trusted"),
-      }),
-      link_challenge: Effect.all({
-        standard: bindRelayRateLimit(stage, "link_challenge", "standard"),
-        trusted: bindRelayRateLimit(stage, "link_challenge", "trusted"),
-      }),
-      managed_endpoint_provision: Effect.all({
-        standard: bindRelayRateLimit(stage, "managed_endpoint_provision", "standard"),
-        trusted: bindRelayRateLimit(stage, "managed_endpoint_provision", "trusted"),
-      }),
-      environment_connect: Effect.all({
-        standard: bindRelayRateLimit(stage, "environment_connect", "standard"),
-        trusted: bindRelayRateLimit(stage, "environment_connect", "trusted"),
-      }),
-      environment_status: Effect.all({
-        standard: bindRelayRateLimit(stage, "environment_status", "standard"),
-        trusted: bindRelayRateLimit(stage, "environment_status", "trusted"),
-      }),
-      mobile_registration: Effect.all({
-        standard: bindRelayRateLimit(stage, "mobile_registration", "standard"),
-        trusted: bindRelayRateLimit(stage, "mobile_registration", "trusted"),
-      }),
-      agent_activity_publish: Effect.all({
-        standard: bindRelayRateLimit(stage, "agent_activity_publish", "standard"),
-        trusted: bindRelayRateLimit(stage, "agent_activity_publish", "trusted"),
-      }),
-    });
+    const rateLimitClients = yield* Effect.all(
+      RateLimits.mapRelayRateLimitOperations((operation) =>
+        Effect.all({
+          standard: bindRelayRateLimit(stage, operation, "standard"),
+          trusted: bindRelayRateLimit(stage, operation, "trusted"),
+        }),
+      ),
+    );
 
     //
     // 3. Runtime layers and app construction
@@ -305,7 +283,7 @@ export default class Api extends Cloudflare.Worker<Api>()(
         Maintenance.Maintenance.pipe(Effect.flatMap((maintenance) => maintenance.pruneExpired)),
       ]).pipe(
         Effect.asVoid,
-        Effect.withSpan("relay.cron.prune_expired_dpop_proofs"),
+        Effect.withSpan("relay.cron.maintenance"),
         Effect.provide(runtimeLayer),
       ),
     );

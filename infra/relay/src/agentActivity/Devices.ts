@@ -13,6 +13,7 @@ import { sql } from "drizzle-orm";
 import { RelayDb } from "../db.ts";
 import * as Entitlements from "../entitlements/Entitlements.ts";
 import { relayLiveActivities, relayMobileDevices } from "../persistence/schema.ts";
+import * as ResourceLimits from "../resourceLimits.ts";
 
 export class DeviceRegistrationPersistenceError extends Data.TaggedError(
   "DeviceRegistrationPersistenceError",
@@ -36,7 +37,7 @@ export interface DevicesShape {
     readonly registration: RelayDeviceRegistrationRequest;
   }) => Effect.Effect<
     void,
-    DeviceRegistrationPersistenceError | Entitlements.UserResourceQuotaExceeded
+    DeviceRegistrationPersistenceError | ResourceLimits.ResourceQuotaExceeded
   >;
   readonly unregister: (input: {
     readonly userId: string;
@@ -83,7 +84,7 @@ const make = Effect.gen(function* () {
                 .from(relayMobileDevices)
                 .where(eq(relayMobileDevices.userId, input.userId));
               if ((deviceCounts[0]?.value ?? 0) >= effective.mobileDeviceLimit) {
-                return yield* new Entitlements.UserResourceQuotaExceeded({
+                return yield* new ResourceLimits.ResourceQuotaExceeded({
                   resource: "mobile_devices",
                   limit: effective.mobileDeviceLimit,
                 });
@@ -143,7 +144,7 @@ const make = Effect.gen(function* () {
         );
       },
       Effect.mapError((cause) =>
-        cause instanceof Entitlements.UserResourceQuotaExceeded
+        cause instanceof ResourceLimits.ResourceQuotaExceeded
           ? cause
           : new DeviceRegistrationPersistenceError({ cause }),
       ),
