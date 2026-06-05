@@ -8,7 +8,9 @@ import * as Encoding from "effect/Encoding";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
@@ -60,6 +62,51 @@ const makeSpawnerLayer = (commands: Array<string>) =>
       }),
     ),
   );
+
+const lockedFileInfo: FileSystem.File.Info = {
+  type: "File",
+  mtime: Option.none(),
+  atime: Option.none(),
+  birthtime: Option.none(),
+  dev: 0,
+  ino: Option.none(),
+  mode: 0o644,
+  nlink: Option.none(),
+  uid: Option.none(),
+  gid: Option.none(),
+  rdev: Option.none(),
+  size: FileSystem.Size(0),
+  blksize: Option.none(),
+  blocks: Option.none(),
+};
+
+const fileSystemError = (
+  tag: "AlreadyExists" | "NotFound",
+  method: string,
+  path: string,
+) =>
+  PlatformError.systemError({
+    _tag: tag,
+    module: "FileSystem",
+    method,
+    pathOrDescriptor: path,
+    description: tag === "AlreadyExists" ? "File already exists" : "No such file or directory",
+  });
+
+const makeLockedFileSystemLayer = (attempts: { count: number }) =>
+  Layer.mock(FileSystem.FileSystem, {
+    makeDirectory: () => Effect.void,
+    remove: () => Effect.void,
+    stat: (path) =>
+      path.endsWith(".lock")
+        ? Effect.succeed(lockedFileInfo)
+        : Effect.fail(fileSystemError("NotFound", "stat", path)),
+    writeFileString: (path) =>
+      Effect.gen(function* () {
+        attempts.count += 1;
+        return yield* Effect.fail(fileSystemError("AlreadyExists", "writeFileString", path));
+      }),
+  });
 
 describe("RelayClient", () => {
   it.effect("resolves explicit overrides before managed and PATH executables", () =>
@@ -234,20 +281,9 @@ describe("RelayClient", () => {
   it.effect("fails with install_locked after the lock retry schedule is exhausted", () => {
     const commands: Array<string> = [];
     const bytes = new TextEncoder().encode("test-cloudflared-binary");
+    const attempts = { count: 0 };
     return Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-cloudflared-test-locked-",
-      });
-      const managedPath = resolveManagedCloudflaredPath({
-        baseDir,
-        platform: "linux",
-        arch: "x64",
-      });
-      const lockPath = `${managedPath}.lock`;
-      const path = yield* Path.Path;
-      yield* fileSystem.makeDirectory(path.dirname(managedPath), { recursive: true });
-      yield* fileSystem.writeFileString(lockPath, "locked");
+      const baseDir = "/tmp/t3-cloudflared-test-locked";
       const manager = yield* makeCloudflaredRelayClient({
         baseDir,
         platform: "linux",
@@ -261,20 +297,20 @@ describe("RelayClient", () => {
       });
 
       const install = yield* manager.install.pipe(Effect.flip, Effect.forkScoped);
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        yield* TestClock.adjust(Duration.millis(100));
-        yield* Effect.yieldNow;
-      }
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.seconds(10));
       const error = yield* Fiber.join(install);
 
       assert.ok(error instanceof RelayClientInstallError);
       assert.equal(error.reason, "install_locked");
+      assert.equal(attempts.count, 100);
       assert.equal(commands.length, 0);
     }).pipe(
       Effect.scoped,
       Effect.provide(
         Layer.mergeAll(
           NodeServices.layer,
+          makeLockedFileSystemLayer(attempts),
           TestClock.layer(),
           makeHttpClientLayer(bytes),
           makeSpawnerLayer(commands),
