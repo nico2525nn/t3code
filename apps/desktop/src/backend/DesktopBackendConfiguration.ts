@@ -91,28 +91,26 @@ const mergeWslEnv = (
   existingWslEnv: string | undefined,
   forwardedEnvNames: ReadonlyArray<string>,
 ): string | undefined => {
-  const entries: string[] = [];
-  const seenNames = new Set<string>();
+  const existing = existingWslEnv?.trim() ?? "";
 
-  for (const rawEntry of existingWslEnv?.split(":") ?? []) {
-    const entry = rawEntry.trim();
-    if (entry.length === 0) continue;
+  // Names already declared, so we don't forward a duplicate. We parse the
+  // existing value only for this membership test — the string itself is
+  // preserved verbatim below rather than re-serialized.
+  const seenNames = new Set(
+    existing
+      .split(":")
+      .map((entry) => getWslEnvEntryName(entry.trim()))
+      .filter((name) => name.length > 0),
+  );
 
-    const name = getWslEnvEntryName(entry);
-    if (name.length === 0 || seenNames.has(name)) continue;
+  const additions = forwardedEnvNames.filter((name) => !seenNames.has(name));
 
-    seenNames.add(name);
-    entries.push(entry);
-  }
-
-  for (const name of forwardedEnvNames) {
-    if (seenNames.has(name)) continue;
-
-    seenNames.add(name);
-    entries.push(name);
-  }
-
-  return entries.length > 0 ? entries.join(":") : undefined;
+  // Preserve the user's WSLENV exactly as Windows handed it to us — empty
+  // "::" segments and duplicate entries are harmless no-ops to WSL and not
+  // ours to normalize — and only append the secrets we need to forward
+  // across the wsl.exe boundary.
+  const parts = [existing, ...additions].filter((part) => part.length > 0);
+  return parts.length > 0 ? parts.join(":") : undefined;
 };
 
 const { logWarning: logBackendConfigurationWarning } = DesktopObservability.makeComponentLogger(
