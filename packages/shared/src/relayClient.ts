@@ -109,7 +109,9 @@ const CLOUDFLARED_RELEASE_ASSETS: Readonly<
 const INSTALL_LOCK_RETRY_COUNT = 100;
 const INSTALL_LOCK_RETRY_DELAY = Duration.millis(100);
 const INSTALL_LOCK_STALE_AFTER = Duration.minutes(5);
-const INSTALL_LOCK_RETRY_SCHEDULE = Schedule.spaced(INSTALL_LOCK_RETRY_DELAY);
+const INSTALL_LOCK_RETRY_SCHEDULE = Schedule.spaced(INSTALL_LOCK_RETRY_DELAY).pipe(
+  Schedule.both(Schedule.recurs(INSTALL_LOCK_RETRY_COUNT - 1)),
+);
 
 const trimmedString = (name: string) =>
   Config.string(name).pipe(
@@ -390,7 +392,6 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
 
     return yield* acquireInstallLockOnce().pipe(
       Effect.retry({
-        times: INSTALL_LOCK_RETRY_COUNT - 1,
         schedule: INSTALL_LOCK_RETRY_SCHEDULE,
         while: (error) => error instanceof RelayClientInstallLockUnavailable,
       }),
