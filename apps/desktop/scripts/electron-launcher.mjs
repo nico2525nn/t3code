@@ -29,7 +29,9 @@ export const APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alph
 export const APP_BUNDLE_ID = isDevelopment
   ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
   : "com.t3tools.t3code";
-const APP_PROTOCOL_SCHEMES = isDevelopment ? ["t3code-dev"] : ["t3code"];
+const APP_PROTOCOL_SCHEMES = isDevelopment
+  ? [`t3code-dev-${devBundleIdSuffix || "local"}`]
+  : ["t3code"];
 const LAUNCHER_VERSION = 10;
 const defaultIconPath = join(desktopDir, "resources", "icon.icns");
 const developmentMacIconPngPath = join(repoRoot, "assets", "dev", "blueprint-macos-1024.png");
@@ -106,6 +108,7 @@ function writeDevelopmentLauncherScript(targetBinaryPath, electronBinaryPath) {
     ["T3CODE_OTLP_TRACES_URL", process.env.T3CODE_OTLP_TRACES_URL],
     ["T3CODE_OTLP_EXPORT_INTERVAL_MS", process.env.T3CODE_OTLP_EXPORT_INTERVAL_MS],
     ["T3CODE_DESKTOP_APP_USER_MODEL_ID", APP_BUNDLE_ID],
+    ["T3CODE_DESKTOP_PROTOCOL_SCHEME", APP_PROTOCOL_SCHEMES[0]],
     ["T3CODE_DESKTOP_PROTOCOL_REGISTRATION_MANAGED", "1"],
     ["T3CODE_DESKTOP_PROTOCOL_CALLBACK_URL", protocolCallbackUrl],
   ].filter((entry) => typeof entry[1] === "string" && entry[1].trim().length > 0);
@@ -116,7 +119,7 @@ function writeDevelopmentLauncherScript(targetBinaryPath, electronBinaryPath) {
       ...envEntries.map(([name, value]) => `export ${name}=${shellSingleQuote(value)}`),
       'for arg in "$@"; do',
       '  case "$arg" in',
-      "    t3code-dev://auth/callback*)",
+      `    ${APP_PROTOCOL_SCHEMES[0]}://auth/callback*)`,
       '      if [ -n "$T3CODE_DESKTOP_PROTOCOL_CALLBACK_URL" ]; then',
       '        /usr/bin/curl -fsS --max-time 2 -X POST --data-binary "$arg" "$T3CODE_DESKTOP_PROTOCOL_CALLBACK_URL" >/dev/null 2>&1 && exit 0',
       "      fi",

@@ -52,6 +52,10 @@ export class DesktopCloudAuth extends Context.Service<DesktopCloudAuth, DesktopC
 ) {}
 
 export function resolveCloudAuthCallbackScheme(input: { readonly isDevelopment: boolean }): string {
+  if (input.isDevelopment) {
+    const override = process.env.T3CODE_DESKTOP_PROTOCOL_SCHEME?.trim();
+    if (override) return override;
+  }
   return input.isDevelopment ? DEVELOPMENT_CLOUD_AUTH_CALLBACK_SCHEME : CLOUD_AUTH_CALLBACK_SCHEME;
 }
 

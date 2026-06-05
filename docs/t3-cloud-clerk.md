@@ -124,11 +124,15 @@ In **Clerk Dashboard > Native applications**, enable native application support 
 entries under the mobile SSO redirect allowlist:
 
 ```text
-t3code-dev://auth/callback
+t3code-dev-<suffix>://auth/callback
 t3code://auth/callback
 ```
 
-The first entry is for local desktop development. The second is for packaged desktop builds.
+The first entry is for local desktop development. The `<suffix>` is the lowercased alphanumeric
+form of the repository root directory name (e.g. `t3code-dev-t3code` for a checkout named
+`t3-code`). Each worktree gets a unique scheme so multiple simultaneous dev instances do not steal
+OAuth callbacks from each other. Add each worktree's scheme to the allowlist. The second entry is
+for packaged desktop builds.
 The app also adds a request-scoped `t3_state` query parameter and validates it on callback. Initial
 sign-in and linked-account OAuth flows both return through this bridge. The desktop provider keeps
 Clerk's stock profile component, replaces its renderer-page callback with the custom-scheme callback,
