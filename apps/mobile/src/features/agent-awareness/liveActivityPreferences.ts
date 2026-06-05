@@ -5,7 +5,6 @@ import { ManagedRelayClient } from "@t3tools/client-runtime";
 import type { SavedRemoteConnection } from "../../lib/connection";
 import { savePreferencesPatch } from "../../lib/storage";
 import { linkEnvironmentToCloud } from "../cloud/linkEnvironment";
-import { endAllAgentLiveActivities } from "./liveActivityController";
 import { refreshAgentAwarenessRegistration } from "./remoteRegistration";
 
 export function setLiveActivityUpdatesEnabled(input: {
@@ -18,10 +17,6 @@ export function setLiveActivityUpdatesEnabled(input: {
       try: () => savePreferencesPatch({ liveActivitiesEnabled: input.enabled }),
       catch: (error) => error,
     });
-
-    if (!input.enabled) {
-      yield* endAllAgentLiveActivities();
-    }
 
     yield* refreshAgentAwarenessRegistration();
 

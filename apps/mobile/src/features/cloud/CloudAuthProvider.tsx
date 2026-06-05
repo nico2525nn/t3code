@@ -9,7 +9,6 @@ import {
   setAgentAwarenessRelayTokenProvider,
   unregisterAgentAwarenessDeviceForCurrentUser,
 } from "../agent-awareness/remoteRegistration";
-import { refreshActiveLiveActivityRemoteRegistration } from "../agent-awareness/liveActivityController";
 import { resolveCloudPublicConfig, resolveRelayClerkTokenOptions } from "./publicConfig";
 
 function CloudAuthBridge(props: { readonly children: ReactNode }) {
@@ -52,11 +51,6 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
         readClerkToken: tokenProvider,
       }),
     );
-    if (!previous || previous.userId !== userId) {
-      void mobileRuntime
-        .runPromise(refreshActiveLiveActivityRemoteRegistration())
-        .catch(() => undefined);
-    }
   }, [getToken, isLoaded, isSignedIn, userId]);
 
   useEffect(

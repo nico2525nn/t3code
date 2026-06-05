@@ -8,7 +8,6 @@ import { HttpClient } from "effect/unstable/http";
 import type { SavedRemoteConnection } from "../../lib/connection";
 import { savePreferencesPatch } from "../../lib/storage";
 import { linkEnvironmentToCloud } from "../cloud/linkEnvironment";
-import { endAllAgentLiveActivities } from "./liveActivityController";
 import { setLiveActivityUpdatesEnabled } from "./liveActivityPreferences";
 import { refreshAgentAwarenessRegistration } from "./remoteRegistration";
 
@@ -18,10 +17,6 @@ vi.mock("../../lib/storage", () => ({
 
 vi.mock("../cloud/linkEnvironment", () => ({
   linkEnvironmentToCloud: vi.fn(() => Effect.void),
-}));
-
-vi.mock("./liveActivityController", () => ({
-  endAllAgentLiveActivities: vi.fn(() => Effect.void),
 }));
 
 vi.mock("./remoteRegistration", () => ({
@@ -56,7 +51,7 @@ describe("liveActivityPreferences", () => {
     vi.clearAllMocks();
   });
 
-  it("pushes disabled Live Activity preferences to local and relay registrations", async () => {
+  it("pushes disabled Live Activity preferences to relay registrations", async () => {
     await runWithHttpClient(
       setLiveActivityUpdatesEnabled({
         enabled: false,
@@ -66,7 +61,6 @@ describe("liveActivityPreferences", () => {
     );
 
     expect(savePreferencesPatch).toHaveBeenCalledWith({ liveActivitiesEnabled: false });
-    expect(endAllAgentLiveActivities).toHaveBeenCalledTimes(1);
     expect(refreshAgentAwarenessRegistration).toHaveBeenCalledTimes(1);
     expect(linkEnvironmentToCloud).toHaveBeenCalledWith({
       clerkToken: "clerk-token",
@@ -74,7 +68,7 @@ describe("liveActivityPreferences", () => {
     });
   });
 
-  it("pushes enabled Live Activity preferences without ending active local activities", async () => {
+  it("pushes enabled Live Activity preferences to relay registrations", async () => {
     await runWithHttpClient(
       setLiveActivityUpdatesEnabled({
         enabled: true,
@@ -84,7 +78,6 @@ describe("liveActivityPreferences", () => {
     );
 
     expect(savePreferencesPatch).toHaveBeenCalledWith({ liveActivitiesEnabled: true });
-    expect(endAllAgentLiveActivities).not.toHaveBeenCalled();
     expect(refreshAgentAwarenessRegistration).toHaveBeenCalledTimes(1);
     expect(linkEnvironmentToCloud).toHaveBeenCalledWith({
       clerkToken: "clerk-token",

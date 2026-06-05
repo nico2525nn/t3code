@@ -55,10 +55,10 @@ import {
   resetSourceControlDiscoveryState,
 } from "./use-source-control-discovery";
 import {
-  startAgentAwarenessForEnvironment,
-  stopAgentAwarenessForEnvironment,
-  stopAllAgentAwareness,
-} from "../features/agent-awareness/shellLiveActivitySync";
+  registerAgentAwarenessConnection,
+  unregisterAgentAwarenessConnection,
+  unregisterAllAgentAwarenessConnections,
+} from "../features/agent-awareness/remoteRegistration";
 import { environmentRuntimeManager, useEnvironmentRuntimeStates } from "./use-environment-runtime";
 import {
   clearCachedShellSnapshotMetadata,
@@ -200,7 +200,7 @@ export function disconnectEnvironment(
     }
     terminalMetadataUnsubscribers.get(environmentId)?.();
     terminalMetadataUnsubscribers.delete(environmentId);
-    stopAgentAwarenessForEnvironment(environmentId);
+    unregisterAgentAwarenessConnection(environmentId);
     if (!options?.preserveShellSnapshot) {
       shellSnapshotManager.invalidate({ environmentId });
     }
@@ -454,7 +454,7 @@ export function connectSavedEnvironment(
     terminalDebugLog("registry:terminal-metadata-subscribed", {
       environmentId: connection.environmentId,
     });
-    startAgentAwarenessForEnvironment(toStableSavedRemoteConnection(activeConnection));
+    registerAgentAwarenessConnection(toStableSavedRemoteConnection(activeConnection));
     notifyEnvironmentConnectionListeners();
   });
 }
@@ -615,7 +615,7 @@ export function useRemoteEnvironmentBootstrap() {
       }
       terminalMetadataUnsubscribers.clear();
       environmentConnectionAttempts.clear();
-      stopAllAgentAwareness();
+      unregisterAllAgentAwarenessConnections();
       environmentRuntimeManager.invalidate();
       shellSnapshotManager.invalidate();
       resetSourceControlDiscoveryState();

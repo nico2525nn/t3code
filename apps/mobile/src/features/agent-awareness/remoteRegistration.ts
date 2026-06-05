@@ -17,14 +17,16 @@ import {
   loadOrCreateAgentAwarenessDeviceId,
   loadPreferences,
 } from "../../lib/storage";
-import type { AgentActivityProps } from "../../widgets/AgentActivity";
+import AgentActivity, { type AgentActivityProps } from "../../widgets/AgentActivity";
 import { resolveCloudPublicConfig } from "../cloud/publicConfig";
 import { makeRelayDeviceRegistrationRequest } from "./registrationPayload";
 
+const REMOTE_ACTIVITY_REGISTRATION_RETRY_MS = 15_000;
 const environmentConnections = new Map<EnvironmentId, SavedRemoteConnection>();
 const activityPushTokenListeners = new WeakSet<LiveActivity<AgentActivityProps>>();
 let pushToStartSubscription: { remove: () => void } | null = null;
 let pushTokenSubscription: { remove: () => void } | null = null;
+let activeLiveActivityRegistrationRetry: ReturnType<typeof setTimeout> | null = null;
 let relayTokenProvider: (() => Promise<string | null>) | null = null;
 let relayTokenProviderIdentity: string | null = null;
 
@@ -73,10 +75,18 @@ export function setAgentAwarenessRelayTokenProvider(
     pushToStartSubscription = null;
     pushTokenSubscription?.remove();
     pushTokenSubscription = null;
+    if (activeLiveActivityRegistrationRetry) {
+      clearTimeout(activeLiveActivityRegistrationRetry);
+      activeLiveActivityRegistrationRetry = null;
+    }
     return;
   }
   ensurePushToStartListener();
   ensurePushTokenListener();
+  runRegistrationInBackground(
+    refreshActiveLiveActivityRemoteRegistration(),
+    "active live activity registration after cloud sign-in failed",
+  );
   if (isExistingIdentity) {
     return;
   }
@@ -310,6 +320,10 @@ export function registerAgentAwarenessConnection(connection: SavedRemoteConnecti
   ensurePushToStartListener();
   ensurePushTokenListener();
   runRegistrationInBackground(registerDevice(), "device registration failed");
+  runRegistrationInBackground(
+    refreshActiveLiveActivityRemoteRegistration(),
+    "active live activity registration after environment connection failed",
+  );
 }
 
 function removeAgentAwarenessConnection(environmentId: EnvironmentId): void {
@@ -326,6 +340,10 @@ export function unregisterAllAgentAwarenessConnections(): void {
   pushToStartSubscription = null;
   pushTokenSubscription?.remove();
   pushTokenSubscription = null;
+  if (activeLiveActivityRegistrationRetry) {
+    clearTimeout(activeLiveActivityRegistrationRetry);
+    activeLiveActivityRegistrationRetry = null;
+  }
 }
 
 export function refreshAgentAwarenessRegistration(): Effect.Effect<
@@ -348,6 +366,10 @@ export function __resetAgentAwarenessRemoteRegistrationForTest(): void {
   pushToStartSubscription = null;
   pushTokenSubscription?.remove();
   pushTokenSubscription = null;
+  if (activeLiveActivityRegistrationRetry) {
+    clearTimeout(activeLiveActivityRegistrationRetry);
+    activeLiveActivityRegistrationRetry = null;
+  }
   relayTokenProvider = null;
   relayTokenProviderIdentity = null;
 }
@@ -443,5 +465,59 @@ function registerLiveActivityPushTokenValue(input: {
       });
     }
     return registered;
+  });
+}
+
+function scheduleActiveLiveActivityRegistrationRetry(): void {
+  if (activeLiveActivityRegistrationRetry || !relayTokenProvider) {
+    return;
+  }
+
+  activeLiveActivityRegistrationRetry = setTimeout(() => {
+    activeLiveActivityRegistrationRetry = null;
+    runRegistrationInBackground(
+      refreshActiveLiveActivityRemoteRegistration(),
+      "active live activity token retry failed",
+    );
+  }, REMOTE_ACTIVITY_REGISTRATION_RETRY_MS);
+}
+
+export function refreshActiveLiveActivityRemoteRegistration(): Effect.Effect<
+  void,
+  never,
+  ManagedRelayClient
+> {
+  return Effect.gen(function* () {
+    if (!canRegisterRemoteLiveActivities() || !relayTokenProvider) {
+      return;
+    }
+
+    const activities = yield* Effect.try({
+      try: () => AgentActivity.getInstances(),
+      catch: (error) => error,
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          logRegistrationError("active live activity lookup failed", error);
+          return [] as ReadonlyArray<LiveActivity<AgentActivityProps>>;
+        }),
+      ),
+    );
+
+    const registrationResults = yield* Effect.forEach(activities, (activity) =>
+      registerLiveActivityPushToken({ activity }).pipe(
+        Effect.map((registered) => !registered),
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            logRegistrationError("active live activity token registration failed", error);
+            return true;
+          }),
+        ),
+      ),
+    );
+
+    if (registrationResults.some(Boolean)) {
+      scheduleActiveLiveActivityRegistrationRetry();
+    }
   });
 }

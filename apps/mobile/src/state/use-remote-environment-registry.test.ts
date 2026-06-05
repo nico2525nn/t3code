@@ -45,8 +45,8 @@ const mocks = vi.hoisted(() => {
     getEnvironmentSession: vi.fn(() => null),
     setEnvironmentSession: vi.fn(),
     notifyEnvironmentConnectionListeners: vi.fn(),
-    stopAgentAwarenessForEnvironment: vi.fn(),
-    startAgentAwarenessForEnvironment: vi.fn(),
+    unregisterAgentAwarenessConnection: vi.fn(),
+    registerAgentAwarenessConnection: vi.fn(),
     shellSnapshotInvalidate: vi.fn(),
     shellSnapshotMarkPending: vi.fn(),
     environmentRuntimeInvalidate: vi.fn(),
@@ -118,10 +118,10 @@ vi.mock("./environment-session-registry", () => ({
   setEnvironmentSession: mocks.setEnvironmentSession,
 }));
 
-vi.mock("../features/agent-awareness/shellLiveActivitySync", () => ({
-  startAgentAwarenessForEnvironment: mocks.startAgentAwarenessForEnvironment,
-  stopAgentAwarenessForEnvironment: mocks.stopAgentAwarenessForEnvironment,
-  stopAllAgentAwareness: vi.fn(),
+vi.mock("../features/agent-awareness/remoteRegistration", () => ({
+  registerAgentAwarenessConnection: mocks.registerAgentAwarenessConnection,
+  unregisterAgentAwarenessConnection: mocks.unregisterAgentAwarenessConnection,
+  unregisterAllAgentAwarenessConnections: vi.fn(),
 }));
 
 vi.mock("../features/terminal/terminalDebugLog", () => ({
@@ -217,7 +217,7 @@ describe("mobile remote environment registry effects", () => {
       expect(mocks.subscribeTerminalMetadata).toHaveBeenCalledWith(
         expect.objectContaining({ environmentId: connection.environmentId }),
       );
-      expect(mocks.startAgentAwarenessForEnvironment).toHaveBeenCalledWith(connection);
+      expect(mocks.registerAgentAwarenessConnection).toHaveBeenCalledWith(connection);
       expect(mocks.environmentConnection.ensureBootstrapped).toHaveBeenCalledTimes(1);
     }),
   );
@@ -354,7 +354,7 @@ describe("mobile remote environment registry effects", () => {
       );
       expect(mocks.sessionConnection.dispose).toHaveBeenCalledTimes(1);
       expect(mocks.subscribeTerminalMetadata).not.toHaveBeenCalled();
-      expect(mocks.startAgentAwarenessForEnvironment).not.toHaveBeenCalled();
+      expect(mocks.registerAgentAwarenessConnection).not.toHaveBeenCalled();
     }),
   );
 
@@ -376,7 +376,7 @@ describe("mobile remote environment registry effects", () => {
       expect(mocks.environmentConnection.ensureBootstrapped).toHaveBeenCalledTimes(1);
       expect(mocks.sessionConnection.dispose).toHaveBeenCalledTimes(1);
       expect(mocks.subscribeTerminalMetadata).not.toHaveBeenCalled();
-      expect(mocks.startAgentAwarenessForEnvironment).not.toHaveBeenCalled();
+      expect(mocks.registerAgentAwarenessConnection).not.toHaveBeenCalled();
       expect(mocks.environmentRuntimePatch).toHaveBeenCalledWith(
         { environmentId: connection.environmentId },
         expect.any(Function),
@@ -419,7 +419,9 @@ describe("mobile remote environment registry effects", () => {
       yield* disconnectEnvironment(connection.environmentId, { removeSaved: true });
 
       expect(mocks.sessionConnection.dispose).toHaveBeenCalledTimes(1);
-      expect(mocks.stopAgentAwarenessForEnvironment).toHaveBeenCalledWith(connection.environmentId);
+      expect(mocks.unregisterAgentAwarenessConnection).toHaveBeenCalledWith(
+        connection.environmentId,
+      );
       expect(mocks.clearSavedConnection).toHaveBeenCalledWith(connection.environmentId);
       expect(mocks.clearCachedShellSnapshot).toHaveBeenCalledWith(connection.environmentId);
       expect(mocks.clearCachedShellSnapshotMetadata).toHaveBeenCalledWith(connection.environmentId);

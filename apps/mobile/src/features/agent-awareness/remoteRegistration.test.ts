@@ -18,6 +18,7 @@ import { mobileManagedRelayClientLayer } from "../cloud/managedRelayLayer";
 import { makeRelayDeviceRegistrationRequest } from "./registrationPayload";
 import {
   __resetAgentAwarenessRemoteRegistrationForTest,
+  refreshActiveLiveActivityRemoteRegistration,
   refreshAgentAwarenessRegistration,
   normalizeAgentAwarenessRelayBaseUrl,
   registerAgentAwarenessConnection,
@@ -29,6 +30,9 @@ import {
 import * as Notifications from "expo-notifications";
 
 const secureStore = vi.hoisted(() => new Map<string, string>());
+const widgetMocks = vi.hoisted(() => ({
+  getInstances: vi.fn(() => []),
+}));
 
 vi.mock("expo-constants", () => ({
   default: {
@@ -41,6 +45,12 @@ vi.mock("expo-constants", () => ({
 
 vi.mock("expo-widgets", () => ({
   addPushToStartTokenListener: vi.fn(() => ({ remove: vi.fn() })),
+}));
+
+vi.mock("../../widgets/AgentActivity", () => ({
+  default: {
+    getInstances: widgetMocks.getInstances,
+  },
 }));
 
 vi.mock("expo-notifications", () => ({
@@ -158,6 +168,8 @@ describe("makeRelayDeviceRegistrationRequest", () => {
     secureStore.clear();
     Constants.expoConfig!.extra = {};
     __resetAgentAwarenessRemoteRegistrationForTest();
+    widgetMocks.getInstances.mockReset();
+    widgetMocks.getInstances.mockReturnValue([]);
   });
 
   it("preserves disabled Live Activity preferences in relay registrations", () => {
@@ -260,6 +272,25 @@ describe("makeRelayDeviceRegistrationRequest", () => {
     await expect(
       runRegistrationEffect(registerLiveActivityPushToken({ activity: activity as never })),
     ).resolves.toBe(false);
+  });
+
+  it("registers APNS-started Live Activities for relay updates without mutating them locally", async () => {
+    const activity = {
+      getPushToken: vi.fn(() => Promise.resolve("activity-token")),
+      addPushTokenListener: vi.fn(),
+      start: vi.fn(),
+      update: vi.fn(),
+      end: vi.fn(),
+    };
+    widgetMocks.getInstances.mockReturnValue([activity] as never);
+    setAgentAwarenessRelayTokenProvider(() => Promise.resolve("clerk-token-user-a"));
+
+    await runRegistrationEffect(refreshActiveLiveActivityRemoteRegistration());
+
+    expect(activity.getPushToken).toHaveBeenCalled();
+    expect(activity.start).not.toHaveBeenCalled();
+    expect(activity.update).not.toHaveBeenCalled();
+    expect(activity.end).not.toHaveBeenCalled();
   });
 
   it("refreshes APNs registration for connected environments after settings changes", async () => {
