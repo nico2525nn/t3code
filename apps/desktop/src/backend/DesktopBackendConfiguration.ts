@@ -222,7 +222,13 @@ const isLocalHostIpv4 = (ip: string): boolean => {
   for (const list of Object.values(interfaces)) {
     if (!list) continue;
     for (const entry of list) {
-      if (entry.family === "IPv4" && entry.address === ip) return true;
+      // os.networkInterfaces() reports IPv4 `family` as the string "IPv4" on
+      // the Node build Electron ships (41 / Node 22, verified), but some Node
+      // builds report the numeric 4. Normalize to a string so a future runtime
+      // bump can't silently break mirrored-mode detection and leave the
+      // renderer pointed at the distro IP instead of loopback.
+      const family = String(entry.family);
+      if ((family === "IPv4" || family === "4") && entry.address === ip) return true;
     }
   }
   return false;
