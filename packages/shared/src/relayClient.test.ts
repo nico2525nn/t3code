@@ -94,7 +94,7 @@ const fileSystemError = (
   });
 
 const makeLockedFileSystemLayer = (attempts: { count: number }) =>
-  Layer.mock(FileSystem.FileSystem, {
+  FileSystem.layerNoop({
     makeDirectory: () => Effect.void,
     remove: () => Effect.void,
     stat: (path) =>
