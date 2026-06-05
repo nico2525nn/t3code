@@ -327,7 +327,7 @@ const listDistrosImpl: Effect.Effect<
 ).pipe(
   Effect.timeoutOption(LIST_TIMEOUT),
   Effect.map(Option.getOrElse((): readonly WslDistro[] => [])),
-  Effect.catch(() => Effect.succeed<readonly WslDistro[]>([])),
+  Effect.orElseSucceed((): readonly WslDistro[] => []),
 );
 
 const preWarmImpl = (
@@ -382,7 +382,7 @@ const windowsToWslPathImpl = (
   ).pipe(
     Effect.timeoutOption(WSLPATH_TIMEOUT),
     Effect.map(Option.flatten),
-    Effect.catch(() => Effect.succeed(Option.none<string>())),
+    Effect.orElseSucceed(() => Option.none<string>()),
   );
 };
 
@@ -420,7 +420,7 @@ const getDistroIpImpl = (
   ).pipe(
     Effect.timeoutOption(USER_HOME_TIMEOUT),
     Effect.map(Option.flatten),
-    Effect.catch(() => Effect.succeed(Option.none<string>())),
+    Effect.orElseSucceed(() => Option.none<string>()),
   );
 
 const getUserHomeImpl = (
@@ -458,7 +458,7 @@ const getUserHomeImpl = (
   ).pipe(
     Effect.timeoutOption(USER_HOME_TIMEOUT),
     Effect.map(Option.flatten),
-    Effect.catch(() => Effect.succeed(Option.none<string>())),
+    Effect.orElseSucceed(() => Option.none<string>()),
   );
 
 const makeIsAvailable = (
