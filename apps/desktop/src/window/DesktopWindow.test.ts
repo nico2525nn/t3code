@@ -219,7 +219,7 @@ describe("DesktopWindow", () => {
 
       yield* Effect.gen(function* () {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.handleBackendReady;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
 
         const willNavigate = fakeWindow.webContentsListeners.get("will-navigate");
         if (!willNavigate) {
