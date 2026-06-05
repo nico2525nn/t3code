@@ -14,14 +14,12 @@ export default defineConfig({
     hookTimeout: 60_000,
     testTimeout: 60_000,
   },
-  staged: {
-    "*": "vp check --fix",
-  },
   fmt: {
     ignorePatterns: [
       ".reference",
       ".repos/**",
       ".plans",
+      ".alchemy",
       "dist",
       "dist-electron",
       "node_modules",
