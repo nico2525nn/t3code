@@ -26,6 +26,7 @@ export interface BootstrapGrant {
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   readonly subject: string;
   readonly label?: string;
+  readonly proofKeyThumbprint?: string;
   readonly expiresAt: DateTime.DateTime;
 }
 
@@ -50,6 +51,7 @@ export interface IssuedBootstrapCredential {
   readonly id: string;
   readonly credential: string;
   readonly label?: string;
+  readonly proofKeyThumbprint?: string;
   readonly expiresAt: DateTime.Utc;
 }
 
@@ -69,6 +71,7 @@ export interface PairingGrantStoreShape {
     readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
     readonly subject?: string;
     readonly label?: string;
+    readonly proofKeyThumbprint?: string;
   }) => Effect.Effect<IssuedBootstrapCredential, BootstrapCredentialInternalError>;
   readonly listActive: () => Effect.Effect<
     ReadonlyArray<AuthPairingLink>,
@@ -76,7 +79,12 @@ export interface PairingGrantStoreShape {
   >;
   readonly streamChanges: Stream.Stream<BootstrapCredentialChange>;
   readonly revoke: (id: string) => Effect.Effect<boolean, BootstrapCredentialInternalError>;
-  readonly consume: (credential: string) => Effect.Effect<BootstrapGrant, BootstrapCredentialError>;
+  readonly consume: (
+    credential: string,
+    input?: {
+      readonly proofKeyThumbprint?: string;
+    },
+  ) => Effect.Effect<BootstrapGrant, BootstrapCredentialError>;
 }
 
 export class PairingGrantStore extends Context.Service<PairingGrantStore, PairingGrantStoreShape>()(
@@ -246,6 +254,7 @@ export const make = Effect.fn("makePairingGrantStore")(function* () {
         id,
         credential,
         ...(input?.label ? { label: input.label } : {}),
+        ...(input?.proofKeyThumbprint ? { proofKeyThumbprint: input.proofKeyThumbprint } : {}),
         expiresAt,
       };
       yield* pairingLinks.create({
@@ -255,6 +264,7 @@ export const make = Effect.fn("makePairingGrantStore")(function* () {
         scopes: input?.scopes ?? AuthStandardClientScopes,
         subject: input?.subject ?? "one-time-token",
         label: input?.label ?? null,
+        proofKeyThumbprint: input?.proofKeyThumbprint ?? null,
         createdAt: now,
         expiresAt: expiresAt,
       });
@@ -273,7 +283,7 @@ export const make = Effect.fn("makePairingGrantStore")(function* () {
   );
 
   const consume: PairingGrantStoreShape["consume"] = Effect.fn("PairingGrantStore.consume")(
-    function* (credential) {
+    function* (credential, input) {
       const now = yield* DateTime.now;
       const seededResult: ConsumeResult = yield* Ref.modify(
         seededGrantsRef,
@@ -303,6 +313,17 @@ export const make = Effect.fn("makePairingGrantStore")(function* () {
             ];
           }
 
+          if (grant.proofKeyThumbprint && grant.proofKeyThumbprint !== input?.proofKeyThumbprint) {
+            return [
+              {
+                _tag: "error",
+                reason: "not-found",
+                error: invalidBootstrapCredentialError("Bootstrap credential proof key mismatch."),
+              },
+              next,
+            ];
+          }
+
           const remainingUses = grant.remainingUses;
           if (typeof remainingUses === "number") {
             if (remainingUses <= 1) {
@@ -323,6 +344,9 @@ export const make = Effect.fn("makePairingGrantStore")(function* () {
                 scopes: grant.scopes,
                 subject: grant.subject,
                 ...(grant.label ? { label: grant.label } : {}),
+                ...(grant.proofKeyThumbprint
+                  ? { proofKeyThumbprint: grant.proofKeyThumbprint }
+                  : {}),
                 expiresAt: grant.expiresAt,
               } satisfies BootstrapGrant,
             },
@@ -340,6 +364,7 @@ export const make = Effect.fn("makePairingGrantStore")(function* () {
 
       const consumed = yield* pairingLinks.consumeAvailable({
         credential,
+        proofKeyThumbprint: input?.proofKeyThumbprint ?? null,
         consumedAt: now,
         now,
       });
@@ -351,6 +376,9 @@ export const make = Effect.fn("makePairingGrantStore")(function* () {
           scopes: consumed.value.scopes,
           subject: consumed.value.subject,
           ...(consumed.value.label ? { label: consumed.value.label } : {}),
+          ...(consumed.value.proofKeyThumbprint
+            ? { proofKeyThumbprint: consumed.value.proofKeyThumbprint }
+            : {}),
           expiresAt: consumed.value.expiresAt,
         } satisfies BootstrapGrant;
       }
@@ -372,6 +400,13 @@ export const make = Effect.fn("makePairingGrantStore")(function* () {
 
       if (DateTime.isGreaterThanOrEqualTo(now, matching.value.expiresAt)) {
         return yield* invalidBootstrapCredentialError("Bootstrap credential expired.");
+      }
+
+      if (
+        matching.value.proofKeyThumbprint !== null &&
+        matching.value.proofKeyThumbprint !== input?.proofKeyThumbprint
+      ) {
+        return yield* invalidBootstrapCredentialError("Bootstrap credential proof key mismatch.");
       }
 
       return yield* invalidBootstrapCredentialError("Bootstrap credential is no longer available.");

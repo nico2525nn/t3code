@@ -1,13 +1,13 @@
-import {
-  PRIMARY_LOCAL_ENVIRONMENT_ID,
-  type AuthBrowserSessionResult,
-  type AuthClientMetadata,
-  type AuthEnvironmentScope,
-  type AuthPairingCredentialResult,
-  type AuthSessionId,
-  type AuthSessionState,
+import type {
+  AuthBrowserSessionResult,
+  AuthClientMetadata,
+  AuthEnvironmentScope,
+  AuthPairingCredentialResult,
+  ServerAuthSessionMethod,
+  AuthSessionId,
+  AuthSessionState,
 } from "@t3tools/contracts";
-import { EnvironmentHttpCommonError } from "@t3tools/contracts";
+import { EnvironmentHttpCommonError, PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
 import type { EnvironmentHttpCommonError as EnvironmentHttpCommonErrorType } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -46,7 +46,7 @@ export interface ServerClientSessionRecord {
   readonly sessionId: AuthSessionId;
   readonly subject: string;
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
-  readonly method: "browser-session-cookie" | "bearer-access-token";
+  readonly method: ServerAuthSessionMethod;
   readonly client: AuthClientMetadata;
   readonly issuedAt: string;
   readonly expiresAt: string;

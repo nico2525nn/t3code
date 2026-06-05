@@ -46,7 +46,19 @@ We are very very early in this project. Expect bugs.
 
 We are not accepting contributions yet.
 
-Observability guide: [docs/observability.md](./docs/observability.md)
+Observability guide: [docs/operations/observability.md](./docs/operations/observability.md)
+
+Relay observability: [docs/operations/relay-observability.md](./docs/operations/relay-observability.md)
+
+T3 Cloud Clerk setup: [docs/cloud/t3-cloud-clerk.md](./docs/cloud/t3-cloud-clerk.md)
+
+## Documentation
+
+- [Getting started](./docs/getting-started/quick-start.md)
+- [Architecture overview](./docs/architecture/overview.md)
+- [Provider guides](./docs/providers/codex.md)
+- [Operations](./docs/operations/ci.md)
+- [Reference](./docs/reference/encyclopedia.md)
 
 ## If you REALLY want to contribute still.... read this first
 
@@ -55,8 +67,12 @@ Before local development, prepare the environment and install dependencies:
 ```bash
 # Optional: only needed if you use mise for dev tool management.
 mise install
-bun install .
+vp install
 ```
+
+T3 Cloud is optional and disabled in a fresh clone. To enable it for web, desktop, and mobile source
+builds, copy [`.env.example`](./.env.example) to `.env` at the repository root and set the canonical
+public configuration there.
 
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
 

@@ -35,4 +35,8 @@ export {
 
 export { refreshPrimarySessionState, usePrimarySessionState } from "./sessionState";
 
-export { resolvePrimaryEnvironmentHttpUrl, isLoopbackHostname } from "./target";
+export {
+  readPrimaryEnvironmentTarget,
+  resolvePrimaryEnvironmentHttpUrl,
+  isLoopbackHostname,
+} from "./target";
