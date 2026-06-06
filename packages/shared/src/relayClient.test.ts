@@ -354,7 +354,9 @@ describe("RelayClient", () => {
       });
 
       const install = yield* manager.install.pipe(Effect.flip, Effect.forkScoped);
+      yield* Effect.yieldNow;
       yield* TestClock.adjust(Duration.seconds(10));
+      yield* Effect.yieldNow;
       const error = yield* Fiber.join(install);
 
       assert.ok(error instanceof RelayClientInstallError);
