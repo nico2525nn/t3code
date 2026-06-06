@@ -1,6 +1,5 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { sql as drizzleSql } from "drizzle-orm";
-import * as Data from "effect/Data";
 import * as Crypto from "effect/Crypto";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -813,9 +812,16 @@ export const serverApi = HttpApiBuilder.group(
   }),
 );
 
-class ClerkTokenVerificationFailed extends Data.TaggedError("ClerkTokenVerificationFailed")<{
-  readonly cause: unknown;
-}> {}
+class ClerkTokenVerificationFailed extends Schema.TaggedErrorClass<ClerkTokenVerificationFailed>()(
+  "ClerkTokenVerificationFailed",
+  {
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return "Clerk token verification failed";
+  }
+}
 
 const isHttpUnauthorized = Schema.is(HttpApiError.Unauthorized);
 
@@ -824,7 +830,7 @@ const currentTraceId = Effect.currentParentSpan.pipe(
   Effect.orElseSucceed(() => "unavailable"),
 );
 
-const COMMON_AUTH_INVALID_REASONS = [
+const RelayCommonPersistenceError = Schema.Union([
   Devices.DeviceRegistrationPersistenceError,
   Devices.DeviceUnregistrationPersistenceError,
   Devices.DeviceListPersistenceError,
@@ -844,17 +850,14 @@ const COMMON_AUTH_INVALID_REASONS = [
   AgentActivityRows.AgentActivityRowListPersistenceError,
   LiveActivities.LiveActivityDeliveryMarkPersistenceError,
   DeliveryAttempts.DeliveryAttemptRecordPersistenceError,
-] as const;
-type RelayCommonPersistenceError = InstanceType<(typeof COMMON_AUTH_INVALID_REASONS)[number]>;
+]);
+type RelayCommonPersistenceError = typeof RelayCommonPersistenceError.Type;
+const isRelayCommonPersistenceError = Schema.is(RelayCommonPersistenceError);
 
 type MapRelayCommonApiError<E> =
   | Exclude<E, HttpApiError.Unauthorized | RelayCommonPersistenceError>
   | (Extract<E, HttpApiError.Unauthorized> extends never ? never : RelayAuthInvalidError)
   | (Extract<E, RelayCommonPersistenceError> extends never ? never : RelayInternalError);
-
-function isRelayCommonPersistenceError(error: unknown): error is RelayCommonPersistenceError {
-  return COMMON_AUTH_INVALID_REASONS.some((ErrorType) => error instanceof ErrorType);
-}
 
 function relayInternalErrorResponse(reason: RelayInternalError["reason"]) {
   return currentTraceId.pipe(
