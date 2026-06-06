@@ -382,7 +382,9 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
   ) {
     const acquired = yield* fileSystem.writeFileString(lockPath, "", { flag: "wx" }).pipe(
       Effect.as(true),
-      Effect.catch((error) => (isAlreadyExists(error) ? Effect.succeed(false) : Effect.fail(error))),
+      Effect.catch((error) =>
+        isAlreadyExists(error) ? Effect.succeed(false) : Effect.fail(error),
+      ),
     );
     if (acquired) return;
 
