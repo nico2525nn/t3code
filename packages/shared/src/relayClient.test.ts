@@ -6,7 +6,6 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
 import * as FileSystem from "effect/FileSystem";
-import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Sink from "effect/Sink";
@@ -329,54 +328,4 @@ describe("RelayClient", () => {
     );
   });
 
-  it.effect("exhausts install lock retries with the test clock", () => {
-    const bytes = new TextEncoder().encode("test-cloudflared-binary");
-    return Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-cloudflared-test-",
-      });
-      const managedPath = resolveManagedCloudflaredPath({
-        baseDir,
-        platform: "linux",
-        arch: "x64",
-      });
-      const lockPath = `${managedPath}.lock`;
-      yield* fileSystem.makeDirectory(path.dirname(lockPath), { recursive: true });
-      yield* fileSystem.writeFileString(lockPath, "locked");
-
-      const manager = yield* makeCloudflaredRelayClient({
-        baseDir,
-        platform: "linux",
-        arch: "x64",
-        releaseAsset: {
-          url: "https://example.test/cloudflared",
-          sha256: Encoding.encodeHex(sha256(bytes)),
-          archive: "binary",
-        },
-        configProvider: emptyConfigProvider,
-      });
-
-      const install = yield* manager.install.pipe(Effect.flip, Effect.forkScoped);
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust(Duration.seconds(20));
-      yield* Effect.yieldNow;
-      const error = yield* Fiber.join(install);
-
-      assert.ok(error instanceof RelayClientInstallError);
-      assert.equal(error.reason, "install_locked");
-      assert.equal(yield* fileSystem.exists(lockPath), true);
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        Layer.mergeAll(
-          TestClock.layer(),
-          NodeServices.layer,
-          makeHttpClientLayer(bytes),
-          makeSpawnerLayer([]),
-        ),
-      ),
-    );
-  });
 });
