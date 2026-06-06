@@ -225,7 +225,12 @@ describe("RelayClient", () => {
     }).pipe(
       Effect.scoped,
       Effect.provide(
-        Layer.mergeAll(NodeServices.layer, makeHttpClientLayer(bytes), makeSpawnerLayer(commands)),
+        Layer.mergeAll(
+          TestClock.layer(),
+          NodeServices.layer,
+          makeHttpClientLayer(bytes),
+          makeSpawnerLayer(commands),
+        ),
       ),
     );
   });
@@ -366,6 +371,7 @@ describe("RelayClient", () => {
       Effect.scoped,
       Effect.provide(
         Layer.mergeAll(
+          TestClock.layer(),
           NodeServices.layer,
           makeHttpClientLayer(bytes),
           makeSpawnerLayer([]),
