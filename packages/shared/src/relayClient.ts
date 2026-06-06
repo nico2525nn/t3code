@@ -1,4 +1,3 @@
-import * as Clock from "effect/Clock";
 import type {
   RelayClientInstallProgressEvent,
   RelayClientInstallProgressStage,
@@ -8,6 +7,8 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Data from "effect/Data";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
 import * as FileSystem from "effect/FileSystem";
@@ -15,6 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
+import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -99,8 +101,18 @@ const CLOUDFLARED_RELEASE_ASSETS: Readonly<
 };
 
 const INSTALL_LOCK_RETRY_COUNT = 100;
-const INSTALL_LOCK_RETRY_DELAY = "100 millis";
-const INSTALL_LOCK_STALE_MS = 5 * 60 * 1_000;
+const INSTALL_LOCK_RETRY_DELAY = Duration.millis(100);
+const INSTALL_LOCK_TIMEOUT = Duration.times(INSTALL_LOCK_RETRY_DELAY, INSTALL_LOCK_RETRY_COUNT);
+const INSTALL_LOCK_STALE_AGE = Duration.minutes(5);
+
+class RelayClientInstallLockBusy extends Data.TaggedError("RelayClientInstallLockBusy")<{
+  readonly lockPath: string;
+}> {}
+
+const retryWhileInstallLockBusy = Schedule.spaced(INSTALL_LOCK_RETRY_DELAY).pipe(
+  Schedule.setInputType<RelayClientInstallLockBusy | PlatformError.PlatformError>(),
+  Schedule.while(({ input }) => input._tag === "RelayClientInstallLockBusy"),
+);
 
 const trimmedString = (name: string) =>
   Config.string(name).pipe(
@@ -161,8 +173,8 @@ export function resolveManagedCloudflaredPath(input: {
 function resolveReleaseAsset(
   platform: NodeJS.Platform,
   arch: string,
-): CloudflaredReleaseAsset | null {
-  return CLOUDFLARED_RELEASE_ASSETS[`${platform}-${arch}`] ?? null;
+): Option.Option<CloudflaredReleaseAsset> {
+  return Option.fromUndefinedOr(CLOUDFLARED_RELEASE_ASSETS[`${platform}-${arch}`]);
 }
 
 function isAlreadyExists(error: PlatformError.PlatformError): boolean {
@@ -207,7 +219,9 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
   const installSemaphore = yield* Semaphore.make(1);
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
-  const releaseAsset = options.releaseAsset ?? resolveReleaseAsset(platform, arch);
+  const releaseAsset = Option.fromUndefinedOr(options.releaseAsset).pipe(
+    Option.orElse(() => resolveReleaseAsset(platform, arch)),
+  );
   const loadCloudflaredConfig = Effect.suspend(() =>
     CloudflaredConfig.pipe(
       Effect.provideService(
@@ -236,15 +250,15 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
   const resolvePathExecutable = Effect.gen(function* () {
     const config = yield* loadCloudflaredConfig;
     const pathValue = Option.getOrUndefined(config.path);
-    if (!pathValue) return null;
+    if (!pathValue) return Option.none();
     const delimiter = platform === "win32" ? ";" : ":";
     for (const directory of pathValue.split(delimiter)) {
       const trimmed = directory.trim().replace(/^"|"$/gu, "");
       if (trimmed.length === 0) continue;
       const candidate = path.join(trimmed, executableFileName(platform));
-      if (yield* isExecutableFile(candidate)) return candidate;
+      if (yield* isExecutableFile(candidate)) return Option.some(candidate);
     }
-    return null;
+    return Option.none();
   });
 
   const resolve: RelayClientShape["resolve"] = Effect.gen(function* () {
@@ -268,15 +282,15 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
       };
     }
     const pathExecutable = yield* resolvePathExecutable;
-    if (pathExecutable) {
+    if (Option.isSome(pathExecutable)) {
       return {
         status: "available",
-        executablePath: pathExecutable,
+        executablePath: pathExecutable.value,
         source: "path",
         version: CLOUDFLARED_VERSION,
       };
     }
-    return releaseAsset
+    return Option.isSome(releaseAsset)
       ? { status: "missing", version: CLOUDFLARED_VERSION }
       : {
           status: "unsupported",
@@ -351,31 +365,59 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
     return bytes;
   });
 
+  const isInstallLockStale = Effect.fn("cloudflared.isInstallLockStale")(function* (
+    lockPath: string,
+  ) {
+    const lockInfo = yield* fileSystem.stat(lockPath).pipe(Effect.option);
+    const lockModifiedAt = Option.flatMap(lockInfo, (info) => info.mtime);
+    if (Option.isNone(lockModifiedAt)) return false;
+
+    const now = yield* DateTime.now;
+    const lockAge = DateTime.distance(DateTime.makeUnsafe(lockModifiedAt.value), now);
+    return Duration.isGreaterThan(lockAge, INSTALL_LOCK_STALE_AGE);
+  });
+
+  const attemptAcquireInstallLock = Effect.fn("cloudflared.attemptAcquireInstallLock")(function* (
+    lockPath: string,
+  ) {
+    const acquired = yield* fileSystem.writeFileString(lockPath, "", { flag: "wx" }).pipe(
+      Effect.as(true),
+      Effect.catch((error) => (isAlreadyExists(error) ? Effect.succeed(false) : Effect.fail(error))),
+    );
+    if (acquired) return;
+
+    if (yield* isInstallLockStale(lockPath)) {
+      yield* fileSystem.remove(lockPath, { force: true });
+      return yield* attemptAcquireInstallLock(lockPath);
+    }
+
+    return yield* new RelayClientInstallLockBusy({ lockPath });
+  });
+
   const acquireInstallLock = Effect.fn("cloudflared.acquireInstallLock")(function* (
     lockPath: string,
   ) {
-    for (let attempt = 0; attempt < INSTALL_LOCK_RETRY_COUNT; attempt += 1) {
-      const acquired = yield* fileSystem.writeFileString(lockPath, "", { flag: "wx" }).pipe(
-        Effect.as(true),
-        Effect.catch((error) =>
-          isAlreadyExists(error) ? Effect.succeed(false) : Effect.fail(error),
+    return yield* attemptAcquireInstallLock(lockPath).pipe(
+      Effect.retry(retryWhileInstallLockBusy),
+      Effect.timeoutOrElse({
+        duration: INSTALL_LOCK_TIMEOUT,
+        orElse: () =>
+          Effect.fail(
+            new RelayClientInstallError({
+              reason: "install_locked",
+              message: "Another relay client installation is still in progress.",
+            }),
+          ),
+      }),
+      Effect.catchTag("RelayClientInstallLockBusy", () =>
+        Effect.fail(
+          new RelayClientInstallError({
+            reason: "install_locked",
+            message: "Another relay client installation is still in progress.",
+          }),
         ),
-      );
-      if (acquired) return;
-
-      const now = yield* Clock.currentTimeMillis;
-      const lockInfo = yield* fileSystem.stat(lockPath).pipe(Effect.option);
-      const mtime = Option.flatMap(lockInfo, (info) => info.mtime);
-      if (Option.isSome(mtime) && now - mtime.value.getTime() > INSTALL_LOCK_STALE_MS) {
-        yield* fileSystem.remove(lockPath, { force: true });
-        continue;
-      }
-      yield* Effect.sleep(INSTALL_LOCK_RETRY_DELAY);
-    }
-    return yield* new RelayClientInstallError({
-      reason: "install_locked",
-      message: "Another relay client installation is still in progress.",
-    });
+      ),
+    );
   });
 
   const installUnlocked = Effect.fn("cloudflared.installUnlocked")(function* (
@@ -391,7 +433,7 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
         message: `${CLOUDFLARED_PATH_ENV_NAME} does not point to an executable file.`,
       });
     }
-    if (!releaseAsset) {
+    if (Option.isNone(releaseAsset)) {
       return yield* new RelayClientInstallError({
         reason: "unsupported_platform",
         message: `T3 Code does not provide a managed relay client binary for ${platform}-${arch}.`,
@@ -427,16 +469,16 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
       });
       const archivePath = path.join(
         tempDirectory,
-        releaseAsset.archive === "tgz" ? "cloudflared.tgz" : executableFileName(platform),
+        releaseAsset.value.archive === "tgz" ? "cloudflared.tgz" : executableFileName(platform),
       );
-      const download = yield* downloadAsset(releaseAsset, report);
+      const download = yield* downloadAsset(releaseAsset.value, report);
       yield* report("installing");
       yield* fileSystem
         .writeFile(archivePath, download)
         .pipe(wrapInstallFailure("write_failed", "Could not write the relay client download."));
 
       const executablePath = path.join(tempDirectory, executableFileName(platform));
-      if (releaseAsset.archive === "tgz") {
+      if (releaseAsset.value.archive === "tgz") {
         yield* runCommand("tar", ["-xzf", archivePath, "-C", tempDirectory]).pipe(
           wrapInstallFailure("write_failed", "Could not extract the relay client."),
         );

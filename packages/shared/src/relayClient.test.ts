@@ -1,13 +1,17 @@
 import { sha256 } from "@noble/hashes/sha2";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
 import * as FileSystem from "effect/FileSystem";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
@@ -47,15 +51,13 @@ const makeHttpClientLayer = (bytes: Uint8Array) =>
   );
 
 const makeSpawnerLayer = (commands: Array<string>) =>
-  Layer.succeed(
-    ChildProcessSpawner.ChildProcessSpawner,
-    ChildProcessSpawner.make((command) =>
+  Layer.mock(ChildProcessSpawner.ChildProcessSpawner, {
+    spawn: (command) =>
       Effect.sync(() => {
         commands.push(ChildProcess.isStandardCommand(command) ? command.command : "piped-command");
         return makeHandle();
       }),
-    ),
-  );
+  });
 
 describe("RelayClient", () => {
   it.effect("resolves explicit overrides before managed and PATH executables", () =>
@@ -80,7 +82,7 @@ describe("RelayClient", () => {
           }),
       });
 
-      expect(yield* manager.resolve).toEqual({
+      assert.deepStrictEqual(yield* manager.resolve, {
         status: "available",
         executablePath: overridePath,
         source: "override",
@@ -130,16 +132,17 @@ describe("RelayClient", () => {
         platform: "linux",
         arch: "x64",
       });
-      expect(installed).toEqual({
+      assert.deepStrictEqual(installed, {
         status: "available",
         executablePath: managedPath,
         source: "managed",
         version: CLOUDFLARED_VERSION,
       });
-      expect(new TextDecoder().decode(yield* fileSystem.readFile(managedPath))).toBe(
+      assert.equal(
+        new TextDecoder().decode(yield* fileSystem.readFile(managedPath)),
         "test-cloudflared-binary",
       );
-      expect(progress).toEqual([
+      assert.deepStrictEqual(progress, [
         "checking",
         "waiting_for_lock",
         "downloading",
@@ -148,7 +151,7 @@ describe("RelayClient", () => {
         "validating",
         "activating",
       ]);
-      expect(yield* manager.resolve).toEqual(installed);
+      assert.deepStrictEqual(yield* manager.resolve, installed);
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -180,8 +183,8 @@ describe("RelayClient", () => {
       });
 
       const error = yield* manager.install.pipe(Effect.flip);
-      expect(error).toBeInstanceOf(RelayClientInstallError);
-      expect(error.reason).toBe("invalid_checksum");
+      assert.ok(error instanceof RelayClientInstallError);
+      assert.equal(error.reason, "invalid_checksum");
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -217,8 +220,8 @@ describe("RelayClient", () => {
       const [first, second] = yield* Effect.all([manager.install, manager.install], {
         concurrency: "unbounded",
       });
-      expect(second).toEqual(first);
-      expect(commands).toHaveLength(1);
+      assert.deepStrictEqual(second, first);
+      assert.equal(commands.length, 1);
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -243,7 +246,7 @@ describe("RelayClient", () => {
         configProvider: () => ConfigProvider.fromEnv({ env: { PATH: path } }),
       });
 
-      expect(yield* manager.resolve).toEqual({
+      assert.deepStrictEqual(yield* manager.resolve, {
         status: "missing",
         version: CLOUDFLARED_VERSION,
       });
@@ -253,7 +256,7 @@ describe("RelayClient", () => {
       yield* fileSystem.chmod(executablePath, 0o755);
       path = binDir;
 
-      expect(yield* manager.resolve).toEqual({
+      assert.deepStrictEqual(yield* manager.resolve, {
         status: "available",
         executablePath,
         source: "path",
@@ -270,4 +273,102 @@ describe("RelayClient", () => {
       ),
     ),
   );
+
+  it.effect("removes stale install locks before installing", () => {
+    const commands: Array<string> = [];
+    const bytes = new TextEncoder().encode("test-cloudflared-binary");
+    return Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-cloudflared-test-",
+      });
+      const managedPath = resolveManagedCloudflaredPath({
+        baseDir,
+        platform: "linux",
+        arch: "x64",
+      });
+      const lockPath = `${managedPath}.lock`;
+      yield* fileSystem.makeDirectory(path.dirname(lockPath), { recursive: true });
+      yield* fileSystem.writeFileString(lockPath, "stale");
+      yield* fileSystem.utimes(lockPath, 0, 0);
+      yield* TestClock.adjust(Duration.minutes(6));
+
+      const manager = yield* makeCloudflaredRelayClient({
+        baseDir,
+        platform: "linux",
+        arch: "x64",
+        releaseAsset: {
+          url: "https://example.test/cloudflared",
+          sha256: Encoding.encodeHex(sha256(bytes)),
+          archive: "binary",
+        },
+        configProvider: emptyConfigProvider,
+      });
+
+      const installed = yield* manager.install;
+
+      assert.deepStrictEqual(installed, {
+        status: "available",
+        executablePath: managedPath,
+        source: "managed",
+        version: CLOUDFLARED_VERSION,
+      });
+      assert.equal(yield* fileSystem.exists(lockPath), false);
+      assert.equal(commands.length, 1);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(NodeServices.layer, makeHttpClientLayer(bytes), makeSpawnerLayer(commands)),
+      ),
+    );
+  });
+
+  it.effect("times out install lock waits with the test clock", () => {
+    const bytes = new TextEncoder().encode("test-cloudflared-binary");
+    return Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-cloudflared-test-",
+      });
+      const managedPath = resolveManagedCloudflaredPath({
+        baseDir,
+        platform: "linux",
+        arch: "x64",
+      });
+      const lockPath = `${managedPath}.lock`;
+      yield* fileSystem.makeDirectory(path.dirname(lockPath), { recursive: true });
+      yield* fileSystem.writeFileString(lockPath, "locked");
+
+      const manager = yield* makeCloudflaredRelayClient({
+        baseDir,
+        platform: "linux",
+        arch: "x64",
+        releaseAsset: {
+          url: "https://example.test/cloudflared",
+          sha256: Encoding.encodeHex(sha256(bytes)),
+          archive: "binary",
+        },
+        configProvider: emptyConfigProvider,
+      });
+
+      const install = yield* manager.install.pipe(Effect.flip, Effect.fork);
+      yield* TestClock.adjust(Duration.seconds(10));
+      const error = yield* Fiber.join(install);
+
+      assert.ok(error instanceof RelayClientInstallError);
+      assert.equal(error.reason, "install_locked");
+      assert.equal(yield* fileSystem.exists(lockPath), true);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          NodeServices.layer,
+          makeHttpClientLayer(bytes),
+          makeSpawnerLayer([]),
+        ),
+      ),
+    );
+  });
 });
