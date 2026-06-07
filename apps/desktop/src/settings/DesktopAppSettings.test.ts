@@ -24,6 +24,7 @@ const DesktopSettingsPatch = Schema.Struct({
   wslBackendEnabled: Schema.optionalKey(Schema.Boolean),
   wslMode: Schema.optionalKey(Schema.Literals(["local", "wsl"])),
   wslDistro: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  wslOnly: Schema.optionalKey(Schema.Boolean),
 });
 
 const decodeDesktopSettingsPatch = Schema.decodeEffect(Schema.fromJsonString(DesktopSettingsPatch));
@@ -324,6 +325,41 @@ describe("DesktopSettings", () => {
 
         const noop = yield* settings.setWslDistro(null);
         assert.isFalse(noop.changed);
+      }),
+    ),
+  );
+
+  it.effect("applies WSL Windows fallback with persisted and volatile updates", () =>
+    withSettings(
+      Effect.gen(function* () {
+        const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        yield* settings.setWslBackendEnabled(true);
+        yield* settings.setWslOnly(true);
+
+        const persistedFallback = yield* settings.applyWslWindowsFallback;
+        assert.isTrue(persistedFallback.changed);
+        assert.equal(persistedFallback.settings.wslBackendEnabled, false);
+        assert.equal(persistedFallback.settings.wslOnly, false);
+
+        const persistedReload = yield* settings.load;
+        assert.equal(persistedReload.wslBackendEnabled, false);
+        assert.equal(persistedReload.wslOnly, false);
+
+        yield* settings.setWslBackendEnabled(true);
+        yield* settings.setWslOnly(true);
+
+        const volatileFallback = yield* settings.applyWslWindowsFallbackInMemory;
+        assert.isTrue(volatileFallback.changed);
+        assert.equal(volatileFallback.settings.wslBackendEnabled, false);
+        assert.equal(volatileFallback.settings.wslOnly, false);
+
+        const current = yield* settings.get;
+        assert.equal(current.wslBackendEnabled, false);
+        assert.equal(current.wslOnly, false);
+
+        const diskReload = yield* settings.load;
+        assert.equal(diskReload.wslBackendEnabled, true);
+        assert.equal(diskReload.wslOnly, true);
       }),
     ),
   );

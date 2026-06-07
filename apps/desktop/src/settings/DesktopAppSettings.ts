@@ -119,6 +119,8 @@ export interface DesktopAppSettingsShape {
   readonly setWslOnly: (
     enabled: boolean,
   ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
+  readonly applyWslWindowsFallback: Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
+  readonly applyWslWindowsFallbackInMemory: Effect.Effect<DesktopSettingsChange>;
 }
 
 export class DesktopAppSettings extends Context.Service<
@@ -280,6 +282,10 @@ function setWslOnly(settings: DesktopSettings, enabled: boolean): DesktopSetting
       };
 }
 
+function applyWslWindowsFallback(settings: DesktopSettings): DesktopSettings {
+  return setWslOnly(setWslBackendEnabled(settings, false), false);
+}
+
 function readSettings(
   fileSystem: FileSystem.FileSystem,
   settingsPath: string,
@@ -354,6 +360,11 @@ export const layer = Layer.effect(
           Effect.as([settingsChange(nextSettings, true), nextSettings] as const),
         );
       });
+    const updateInMemory = (update: (settings: DesktopSettings) => DesktopSettings) =>
+      SynchronizedRef.modify(settingsRef, (settings) => {
+        const nextSettings = update(settings);
+        return [settingsChange(nextSettings, nextSettings !== settings), nextSettings] as const;
+      });
 
     return DesktopAppSettings.of({
       get: SynchronizedRef.get(settingsRef),
@@ -391,6 +402,12 @@ export const layer = Layer.effect(
         persist((settings) => setWslOnly(settings, enabled)).pipe(
           Effect.withSpan("desktop.settings.setWslOnly", { attributes: { enabled } }),
         ),
+      applyWslWindowsFallback: persist(applyWslWindowsFallback).pipe(
+        Effect.withSpan("desktop.settings.applyWslWindowsFallback"),
+      ),
+      applyWslWindowsFallbackInMemory: updateInMemory(applyWslWindowsFallback).pipe(
+        Effect.withSpan("desktop.settings.applyWslWindowsFallbackInMemory"),
+      ),
     });
   }),
 );
@@ -423,6 +440,8 @@ export const layerTest = (initialSettings: DesktopSettings = DEFAULT_DESKTOP_SET
           update((settings) => setWslBackendEnabled(settings, enabled)),
         setWslDistro: (distro) => update((settings) => setWslDistro(settings, distro)),
         setWslOnly: (enabled) => update((settings) => setWslOnly(settings, enabled)),
+        applyWslWindowsFallback: update(applyWslWindowsFallback),
+        applyWslWindowsFallbackInMemory: update(applyWslWindowsFallback),
       });
     }),
   );

@@ -213,32 +213,34 @@ export const layer = Layer.effect(
     // still open instead of the app sitting invisible, retrying a node setup
     // that won't fix itself. The user re-enables "Run in WSL only" from Settings
     // once the distro is fixed.
-    const handlePrimaryPreflightFailure = Effect.fn(
-      "desktop.backendPool.primaryPreflightFailed",
-    )(function* (reason: string) {
-      yield* logBackendPoolWarning("primary WSL preflight failed; falling back to Windows", {
-        reason,
-      });
-      yield* electronDialog.showErrorBox(
-        "WSL backend couldn't start",
-        `${reason}\n\nFalling back to the Windows backend so T3 Code can open. Re-enable the WSL backend from Settings > Connections once the WSL distro is fixed.`,
-      );
-      // Fully disable the WSL backend — both flags, matching the "Switch to
-      // Windows" recovery path — so the manager's next restart re-resolves the
-      // primary as Windows and reconcile won't register a secondary WSL backend
-      // against the same broken setup. Clearing wslBackendEnabled alone would
-      // leave a stale wslOnly:true that silently re-traps the user in wsl-only
-      // mode the next time they enable WSL. Swallow write failures — we still
-      // logged and surfaced the reason.
-      yield* appSettings.setWslBackendEnabled(false).pipe(
-        Effect.andThen(appSettings.setWslOnly(false)),
-        Effect.catch((error) =>
-          logBackendPoolWarning("failed to persist Windows fallback after WSL preflight failure", {
-            error: error.message,
-          }),
-        ),
-      );
-    });
+    const handlePrimaryPreflightFailure = Effect.fn("desktop.backendPool.primaryPreflightFailed")(
+      function* (reason: string) {
+        yield* logBackendPoolWarning("primary WSL preflight failed; falling back to Windows", {
+          reason,
+        });
+        yield* electronDialog.showErrorBox(
+          "WSL backend couldn't start",
+          `${reason}\n\nFalling back to the Windows backend so T3 Code can open. Re-enable the WSL backend from Settings > Connections once the WSL distro is fixed.`,
+        );
+        // Fully disable the WSL backend — both flags, matching the "Switch to
+        // Windows" recovery path — so the manager's next restart re-resolves the
+        // primary as Windows and reconcile won't register a secondary WSL backend
+        // against the same broken setup. Clearing wslBackendEnabled alone would
+        // leave a stale wslOnly:true that silently re-traps the user in wsl-only
+        // mode the next time they enable WSL. If the persisted write fails, keep
+        // this process recoverable by applying the fallback to in-memory settings.
+        yield* appSettings.applyWslWindowsFallback.pipe(
+          Effect.catch((error) =>
+            logBackendPoolWarning(
+              "failed to persist Windows fallback after WSL preflight failure",
+              {
+                error: error.message,
+              },
+            ).pipe(Effect.andThen(appSettings.applyWslWindowsFallbackInMemory)),
+          ),
+        );
+      },
+    );
 
     const primary = yield* DesktopBackendManager.makeBackendInstance({
       id: DesktopBackendManager.PRIMARY_INSTANCE_ID,
