@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vite-plus/test";
 
-import { formatMissingToolsReason, parseToolchainReport } from "./DesktopWslEnvironment.ts";
+import {
+  formatMissingToolsReason,
+  parseNodePath,
+  parseToolchainReport,
+} from "./DesktopWslEnvironment.ts";
 
 describe("parseToolchainReport", () => {
   it("returns no missing tools and no node version on empty output", () => {
@@ -28,6 +32,26 @@ describe("parseToolchainReport", () => {
       missingTools: [],
       nodeVersion: null,
     });
+  });
+});
+
+describe("parseNodePath", () => {
+  it("extracts the absolute node path from a nodePath: line", () => {
+    const stdout = "nodePath:/home/josh/.nvm/versions/node/v22.16.0/bin/node";
+    expect(parseNodePath(stdout)).toBe("/home/josh/.nvm/versions/node/v22.16.0/bin/node");
+  });
+
+  it("returns null when node was not found (empty value after prefix)", () => {
+    expect(parseNodePath("nodePath:")).toBeNull();
+  });
+
+  it("returns null when there is no nodePath line at all", () => {
+    expect(parseNodePath("missing:node\nnodeVersion:")).toBeNull();
+  });
+
+  it("ignores surrounding noise and trims whitespace", () => {
+    const stdout = ["some preamble noise", "  nodePath:/usr/bin/node  ", "trailing"].join("\n");
+    expect(parseNodePath(stdout)).toBe("/usr/bin/node");
   });
 });
 

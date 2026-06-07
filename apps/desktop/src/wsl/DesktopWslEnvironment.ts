@@ -28,7 +28,7 @@ export interface EnsureWslNodePtyOptions {
 }
 
 export type EnsureWslNodePtyResult =
-  | { readonly ok: true }
+  | { readonly ok: true; readonly nodePath: string }
   | { readonly ok: false; readonly reason: string };
 
 export interface DesktopWslEnvironmentShape {
@@ -86,6 +86,24 @@ interface ShellResult {
 
 const TIMEOUT_RESULT: ShellResult = { exitCode: 124, stdout: "", stderr: "\n[timeout]" };
 
+// nvm / fnm / asdf / volta install their shell hooks at the BOTTOM of
+// ~/.bashrc, below the `case $- in *i*) ;; *) return` interactive guard, so a
+// non-interactive `bash -l` returns before reaching them and `node` falls
+// through to the system /usr/bin/node (often an old apt build) or nothing.
+// Source the common managers explicitly — all output suppressed so it can't
+// pollute the parsed stdout — so the toolchain check, the node-pty
+// probe/build, and the resolved launch path all agree on the user's real node.
+const NODE_MANAGER_PREAMBLE = [
+  'export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"',
+  '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" >/dev/null 2>&1',
+  'command -v nvm >/dev/null 2>&1 && ! command -v node >/dev/null 2>&1 && nvm use default >/dev/null 2>&1',
+  '[ -s "$HOME/.asdf/asdf.sh" ] && . "$HOME/.asdf/asdf.sh" >/dev/null 2>&1',
+  '[ -d "$HOME/.volta/bin" ] && PATH="$HOME/.volta/bin:$PATH"',
+  'for __t3d in "$HOME/.local/share/fnm" "$HOME/.fnm"; do [ -d "$__t3d" ] && PATH="$__t3d:$PATH"; done; unset __t3d',
+  'command -v fnm >/dev/null 2>&1 && eval "$(fnm env 2>/dev/null)" >/dev/null 2>&1',
+  "",
+].join("\n");
+
 // wsl.exe re-escapes args before forwarding them to the Linux side, which
 // mangles quotes inside `bash -lc "<script>"`. Pipe the script via stdin to
 // avoid passing it on the command line at all.
@@ -95,13 +113,14 @@ const runWslShell = (
   timeout: Duration.Duration,
 ): Effect.Effect<ShellResult, never, ChildProcessSpawner.ChildProcessSpawner> => {
   const spawner = ChildProcessSpawner.ChildProcessSpawner;
-  // -l so nvm/profile-managed tools (node, node-gyp) are on PATH;
-  // -s so bash reads the script from stdin instead of the command line.
+  // -l picks up profile-managed PATH; the NODE_MANAGER_PREAMBLE we prepend to
+  // the script covers nvm/fnm/asdf/volta, which a non-interactive login shell
+  // would otherwise miss. -s so bash reads the script from stdin.
   const command = ChildProcess.make(
     "wsl.exe",
     [...buildDistroArgs(distro), "--", "bash", "-l", "-s"],
     {
-      stdin: Stream.encodeText(Stream.make(bashScript)),
+      stdin: Stream.encodeText(Stream.make(`${NODE_MANAGER_PREAMBLE}${bashScript}`)),
       stdout: "pipe",
       stderr: "pipe",
       killSignal: "SIGTERM",
@@ -142,7 +161,8 @@ const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")
 
 const NODE_PTY_PROBE_SCRIPT = (
   linuxServerDir: string,
-) => `cd ${shellQuote(linuxServerDir)} && node <<'NODE' >/dev/null 2>&1
+) => `echo "nodePath:$(command -v node 2>/dev/null)"
+cd ${shellQuote(linuxServerDir)} && node <<'NODE' >/dev/null 2>&1
 const fs = require("node:fs");
 const path = require("node:path");
 const pkgDir = path.dirname(require.resolve("node-pty/package.json"));
@@ -204,6 +224,20 @@ export const parseToolchainReport = (stdout: string): ToolchainReport => {
     ? nodeVersionLine.slice("nodeVersion:".length).trim() || null
     : null;
   return { missingTools, nodeVersion };
+};
+
+// Pulls the absolute node path the WSL distro resolved (after sourcing the
+// version managers) out of a probe/toolchain stdout. Returns null when no
+// node was found, which the caller turns into an actionable "install Node"
+// message instead of a confusing node-pty error.
+export const parseNodePath = (stdout: string): string | null => {
+  const path = stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("nodePath:"))
+    .map((line) => line.slice("nodePath:".length).trim())
+    .find((value) => value.length > 0);
+  return path ?? null;
 };
 
 export const formatMissingToolsReason = (
@@ -270,14 +304,27 @@ const ensureNodePtyImpl = (
     const linuxServerDir = `${linuxRepoRoot}/apps/server`;
 
     const probe = yield* runWslShell(distro, NODE_PTY_PROBE_SCRIPT(linuxServerDir), PROBE_TIMEOUT);
-    if (probe.exitCode === 0) return { ok: true } as const;
+    const nodePath = parseNodePath(probe.stdout);
 
-    // Run the toolchain check before the allowBuild branch so a missing
-    // node binary (or an out-of-range version, or missing build tools)
+    // No node at all, even after sourcing nvm/fnm/asdf/volta. Surface the
+    // specific, actionable toolchain message (which names the version managers)
+    // rather than a confusing node-pty error, and don't try to build.
+    if (nodePath === null) {
+      const toolchainCheck = yield* runWslShell(distro, TOOLCHAIN_CHECK_SCRIPT, TOOLCHAIN_TIMEOUT);
+      const report = parseToolchainReport(toolchainCheck.stdout);
+      const reason =
+        formatMissingToolsReason(report, options.nodeEngineRange?.trim() || null) ??
+        "Node.js was not found in the WSL distro. Install it (e.g. via nvm) and restart the desktop app.";
+      return { ok: false, reason } as const;
+    }
+
+    if (probe.exitCode === 0) return { ok: true, nodePath } as const;
+
+    // node exists but node-pty isn't ready. Run the toolchain check before the
+    // allowBuild branch so an out-of-range version or missing build tools
     // surfaces as a specific, actionable message in both dev and packaged
-    // builds. Without this, packaged users with no node in their WSL distro
-    // saw a generic "node-pty is not prepared" error pointing at a script
-    // that itself would have failed for the same reason.
+    // builds — otherwise users saw a generic "node-pty is not prepared" error
+    // pointing at a script that itself would have failed for the same reason.
     const toolchainCheck = yield* runWslShell(distro, TOOLCHAIN_CHECK_SCRIPT, TOOLCHAIN_TIMEOUT);
     const report = parseToolchainReport(toolchainCheck.stdout);
     const missingReason = formatMissingToolsReason(report, options.nodeEngineRange?.trim() || null);
@@ -294,7 +341,7 @@ const ensureNodePtyImpl = (
     }
 
     const build = yield* runWslShell(distro, NODE_PTY_BUILD_SCRIPT(linuxServerDir), BUILD_TIMEOUT);
-    if (build.exitCode === 0) return { ok: true } as const;
+    if (build.exitCode === 0) return { ok: true, nodePath } as const;
     const trimmedTail = `${build.stdout}${build.stderr}`.trim().slice(-500);
     return {
       ok: false,

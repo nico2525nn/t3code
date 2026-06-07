@@ -154,6 +154,11 @@ interface SharedBootstrapInput {
 interface WslPreflightOutcome {
   readonly _tag: "Ready";
   readonly linuxEntryPath: string;
+  // Absolute path to the node binary the preflight validated (after sourcing
+  // the user's version managers). The launch must use this exact path so it
+  // doesn't fall through to a different/old node than the one node-pty was
+  // built against.
+  readonly nodePath: string;
 }
 
 interface WslPreflightFailure {
@@ -208,7 +213,11 @@ const runWslPreflight = Effect.fn("desktop.backendConfiguration.wslPreflight")(f
     } as const;
   }
 
-  return { _tag: "Ready", linuxEntryPath: linuxEntry.value } as const;
+  return {
+    _tag: "Ready",
+    linuxEntryPath: linuxEntry.value,
+    nodePath: nodePtyResult.nodePath,
+  } as const;
 });
 
 // True when the given IPv4 belongs to a Windows-side network
@@ -427,7 +436,11 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     args: [
       ...distroArgs,
       "--",
-      "node",
+      // Absolute node path resolved by the preflight (sourcing nvm/fnm/asdf/
+      // volta). `wsl.exe -- node` would run against the bare non-login PATH and
+      // hit /usr/bin/node instead of the version-managed node node-pty was
+      // built against.
+      preflight.nodePath,
       preflight.linuxEntryPath,
       "--bootstrap-fd",
       "0",
