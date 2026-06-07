@@ -348,8 +348,9 @@ interface PublishRepositoryDialogProps {
 function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
   const navigate = useNavigate();
   const sourceControlDiscovery = useSourceControlDiscovery();
-  const [publishProvider, setPublishProvider] = useState<PublishProviderKind>("github");
-  const [publishRepository, setPublishRepository] = useState("");
+  const [requestedPublishProvider, setRequestedPublishProvider] =
+    useState<PublishProviderKind>("github");
+  const [publishRepositoryOverride, setPublishRepositoryOverride] = useState<string | null>(null);
   const [publishVisibility, setPublishVisibility] =
     useState<SourceControlRepositoryVisibility>("private");
   const [publishRemoteName, setPublishRemoteName] = useState("origin");
@@ -360,7 +361,6 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
   const [publishResult, setPublishResult] = useState<SourceControlPublishRepositoryResult | null>(
     null,
   );
-  const [hasUserEditedPublishRepository, setHasUserEditedPublishRepository] = useState(false);
   const sourceControlScope = useMemo(
     () => ({
       environmentId: props.environmentId,
@@ -395,6 +395,13 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
       ]),
     ) as Record<PublishProviderKind, { readonly ready: boolean; readonly hint: string | null }>;
   }, [sourceControlDiscovery.data]);
+  const firstReadyPublishProvider = PUBLISH_PROVIDER_OPTIONS.find(
+    (option) => publishProviderReadiness[option.value].ready,
+  );
+  const publishProvider =
+    publishProviderReadiness[requestedPublishProvider].ready || !firstReadyPublishProvider
+      ? requestedPublishProvider
+      : firstReadyPublishProvider.value;
   const hasReadyPublishProvider = useMemo(
     () => PUBLISH_PROVIDER_OPTIONS.some((option) => publishProviderReadiness[option.value].ready),
     [publishProviderReadiness],
@@ -415,6 +422,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
   const publishRepositoryPrefill = publishAccountByProvider[publishProvider]
     ? `${publishAccountByProvider[publishProvider]}/`
     : "";
+  const publishRepository = publishRepositoryOverride ?? publishRepositoryPrefill;
   const currentPublishProvider = publishProviderOption(publishProvider);
   const publishHost = currentPublishProvider.host;
   const publishPathPlaceholder = currentPublishProvider.pathPlaceholder;
@@ -426,13 +434,6 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
     null,
   ] as const;
 
-  useEffect(() => {
-    if (!props.open || hasUserEditedPublishRepository) {
-      return;
-    }
-    setPublishRepository(publishRepositoryPrefill);
-  }, [hasUserEditedPublishRepository, props.open, publishRepositoryPrefill]);
-
   const canSubmitPublishRepository = useMemo(() => {
     if (!selectedPublishProviderReadiness.ready) return false;
     if (publishRepositoryAction.isPending) return false;
@@ -442,21 +443,6 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
     const name = rest.join("/").trim();
     return owner.length > 0 && name.length > 0;
   }, [publishRepository, publishRepositoryAction.isPending, selectedPublishProviderReadiness]);
-
-  useEffect(() => {
-    if (!props.open) {
-      return;
-    }
-    if (publishProviderReadiness[publishProvider].ready) {
-      return;
-    }
-    const firstReadyProvider = PUBLISH_PROVIDER_OPTIONS.find(
-      (option) => publishProviderReadiness[option.value].ready,
-    );
-    if (firstReadyProvider) {
-      setPublishProvider(firstReadyProvider.value);
-    }
-  }, [props.open, publishProvider, publishProviderReadiness]);
 
   const submitPublishRepository = useCallback(() => {
     if (!canSubmitPublishRepository) {
@@ -499,8 +485,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
 
   const resetState = useCallback(() => {
     setPublishRemoteName("origin");
-    setPublishRepository("");
-    setHasUserEditedPublishRepository(false);
+    setPublishRepositoryOverride(null);
     setPublishWizardStep(0);
     setPublishAdvancedOpen(false);
     setPublishError(null);
@@ -593,7 +578,10 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                 </span>
                 <RadioGroup
                   value={publishProvider}
-                  onValueChange={(value) => setPublishProvider(value as PublishProviderKind)}
+                  onValueChange={(value) => {
+                    setRequestedPublishProvider(value as PublishProviderKind);
+                    setPublishRepositoryOverride(null);
+                  }}
                   aria-labelledby="publish-provider-cards-label"
                   className="grid grid-cols-2 gap-2.5"
                 >
@@ -679,8 +667,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                       name="publish-repository-path"
                       value={publishRepository}
                       onChange={(event) => {
-                        setPublishRepository(event.target.value);
-                        setHasUserEditedPublishRepository(true);
+                        setPublishRepositoryOverride(event.target.value);
                       }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {

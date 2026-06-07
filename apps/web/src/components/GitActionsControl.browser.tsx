@@ -1,7 +1,8 @@
 import { scopeThreadRef } from "@t3tools/client-runtime";
 import { ThreadId } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { render } from "vitest-browser-react";
 
 const SHARED_THREAD_ID = ThreadId.make("thread-shared");
@@ -26,6 +27,8 @@ const {
   activeRunStackedActionDeferredRef,
   activeDraftThreadRef,
   hasServerThreadRef,
+  sourceControlDiscoveryRef,
+  vcsStatusRef,
   invalidateSourceControlStateSpy,
   refreshVcsStatusSpy,
   runStackedActionSpy,
@@ -39,6 +42,26 @@ const {
   activeRunStackedActionDeferredRef: { current: createDeferredPromise<never>() },
   activeDraftThreadRef: { current: null as unknown },
   hasServerThreadRef: { current: true },
+  sourceControlDiscoveryRef: { current: null as unknown },
+  vcsStatusRef: {
+    current: {
+      isRepo: true,
+      sourceControlProvider: {
+        kind: "github",
+        name: "GitHub",
+        baseUrl: "https://github.com",
+      },
+      hasPrimaryRemote: true,
+      isDefaultRef: false,
+      refName: "feature/toast-scope",
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+      hasUpstream: true,
+      aheadCount: 1,
+      behindCount: 0,
+      pr: null,
+    },
+  },
   invalidateSourceControlStateSpy: vi.fn(() => Promise.resolve()),
   refreshVcsStatusSpy: vi.fn(() => Promise.resolve(null)),
   runStackedActionSpy: vi.fn(() => activeRunStackedActionDeferredRef.current.promise),
@@ -62,6 +85,10 @@ vi.mock("~/components/ui/toast", () => ({
 
 vi.mock("~/editorPreferences", () => ({
   openInPreferredEditor: vi.fn(),
+}));
+
+vi.mock("~/lib/sourceControlDiscoveryState", () => ({
+  useSourceControlDiscovery: vi.fn(() => sourceControlDiscoveryRef.current),
 }));
 
 vi.mock("~/lib/sourceControlActions", () => ({
@@ -97,23 +124,7 @@ vi.mock("~/lib/vcsStatusState", () => ({
   refreshVcsStatus: refreshVcsStatusSpy,
   resetVcsStatusStateForTests: () => undefined,
   useVcsStatus: vi.fn(() => ({
-    data: {
-      isRepo: true,
-      sourceControlProvider: {
-        kind: "github",
-        name: "GitHub",
-        baseUrl: "https://github.com",
-      },
-      hasPrimaryRemote: true,
-      isDefaultRef: false,
-      refName: BRANCH_NAME,
-      hasWorkingTreeChanges: false,
-      workingTree: { files: [], insertions: 0, deletions: 0 },
-      hasUpstream: true,
-      aheadCount: 1,
-      behindCount: 0,
-      pr: null,
-    },
+    data: vcsStatusRef.current,
     error: null,
     isPending: false,
   })),
@@ -245,6 +256,77 @@ function findButtonByText(text: string): HTMLButtonElement | null {
   ) ?? null) as HTMLButtonElement | null;
 }
 
+function findRadioByText(text: string): HTMLElement | null {
+  return (Array.from(document.querySelectorAll('[role="radio"]')).find((radio) =>
+    radio.textContent?.includes(text),
+  ) ?? null) as HTMLElement | null;
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  input.value = value;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function createDefaultVcsStatus() {
+  return {
+    isRepo: true,
+    sourceControlProvider: {
+      kind: "github",
+      name: "GitHub",
+      baseUrl: "https://github.com",
+    },
+    hasPrimaryRemote: true,
+    isDefaultRef: false,
+    refName: BRANCH_NAME,
+    hasWorkingTreeChanges: false,
+    workingTree: { files: [], insertions: 0, deletions: 0 },
+    hasUpstream: true,
+    aheadCount: 1,
+    behindCount: 0,
+    pr: null,
+  };
+}
+
+function createDefaultSourceControlDiscovery() {
+  return {
+    data: {
+      versionControlSystems: [],
+      sourceControlProviders: [
+        {
+          kind: "github",
+          label: "GitHub",
+          status: "available",
+          version: Option.some("2.85.0"),
+          installHint: "Install GitHub CLI.",
+          detail: Option.none(),
+          auth: {
+            status: "authenticated",
+            account: Option.some("octo"),
+            host: Option.some("github.com"),
+            detail: Option.none(),
+          },
+        },
+        {
+          kind: "gitlab",
+          label: "GitLab",
+          status: "available",
+          version: Option.some("19.0.0"),
+          installHint: "Install GitLab CLI.",
+          detail: Option.none(),
+          auth: {
+            status: "authenticated",
+            account: Option.some("tanuki"),
+            host: Option.some("gitlab.com"),
+            detail: Option.none(),
+          },
+        },
+      ],
+    },
+    error: null,
+    isPending: false,
+  };
+}
+
 function Harness() {
   const [activeThreadRef, setActiveThreadRef] = useState(
     scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID),
@@ -264,12 +346,19 @@ function Harness() {
 }
 
 describe("GitActionsControl thread-scoped progress toast", () => {
+  beforeEach(() => {
+    vcsStatusRef.current = createDefaultVcsStatus();
+    sourceControlDiscoveryRef.current = createDefaultSourceControlDiscovery();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
     activeRunStackedActionDeferredRef.current = createDeferredPromise<never>();
     activeDraftThreadRef.current = null;
     hasServerThreadRef.current = true;
+    vcsStatusRef.current = createDefaultVcsStatus();
+    sourceControlDiscoveryRef.current = createDefaultSourceControlDiscovery();
     document.body.innerHTML = "";
   });
 
@@ -330,6 +419,58 @@ describe("GitActionsControl thread-scoped progress toast", () => {
       activeRunStackedActionDeferredRef.current.reject(new Error("test cleanup"));
       await Promise.resolve();
       vi.useRealTimers();
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it("derives publish provider and repository defaults while preserving user edits", async () => {
+    vcsStatusRef.current = {
+      ...createDefaultVcsStatus(),
+      hasPrimaryRemote: false,
+      hasUpstream: false,
+      aheadCount: 0,
+    };
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <GitActionsControl
+        gitCwd={GIT_CWD}
+        activeThreadRef={scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID)}
+      />,
+      { container: host },
+    );
+
+    try {
+      findButtonByText("Publish repository")?.click();
+      await Promise.resolve();
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+        "Publish repository",
+      );
+
+      findButtonByText("Next")?.click();
+      await Promise.resolve();
+      const repositoryInput = document.querySelector<HTMLInputElement>("#publish-repository-path");
+      expect(repositoryInput?.value).toBe("octo/");
+
+      if (!repositoryInput) {
+        throw new Error("Repository input was not rendered.");
+      }
+      setInputValue(repositoryInput, "octo/demo");
+      expect(repositoryInput.value).toBe("octo/demo");
+
+      findButtonByText("Back")?.click();
+      await Promise.resolve();
+      findRadioByText("GitLab")?.click();
+      await Promise.resolve();
+      findButtonByText("Next")?.click();
+      await Promise.resolve();
+
+      expect(document.querySelector<HTMLInputElement>("#publish-repository-path")?.value).toBe(
+        "tanuki/",
+      );
+    } finally {
       await screen.unmount();
       host.remove();
     }
