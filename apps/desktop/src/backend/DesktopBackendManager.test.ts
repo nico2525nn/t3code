@@ -110,6 +110,7 @@ interface MakeInstanceInput {
   readonly onShutdown?: Effect.Effect<void>;
   readonly onPreflightFailed?: (reason: string) => Effect.Effect<void>;
   readonly config?: DesktopBackendManager.DesktopBackendStartConfig;
+  readonly configResolve?: Effect.Effect<DesktopBackendManager.DesktopBackendStartConfig>;
 }
 
 // Helper that constructs a primary backend instance using the factory
@@ -137,7 +138,7 @@ function makeTestInstance(input: MakeInstanceInput) {
   const instance = DesktopBackendManager.makeBackendInstance({
     id: DesktopBackendManager.PRIMARY_INSTANCE_ID,
     label: Effect.succeed("Windows"),
-    configResolve: Effect.succeed(input.config ?? baseConfig),
+    configResolve: input.configResolve ?? Effect.succeed(input.config ?? baseConfig),
     ...(input.onReady ? { onReady: () => input.onReady! } : {}),
     ...(input.onShutdown ? { onShutdown: () => input.onShutdown! } : {}),
     ...(input.onPreflightFailed ? { onPreflightFailed: input.onPreflightFailed } : {}),
@@ -484,6 +485,66 @@ describe("DesktopBackendManager", () => {
         yield* TestClock.adjust(Duration.seconds(8));
         yield* TestClock.adjust(Duration.seconds(30));
         assert.deepEqual(failures, ["Node.js not found"]);
+      }).pipe(Effect.provide(TestClock.layer())),
+    ),
+  );
+
+  it.effect("can be started again after a fatal preflight cap once config recovers", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const failing = yield* Ref.make(true);
+        const starts = yield* Queue.unbounded<number>();
+        const spawnerLayer = Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() =>
+            Queue.offer(starts, 123).pipe(
+              Effect.as(
+                makeProcess({
+                  exitCode: Effect.never,
+                }),
+              ),
+            ),
+          ),
+        );
+
+        const instance = yield* makeTestInstance({
+          spawnerLayer,
+          configResolve: Ref.get(failing).pipe(
+            Effect.map((isFailing) =>
+              isFailing
+                ? {
+                    ...baseConfig,
+                    preflightFailure: Option.some({
+                      reason: "Node.js not found",
+                      fatal: true,
+                    }),
+                  }
+                : baseConfig,
+            ),
+          ),
+        });
+
+        yield* instance.start;
+        yield* TestClock.adjust(Duration.millis(500));
+        yield* TestClock.adjust(Duration.seconds(1));
+        yield* TestClock.adjust(Duration.seconds(2));
+        yield* TestClock.adjust(Duration.seconds(4));
+        yield* TestClock.adjust(Duration.seconds(8));
+
+        const parked = yield* instance.snapshot;
+        assert.equal(parked.desiredRunning, false);
+        assert.equal(parked.ready, false);
+        assert.isTrue(Option.isNone(parked.activePid));
+        assert.equal(parked.restartScheduled, false);
+        assert.equal(yield* Queue.size(starts), 0);
+
+        yield* Ref.set(failing, false);
+        yield* instance.start;
+
+        assert.equal(yield* Queue.take(starts), 123);
+        const running = yield* instance.snapshot;
+        assert.equal(running.desiredRunning, true);
+        assert.deepEqual(running.activePid, Option.some(123));
       }).pipe(Effect.provide(TestClock.layer())),
     ),
   );

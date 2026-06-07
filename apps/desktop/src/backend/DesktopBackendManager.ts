@@ -449,12 +449,15 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
           .exists(config.value.entryPath)
           .pipe(Effect.orElseSucceed(() => false));
 
+        const resetFatalPreflightCounter =
+          !current.desiredRunning && current.preflightFailureAttempt > 0;
         yield* cancelRestart;
         yield* Ref.update(state, (latest) => ({
           ...latest,
           desiredRunning: true,
           ready: false,
           config: Option.some(config.value),
+          preflightFailureAttempt: resetFatalPreflightCounter ? 0 : latest.preflightFailureAttempt,
         }));
 
         const preflightFailure = config.value.preflightFailure;
@@ -479,6 +482,11 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
               reason,
               attempt,
             });
+            yield* Ref.update(state, (latest) => ({
+              ...latest,
+              desiredRunning: false,
+              ready: false,
+            }));
             return;
           }
           if (attempt === MAX_PREFLIGHT_FAILURE_ATTEMPTS) {
@@ -500,9 +508,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
         // Clean preflight — reset the fatal counter so a later failure gets a
         // fresh allowance.
         yield* Ref.update(state, (latest) =>
-          latest.preflightFailureAttempt === 0
-            ? latest
-            : { ...latest, preflightFailureAttempt: 0 },
+          latest.preflightFailureAttempt === 0 ? latest : { ...latest, preflightFailureAttempt: 0 },
         );
 
         if (!entryExists) {

@@ -206,9 +206,18 @@ export const layer = Layer.effect(
       }
       if (
         Option.isSome(targetId) &&
-        Option.isSome(existingId) &&
-        targetId.value === existingId.value
+        Option.isSome(existing) &&
+        targetId.value === existing.value.id
       ) {
+        const existingInstance = existing.value;
+        const snapshot = yield* existingInstance.snapshot;
+        const isIdle =
+          !snapshot.ready && Option.isNone(snapshot.activePid) && !snapshot.restartScheduled;
+        if (isIdle) {
+          yield* logWslBackendInfo("retrying idle WSL backend", { id: existingInstance.id });
+          yield* Ref.set(preflightErrorRef, Option.none());
+          yield* existingInstance.start;
+        }
         return;
       }
 
