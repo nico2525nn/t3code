@@ -338,10 +338,15 @@ async function registerSecondaryLocalEnvironment(
   // the runtime state to "requires-auth" before the explicit
   // ensureSavedEnvironmentConnection call below runs.
   useSavedEnvironmentRegistryStore.getState().upsert(record);
-  await ensureSavedEnvironmentConnection(record, {
-    bearerToken,
-    scopes,
-  });
+  try {
+    await ensureSavedEnvironmentConnection(record, {
+      bearerToken,
+      scopes,
+    });
+  } catch (error) {
+    await removeSavedEnvironmentByInstance(environmentId).catch(() => undefined);
+    throw error;
+  }
   return record;
 }
 
@@ -496,6 +501,25 @@ export function reconcileLocalSecondaryEnvironments(): Promise<void> {
 // instead of burning ~4 minutes of polls before the budget runs out.
 export function markSecondariesConfigured(configured: boolean): void {
   knownNoSecondariesConfigured = !configured;
+}
+
+export function __resetLocalSecondaryReconcilerForTests(): void {
+  pendingByInstanceId.clear();
+  pendingReconcileRun = null;
+  if (autoRetryHandle !== null) {
+    clearTimeout(autoRetryHandle);
+    autoRetryHandle = null;
+  }
+  autoRetryAttempt = 0;
+  knownNoSecondariesConfigured = false;
+  useLocalSecondaryReconcileStore.setState({
+    bootstrapsSeen: [],
+    pendingInstanceIds: [],
+    registrationErrors: {},
+    budgetExhausted: false,
+    lastReconcileAt: null,
+    attempts: 0,
+  });
 }
 
 if (typeof window !== "undefined") {
