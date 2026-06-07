@@ -221,12 +221,17 @@ export const layer = Layer.effect(
       });
       yield* electronDialog.showErrorBox(
         "WSL backend couldn't start",
-        `${reason}\n\nFalling back to the Windows backend so T3 Code can open. Re-enable "Run in WSL only" from Settings > Connections once the WSL distro is fixed.`,
+        `${reason}\n\nFalling back to the Windows backend so T3 Code can open. Re-enable the WSL backend from Settings > Connections once the WSL distro is fixed.`,
       );
-      // Persist Windows mode so the manager's next restart re-resolves the
-      // primary as Windows (describePrimary reads wslOnly) and a window opens.
-      // Swallow a write failure — we still logged and surfaced the reason.
-      yield* appSettings.setWslOnly(false).pipe(
+      // Fully disable the WSL backend — both flags, matching the "Switch to
+      // Windows" recovery path — so the manager's next restart re-resolves the
+      // primary as Windows and reconcile won't register a secondary WSL backend
+      // against the same broken setup. Clearing wslBackendEnabled alone would
+      // leave a stale wslOnly:true that silently re-traps the user in wsl-only
+      // mode the next time they enable WSL. Swallow write failures — we still
+      // logged and surfaced the reason.
+      yield* appSettings.setWslBackendEnabled(false).pipe(
+        Effect.andThen(appSettings.setWslOnly(false)),
         Effect.catch((error) =>
           logBackendPoolWarning("failed to persist Windows fallback after WSL preflight failure", {
             error: error.message,

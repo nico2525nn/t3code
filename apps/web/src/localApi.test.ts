@@ -235,6 +235,7 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
       available: false,
       wslOnly: false,
       distros: [],
+      preflightError: null,
     }),
     setWslBackendEnabled: async () => ({
       enabled: false,
@@ -242,6 +243,7 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
       available: false,
       wslOnly: false,
       distros: [],
+      preflightError: null,
     }),
     setWslDistro: async () => ({
       enabled: false,
@@ -249,6 +251,7 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
       available: false,
       wslOnly: false,
       distros: [],
+      preflightError: null,
     }),
     setWslOnly: async () => ({
       enabled: false,
@@ -256,6 +259,7 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
       available: false,
       wslOnly: false,
       distros: [],
+      preflightError: null,
     }),
     pickFolder: async () => null,
     confirm: async () => true,

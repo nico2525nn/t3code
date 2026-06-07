@@ -3031,6 +3031,10 @@ export function ConnectionsSettings() {
           status={
             desktopWslError ? (
               <span className="block text-destructive">{desktopWslError}</span>
+            ) : desktopWslState.preflightError ? (
+              <span className="block text-destructive">
+                WSL backend couldn't start: {desktopWslState.preflightError}
+              </span>
             ) : null
           }
           control={

@@ -25,6 +25,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 
 import * as NetService from "@t3tools/shared/Net";
@@ -49,6 +50,11 @@ export interface DesktopWslBackendShape {
   // Idempotent. Never fails (errors are logged); callers can chain it
   // after persisting settings without an error-handling dance.
   readonly reconcile: Effect.Effect<void>;
+  // Reason the dual-mode WSL secondary last failed preflight (no node, wrong
+  // version, missing build tools), or None. Read by the getWslState IPC so
+  // Connections settings can show it inline. None in wsl-only mode (that path
+  // surfaces via a dialog + Windows fallback).
+  readonly lastPreflightError: Effect.Effect<Option.Option<string>>;
 }
 
 export class DesktopWslBackend extends Context.Service<DesktopWslBackend, DesktopWslBackendShape>()(
@@ -102,6 +108,13 @@ export const layer = Layer.effect(
     // with different distros, leaving the loser stranded.
     const reconcileMutex = yield* Semaphore.make(1);
 
+    // Last fatal preflight failure from the dual-mode WSL *secondary*, surfaced
+    // inline in Connections settings. The primary's failure is handled by the
+    // pool (dialog + Windows fallback) instead; here the app stays usable on
+    // Windows, so we record the reason rather than interrupting. Cleared on any
+    // reconcile state change so it reflects the current attempt.
+    const preflightErrorRef = yield* Ref.make(Option.none<string>());
+
     const findExistingWslInstance = pool.list.pipe(
       Effect.map((instances) => instances.find((instance) => isWslInstanceId(instance.id))),
       Effect.map(Option.fromNullishOr),
@@ -150,6 +163,10 @@ export const layer = Layer.effect(
           id: targetId,
           label: Effect.succeed(buildLabel(input.distro)),
           configResolve: configuration.resolveWsl({ port: allocatedPort, distro: input.distro }),
+          // Dual-mode secondary: record a fatal preflight failure so Connections
+          // settings can show why the WSL backend never appeared. No dialog or
+          // fallback — Windows is the primary and keeps working.
+          onPreflightFailed: (reason) => Ref.set(preflightErrorRef, Option.some(reason)),
         })
         .pipe(
           Effect.map((registered) => Option.some(registered)),
@@ -195,6 +212,11 @@ export const layer = Layer.effect(
         return;
       }
 
+      // A real state change is happening (start, stop, or distro swap). Clear
+      // any stale secondary preflight error so it reflects this fresh attempt;
+      // onPreflightFailed re-sets it only if the new secondary exhausts retries.
+      yield* Ref.set(preflightErrorRef, Option.none());
+
       if (Option.isSome(existingId)) {
         yield* logWslBackendInfo("tearing down WSL backend", { id: existingId.value });
         yield* stopExisting(existingId.value);
@@ -227,6 +249,9 @@ export const layer = Layer.effect(
         Effect.withSpan("desktop.wslBackend.reconcile"),
       );
 
-    return DesktopWslBackend.of({ reconcile });
+    return DesktopWslBackend.of({
+      reconcile,
+      lastPreflightError: Ref.get(preflightErrorRef),
+    });
   }),
 );

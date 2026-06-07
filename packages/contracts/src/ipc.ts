@@ -421,6 +421,11 @@ export interface DesktopWslState {
   // primary backend's spec is captured once at layer init.
   wslOnly: boolean;
   distros: readonly DesktopWslDistro[];
+  // Reason the dual-mode WSL backend last failed preflight (no node, wrong
+  // version, missing build tools), or null. Surfaced inline in Connections
+  // settings. Always null in wsl-only mode — that path shows a dialog and
+  // falls back to Windows instead.
+  preflightError: string | null;
 }
 
 export const DesktopWslStateSchema = Schema.Struct({
@@ -429,6 +434,7 @@ export const DesktopWslStateSchema = Schema.Struct({
   available: Schema.Boolean,
   wslOnly: Schema.Boolean,
   distros: Schema.Array(DesktopWslDistroSchema),
+  preflightError: Schema.NullOr(Schema.String),
 });
 
 export const DesktopCloudAuthFetchInputSchema = Schema.Struct({
