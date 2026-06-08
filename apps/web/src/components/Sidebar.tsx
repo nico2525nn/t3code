@@ -284,11 +284,7 @@ interface SidebarThreadRowProps {
   isActive: boolean;
   jumpLabel: string | null;
   appSettingsConfirmThreadArchive: boolean;
-  renamingThreadKey: string | null;
-  renamingTitle: string;
-  setRenamingTitle: (title: string) => void;
-  renamingInputRef: React.RefObject<HTMLInputElement | null>;
-  renamingCommittedRef: React.RefObject<boolean>;
+  isRenaming: boolean;
   confirmingArchiveThreadKey: string | null;
   setConfirmingArchiveThreadKey: React.Dispatch<React.SetStateAction<string | null>>;
   confirmArchiveButtonRefs: React.RefObject<Map<string, HTMLButtonElement>>;
@@ -314,17 +310,77 @@ interface SidebarThreadRowProps {
   openPrLink: (event: React.MouseEvent<HTMLElement>, prUrl: string) => void;
 }
 
+interface SidebarThreadRenameInputProps {
+  thread: SidebarThreadSummary;
+  threadRef: ScopedThreadRef;
+  commitRename: (
+    threadRef: ScopedThreadRef,
+    newTitle: string,
+    originalTitle: string,
+  ) => Promise<void>;
+  cancelRename: () => void;
+}
+
+const SidebarThreadRenameInput = memo(function SidebarThreadRenameInput({
+  thread,
+  threadRef,
+  commitRename,
+  cancelRename,
+}: SidebarThreadRenameInputProps) {
+  const [title, setTitle] = useState(thread.title);
+  const committedRef = useRef(false);
+  const handleInputRef = useCallback((element: HTMLInputElement | null) => {
+    if (!element) return;
+    element.focus();
+    element.select();
+  }, []);
+  const handleChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setTitle(event.target.value);
+  }, []);
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      event.stopPropagation();
+      if (event.key === "Enter") {
+        event.preventDefault();
+        committedRef.current = true;
+        void commitRename(threadRef, title, thread.title);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        committedRef.current = true;
+        cancelRename();
+      }
+    },
+    [cancelRename, commitRename, thread.title, threadRef, title],
+  );
+  const handleBlur = useCallback(() => {
+    if (!committedRef.current) {
+      void commitRename(threadRef, title, thread.title);
+    }
+  }, [commitRename, thread.title, threadRef, title]);
+  const handleClick = useCallback((event: React.MouseEvent<HTMLInputElement>) => {
+    event.stopPropagation();
+  }, []);
+
+  return (
+    <input
+      ref={handleInputRef}
+      className="min-w-0 flex-1 truncate text-base sm:text-xs bg-transparent outline-none border border-ring rounded px-0.5"
+      value={title}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      onBlur={handleBlur}
+      onClick={handleClick}
+    />
+  );
+});
+
 const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
   const {
     orderedProjectThreadKeys,
     isActive,
     jumpLabel,
     appSettingsConfirmThreadArchive,
-    renamingThreadKey,
-    renamingTitle,
-    setRenamingTitle,
-    renamingInputRef,
-    renamingCommittedRef,
+    isRenaming,
     confirmingArchiveThreadKey,
     setConfirmingArchiveThreadKey,
     confirmArchiveButtonRefs,
@@ -454,45 +510,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     },
     [openPrLink, prStatus],
   );
-  const handleRenameInputRef = useCallback(
-    (element: HTMLInputElement | null) => {
-      if (element && renamingInputRef.current !== element) {
-        renamingInputRef.current = element;
-        element.focus();
-        element.select();
-      }
-    },
-    [renamingInputRef],
-  );
-  const handleRenameInputChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      setRenamingTitle(event.target.value);
-    },
-    [setRenamingTitle],
-  );
-  const handleRenameInputKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLInputElement>) => {
-      event.stopPropagation();
-      if (event.key === "Enter") {
-        event.preventDefault();
-        renamingCommittedRef.current = true;
-        void commitRename(threadRef, renamingTitle, thread.title);
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        renamingCommittedRef.current = true;
-        cancelRename();
-      }
-    },
-    [cancelRename, commitRename, renamingCommittedRef, renamingTitle, thread.title, threadRef],
-  );
-  const handleRenameInputBlur = useCallback(() => {
-    if (!renamingCommittedRef.current) {
-      void commitRename(threadRef, renamingTitle, thread.title);
-    }
-  }, [commitRename, renamingCommittedRef, renamingTitle, thread.title, threadRef]);
-  const handleRenameInputClick = useCallback((event: React.MouseEvent<HTMLInputElement>) => {
-    event.stopPropagation();
-  }, []);
   const handleConfirmArchiveRef = useCallback(
     (element: HTMLButtonElement | null) => {
       if (element) {
@@ -578,15 +595,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             </Tooltip>
           )}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
-          {renamingThreadKey === threadKey ? (
-            <input
-              ref={handleRenameInputRef}
-              className="min-w-0 flex-1 truncate text-base sm:text-xs bg-transparent outline-none border border-ring rounded px-0.5"
-              value={renamingTitle}
-              onChange={handleRenameInputChange}
-              onKeyDown={handleRenameInputKeyDown}
-              onBlur={handleRenameInputBlur}
-              onClick={handleRenameInputClick}
+          {isRenaming ? (
+            <SidebarThreadRenameInput
+              thread={thread}
+              threadRef={threadRef}
+              commitRename={commitRename}
+              cancelRename={cancelRename}
             />
           ) : (
             <Tooltip>
@@ -734,10 +748,6 @@ interface SidebarProjectThreadListProps {
   threadJumpLabelByKey: ReadonlyMap<string, string>;
   appSettingsConfirmThreadArchive: boolean;
   renamingThreadKey: string | null;
-  renamingTitle: string;
-  setRenamingTitle: (title: string) => void;
-  renamingInputRef: React.RefObject<HTMLInputElement | null>;
-  renamingCommittedRef: React.RefObject<boolean>;
   confirmingArchiveThreadKey: string | null;
   setConfirmingArchiveThreadKey: React.Dispatch<React.SetStateAction<string | null>>;
   confirmArchiveButtonRefs: React.RefObject<Map<string, HTMLButtonElement>>;
@@ -784,10 +794,6 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     threadJumpLabelByKey,
     appSettingsConfirmThreadArchive,
     renamingThreadKey,
-    renamingTitle,
-    setRenamingTitle,
-    renamingInputRef,
-    renamingCommittedRef,
     confirmingArchiveThreadKey,
     setConfirmingArchiveThreadKey,
     confirmArchiveButtonRefs,
@@ -834,11 +840,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
               isActive={activeRouteThreadKey === threadKey}
               jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
               appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
-              renamingThreadKey={renamingThreadKey}
-              renamingTitle={renamingTitle}
-              setRenamingTitle={setRenamingTitle}
-              renamingInputRef={renamingInputRef}
-              renamingCommittedRef={renamingCommittedRef}
+              isRenaming={renamingThreadKey === threadKey}
               confirmingArchiveThreadKey={confirmingArchiveThreadKey}
               setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
               confirmArchiveButtonRefs={confirmArchiveButtonRefs}
@@ -1058,7 +1060,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     ),
   );
   const [renamingThreadKey, setRenamingThreadKey] = useState<string | null>(null);
-  const [renamingTitle, setRenamingTitle] = useState("");
   const [confirmingArchiveThreadKey, setConfirmingArchiveThreadKey] = useState<string | null>(null);
   const [projectRenameTarget, setProjectRenameTarget] = useState<SidebarProjectGroupMember | null>(
     null,
@@ -1069,8 +1070,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const [projectGroupingSelection, setProjectGroupingSelection] = useState<
     SidebarProjectGroupingMode | "inherit"
   >("inherit");
-  const renamingCommittedRef = useRef(false);
-  const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const confirmArchiveButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const memberProjectByScopedKey = useMemo(
     () =>
@@ -1762,7 +1761,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
   const cancelRename = useCallback(() => {
     setRenamingThreadKey(null);
-    renamingInputRef.current = null;
   }, []);
 
   const commitRename = useCallback(
@@ -1771,7 +1769,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       const finishRename = () => {
         setRenamingThreadKey((current) => {
           if (current !== threadKey) return current;
-          renamingInputRef.current = null;
           return null;
         });
       };
@@ -1925,8 +1922,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
       if (clicked === "rename") {
         setRenamingThreadKey(threadKey);
-        setRenamingTitle(thread.title);
-        renamingCommittedRef.current = false;
         return;
       }
 
@@ -2088,10 +2083,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         threadJumpLabelByKey={threadJumpLabelByKey}
         appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
         renamingThreadKey={renamingThreadKey}
-        renamingTitle={renamingTitle}
-        setRenamingTitle={setRenamingTitle}
-        renamingInputRef={renamingInputRef}
-        renamingCommittedRef={renamingCommittedRef}
         confirmingArchiveThreadKey={confirmingArchiveThreadKey}
         setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
         confirmArchiveButtonRefs={confirmArchiveButtonRefs}
