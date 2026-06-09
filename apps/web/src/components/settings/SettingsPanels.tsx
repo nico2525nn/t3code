@@ -821,6 +821,7 @@ export function GeneralSettingsPanel() {
         <SettingsRow
           title="Text generation model"
           description="Configure the model used for generated commit messages, PR titles, and similar Git text."
+          descriptionMinLines={2}
           resetAction={
             isGitWritingModelDirty ? (
               <SettingResetButton
@@ -870,6 +871,8 @@ export function GeneralSettingsPanel() {
                 onPromptChange={() => {}}
                 modelOptions={textGenModelOptions}
                 allowPromptInjectedEffort={false}
+                hiddenDescriptorIds={["agent"]}
+                showTriggerSeparators={false}
                 triggerVariant="outline"
                 triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
                 onModelOptionsChange={(nextOptions) => {

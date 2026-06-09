@@ -48,6 +48,7 @@ export function SettingsSection({
 export function SettingsRow({
   title,
   description,
+  descriptionMinLines,
   status,
   resetAction,
   control,
@@ -57,6 +58,7 @@ export function SettingsRow({
 }: Omit<ComponentPropsWithoutRef<"div">, "title"> & {
   title: ReactNode;
   description: ReactNode;
+  descriptionMinLines?: 2;
   status?: ReactNode;
   resetAction?: ReactNode;
   control?: ReactNode;
@@ -81,7 +83,14 @@ export function SettingsRow({
               {resetAction}
             </span>
           </div>
-          <p className="text-xs text-muted-foreground/80">{description}</p>
+          <p
+            className={cn(
+              "text-xs leading-relaxed text-muted-foreground/80",
+              descriptionMinLines === 2 ? "min-h-[2lh]" : null,
+            )}
+          >
+            {description}
+          </p>
           {status ? <div className="pt-0.5 text-[11px] text-muted-foreground">{status}</div> : null}
         </div>
         {control ? (
