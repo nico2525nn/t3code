@@ -2483,7 +2483,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
           providerSessionId: input.providerSessionId,
           providerSession: session,
           rawEvents: Stream.empty,
-          events: Stream.fromQueue(events),
+          events: Stream.fromEffectRepeat(Queue.take(events)),
           ensureThread: (threadInput) =>
             ensureInitialized.pipe(
               Effect.andThen(client.request("thread/start", {})),
