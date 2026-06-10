@@ -1894,7 +1894,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           text.length === 0 ||
           isConnecting ||
           isComposerApprovalState ||
-          pendingUserInputs.length > 0 ||
           (environmentUnavailable !== null && activePendingProgress === null)
         ) {
           return false;
@@ -1988,7 +1987,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerTerminalContextsRef,
       isConnecting,
       isComposerApprovalState,
-      pendingUserInputs.length,
       environmentUnavailable,
       activePendingProgress,
       applyPromptReplacement,
