@@ -5,11 +5,13 @@ import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
-import { DpopPublicJwk, normalizeDpopHtuOption } from "./dpopCommon.ts";
+import { DpopPublicJwk as DpopPublicJwkSchema, normalizeDpopHtuOption } from "./dpopCommon.ts";
+import type { DpopPublicJwk as DpopPublicJwkType } from "./dpopCommon.ts";
 import { stableStringify } from "./relaySigning.ts";
 
-export { DpopPublicJwk, normalizeDpopHtu, normalizeDpopHtuOption } from "./dpopCommon.ts";
-export type { DpopPublicJwk } from "./dpopCommon.ts";
+export const DpopPublicJwk = DpopPublicJwkSchema;
+export type DpopPublicJwk = DpopPublicJwkType;
+export { normalizeDpopHtu, normalizeDpopHtuOption } from "./dpopCommon.ts";
 
 const DPOP_TYP = "dpop+jwt";
 const DPOP_ALG = "ES256";
