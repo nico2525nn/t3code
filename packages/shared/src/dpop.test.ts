@@ -1,12 +1,15 @@
 import * as NodeCrypto from "node:crypto";
 
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
+import * as Option from "effect/Option";
 
 import {
   computeDpopAccessTokenHash,
   computeDpopJwkThumbprint,
   normalizeDpopHtu,
+  normalizeDpopHtuOption,
   type DpopPublicJwk,
+  type DpopVerificationResult,
   verifyDpopProof,
 } from "./dpop.ts";
 
@@ -41,6 +44,24 @@ function signDpopProof(input: {
   return `${header}.${payload}.${signature}`;
 }
 
+type DpopRejectedResult = Extract<DpopVerificationResult, { readonly ok: false }>;
+
+function assertAccepted(result: DpopVerificationResult) {
+  if (!result.ok) {
+    assert.fail(`Expected accepted DPoP proof, got ${result.error._tag}`);
+  }
+  return result;
+}
+
+function assertRejected(result: DpopVerificationResult, tag: DpopRejectedResult["error"]["_tag"]) {
+  if (result.ok) {
+    assert.fail("Expected rejected DPoP proof.");
+  }
+  assert.equal(result.error._tag, tag);
+  assert.equal(result.reason, result.error.message);
+  return result;
+}
+
 describe("verifyDpopProof", () => {
   const { privateKey, publicKey } = NodeCrypto.generateKeyPairSync("ec", {
     namedCurve: "P-256",
@@ -56,7 +77,7 @@ describe("verifyDpopProof", () => {
 
   it("verifies an ES256 DPoP proof and returns the RFC 7638 thumbprint", () => {
     const thumbprint = computeDpopJwkThumbprint(publicJwk);
-    expect(
+    const result = assertAccepted(
       verifyDpopProof({
         proof,
         method: "POST",
@@ -64,16 +85,14 @@ describe("verifyDpopProof", () => {
         nowEpochSeconds: 101,
         expectedThumbprint: thumbprint,
       }),
-    ).toMatchObject({
-      ok: true,
-      thumbprint,
-      jti: "proof-1",
-    });
+    );
+    assert.equal(result.thumbprint, thumbprint);
+    assert.equal(result.jti, "proof-1");
   });
 
   it("rejects method, URL, thumbprint, and time-window mismatches", () => {
     const thumbprint = computeDpopJwkThumbprint(publicJwk);
-    expect(
+    assertRejected(
       verifyDpopProof({
         proof,
         method: "GET",
@@ -81,8 +100,9 @@ describe("verifyDpopProof", () => {
         nowEpochSeconds: 101,
         expectedThumbprint: thumbprint,
       }),
-    ).toMatchObject({ ok: false });
-    expect(
+      "DpopMethodMismatchError",
+    );
+    assertRejected(
       verifyDpopProof({
         proof,
         method: "POST",
@@ -90,8 +110,9 @@ describe("verifyDpopProof", () => {
         nowEpochSeconds: 101,
         expectedThumbprint: thumbprint,
       }),
-    ).toMatchObject({ ok: false });
-    expect(
+      "DpopUrlMismatchError",
+    );
+    assertRejected(
       verifyDpopProof({
         proof,
         method: "POST",
@@ -99,8 +120,9 @@ describe("verifyDpopProof", () => {
         nowEpochSeconds: 101,
         expectedThumbprint: "other-thumbprint",
       }),
-    ).toMatchObject({ ok: false });
-    expect(
+      "DpopThumbprintMismatchError",
+    );
+    assertRejected(
       verifyDpopProof({
         proof,
         method: "POST",
@@ -108,7 +130,8 @@ describe("verifyDpopProof", () => {
         nowEpochSeconds: 1_000,
         expectedThumbprint: thumbprint,
       }),
-    ).toMatchObject({ ok: false });
+      "DpopTimeWindowError",
+    );
   });
 
   it("requires the RFC 9449 access token hash when an access token is expected", () => {
@@ -122,7 +145,7 @@ describe("verifyDpopProof", () => {
       accessToken: "clerk-access-token",
     });
 
-    expect(
+    assertAccepted(
       verifyDpopProof({
         proof: accessTokenProof,
         method: "POST",
@@ -131,8 +154,8 @@ describe("verifyDpopProof", () => {
         expectedThumbprint: thumbprint,
         expectedAccessToken: "clerk-access-token",
       }),
-    ).toMatchObject({ ok: true });
-    expect(
+    );
+    assertRejected(
       verifyDpopProof({
         proof,
         method: "POST",
@@ -141,8 +164,9 @@ describe("verifyDpopProof", () => {
         expectedThumbprint: thumbprint,
         expectedAccessToken: "clerk-access-token",
       }),
-    ).toMatchObject({ ok: false, reason: "DPoP access token hash mismatch." });
-    expect(
+      "DpopAccessTokenHashMismatchError",
+    );
+    assertRejected(
       verifyDpopProof({
         proof: accessTokenProof,
         method: "POST",
@@ -151,13 +175,20 @@ describe("verifyDpopProof", () => {
         expectedThumbprint: thumbprint,
         expectedAccessToken: "other-access-token",
       }),
-    ).toMatchObject({ ok: false, reason: "DPoP access token hash mismatch." });
+      "DpopAccessTokenHashMismatchError",
+    );
   });
 
   it("normalizes htu by excluding query and fragment components per RFC 9449", () => {
-    expect(normalizeDpopHtu("https://example.com/v1/environments/env/connect?foo=bar#frag")).toBe(
+    assert.equal(
+      normalizeDpopHtu("https://example.com/v1/environments/env/connect?foo=bar#frag"),
       "https://example.com/v1/environments/env/connect",
     );
+    assert.deepStrictEqual(
+      normalizeDpopHtuOption("https://example.com/v1/environments/env/connect?foo=bar#frag"),
+      Option.some("https://example.com/v1/environments/env/connect"),
+    );
+    assert.deepStrictEqual(normalizeDpopHtuOption("not a url"), Option.none());
 
     const thumbprint = computeDpopJwkThumbprint(publicJwk);
     const queryProof = signDpopProof({
@@ -168,7 +199,7 @@ describe("verifyDpopProof", () => {
       publicJwk,
     });
 
-    expect(
+    assertAccepted(
       verifyDpopProof({
         proof: queryProof,
         method: "POST",
@@ -176,7 +207,7 @@ describe("verifyDpopProof", () => {
         nowEpochSeconds: 101,
         expectedThumbprint: thumbprint,
       }),
-    ).toMatchObject({ ok: true });
+    );
   });
 
   it("rejects DPoP public JWK headers that expose private key material", () => {
@@ -192,7 +223,7 @@ describe("verifyDpopProof", () => {
       publicJwk: privateJwk,
     });
 
-    expect(
+    assertRejected(
       verifyDpopProof({
         proof: proofWithPrivateJwk,
         method: "POST",
@@ -200,6 +231,7 @@ describe("verifyDpopProof", () => {
         nowEpochSeconds: 101,
         expectedThumbprint: thumbprint,
       }),
-    ).toMatchObject({ ok: false, reason: "Invalid DPoP JWT header." });
+      "InvalidDpopJwtHeaderError",
+    );
   });
 });
