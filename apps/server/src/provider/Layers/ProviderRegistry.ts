@@ -569,6 +569,26 @@ export const ProviderRegistryLive = Layer.effect(
             }).pipe(Effect.ignoreCause({ log: true })),
           { concurrency: "unbounded", discard: true },
         );
+
+        // Re-read snapshots after yielding to close the race between
+        // subscription establishment and the initial read. The managed
+        // provider updates its snapshot ref before publishing to the
+        // PubSub, so this second read captures any probe that landed
+        // after the first getSnapshot but before the forked subscriber
+        // became active. The subscriber then handles all future updates.
+        yield* Effect.yieldNow;
+        yield* Effect.forEach(
+          newlyAdded,
+          ([, instance]) =>
+            Effect.gen(function* () {
+              const source = buildSnapshotSource(instance);
+              const provider = yield* source.getSnapshot;
+              yield* correlateSnapshotWithSource(source, provider).pipe(
+                Effect.flatMap(syncProvider),
+              );
+            }).pipe(Effect.ignoreCause({ log: true })),
+          { concurrency: "unbounded", discard: true },
+        );
         yield* upsertProviders(unavailableProviders, {
           persist: false,
           replace: true,
