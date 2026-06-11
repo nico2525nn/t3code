@@ -9,7 +9,7 @@ import {
   clerkFrontendApiHostnameFromPublishableKey,
   isAllowedClerkFrontendApiHostname,
 } from "@t3tools/shared/relayAuth";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo } from "react";
 
 import {
   makeDesktopClerkExternalAccountAdapter,
@@ -276,36 +276,16 @@ function getDesktopClerkInstance(publishableKey: string): Clerk {
 }
 
 export function DesktopClerkProvider({ children, publishableKey }: DesktopClerkProviderProps) {
-  const [clerkUiCtor, setClerkUiCtor] = useState<DesktopClerkUiCtor | undefined>(
-    () => window.__internal_ClerkUICtor,
+  // Clerk accepts a thenable UI constructor, so auth context can mount before the optional UI bundle.
+  const clerkUiLoad = useMemo(
+    () => Promise.resolve().then(() => loadDesktopClerkUi(publishableKey)),
+    [publishableKey],
   );
-  const [clerkUiError, setClerkUiError] = useState<unknown>(null);
-
   useEffect(() => {
-    let isCurrent = true;
-    void loadDesktopClerkUi(publishableKey).then(
-      (ClerkUI) => {
-        if (isCurrent) {
-          setClerkUiCtor(() => ClerkUI);
-        }
-      },
-      (error: unknown) => {
-        if (isCurrent) {
-          setClerkUiError(error);
-        }
-      },
-    );
-    return () => {
-      isCurrent = false;
-    };
-  }, [publishableKey]);
-
-  if (!clerkUiCtor) {
-    if (clerkUiError) {
-      console.error("Failed to load Clerk UI for desktop auth.", clerkUiError);
-    }
-    return null;
-  }
+    void clerkUiLoad.catch((error: unknown) => {
+      console.error("Failed to load Clerk UI for desktop auth.", error);
+    });
+  }, [clerkUiLoad]);
 
   const clerk = getDesktopClerkInstance(publishableKey);
   return (
@@ -313,7 +293,7 @@ export function DesktopClerkProvider({ children, publishableKey }: DesktopClerkP
       key={publishableKey}
       publishableKey={publishableKey}
       Clerk={clerk as ClerkProviderProps["Clerk"]}
-      ui={{ ClerkUI: clerkUiCtor }}
+      ui={{ ClerkUI: clerkUiLoad as unknown as DesktopClerkUiCtor }}
       standardBrowser={false}
     >
       {children}
