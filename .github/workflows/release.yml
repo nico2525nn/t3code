@@ -267,8 +267,15 @@ jobs:
 
   build:
     name: Build ${{ matrix.label }}
+    # build_wsl_node_pty stays in `needs` so it runs first and its artifact is
+    # available to download, but only the Windows matrix entry consumes it. We
+    # therefore gate the job on preflight + relay (must succeed) WITHOUT requiring
+    # build_wsl_node_pty, so a failed Linux prebuild doesn't skip the macOS/Linux
+    # builds. `!cancelled()` (not `!failure()`) lets the job run even when
+    # build_wsl_node_pty failed; the Windows-only download step below then fails
+    # that single platform if the prebuild is missing.
     needs: [preflight, relay_public_config, build_wsl_node_pty]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_wsl_node_pty.result == 'success' }}
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     env:
