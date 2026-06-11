@@ -72,7 +72,7 @@ export type WsRpcProtocolClient =
 export type WsRpcProtocolSocketUrlProvider = string | (() => Promise<string>);
 
 const decodeRpcPongMessage = Schema.decodeUnknownOption(
-  Schema.fromJsonString(Schema.Struct({ _tag: Schema.Literal("Pong") })),
+  Schema.fromJsonString(Schema.TaggedStruct("Pong", {})),
 );
 
 function formatSocketErrorMessage(error: unknown): string {
