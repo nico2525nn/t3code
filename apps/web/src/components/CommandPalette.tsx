@@ -96,6 +96,7 @@ import {
   RECENT_THREAD_LIMIT,
 } from "./CommandPalette.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
+import { CommandPaletteDialogRoot } from "./CommandPaletteDialog";
 import { CommandPaletteResults } from "./CommandPaletteResults";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "./Icons";
 import { ProjectFavicon } from "./ProjectFavicon";
@@ -104,7 +105,6 @@ import { primaryServerKeybindingsAtom } from "../state/server";
 import { resolveShortcutCommand } from "../keybindings";
 import {
   Command,
-  CommandDialog,
   CommandDialogPopup,
   CommandFooter,
   CommandInput,
@@ -402,15 +402,15 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   return (
     <OpenAddProjectCommandPaletteProvider openAddProject={openAddProject}>
       <ComposerHandleContext value={composerHandleRef}>
-        <CommandDialog open={state.open} onOpenChange={setOpen}>
-          {children}
+        {children}
+        <CommandPaletteDialogRoot open={state.open} onOpenChange={setOpen}>
           <CommandPaletteDialog
             open={state.open}
             openIntent={state.openIntent}
             setOpen={setOpen}
             clearOpenIntent={clearOpenIntent}
           />
-        </CommandDialog>
+        </CommandPaletteDialogRoot>
       </ComposerHandleContext>
     </OpenAddProjectCommandPaletteProvider>
   );

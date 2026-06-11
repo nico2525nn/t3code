@@ -195,7 +195,7 @@ import { sortThreads } from "../lib/threadSort";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
-import { CommandDialogTrigger } from "./ui/command";
+import { CommandPaletteDialogTrigger } from "./CommandPaletteDialog";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import {
@@ -2856,7 +2856,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
       <SidebarGroup className="px-2 pt-2 pb-1">
         <SidebarMenu>
           <SidebarMenuItem>
-            <CommandDialogTrigger
+            <CommandPaletteDialogTrigger
               render={
                 <SidebarMenuButton
                   size="sm"
@@ -2872,7 +2872,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                   {commandPaletteShortcutLabel}
                 </Kbd>
               ) : null}
-            </CommandDialogTrigger>
+            </CommandPaletteDialogTrigger>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarGroup>
