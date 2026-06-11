@@ -41,6 +41,9 @@ const RepoRoot = Effect.service(Path.Path).pipe(
 );
 const encodeJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
 const decodeWorkspaceConfig = Schema.decodeEffect(fromYaml(WorkspaceConfig));
+const decodeNodePtyManifest = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
+);
 
 const readWorkspaceConfig = Effect.fn("readWorkspaceConfig")(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -92,6 +95,7 @@ interface BuildCliInput {
   readonly verbose: Option.Option<boolean>;
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<number>;
+  readonly wslPrebuild: Option.Option<string>;
 }
 
 function detectHostBuildPlatform(hostPlatform: string): typeof BuildPlatform.Type | undefined {
@@ -249,6 +253,7 @@ interface ResolvedBuildOptions {
   readonly verbose: boolean;
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
+  readonly wslPrebuild: string | undefined;
 }
 
 interface StagePackageJson {
@@ -318,6 +323,11 @@ const BuildEnvConfig = Config.all({
   verbose: Config.boolean("T3CODE_DESKTOP_VERBOSE").pipe(Config.withDefault(false)),
   mockUpdates: Config.boolean("T3CODE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
   mockUpdateServerPort: Config.string("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
+  // Path to a prebuilt Linux node-pty binary (pty.node) for the target arch,
+  // produced by the Linux CI job and handed to the Windows packaging job. Placed
+  // into the staged node-pty so the WSL backend ships a ready binary and never
+  // compiles on the user's machine.
+  wslPrebuild: Config.string("T3CODE_DESKTOP_WSL_PREBUILD").pipe(Config.option),
 });
 
 const MockUpdateServerPortSchema = Schema.NumberFromString.check(
@@ -390,6 +400,9 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
       ),
     ));
 
+  const wslPrebuild =
+    Option.getOrUndefined(input.wslPrebuild) ?? Option.getOrUndefined(env.wslPrebuild);
+
   return {
     platform,
     target,
@@ -402,6 +415,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     verbose,
     mockUpdates,
     mockUpdateServerPort,
+    wslPrebuild,
   } satisfies ResolvedBuildOptions;
 });
 
@@ -694,6 +708,14 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     directories: {
       buildResources: "apps/desktop/resources",
     },
+    // The Windows primary backend runs the server bundle through
+    // ELECTRON_RUN_AS_NODE (asar-aware), so it reads bin.mjs straight out of
+    // app.asar. The WSL backend instead launches plain `wsl.exe -- node`, which
+    // cannot read inside an asar archive — it needs the server bundle and
+    // node-pty on the real filesystem. Unpack both to app.asar.unpacked (the
+    // Windows primary's asar reads are transparently redirected to the same
+    // unpacked copy, so there's no duplication).
+    asarUnpack: ["apps/server/dist/**", "**/node_modules/node-pty/**/*"],
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
   const publishConfig = resolveGitHubPublishConfig(updateChannel);
@@ -772,6 +794,75 @@ const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(f
   if (platform === "win") {
     yield* stageWindowsIcons(stageResourcesDir, iconAssets.windowsIconIco);
   }
+});
+
+// Stage the prebuilt Linux node-pty binary into the packaged app so the WSL
+// backend never compiles on the user's machine. node-pty publishes no Linux
+// prebuilt and the WSL Linux Node can't load the Windows/Electron binary, so the
+// Linux CI job builds pty.node and hands it here. We drop it into the staged
+// node-pty's prebuilds/linux-<arch>/ with a t3code marker the WSL preflight
+// checks (arch + node-pty version; the binary is N-API, hence ABI-stable across
+// Node versions). A missing prebuild is a warning, not an error, so local and
+// non-Windows builds still succeed — they just won't ship a working WSL backend.
+const stageWslNodePtyPrebuild = Effect.fn("stageWslNodePtyPrebuild")(function* (input: {
+  readonly stageAppDir: string;
+  readonly arch: typeof BuildArch.Type;
+  readonly prebuildPath: string | undefined;
+}) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  if (input.prebuildPath === undefined) {
+    yield* Effect.logWarning(
+      "[desktop-artifact] No WSL node-pty prebuild provided (--wsl-prebuild / T3CODE_DESKTOP_WSL_PREBUILD); the packaged WSL backend will not start until a Linux pty.node is bundled.",
+    );
+    return;
+  }
+
+  // WSL runs the same CPU arch as the Windows host; universal is mac-only.
+  const linuxArch = input.arch === "x64" ? "x64" : input.arch === "arm64" ? "arm64" : undefined;
+  if (linuxArch === undefined) {
+    yield* Effect.logWarning(
+      `[desktop-artifact] No WSL node-pty prebuild mapping for arch "${input.arch}"; skipping WSL backend bundling.`,
+    );
+    return;
+  }
+
+  const prebuildExists = yield* fs
+    .exists(input.prebuildPath)
+    .pipe(Effect.orElseSucceed(() => false));
+  if (!prebuildExists) {
+    return yield* new BuildScriptError({
+      message: `WSL node-pty prebuild not found at ${input.prebuildPath}.`,
+    });
+  }
+
+  // Resolve through the (pnpm) symlink so we write into the stage's own node-pty
+  // copy, never a shared content-addressable store.
+  const nodePtyLink = path.join(input.stageAppDir, "node_modules", "node-pty");
+  const nodePtyDir = yield* fs.realPath(nodePtyLink).pipe(Effect.orElseSucceed(() => nodePtyLink));
+
+  const pkgRaw = yield* fs.readFileString(path.join(nodePtyDir, "package.json"));
+  const manifest = yield* decodeNodePtyManifest(pkgRaw).pipe(
+    Effect.mapError(
+      (cause) =>
+        new BuildScriptError({
+          message: `Could not read node-pty version from ${nodePtyDir}.`,
+          cause,
+        }),
+    ),
+  );
+  const nodePtyVersion = manifest.version;
+
+  const prebuildDir = path.join(nodePtyDir, "prebuilds", `linux-${linuxArch}`);
+  yield* fs.makeDirectory(prebuildDir, { recursive: true });
+  yield* fs.copyFile(input.prebuildPath, path.join(prebuildDir, "pty.node"));
+  const markerJson = yield* encodeJsonString({ arch: linuxArch, nodePtyVersion });
+  yield* fs.writeFileString(path.join(prebuildDir, "t3code-wsl-node-pty.json"), `${markerJson}\n`);
+
+  yield* Effect.log(
+    `[desktop-artifact] Staged WSL node-pty prebuild (linux-${linuxArch}, node-pty ${nodePtyVersion}).`,
+  );
 });
 
 const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
@@ -942,6 +1033,16 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     { label: "vp install --prod --no-optional", verbose: options.verbose },
   );
 
+  // WSL is Windows-only, so only the Windows artifact carries the Linux backend
+  // binary; other platforms ignore the prebuild input.
+  if (options.platform === "win") {
+    yield* stageWslNodePtyPrebuild({
+      stageAppDir,
+      arch: options.arch,
+      prebuildPath: options.wslPrebuild,
+    });
+  }
+
   const buildEnv: NodeJS.ProcessEnv = {
     ...process.env,
   };
@@ -1073,6 +1174,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   mockUpdateServerPort: Flag.integer("mock-update-server-port").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
     Flag.withDescription("Mock update server port (env: T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT)."),
+    Flag.optional,
+  ),
+  wslPrebuild: Flag.string("wsl-prebuild").pipe(
+    Flag.withDescription(
+      "Path to a prebuilt Linux node-pty (pty.node) for the target arch, staged for the WSL backend (env: T3CODE_DESKTOP_WSL_PREBUILD).",
+    ),
     Flag.optional,
   ),
 }).pipe(

@@ -161,9 +161,14 @@ cd ${shellQuote(linuxServerDir)} && node <<'NODE' >/dev/null 2>&1
 const fs = require("node:fs");
 const path = require("node:path");
 const pkgDir = path.dirname(require.resolve("node-pty/package.json"));
+// node-pty 1.x is N-API based, so a single Linux pty.node is ABI-stable across
+// Node versions — require() succeeding IS the real compatibility test. Compare
+// only arch and node-pty version (a stale binary from a different node-pty),
+// NOT process.versions.modules: that would reject a perfectly loadable prebuilt
+// whenever the user's WSL Node ABI differs from the build's, defeating the
+// whole point of shipping one prebuilt for all Node versions.
 const expected = {
   arch: process.arch,
-  modules: process.versions.modules,
   nodePtyVersion: require("node-pty/package.json").version,
 };
 const marker = path.join(pkgDir, "prebuilds", "linux-" + process.arch, "t3code-wsl-node-pty.json");
@@ -325,11 +330,7 @@ const ensureNodePtyImpl = (
 
     if (probe.exitCode === 0) return { ok: true, nodePath } as const;
 
-    // node exists but node-pty isn't ready. Run the toolchain check before the
-    // allowBuild branch so an out-of-range version or missing build tools
-    // surfaces as a specific, actionable message in both dev and packaged
-    // builds — otherwise users saw a generic "node-pty is not prepared" error
-    // pointing at a script that itself would have failed for the same reason.
+    // node is present but node-pty's native module didn't load.
     const toolchainCheck = yield* runWslShell(
       distro,
       TOOLCHAIN_CHECK_SCRIPT,
@@ -337,17 +338,33 @@ const ensureNodePtyImpl = (
       options,
     );
     const report = parseToolchainReport(toolchainCheck.stdout);
-    const missingReason = formatMissingToolsReason(report, options.nodeEngineRange?.trim() || null);
-    if (missingReason !== null) {
-      return { ok: false, reason: missingReason } as const;
-    }
 
     if (options.allowBuild !== true) {
+      // Packaged builds ship a prebuilt Linux node-pty, so no compiler, node-gyp,
+      // or network is needed — and we must not nag the user to install build
+      // tools they don't need. Still surface a missing/too-old Node (both the
+      // prebuilt and the server require a compatible Node); otherwise reaching
+      // here means the bundled binary itself couldn't load, which is almost
+      // always an unsupported CPU architecture or incompatible system libraries.
+      const nodeOnlyReason = formatMissingToolsReason(
+        { missingTools: report.missingTools.filter((tool) => tool === "node"), nodeVersion: report.nodeVersion },
+        options.nodeEngineRange?.trim() || null,
+      );
       return {
         ok: false,
         reason:
-          "node-pty is not prepared for this WSL Node runtime. Run `bun run prepare:wsl` from this checkout, then restart the desktop app.",
+          nodeOnlyReason ??
+          "The bundled WSL backend binary (node-pty) could not be loaded in this distro. This usually means an unsupported CPU architecture or incompatible system libraries (glibc). Use a glibc-based x64/arm64 WSL distro such as Ubuntu; if you already are, please report this with your distro and the output of `uname -m`.",
       } as const;
+    }
+
+    // Dev only: no prebuilt is bundled in a checkout, so compile node-pty from
+    // source. Run the toolchain check first so a missing compiler or out-of-range
+    // Node surfaces a specific, actionable message instead of an opaque node-gyp
+    // failure. Developers have the toolchain; end users never reach this path.
+    const missingReason = formatMissingToolsReason(report, options.nodeEngineRange?.trim() || null);
+    if (missingReason !== null) {
+      return { ok: false, reason: missingReason } as const;
     }
 
     const build = yield* runWslShell(

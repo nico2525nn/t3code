@@ -376,10 +376,29 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     ...buildObservabilityFragment(input.observabilitySettings),
   };
 
+  // In packaged builds environment.appRoot is .../resources/app.asar — an
+  // archive FILE. The Windows primary reads its entry through
+  // ELECTRON_RUN_AS_NODE (asar-aware), but the WSL backend launches plain
+  // `wsl.exe -- node`, which can't read inside an asar. electron-builder unpacks
+  // the server bundle + node-pty (see asarUnpack in build-desktop-artifact.ts)
+  // to the app.asar.unpacked sibling, so point WSL there. In dev appRoot is
+  // already a real directory, so this is a no-op.
+  const wslAppRoot = environment.isPackaged
+    ? environment.path.join(environment.resourcesPath, "app.asar.unpacked")
+    : environment.appRoot;
+  const wslEntryPath = environment.path.join(wslAppRoot, "apps/server/dist/bin.mjs");
+
   const preflight = yield* runWslPreflight({
     distro: input.distro,
-    windowsEntryPath: environment.backendEntryPath,
-    windowsRepoRoot: environment.appRoot,
+    windowsEntryPath: wslEntryPath,
+    windowsRepoRoot: wslAppRoot,
+    // Packaged builds ship a prebuilt Linux node-pty (built on Linux in CI and
+    // attached to the Windows artifact — see build-desktop-artifact.ts), so the
+    // WSL backend never needs a compiler, node-gyp, or network on first launch.
+    // Compiling from source is a dev-only convenience: a checkout has no shipped
+    // prebuilt, and developers have the toolchain. In packaged builds we instead
+    // surface a clear diagnostic if the prebuilt can't load (unsupported
+    // arch/distro), rather than silently dropping into a fragile runtime build.
     allowBuild: !environment.isPackaged,
   });
 
@@ -408,7 +427,7 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
 
   const baseConfig = {
     executablePath: "wsl.exe",
-    entryPath: environment.backendEntryPath,
+    entryPath: wslEntryPath,
     cwd: environment.backendCwd,
     env: {
       ...parentEnvWithoutT3Home,
