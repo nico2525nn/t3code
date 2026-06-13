@@ -104,22 +104,24 @@ function ProviderUpdateEnvironmentsNotification() {
   }, [navigate]);
 
   useEffect(() => {
+    // Whether a fresh prompt can actually be shown for the current update set.
+    const canShowPrompt =
+      notificationKey !== null &&
+      !isGated &&
+      !dismissedNotificationKeys.has(notificationKey) &&
+      !seenProviderUpdateNotificationKeys.has(notificationKey);
+
     // Replace a prompt the user hasn't acted on yet when the available updates
-    // change, so a fresh prompt reflects the current versions/environments.
-    // Once an update is in progress, keep the toast so its rows survive.
+    // change — but only when a replacement can take its place, so the popover
+    // never just disappears (e.g. while backends are re-settling). Once an
+    // update is in progress, keep the toast so its rows survive.
     const active = activeToastRef.current;
-    if (active && active.key !== notificationKey && !hasInteractedRef.current) {
+    if (active && active.key !== notificationKey && !hasInteractedRef.current && canShowPrompt) {
       toastManager.close(active.toastId);
       activeToastRef.current = null;
     }
 
-    if (
-      !notificationKey ||
-      isGated ||
-      dismissedNotificationKeys.has(notificationKey) ||
-      seenProviderUpdateNotificationKeys.has(notificationKey) ||
-      activeToastRef.current !== null
-    ) {
+    if (!notificationKey || !canShowPrompt || activeToastRef.current !== null) {
       return;
     }
 

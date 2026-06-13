@@ -1013,6 +1013,20 @@ describe("provider update launch notification logic", () => {
       ).toMatchObject({ kind: "loading" });
     });
 
+    it("keeps a non-terminal result on loading even after pending clears", () => {
+      // The dispatch returned an incomplete ("running") snapshot and pending was
+      // cleared in finally — the row must not revert to the idle Update button.
+      expect(
+        resolveEnvironmentUpdateRowStatus({
+          group,
+          error: undefined,
+          result: runningResult,
+          pill: null,
+          isPending: false,
+        }),
+      ).toMatchObject({ kind: "loading" });
+    });
+
     it("lists the providers when idle", () => {
       expect(
         resolveEnvironmentUpdateRowStatus({

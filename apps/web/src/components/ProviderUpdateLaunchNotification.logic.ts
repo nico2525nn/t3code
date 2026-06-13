@@ -749,7 +749,10 @@ export function resolveEnvironmentUpdateRowStatus(input: {
         return { kind: "loading", text: "Updating…" };
     }
   }
-  if (input.isPending) {
+  // A non-terminal result snapshot or the optimistic pending flag means an
+  // update is still in flight — keep showing the spinner rather than reverting
+  // to the Update button as if nothing happened.
+  if (input.result || input.isPending) {
     return { kind: "loading", text: "Updating…" };
   }
   return { kind: "idle", text: environmentProviderNames(input.group) };
