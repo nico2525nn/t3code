@@ -134,18 +134,16 @@ export function updateProviderAcrossLocalEnvironments(
     instanceId: ProviderInstanceId,
     isPrimary: boolean,
   ): Promise<LocalProviderUpdateOutcome> =>
-    connection.client.server
-      .updateProvider({ provider: driver, instanceId })
-      .then((payload) => ({
-        environmentId: connection.environmentId,
-        isPrimary,
-        driver,
-        instanceId,
-        provider:
-          payload.providers.find(
-            (candidate) => candidate.driver === driver && candidate.instanceId === instanceId,
-          ) ?? null,
-      }));
+    connection.client.server.updateProvider({ provider: driver, instanceId }).then((payload) => ({
+      environmentId: connection.environmentId,
+      isPrimary,
+      driver,
+      instanceId,
+      provider:
+        payload.providers.find(
+          (candidate) => candidate.driver === driver && candidate.instanceId === instanceId,
+        ) ?? null,
+    }));
 
   const dispatches: Array<Promise<LocalProviderUpdateOutcome>> = [
     dispatch(primary, primaryInstanceId, true),

@@ -6,7 +6,6 @@ import {
   canOneClickUpdateProviderCandidate,
   collectProviderUpdateCandidates,
   collectProviderUpdateOutcomeSnapshots,
-  collectUpdatedProviderSnapshots,
   firstRejectedProviderUpdateMessage,
   firstUnsuccessfulSecondaryProviderOutcome,
   getProviderUpdateInitialToastView,
@@ -220,47 +219,6 @@ describe("provider update launch notification logic", () => {
     );
   });
 
-  it("tracks updated provider snapshots by instance instead of collapsing to a sibling driver", () => {
-    const targetInstanceId = instanceId("codex_personal");
-    const siblingInstanceId = instanceId("codex");
-    const updatedPersonal = provider({
-      driver: driver("codex"),
-      instanceId: targetInstanceId,
-      version: "1.1.0",
-      latestVersion: "1.1.0",
-      advisoryStatus: "current",
-      updateState: {
-        status: "succeeded",
-        startedAt: checkedAt,
-        finishedAt: checkedAt,
-        message: "Provider updated.",
-        output: null,
-      },
-    });
-    const currentDefaultSibling = provider({
-      driver: driver("codex"),
-      instanceId: siblingInstanceId,
-      version: "1.1.0",
-      latestVersion: "1.1.0",
-      advisoryStatus: "current",
-      updateState: undefined,
-    });
-
-    expect(
-      collectUpdatedProviderSnapshots({
-        results: [
-          {
-            status: "fulfilled",
-            value: {
-              providers: [updatedPersonal, currentDefaultSibling],
-            },
-          },
-        ],
-        providerInstanceIds: new Set([targetInstanceId]),
-      }),
-    ).toEqual([updatedPersonal]);
-  });
-
   it("describes a single one-click update", () => {
     const view = getProviderUpdateInitialToastView({
       updateProviders: [updateCandidate({ driver: driver("codex"), latestVersion: "1.1.0" })],
@@ -448,21 +406,6 @@ describe("provider update launch notification logic", () => {
       title: "Provider updates failed",
       description: "WebSocket closed",
     });
-  });
-
-  it("collects only attempted provider snapshots from update responses", () => {
-    const codex = provider({ driver: driver("codex") });
-    const cursor = provider({ driver: driver("cursor") });
-    const results: PromiseSettledResult<{ readonly providers: ReadonlyArray<ServerProvider> }>[] = [
-      { status: "fulfilled", value: { providers: [codex, cursor] } },
-    ];
-
-    expect(
-      collectUpdatedProviderSnapshots({
-        results,
-        providerInstanceIds: new Set([cursor.instanceId]),
-      }),
-    ).toEqual([cursor]);
   });
 
   it("summarizes active provider updates for the sidebar pill", () => {
