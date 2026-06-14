@@ -601,8 +601,12 @@ function SuspenseShikiCodeBlock({
   isStreaming,
 }: SuspenseShikiCodeBlockProps) {
   const language = extractFenceLanguage(className);
+  if (isStreaming) {
+    return <PlainStreamingCodeBlock className={className} code={code} />;
+  }
+
   const cacheKey = createHighlightCacheKey(code, language, themeName);
-  const cachedHighlightedHtml = !isStreaming ? highlightedCodeCache.get(cacheKey) : null;
+  const cachedHighlightedHtml = highlightedCodeCache.get(cacheKey);
 
   if (cachedHighlightedHtml != null) {
     return (
@@ -619,8 +623,21 @@ function SuspenseShikiCodeBlock({
       language={language}
       themeName={themeName}
       cacheKey={cacheKey}
-      isStreaming={isStreaming}
     />
+  );
+}
+
+function PlainStreamingCodeBlock({
+  className,
+  code,
+}: {
+  className: string | undefined;
+  code: string;
+}) {
+  return (
+    <pre>
+      <code className={className}>{code}</code>
+    </pre>
   );
 }
 
@@ -629,7 +646,6 @@ interface UncachedShikiCodeBlockProps {
   language: string;
   themeName: DiffThemeName;
   cacheKey: string;
-  isStreaming: boolean;
 }
 
 function UncachedShikiCodeBlock({
@@ -637,7 +653,6 @@ function UncachedShikiCodeBlock({
   language,
   themeName,
   cacheKey,
-  isStreaming,
 }: UncachedShikiCodeBlockProps) {
   const highlighter = use(getHighlighterPromise(language));
   const highlightedHtml = useMemo(() => {
@@ -654,19 +669,21 @@ function UncachedShikiCodeBlock({
     }
   }, [code, highlighter, language, themeName]);
 
-  useEffect(() => {
-    if (!isStreaming) {
-      highlightedCodeCache.set(
-        cacheKey,
-        highlightedHtml,
-        estimateHighlightedSize(highlightedHtml, code),
-      );
-    }
-  }, [cacheKey, code, highlightedHtml, isStreaming]);
+  useHighlightedCodeCache(cacheKey, highlightedHtml, code);
 
   return (
     <div className="chat-markdown-shiki" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
   );
+}
+
+function useHighlightedCodeCache(cacheKey: string, highlightedHtml: string, code: string) {
+  useEffect(() => {
+    highlightedCodeCache.set(
+      cacheKey,
+      highlightedHtml,
+      estimateHighlightedSize(highlightedHtml, code),
+    );
+  }, [cacheKey, code, highlightedHtml]);
 }
 
 interface MarkdownFileLinkProps {

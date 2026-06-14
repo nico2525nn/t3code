@@ -407,6 +407,27 @@ describe("ChatMarkdown", () => {
   });
 
   describe("code block chrome", () => {
+    it("renders streaming code blocks without Shiki highlighting", async () => {
+      const screen = await render(
+        <ChatMarkdown
+          text={'```ts title="streaming.ts"\nconst value = 1;\n```'}
+          cwd="/repo/project"
+          isStreaming
+        />,
+      );
+
+      try {
+        expect(document.querySelector(".chat-markdown-shiki")).toBeNull();
+        const code = document.querySelector("pre code.language-ts");
+        expect(code?.textContent).toContain("const value = 1;");
+        expect(document.querySelector(".chat-markdown-codeblock-title")?.textContent).toBe(
+          "streaming.ts",
+        );
+      } finally {
+        await screen.unmount();
+      }
+    });
+
     it("shows icon-only language titles, text fallbacks, and filename overrides", async () => {
       const source = [
         "```ts",
