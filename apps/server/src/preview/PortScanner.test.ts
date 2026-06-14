@@ -170,7 +170,7 @@ describe("parseLsofOutput", () => {
     );
 
     assert.deepStrictEqual(servers[0]?.terminal, {
-      threadId: "thread-1",
+      threadId: ThreadId.make("thread-1"),
       terminalId: "terminal-1",
     });
   });
@@ -219,7 +219,7 @@ describe("parseWindowsListenerOutput", () => {
         processName: "node",
         pid: 12345,
         terminal: {
-          threadId: "thread-1",
+          threadId: ThreadId.make("thread-1"),
           terminalId: "terminal-1",
         },
       },
