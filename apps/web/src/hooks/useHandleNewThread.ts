@@ -3,7 +3,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { DEFAULT_RUNTIME_MODE, type ScopedProjectRef } from "@t3tools/contracts";
+import { type ScopedProjectRef } from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
@@ -20,7 +20,10 @@ import {
   selectProjectGroupingSettings,
 } from "../logicalProject";
 import { readThreadShell, useProjects, useThread } from "../state/entities";
-import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
+import {
+  buildNewDraftExecutionDefaults,
+  resolveNewDraftStartFromOrigin,
+} from "../lib/chatThreadActions";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useSettings } from "./useSettings";
@@ -31,6 +34,7 @@ export function useNewThreadHandler() {
   const newWorktreesStartFromOrigin = useSettings(
     (settings) => settings.newWorktreesStartFromOrigin,
   );
+  const defaultRuntimeMode = useSettings((settings) => settings.defaultRuntimeMode);
   const router = useRouter();
   const getCurrentRouteTarget = useCallback(() => {
     const currentRouteParams = router.state.matches[router.state.matches.length - 1]?.params ?? {};
@@ -169,7 +173,7 @@ export function useNewThreadHandler() {
               envMode: initialEnvMode,
               newWorktreesStartFromOrigin,
             }),
-          runtimeMode: DEFAULT_RUNTIME_MODE,
+          ...buildNewDraftExecutionDefaults(defaultRuntimeMode),
         });
         applyStickyState(draftId);
 
@@ -179,7 +183,14 @@ export function useNewThreadHandler() {
         });
       })();
     },
-    [newWorktreesStartFromOrigin, getCurrentRouteTarget, projectGroupingSettings, router, projects],
+    [
+      defaultRuntimeMode,
+      newWorktreesStartFromOrigin,
+      getCurrentRouteTarget,
+      projectGroupingSettings,
+      router,
+      projects,
+    ],
   );
 }
 
