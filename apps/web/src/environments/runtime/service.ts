@@ -91,6 +91,7 @@ import {
 const decodeIssuedBearerScopes = Schema.decodeUnknownSync(Schema.Array(AuthEnvironmentScope));
 import { getClientSettings } from "~/hooks/useSettings";
 import { subscribeTerminalMetadata, terminalSessionManager } from "../../terminalSessionState";
+import { subscribePortDiscovery, usePortDiscoveryStore } from "../../portDiscoveryState";
 import { resetWsReconnectBackoff } from "~/rpc/wsConnectionState";
 import { resolveRemotePairingTarget } from "@t3tools/shared/remote";
 
@@ -141,6 +142,7 @@ const lastAppliedProjectionVersionByEnvironment = new Map<
   }
 >();
 const terminalMetadataSubscriptions = new Map<EnvironmentId, () => void>();
+const portDiscoverySubscriptions = new Map<EnvironmentId, () => void>();
 
 let activeService: EnvironmentServiceState | null = null;
 let needsProviderInvalidation = false;
@@ -1398,6 +1400,14 @@ function registerConnection(connection: EnvironmentConnection): EnvironmentConne
       client: connection.client,
     }),
   );
+  portDiscoverySubscriptions.get(connection.environmentId)?.();
+  portDiscoverySubscriptions.set(
+    connection.environmentId,
+    subscribePortDiscovery({
+      environmentId: connection.environmentId,
+      previewApi: connection.client.preview,
+    }),
+  );
   attachThreadDetailSubscriptionsForEnvironment(connection.environmentId);
   emitEnvironmentConnectionRegistryChange();
   return connection;
@@ -1413,6 +1423,9 @@ async function removeConnection(environmentId: EnvironmentId): Promise<boolean> 
   environmentConnections.delete(environmentId);
   terminalMetadataSubscriptions.get(environmentId)?.();
   terminalMetadataSubscriptions.delete(environmentId);
+  portDiscoverySubscriptions.get(environmentId)?.();
+  portDiscoverySubscriptions.delete(environmentId);
+  usePortDiscoveryStore.getState().clearEnvironment(environmentId);
   terminalSessionManager.invalidateEnvironment(environmentId);
   emitEnvironmentConnectionRegistryChange();
   detachThreadDetailSubscriptionsForEnvironment(environmentId);
@@ -2071,6 +2084,11 @@ export async function resetEnvironmentServiceForTests(): Promise<void> {
     unsubscribe();
   }
   terminalMetadataSubscriptions.clear();
+  for (const unsubscribe of portDiscoverySubscriptions.values()) {
+    unsubscribe();
+  }
+  portDiscoverySubscriptions.clear();
+  usePortDiscoveryStore.getState().reset();
   terminalSessionManager.reset();
   await Promise.all(
     [...environmentConnections.keys()].map((environmentId) => removeConnection(environmentId)),
