@@ -219,7 +219,9 @@ describe("RelayClient", () => {
         DateTime.toDate(DateTime.makeUnsafe("2026-06-15T15:50:00.000Z")),
         DateTime.toDate(DateTime.makeUnsafe("2026-06-15T15:50:00.000Z")),
       );
-      yield* TestClock.setTime(DateTime.toDate(DateTime.makeUnsafe("2026-06-15T16:00:00.000Z")));
+      yield* TestClock.setTime(
+        DateTime.toEpochMillis(DateTime.makeUnsafe("2026-06-15T16:00:00.000Z")),
+      );
 
       const installed = yield* manager.install;
 
