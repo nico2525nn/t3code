@@ -1,6 +1,6 @@
 import * as NodeCrypto from "node:crypto";
 
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 
 import {
   computeDpopAccessTokenHash,
@@ -201,5 +201,26 @@ describe("verifyDpopProof", () => {
         expectedThumbprint: thumbprint,
       }),
     ).toMatchObject({ ok: false, reason: "Invalid DPoP JWT header." });
+  });
+
+  it("validates decoded JWT JSON with schemas", () => {
+    const header = Buffer.from(
+      JSON.stringify({
+        typ: "dpop+jwt",
+        alg: "ES256",
+        jwk: publicJwk,
+      }),
+    ).toString("base64url");
+    const malformedJsonPayload = Buffer.from("{").toString("base64url");
+
+    assert.deepEqual(
+      verifyDpopProof({
+        proof: `${header}.${malformedJsonPayload}.signature`,
+        method: "POST",
+        url: "https://example.com/oauth/token",
+        nowEpochSeconds: 101,
+      }),
+      { ok: false, reason: "Invalid DPoP JWT payload." },
+    );
   });
 });

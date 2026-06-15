@@ -1,4 +1,3 @@
-import * as Clock from "effect/Clock";
 import type {
   RelayClientInstallProgressEvent,
   RelayClientInstallProgressStage,
@@ -7,6 +6,8 @@ import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Data from "effect/Data";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
 import * as FileSystem from "effect/FileSystem";
@@ -14,6 +15,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
+import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -62,6 +65,12 @@ class CloudflaredCommandError extends Data.TaggedError("CloudflaredCommandError"
   readonly exitCode: number;
 }> {}
 
+class RelayClientInstallLockBusy extends Schema.TaggedErrorClass<RelayClientInstallLockBusy>()(
+  "RelayClientInstallLockBusy",
+  {},
+) {}
+const isRelayClientInstallLockBusy = Schema.is(RelayClientInstallLockBusy);
+
 export interface CloudflaredReleaseAsset {
   readonly url: string;
   readonly sha256: string;
@@ -98,9 +107,16 @@ const CLOUDFLARED_RELEASE_ASSETS: Readonly<
   },
 };
 
-const INSTALL_LOCK_RETRY_COUNT = 100;
-const INSTALL_LOCK_RETRY_DELAY = "100 millis";
-const INSTALL_LOCK_STALE_MS = 5 * 60 * 1_000;
+const INSTALL_LOCK_RETRY_ATTEMPTS = 100;
+const INSTALL_LOCK_RETRY_DELAY = Duration.millis(100);
+const INSTALL_LOCK_STALE_DURATION = Duration.minutes(5);
+const INSTALL_LOCK_RETRY_POLICY = Schedule.both(
+  Schedule.spaced(INSTALL_LOCK_RETRY_DELAY),
+  Schedule.recurs(INSTALL_LOCK_RETRY_ATTEMPTS - 1),
+).pipe(
+  Schedule.setInputType<RelayClientInstallLockBusy | PlatformError.PlatformError>(),
+  Schedule.while(({ input }) => isRelayClientInstallLockBusy(input)),
+);
 
 const trimmedString = (name: string) =>
   Config.string(name).pipe(
@@ -325,31 +341,51 @@ export const makeCloudflaredRelayClient = Effect.fn("cloudflared.make")(function
     return bytes;
   });
 
+  const tryAcquireInstallLock = Effect.fn("cloudflared.tryAcquireInstallLock")(function* (
+    lockPath: string,
+  ) {
+    const writeLock = fileSystem.writeFileString(lockPath, "", { flag: "wx" }).pipe(
+      Effect.as(true),
+      Effect.catch((error) =>
+        isAlreadyExists(error) ? Effect.succeed(false) : Effect.fail(error),
+      ),
+    );
+    const acquired = yield* writeLock;
+    if (acquired) return true;
+
+    const now = yield* DateTime.now;
+    const lockInfo = yield* fileSystem.stat(lockPath).pipe(Effect.option);
+    const mtime = Option.flatMap(lockInfo, (info) => info.mtime);
+    if (
+      Option.isSome(mtime) &&
+      Duration.isGreaterThan(
+        DateTime.distance(DateTime.fromDateUnsafe(mtime.value), now),
+        INSTALL_LOCK_STALE_DURATION,
+      )
+    ) {
+      yield* fileSystem.remove(lockPath, { force: true });
+      return yield* writeLock;
+    }
+    return false;
+  });
+
   const acquireInstallLock = Effect.fn("cloudflared.acquireInstallLock")(function* (
     lockPath: string,
   ) {
-    for (let attempt = 0; attempt < INSTALL_LOCK_RETRY_COUNT; attempt += 1) {
-      const acquired = yield* fileSystem.writeFileString(lockPath, "", { flag: "wx" }).pipe(
-        Effect.as(true),
-        Effect.catch((error) =>
-          isAlreadyExists(error) ? Effect.succeed(false) : Effect.fail(error),
+    return yield* tryAcquireInstallLock(lockPath).pipe(
+      Effect.flatMap((acquired) =>
+        acquired ? Effect.void : Effect.fail(new RelayClientInstallLockBusy({})),
+      ),
+      Effect.retry(INSTALL_LOCK_RETRY_POLICY),
+      Effect.catchTag("RelayClientInstallLockBusy", () =>
+        Effect.fail(
+          new RelayClientInstallError({
+            reason: "install_locked",
+            message: "Another relay client installation is still in progress.",
+          }),
         ),
-      );
-      if (acquired) return;
-
-      const now = yield* Clock.currentTimeMillis;
-      const lockInfo = yield* fileSystem.stat(lockPath).pipe(Effect.option);
-      const mtime = Option.flatMap(lockInfo, (info) => info.mtime);
-      if (Option.isSome(mtime) && now - mtime.value.getTime() > INSTALL_LOCK_STALE_MS) {
-        yield* fileSystem.remove(lockPath, { force: true });
-        continue;
-      }
-      yield* Effect.sleep(INSTALL_LOCK_RETRY_DELAY);
-    }
-    return yield* new RelayClientInstallError({
-      reason: "install_locked",
-      message: "Another relay client installation is still in progress.",
-    });
+      ),
+    );
   });
 
   const installUnlocked = Effect.fn("cloudflared.installUnlocked")(function* (

@@ -1,6 +1,7 @@
 import { p256 } from "@noble/curves/nist";
 import { sha256 } from "@noble/hashes/sha2";
 import * as Encoding from "effect/Encoding";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
@@ -9,6 +10,7 @@ import { stableStringify } from "./relaySigning.ts";
 const DPOP_TYP = "dpop+jwt";
 const DPOP_ALG = "ES256";
 const DEFAULT_MAX_AGE_SECONDS = 300;
+const decodeJsonStringOption = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 
 export const DpopPublicJwk = Schema.Struct({
   kty: Schema.Literal("EC"),
@@ -17,21 +19,24 @@ export const DpopPublicJwk = Schema.Struct({
   y: Schema.String.check(Schema.isNonEmpty()),
 });
 export type DpopPublicJwk = typeof DpopPublicJwk.Type;
-const isDpopPublicJwk = Schema.is(DpopPublicJwk);
 
-interface DpopJwtHeader {
-  readonly typ: string;
-  readonly alg: string;
-  readonly jwk: DpopPublicJwk;
-}
+const DpopJwtHeader = Schema.Struct({
+  typ: Schema.Literal(DPOP_TYP),
+  alg: Schema.Literal(DPOP_ALG),
+  jwk: DpopPublicJwk,
+});
+type DpopJwtHeader = typeof DpopJwtHeader.Type;
+const decodeDpopJwtHeaderOption = Schema.decodeUnknownOption(DpopJwtHeader);
 
-interface DpopJwtPayload {
-  readonly htm: string;
-  readonly htu: string;
-  readonly jti: string;
-  readonly iat: number;
-  readonly ath?: string;
-}
+const DpopJwtPayload = Schema.Struct({
+  htm: Schema.String.check(Schema.isNonEmpty()),
+  htu: Schema.String.check(Schema.isNonEmpty()),
+  jti: Schema.String.check(Schema.isNonEmpty()),
+  iat: Schema.Int,
+  ath: Schema.optional(Schema.String),
+});
+type DpopJwtPayload = typeof DpopJwtPayload.Type;
+const decodeDpopJwtPayloadOption = Schema.decodeUnknownOption(DpopJwtPayload);
 
 export type DpopVerificationResult =
   | {
@@ -49,40 +54,23 @@ function base64UrlToBytes(value: string): Uint8Array {
   return Result.getOrThrow(Encoding.decodeBase64Url(value));
 }
 
-function decodeBase64UrlJson(value: string): unknown {
-  return JSON.parse(Result.getOrThrow(Encoding.decodeBase64UrlString(value))) as unknown;
+function decodeBase64UrlJson(value: string): Option.Option<unknown> {
+  return Result.match(Encoding.decodeBase64UrlString(value), {
+    onFailure: () => Option.none(),
+    onSuccess: decodeJsonStringOption,
+  });
 }
 
-function isDpopJwtHeader(value: unknown): value is DpopJwtHeader {
+function hasPrivateJwkMaterial(value: unknown): boolean {
   if (typeof value !== "object" || value === null) {
     return false;
   }
   const record = value as Record<string, unknown>;
-  return (
-    record.typ === DPOP_TYP &&
-    record.alg === DPOP_ALG &&
-    typeof record.jwk === "object" &&
-    record.jwk !== null &&
-    !("d" in record.jwk) &&
-    isDpopPublicJwk(record.jwk)
-  );
+  return typeof record.jwk === "object" && record.jwk !== null && "d" in record.jwk;
 }
 
-function isDpopJwtPayload(value: unknown): value is DpopJwtPayload {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.htm === "string" &&
-    record.htm.length > 0 &&
-    typeof record.htu === "string" &&
-    record.htu.length > 0 &&
-    typeof record.jti === "string" &&
-    record.jti.length > 0 &&
-    typeof record.iat === "number" &&
-    Number.isInteger(record.iat)
-  );
+function decodeDpopJwtHeader(value: unknown): Option.Option<DpopJwtHeader> {
+  return hasPrivateJwkMaterial(value) ? Option.none() : decodeDpopJwtHeaderOption(value);
 }
 
 function dpopThumbprintInput(jwk: DpopPublicJwk): string {
@@ -145,53 +133,58 @@ export function verifyDpopProof(input: {
   }
 
   try {
-    const header = decodeBase64UrlJson(parts[0]);
-    const payload = decodeBase64UrlJson(parts[1]);
-    if (!isDpopJwtHeader(header)) {
+    const header = Option.flatMap(decodeBase64UrlJson(parts[0]), decodeDpopJwtHeader);
+    const payload = Option.flatMap(decodeBase64UrlJson(parts[1]), decodeDpopJwtPayloadOption);
+    if (Option.isNone(header)) {
       return { ok: false, reason: "Invalid DPoP JWT header." };
     }
-    if (!isDpopJwtPayload(payload)) {
+    if (Option.isNone(payload)) {
       return { ok: false, reason: "Invalid DPoP JWT payload." };
     }
 
-    const thumbprint = computeDpopJwkThumbprint(header.jwk);
+    const thumbprint = computeDpopJwkThumbprint(header.value.jwk);
     if (input.expectedThumbprint && thumbprint !== input.expectedThumbprint) {
       return { ok: false, reason: "DPoP key thumbprint mismatch." };
     }
-    if (payload.htm.toUpperCase() !== input.method.toUpperCase()) {
+    if (payload.value.htm.toUpperCase() !== input.method.toUpperCase()) {
       return { ok: false, reason: "DPoP method mismatch." };
     }
     const normalizedHtu = normalizeDpopHtu(input.url);
-    if (normalizedHtu === null || payload.htu !== normalizedHtu) {
+    if (normalizedHtu === null || payload.value.htu !== normalizedHtu) {
       return { ok: false, reason: "DPoP URL mismatch." };
     }
     if (input.expectedAccessToken) {
       const expectedAth = computeDpopAccessTokenHash(input.expectedAccessToken);
-      if (payload.ath !== expectedAth) {
+      if (payload.value.ath !== expectedAth) {
         return { ok: false, reason: "DPoP access token hash mismatch." };
       }
     }
 
     const maxAgeSeconds = input.maxAgeSeconds ?? DEFAULT_MAX_AGE_SECONDS;
     if (
-      payload.iat > input.nowEpochSeconds + 5 ||
-      input.nowEpochSeconds - payload.iat > maxAgeSeconds
+      payload.value.iat > input.nowEpochSeconds + 5 ||
+      input.nowEpochSeconds - payload.value.iat > maxAgeSeconds
     ) {
       return { ok: false, reason: "DPoP proof is outside the allowed time window." };
     }
 
     const signature = base64UrlToBytes(parts[2]);
     const signatureInputHash = sha256(new TextEncoder().encode(`${parts[0]}.${parts[1]}`));
-    const verified = p256.verify(signature, signatureInputHash, publicKeyBytesFromJwk(header.jwk), {
-      prehash: false,
-      format: "compact",
-    });
+    const verified = p256.verify(
+      signature,
+      signatureInputHash,
+      publicKeyBytesFromJwk(header.value.jwk),
+      {
+        prehash: false,
+        format: "compact",
+      },
+    );
     return verified
       ? {
           ok: true,
           thumbprint,
-          jti: payload.jti,
-          iat: payload.iat,
+          jti: payload.value.jti,
+          iat: payload.value.iat,
         }
       : { ok: false, reason: "Invalid DPoP signature." };
   } catch {

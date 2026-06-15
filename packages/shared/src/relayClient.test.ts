@@ -1,13 +1,15 @@
 import { sha256 } from "@noble/hashes/sha2";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import { TestClock } from "effect/testing";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { HostProcessArchitecture, HostProcessPlatform } from "./hostProcess.ts";
@@ -191,6 +193,56 @@ describe("RelayClient", () => {
       ),
     ),
   );
+
+  it.effect("removes stale installation locks before installing", () => {
+    const bytes = new TextEncoder().encode("test-cloudflared-binary");
+    return Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-cloudflared-test-",
+      });
+      const manager = yield* makeCloudflaredRelayClient({
+        baseDir,
+        releaseAsset: {
+          url: "https://example.test/cloudflared",
+          sha256: Encoding.encodeHex(sha256(bytes)),
+          archive: "binary",
+        },
+      });
+      const managedDirectory = `${baseDir}/tools/cloudflared/${CLOUDFLARED_VERSION}/linux-x64`;
+      const managedPath = `${managedDirectory}/cloudflared`;
+      const lockPath = `${managedPath}.lock`;
+      yield* fileSystem.makeDirectory(managedDirectory, { recursive: true });
+      yield* fileSystem.writeFileString(lockPath, "stale");
+      yield* fileSystem.utimes(
+        lockPath,
+        DateTime.toDate(DateTime.makeUnsafe("2026-06-15T15:50:00.000Z")),
+        DateTime.toDate(DateTime.makeUnsafe("2026-06-15T15:50:00.000Z")),
+      );
+      yield* TestClock.setTime(DateTime.toDate(DateTime.makeUnsafe("2026-06-15T16:00:00.000Z")));
+
+      const installed = yield* manager.install;
+
+      assert.deepEqual(installed, {
+        status: "available",
+        executablePath: managedPath,
+        source: "managed",
+        version: CLOUDFLARED_VERSION,
+      });
+      assert.isFalse(yield* fileSystem.exists(lockPath));
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          NodeServices.layer,
+          makeHttpClientLayer(bytes),
+          makeSpawnerLayer([]),
+          hostRuntimeLayer(),
+          TestClock.layer(),
+        ),
+      ),
+    );
+  });
 
   it.effect("serializes concurrent installs within one runtime", () => {
     const commands: Array<string> = [];
