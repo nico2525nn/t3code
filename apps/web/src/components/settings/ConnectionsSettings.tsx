@@ -3373,7 +3373,13 @@ export function ConnectionsSettings() {
                 />
               }
             >
-              {renderAuthorizedClients("current")}
+              <ScrollArea
+                scrollFade
+                className="max-h-[22.5rem]"
+                data-testid="authorized-clients-scroll-area"
+              >
+                {renderAuthorizedClients("current")}
+              </ScrollArea>
             </SettingsSection>
           ) : null}
           <AlertDialog
