@@ -58,6 +58,7 @@ function makeFakeBrowserWindow() {
   };
 
   const window = {
+    close: vi.fn(),
     focus: vi.fn(),
     isDestroyed: vi.fn(() => false),
     isMinimized: vi.fn(() => false),
@@ -258,5 +259,110 @@ describe("DesktopWindow", () => {
         assert.deepEqual(openedExternalUrls, ["https://accounts.microsoft.com/oauth"]);
       }).pipe(Effect.provide(layer));
     }),
+  );
+
+  it.effect(
+    "retries opening the real main on activate when a failed post-readiness open left only the splash",
+    () =>
+      Effect.gen(function* () {
+        const splash = makeFakeBrowserWindow();
+        const main = makeFakeBrowserWindow();
+        const createdWindows = yield* Ref.make<Electron.BrowserWindow[]>([]);
+        const createCalls = yield* Ref.make(0);
+        const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+
+        // create #1 -> splash, #2 -> fails (the pool swallows this window-open
+        // error after backend readiness), #3 -> the real main on activate's retry.
+        const createOutcomes: readonly (Electron.BrowserWindow | null)[] = [
+          splash.window,
+          null,
+          main.window,
+        ];
+
+        // Mirror the real ElectronWindow: currentMainOrFirst falls back to the
+        // first live window (here, the splash) when no main is registered.
+        const currentMainOrFirst = Effect.gen(function* () {
+          const registered = yield* Ref.get(mainWindow);
+          if (Option.isSome(registered)) {
+            return registered;
+          }
+          const created = yield* Ref.get(createdWindows);
+          return Option.fromNullishOr(created[0] ?? null);
+        });
+
+        const electronWindowShape = {
+          create: () =>
+            Effect.gen(function* () {
+              const index = yield* Ref.getAndUpdate(createCalls, (count) => count + 1);
+              const outcome = createOutcomes[index] ?? null;
+              if (outcome === null) {
+                return yield* new ElectronWindow.ElectronWindowCreateError({
+                  cause: new Error("simulated window-open failure"),
+                });
+              }
+              yield* Ref.update(createdWindows, (windows) => [...windows, outcome]);
+              return outcome;
+            }),
+          main: Ref.get(mainWindow),
+          currentMainOrFirst,
+          focusedMainOrFirst: currentMainOrFirst,
+          setMain: (window) => Ref.set(mainWindow, Option.some(window)),
+          clearMain: () => Ref.set(mainWindow, Option.none()),
+          reveal: () => Effect.void,
+          sendAll: () => Effect.void,
+          destroyAll: Effect.void,
+          syncAllAppearance: (sync) => sync(main.window),
+        } satisfies ElectronWindow.ElectronWindowShape;
+
+        const layer = DesktopWindow.layer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              desktopAssetsLayer,
+              desktopEnvironmentLayer,
+              desktopServerExposureLayer,
+              electronMenuLayer,
+              Layer.succeed(ElectronShell.ElectronShell, {
+                openExternal: () => Effect.succeed(true),
+                copyText: () => Effect.void,
+              } satisfies ElectronShell.ElectronShellShape),
+              electronThemeLayer,
+              Layer.succeed(ElectronWindow.ElectronWindow, electronWindowShape),
+              Layer.mock(PreviewManager.PreviewManager)({
+                getBrowserSession: () => Effect.succeed({} as Electron.Session),
+                setMainWindow: () => Effect.void,
+                isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
+                getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
+              }),
+            ),
+          ),
+        );
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+
+          // 1. WSL-only boot shows the connecting splash.
+          yield* desktopWindow.showConnectingSplash;
+          assert.equal(yield* Ref.get(createCalls), 1);
+
+          // 2. Backend reports ready, but opening the real main fails. The pool
+          //    swallows that error in production, so handleBackendReady fails
+          //    here without a registered main window -- only the splash is open.
+          const readyExit = yield* Effect.exit(
+            desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773")),
+          );
+          assert.equal(readyExit._tag, "Failure");
+          assert.equal(yield* Ref.get(createCalls), 2);
+          assert.isTrue(Option.isNone(yield* Ref.get(mainWindow)));
+
+          // 3. Activating must not mistake the splash for the main window: it
+          //    retries the open and brings up the real main instead of leaving
+          //    the user stranded on "Connecting to WSL".
+          yield* desktopWindow.activate;
+          assert.equal(yield* Ref.get(createCalls), 3);
+          const registeredMain = yield* Ref.get(mainWindow);
+          assert.isTrue(Option.isSome(registeredMain));
+          assert.equal(Option.getOrThrow(registeredMain), main.window);
+        }).pipe(Effect.provide(layer));
+      }),
   );
 });

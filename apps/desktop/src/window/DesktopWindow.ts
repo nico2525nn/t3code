@@ -222,6 +222,25 @@ const make = Effect.gen(function* () {
     }
   });
 
+  // currentMainOrFirst / focusedMainOrFirst fall back to "any first window",
+  // which during WSL-only boot is the connecting splash. The splash is never
+  // registered via setMain, so it must be treated as "no real main window" --
+  // otherwise ensureMain/activate/dispatchMenuAction latch onto it and never
+  // open (or retry) the real main. That is the failure the pool's swallowed
+  // post-readiness window-open error would otherwise strand the user in:
+  // splash up, backend ready, no main, and activation only re-reveals splash.
+  const withoutSplash = (window: Option.Option<Electron.BrowserWindow>) =>
+    Ref.get(splashWindowRef).pipe(
+      Effect.map((splash) =>
+        Option.isSome(splash) && Option.isSome(window) && window.value === splash.value
+          ? Option.none<Electron.BrowserWindow>()
+          : window,
+      ),
+    );
+
+  const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+  const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (
     backendHttpUrl: URL,
   ): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
@@ -404,7 +423,7 @@ const make = Effect.gen(function* () {
   }).pipe(Effect.withSpan("desktop.window.createMain"));
 
   const ensureMain = Effect.gen(function* () {
-    const existingWindow = yield* electronWindow.currentMainOrFirst;
+    const existingWindow = yield* currentMainWindow;
     if (Option.isSome(existingWindow)) {
       return existingWindow.value;
     }
@@ -420,14 +439,8 @@ const make = Effect.gen(function* () {
   const createMainIfBackendReady = Effect.gen(function* () {
     const backendReady = yield* Ref.get(backendReadyRef);
     if (!backendReady) return;
-    const existingWindow = yield* electronWindow.currentMainOrFirst;
-    const splash = yield* Ref.get(splashWindowRef);
-    // currentMainOrFirst falls back to "any first window", which would be the
-    // connecting splash — ignore it so the real main window still gets created.
-    const hasRealMainWindow =
-      Option.isSome(existingWindow) &&
-      !(Option.isSome(splash) && existingWindow.value === splash.value);
-    if (hasRealMainWindow) return;
+    const existingWindow = yield* currentMainWindow;
+    if (Option.isSome(existingWindow)) return;
     yield* createMain;
   }).pipe(Effect.withSpan("desktop.window.createMainIfBackendReady"));
 
@@ -482,7 +495,7 @@ const make = Effect.gen(function* () {
     ensureMain,
     revealOrCreateMain,
     activate: Effect.gen(function* () {
-      const existingWindow = yield* electronWindow.currentMainOrFirst;
+      const existingWindow = yield* currentMainWindow;
       if (Option.isSome(existingWindow)) {
         yield* electronWindow.reveal(existingWindow.value);
       } else {
@@ -503,8 +516,8 @@ const make = Effect.gen(function* () {
     }).pipe(Effect.withSpan("desktop.window.handleBackendNotReady")),
     dispatchMenuAction: Effect.fn("desktop.window.dispatchMenuAction")(function* (action) {
       yield* Effect.annotateCurrentSpan({ action });
-      const existingWindow = yield* electronWindow.focusedMainOrFirst;
-      const targetWindow = Option.isSome(existingWindow) ? existingWindow.value : yield* createMain;
+      const existingWindow = yield* focusedMainWindow;
+      const targetWindow = Option.isSome(existingWindow) ? existingWindow.value : yield* ensureMain;
 
       const send = () => {
         if (targetWindow.isDestroyed()) return;
