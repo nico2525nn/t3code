@@ -19,8 +19,8 @@ catalogs:
       specifier: 1.8.0
       version: 1.8.0
     '@pierre/diffs':
-      specifier: 1.1.20
-      version: 1.1.20
+      specifier: 1.3.0-beta.4
+      version: 1.3.0-beta.4
     '@typescript/native-preview':
       specifier: 7.0.0-dev.20260604.1
       version: 7.0.0-dev.20260604.1
@@ -66,9 +66,12 @@ patchedDependencies:
   '@expo/metro-config@56.0.13':
     hash: 8cb08b5bb7051ed9d2dbe46a2c293c5a1e17f1bd6ddf30de27909e18c921ff46
     path: patches/@expo%2Fmetro-config@56.0.13.patch
-  '@pierre/diffs@1.1.20':
-    hash: e4e35ba95100de3708f900e0d9ea62bca732b1e4486024b5055f48cd128dd9e0
-    path: patches/@pierre%2Fdiffs@1.1.20.patch
+  '@ff-labs/fff-node@0.9.4':
+    hash: 2b16019ce7ab61aec6478dd02f79ef468cc1d5c51e9d00764f7d2ab8167210c8
+    path: patches/@ff-labs__fff-node@0.9.4.patch
+  '@pierre/diffs@1.3.0-beta.4':
+    hash: f5d41705ce94bbafc731d92e9cb1671db710df046dd135cb894e3e3e9164a75b
+    path: patches/@pierre%2Fdiffs@1.3.0-beta.4.patch
   effect@4.0.0-beta.78:
     hash: 883249d8efbb462e928e21fefef96027b66aec50751178cafdce45f08eee3754
     path: patches/effect@4.0.0-beta.78.patch
@@ -176,8 +179,8 @@ importers:
         specifier: ^0.7.1
         version: 0.7.1(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)
       '@clerk/expo':
-        specifier: ^3.3.0
-        version: 3.3.1(expo-auth-session@56.0.13(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(expo-constants@56.0.16)(expo-crypto@56.0.4(expo@56.0.8))(expo-secure-store@56.0.4(expo@56.0.8))(expo-web-browser@56.0.5(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6)))(expo@56.0.8)(react-dom@19.2.3(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)
+        specifier: ^3.4.1
+        version: 3.4.1(expo-auth-session@56.0.13(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(expo-constants@56.0.16)(expo-crypto@56.0.4(expo@56.0.8))(expo-secure-store@56.0.4(expo@56.0.8))(expo-web-browser@56.0.5(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6)))(expo@56.0.8)(react-dom@19.2.3(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)
       '@effect/atom-react':
         specifier: 4.0.0-beta.78
         version: 4.0.0-beta.78(effect@4.0.0-beta.78(patch_hash=883249d8efbb462e928e21fefef96027b66aec50751178cafdce45f08eee3754))(react@19.2.3)(scheduler@0.27.0)
@@ -198,7 +201,7 @@ importers:
         version: 1.8.0
       '@pierre/diffs':
         specifier: 'catalog:'
-        version: 1.1.20(patch_hash=e4e35ba95100de3708f900e0d9ea62bca732b1e4486024b5055f48cd128dd9e0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+        version: 1.3.0-beta.4(patch_hash=f5d41705ce94bbafc731d92e9cb1671db710df046dd135cb894e3e3e9164a75b)(@shikijs/themes@3.23.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@react-native-menu/menu':
         specifier: ^2.0.0
         version: 2.0.0(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)
@@ -220,6 +223,9 @@ importers:
       '@t3tools/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@t3tools/mobile-markdown-text':
+        specifier: file:./modules/t3-markdown-text
+        version: file:apps/mobile/modules/t3-markdown-text(e909ee9a8f7fbe234da80c739fca4984)
       '@t3tools/mobile-review-diff-native':
         specifier: file:./modules/t3-review-diff
         version: file:apps/mobile/modules/t3-review-diff
@@ -241,6 +247,9 @@ importers:
       expo:
         specifier: ^56.0.0
         version: 56.0.8(@babel/core@7.29.7)(@expo/dom-webview@56.0.5)(@expo/metro-runtime@56.0.13)(bufferutil@4.1.0)(expo-router@56.2.8)(expo-widgets@56.0.16)(react-dom@19.2.3(react@19.2.3))(react-native-worklets@0.8.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)(typescript@6.0.3)(utf-8-validate@6.0.6)
+      expo-asset:
+        specifier: ~56.0.15
+        version: 56.0.15(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)(typescript@6.0.3)
       expo-auth-session:
         specifier: ~56.0.12
         version: 56.0.13(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)
@@ -365,6 +374,9 @@ importers:
       '@effect/vitest':
         specifier: 4.0.0-beta.78
         version: 4.0.0-beta.78(patch_hash=42b87cc47e70d74e62496e7a8261b3fd298ecad4464d209348ab04b96f853a5f)(effect@4.0.0-beta.78(patch_hash=883249d8efbb462e928e21fefef96027b66aec50751178cafdce45f08eee3754))
+      '@pierre/trees':
+        specifier: 1.0.0-beta.4
+        version: 1.0.0-beta.4(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@types/react':
         specifier: ~19.2.0
         version: 19.2.16
@@ -395,12 +407,15 @@ importers:
       '@effect/sql-sqlite-bun':
         specifier: 4.0.0-beta.78
         version: 4.0.0-beta.78(effect@4.0.0-beta.78(patch_hash=883249d8efbb462e928e21fefef96027b66aec50751178cafdce45f08eee3754))
+      '@ff-labs/fff-node':
+        specifier: 0.9.4
+        version: 0.9.4(patch_hash=2b16019ce7ab61aec6478dd02f79ef468cc1d5c51e9d00764f7d2ab8167210c8)
       '@opencode-ai/sdk':
         specifier: ^1.3.15
         version: 1.15.13
       '@pierre/diffs':
         specifier: 'catalog:'
-        version: 1.1.20(patch_hash=e4e35ba95100de3708f900e0d9ea62bca732b1e4486024b5055f48cd128dd9e0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 1.3.0-beta.4(patch_hash=f5d41705ce94bbafc731d92e9cb1671db710df046dd135cb894e3e3e9164a75b)(@shikijs/themes@4.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       effect:
         specifier: 4.0.0-beta.78
         version: 4.0.0-beta.78(patch_hash=883249d8efbb462e928e21fefef96027b66aec50751178cafdce45f08eee3754)
@@ -445,11 +460,11 @@ importers:
         specifier: ^1.4.1
         version: 1.5.0(@types/react@19.2.16)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@clerk/clerk-js':
-        specifier: ^6.13.0
-        version: 6.14.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        specifier: ^6.16.0
+        version: 6.16.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@clerk/react':
-        specifier: ^6.7.2
-        version: 6.7.3(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        specifier: ^6.9.0
+        version: 6.9.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -482,7 +497,10 @@ importers:
         version: 0.41.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(yjs@13.6.31)
       '@pierre/diffs':
         specifier: 'catalog:'
-        version: 1.1.20(patch_hash=e4e35ba95100de3708f900e0d9ea62bca732b1e4486024b5055f48cd128dd9e0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 1.3.0-beta.4(patch_hash=f5d41705ce94bbafc731d92e9cb1671db710df046dd135cb894e3e3e9164a75b)(@shikijs/themes@4.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@pierre/trees':
+        specifier: 1.0.0-beta.4
+        version: 1.0.0-beta.4(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@t3tools/client-runtime':
         specifier: workspace:*
         version: link:../../packages/client-runtime
@@ -605,8 +623,8 @@ importers:
   infra/relay:
     dependencies:
       '@clerk/backend':
-        specifier: 3.4.14
-        version: 3.4.14(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        specifier: 3.6.1
+        version: 3.6.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@effect/sql-pg':
         specifier: 4.0.0-beta.78
         version: 4.0.0-beta.78(effect@4.0.0-beta.78(patch_hash=883249d8efbb462e928e21fefef96027b66aec50751178cafdce45f08eee3754))
@@ -1500,16 +1518,16 @@ packages:
     resolution: {integrity: sha512-wKh+wTjmrUoUdkZg8KpJO5X+p9PWV+KE9mePseq9UYWkukgTKsGS47RRL2HstwVcvDQH+PenrPJWII8+MfiiyA==}
     engines: {node: '>= 20.12.0'}
 
-  '@clerk/backend@3.4.14':
-    resolution: {integrity: sha512-0iaMT7k4wDk31QVC3HMaoeVFttblwsCECTHKNQpbRzIyD8j2gHdKEw/FNjffoyqyBqPw869IQlk1YokUlwVAqQ==}
+  '@clerk/backend@3.6.1':
+    resolution: {integrity: sha512-LkfekzF/0UMXacX+17xy3ExRraO0mm+thXejC8Q32gWHd1wLdxK3YXDsLDF00E1r1InWBKIt2ZOxs6hTwZPJjA==}
     engines: {node: '>=20.9.0'}
 
-  '@clerk/clerk-js@6.14.0':
-    resolution: {integrity: sha512-xreDPw31OIk/VQj36qdgjzc4Rk2HwMar25nOu/ts2gf7PrbhU4XQdrtnt74g4fTmSMp8xeyjzHqa9adDXVjISw==}
+  '@clerk/clerk-js@6.16.0':
+    resolution: {integrity: sha512-8xv/XDsxhOZd1n4DNIRJ2EehIRUg6UiqKAnfd0L88R2t1g6sVnLi1FInJ5i8Qyx5oY/creXx6X1AZ1V5PobRkA==}
     engines: {node: '>=20.9.0'}
 
-  '@clerk/expo@3.3.1':
-    resolution: {integrity: sha512-c4g64z5sgJoGYjK0NeasNwOMy9Di7cEjICq56BHSowdOuB+6UGtWBNw+yHzgS1gxi2kJgl7WQCmmXRsoZNWxAg==}
+  '@clerk/expo@3.4.1':
+    resolution: {integrity: sha512-gpAXsuUnsUdUD0/2XjyxaC9quF5rT+2umkmV74nBLVAFurGMMMMHvnHqrQEtZ7tH5GHNXYw5+pgmnzd1HiMQbQ==}
     engines: {node: '>=20.9.0'}
     peerDependencies:
       '@clerk/expo-passkeys': '>=0.0.6'
@@ -1541,16 +1559,18 @@ packages:
         optional: true
       expo-web-browser:
         optional: true
+      react-dom:
+        optional: true
 
-  '@clerk/react@6.7.3':
-    resolution: {integrity: sha512-xdml8bFXbOQ/Egyp7iI1f0ksLjw5nYu2Db+mttHpJzet7PRXQ3jBEEc2c0AYhOJvIYxJifHGBsf75NM8SwlOag==}
+  '@clerk/react@6.9.0':
+    resolution: {integrity: sha512-M0QGyGS732tYBXeG+28UgElXM2TfoSZ+4mWGisC8yxJX8NjH4hEPJTAQuZmYRLNaCyGQCuzjYVQiQRC+GbDtmA==}
     engines: {node: '>=20.9.0'}
     peerDependencies:
       react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
       react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
 
-  '@clerk/shared@4.15.0':
-    resolution: {integrity: sha512-uX8nfLb69m8mA6KWKWfuPSwoVNDRyUdufeCeTEZsdZxbRUsEYT/c0KWFN28IOQCtK09tpVtzrUHvW44v5Dc5OA==}
+  '@clerk/shared@4.17.0':
+    resolution: {integrity: sha512-YeQ+6zDmqyor1mPHjZx18j+LssL6Pobvid8hb7HQMioSo8sGDBEVi/Z12bs+gUhe9KbdP+ygHsKOqqeGAPuPZA==}
     engines: {node: '>=20.9.0'}
     peerDependencies:
       react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
@@ -2370,6 +2390,52 @@ packages:
   '@expo/xcpretty@4.4.4':
     resolution: {integrity: sha512-4aQzz9vgxcNXFfo/iyNgDDYfsU5XGKKxWxZopw0cVotHiW+U8IJbIxMaxsINs6bHhtkG3StKNPcOrn3eBuxKPw==}
     hasBin: true
+
+  '@ff-labs/fff-bin-darwin-arm64@0.9.4':
+    resolution: {integrity: sha512-xyivu2xB++O5xXDx5Qm50JsU2aXt8YgXlGVhH/HE7UMYDrE6L6f1RYdYs8Y0bn0D3D0+bFBrN5ELPszK9E4Wbw==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@ff-labs/fff-bin-darwin-x64@0.9.4':
+    resolution: {integrity: sha512-xLooAhCnTDCipPSMMZz7kGF3lhRHx6aP5fb6DJ0Ipyw/w/UWJb+xITJFszUl/QnIBoJ/qjDc93/FZMo1dk6gVA==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@ff-labs/fff-bin-linux-arm64-gnu@0.9.4':
+    resolution: {integrity: sha512-m5+8vA+1veaUUWonwva1WsU6m1HRm8CpYUzr06KDB65mewlmPbqz7+Fh7hjEfiD8C4mHVHe6RysULvAH1yhsdw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@ff-labs/fff-bin-linux-arm64-musl@0.9.4':
+    resolution: {integrity: sha512-EMeWm7CSTVkizy4ZEzUkLDP024tVcbCUthduuIhekFQRDsiaAze0YboIylWb9HBHJCZlCCoZrWAl4nnJbsX7AA==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@ff-labs/fff-bin-linux-x64-gnu@0.9.4':
+    resolution: {integrity: sha512-pglE0uLkhnlE6bStXqfgUjYTSj+2sVwXaPfoA0QksidAsQor6NRt8004mygzC9DPubgHq5B9QezPfEwigKaP9Q==}
+    cpu: [x64]
+    os: [linux]
+
+  '@ff-labs/fff-bin-linux-x64-musl@0.9.4':
+    resolution: {integrity: sha512-VNKxgl8qs3aTfXViX7lqRK1aLu311h8dtBFqG4Scv+9Oi7WprybUp5L7IZ8sxKERaDAaiJMXHodXa1c90QdK8w==}
+    cpu: [x64]
+    os: [linux]
+
+  '@ff-labs/fff-bin-win32-arm64@0.9.4':
+    resolution: {integrity: sha512-uFEt0aNL54vQxq1ivjxRuo+thnhS4wLqa4INl4VXnXJUmwB42XXxD+gsj7vzhBLLx4cFf0aWgy/+TVDR8yjZtQ==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@ff-labs/fff-bin-win32-x64@0.9.4':
+    resolution: {integrity: sha512-Yd2Eyxj+slWv+0QDW9/xBpu9FXq+hwD0rXQD5184/88d+xwWCLKhEP2w8I6OO9XCg+kLT79UJb+k0WwXUtBtMw==}
+    cpu: [x64]
+    os: [win32]
+
+  '@ff-labs/fff-node@0.9.4':
+    resolution: {integrity: sha512-yUphwzcVBuNrg1iEAE5XVPOWfCLuq/BE1scUxtHMmLo+e1KuKWBRgSKFXGjNBfL8lV3c5VGwIgK66aBqmhqVBQ==}
+    engines: {node: '>=18.0.0'}
+    cpu: [x64, arm64]
+    os: [darwin, linux, win32]
 
   '@floating-ui/core@1.7.5':
     resolution: {integrity: sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ==}
@@ -3203,15 +3269,41 @@ packages:
     resolution: {integrity: sha512-titLmukUt/h8ho7Svlf0xSBjoy2ccZKrXjpXpZCj+v6V4CJccC2KyP45BLSCMx8YIpifMyiDyUptM4+5sruKbQ==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
-  '@pierre/diffs@1.1.20':
-    resolution: {integrity: sha512-lLi+3sLCm3QDd5/aLO9pw+WbF6UzhrkWm2oTZ5WZJTGemOyUNRJ4DDhcEKmVusu4C4bXx9Nssh6fF+wQcapb5w==}
+  '@pierre/diffs@1.3.0-beta.4':
+    resolution: {integrity: sha512-poFcsvhcQt9lH/InzAPaGs47WYHMidnFCjuYGNU41HiVLJP4mkIQDSdvcnPIkBuh/cYbPOQg/YE3T1kSpr01GA==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
 
-  '@pierre/theme@0.0.28':
-    resolution: {integrity: sha512-1j/H/fECBuc9dEvntdWI+l435HZapw+RCJTlqCA6BboQ5TjlnE005j/ROWutXIs8aq5OAc82JI2Kwk4A1WWBgw==}
+  '@pierre/theme@1.0.3':
+    resolution: {integrity: sha512-sWHv11TMoqKxKDgTIk5VbhQjdPhs8DCcBxbjh3mRlS3YOM/OcrWoGX6MM8eBGn9cUu3M46Py0JnxsG2nJaFTuA==}
     engines: {vscode: ^1.0.0}
+
+  '@pierre/theming@0.0.1':
+    resolution: {integrity: sha512-1thlEtJbqdyLzc1ZS2KQa1q7FzDGHT4dTEdKHoyQjOMeWWOmbVG5/ndEfOKfAb5Fzkz8cNJrOjFLiZoDH/A03A==}
+    peerDependencies:
+      '@pierre/theme': ^1.0.0
+      '@shikijs/themes': ^3.0.0 || ^4.0.0
+      react: ^18.3.1 || ^19.0.0
+      react-dom: ^18.3.1 || ^19.0.0
+      shiki: ^3.0.0 || ^4.0.0
+    peerDependenciesMeta:
+      '@pierre/theme':
+        optional: true
+      '@shikijs/themes':
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      shiki:
+        optional: true
+
+  '@pierre/trees@1.0.0-beta.4':
+    resolution: {integrity: sha512-OfT1yk9ne8Te5+GB5zUY8yqE6B8BqjBHQJleH4lu8ltwNpoocZl4vXt1AzlEExpxI/pp+AFX5QG+lR3JjtTEag==}
+    peerDependencies:
+      react: ^18.3.1 || ^19.0.0
+      react-dom: ^18.3.1 || ^19.0.0
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
@@ -4087,6 +4179,17 @@ packages:
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
     engines: {node: '>=10'}
 
+  '@t3tools/mobile-markdown-text@file:apps/mobile/modules/t3-markdown-text':
+    resolution: {directory: apps/mobile/modules/t3-markdown-text, type: directory}
+    peerDependencies:
+      expo-asset: '*'
+      expo-clipboard: '*'
+      expo-haptics: '*'
+      expo-symbols: '*'
+      react: '*'
+      react-native: '*'
+      react-native-nitro-markdown: '*'
+
   '@t3tools/mobile-review-diff-native@file:apps/mobile/modules/t3-review-diff':
     resolution: {directory: apps/mobile/modules/t3-review-diff, type: directory}
 
@@ -4774,6 +4877,72 @@ packages:
 
   '@xterm/xterm@6.0.0':
     resolution: {integrity: sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==}
+
+  '@yuuang/ffi-rs-android-arm64@1.3.2':
+    resolution: {integrity: sha512-eDYLT0kVBkp7e2BwdRDmt6N1rkeDPUHDefk3ZX0/nok+GLsqfy1WBoSL3Yg7HVXN1EyW8OBVc2uK8Zq8HbmaSA==}
+    engines: {node: '>= 12'}
+    cpu: [arm64]
+    os: [android]
+
+  '@yuuang/ffi-rs-darwin-arm64@1.3.2':
+    resolution: {integrity: sha512-kRdgPaOM6TfuC5wHUwstlatk4HNie2lwSLJWQL2LiAUIJ7+96CoiWUNVhwBcFrhdfxhnWenYS6F668CV0vit8Q==}
+    engines: {node: '>= 12'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@yuuang/ffi-rs-darwin-x64@1.3.2':
+    resolution: {integrity: sha512-O3AlVgre8FQcZRJe44Xs7A6iDLumoPXqbw40+eJCa2gyXaXyLPdHoWrS1W9rBCa1QZRRnG7zRulPVFw8C5uo8g==}
+    engines: {node: '>= 12'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@yuuang/ffi-rs-linux-arm-gnueabihf@1.3.2':
+    resolution: {integrity: sha512-IXiNdTbIcTCPny5eeElijFWYeKSJjQWSjt9ZyJNdLHYiB1Np+XD6K7wNZS6EOMgMelhW1kQE62T654skGkVDIA==}
+    engines: {node: '>= 12'}
+    cpu: [arm]
+    os: [linux]
+
+  '@yuuang/ffi-rs-linux-arm64-gnu@1.3.2':
+    resolution: {integrity: sha512-gWFO6xufUK9lPYUqDvKa6IR243dPqdetgl9Q7HrZWaDu7wLo06QQrosw8QTzndafQnOcBKm6LoLujmGCfTgJOA==}
+    engines: {node: '>= 12'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@yuuang/ffi-rs-linux-arm64-musl@1.3.2':
+    resolution: {integrity: sha512-lejvOSqypPziQH5rzfkDlJ6e92qhWbDutE9ttOO6z5I2k83zoh9iZhZWhaXSU5VqgQpcshRkrbtXb9gy1ft5dA==}
+    engines: {node: '>= 12'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@yuuang/ffi-rs-linux-x64-gnu@1.3.2':
+    resolution: {integrity: sha512-s8VCFazaJKmgY2hgMTpWk4TtBY/zy5ovbaGgwyY0FvBD0YvyhcET4IrMsDJpHhFVTPCYfKZ1dN45clD/YiFp6g==}
+    engines: {node: '>= 12'}
+    cpu: [x64]
+    os: [linux]
+
+  '@yuuang/ffi-rs-linux-x64-musl@1.3.2':
+    resolution: {integrity: sha512-Ahr5chfKZKWUik20bEZRug+be57LZ2yYrtolyjSRoo7A4ZniBUHBZUNWm6TD6i0CJayqyxWeVk/XiaABD8bY0w==}
+    engines: {node: '>= 12'}
+    cpu: [x64]
+    os: [linux]
+
+  '@yuuang/ffi-rs-win32-arm64-msvc@1.3.2':
+    resolution: {integrity: sha512-yhpLcj0qel5VNlpzxPZfNmi7+rEX8444QHjUP6WWLxdRfqPllROu/Cp3OpkBpw3BLdxfcDhWkjWMD5QsJN0Pvg==}
+    engines: {node: '>= 12'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@yuuang/ffi-rs-win32-ia32-msvc@1.3.2':
+    resolution: {integrity: sha512-BFVSbdtg/7mJBw5kQFOPKFiA+SF7z3240HpzHN81Umm4Bp4dWkyx0msYn8+Q7/BBJiLQ4F6bi3Nftk58YA9r9w==}
+    engines: {node: '>= 12'}
+    cpu: [x64, ia32]
+    os: [win32]
+
+  '@yuuang/ffi-rs-win32-x64-msvc@1.3.2':
+    resolution: {integrity: sha512-ZL5MJ76n2rjwGo26kCWW7wK6QT/cee00Rx8pfW79pz6vM6jqfhoE7zTnwFiw4aOQUes9+HUc5DeeJ3z+Vb9oLg==}
+    engines: {node: '>= 12'}
+    cpu: [x64]
+    os: [win32]
 
   '@zxcvbn-ts/core@3.0.4':
     resolution: {integrity: sha512-aQeiT0F09FuJaAqNrxynlAwZ2mW/1MdXakKWNmGM1Qp/VaY6CnB/GfnMS2T8gB2231Esp1/maCWd8vTG4OuShw==}
@@ -6323,6 +6492,9 @@ packages:
 
   fetch-nodeshim@0.4.10:
     resolution: {integrity: sha512-m6I8ALe4L4XpdETy7MJZWs6L1IVMbjs99bwbpIKphxX+0CTns4IKDWJY0LWfr4YsFjfg+z1TjzTMU8lKl8rG0w==}
+
+  ffi-rs@1.3.2:
+    resolution: {integrity: sha512-4s8dX9VbBw/jd5NOuE3EJRqXaIVdjMyiumeeDzrOhtjQRwp6Bz2za7iksWXTnvTQKV/tTdm1s1w7mObe92zPjQ==}
 
   filelist@1.0.6:
     resolution: {integrity: sha512-5giy2PkLYY1cP39p17Ech+2xlpTRL9HLspOfEgm0L6CwBXBTgsK5ou0JtzYuepxkaQ/tvhCFIJ5uXo0OrM2DxA==}
@@ -8077,6 +8249,14 @@ packages:
     resolution: {integrity: sha512-b9Eb8h2eVqNE8edvKdwqkrY6O7kAwmI8kcnBv1NScolYJbo59XUF0noFq+lxbC1yN20bmC0WBEbDC5H/7ASb0A==}
     engines: {node: '>=14.0.0'}
     hasBin: true
+
+  preact-render-to-string@6.6.5:
+    resolution: {integrity: sha512-O6MHzYNIKYaiSX3bOw0gGZfEbOmlIDtDfWwN1JJdc/T3ihzRT6tGGSEWE088dWrEDGa1u7101q+6fzQnO9XCPA==}
+    peerDependencies:
+      preact: '>=10 || >= 11.0.0-0'
+
+  preact@11.0.0-beta.0:
+    resolution: {integrity: sha512-IcODoASASYwJ9kxz7+MJeiJhvLriwSb4y4mHIyxdgaRZp6kPUud7xytrk/6GZw8U3y6EFJaRb5wi9SrEK+8+lg==}
 
   prettier@3.8.3:
     resolution: {integrity: sha512-7igPTM53cGHMW8xWuVTydi2KO233VFiTNyF5hLJqpilHfmn8C8gPf+PS7dUT64YcXFbiMGZxS9pCSxL/Dxm/Jw==}
@@ -10671,18 +10851,18 @@ snapshots:
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
 
-  '@clerk/backend@3.4.14(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+  '@clerk/backend@3.6.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
-      '@clerk/shared': 4.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@clerk/shared': 4.17.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       standardwebhooks: 1.0.0
       tslib: 2.8.1
     transitivePeerDependencies:
       - react
       - react-dom
 
-  '@clerk/clerk-js@6.14.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@clerk/clerk-js@6.16.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
-      '@clerk/shared': 4.15.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@clerk/shared': 4.17.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@stripe/stripe-js': 5.6.0
       '@swc/helpers': 0.5.21
       '@tanstack/query-core': 5.100.14
@@ -10697,9 +10877,9 @@ snapshots:
       - react
       - react-dom
 
-  '@clerk/clerk-js@6.14.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+  '@clerk/clerk-js@6.16.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
-      '@clerk/shared': 4.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@clerk/shared': 4.17.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@stripe/stripe-js': 5.6.0
       '@swc/helpers': 0.5.21
       '@tanstack/query-core': 5.100.14
@@ -10714,15 +10894,14 @@ snapshots:
       - react
       - react-dom
 
-  '@clerk/expo@3.3.1(expo-auth-session@56.0.13(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(expo-constants@56.0.16)(expo-crypto@56.0.4(expo@56.0.8))(expo-secure-store@56.0.4(expo@56.0.8))(expo-web-browser@56.0.5(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6)))(expo@56.0.8)(react-dom@19.2.3(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)':
+  '@clerk/expo@3.4.1(expo-auth-session@56.0.13(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(expo-constants@56.0.16)(expo-crypto@56.0.4(expo@56.0.8))(expo-secure-store@56.0.4(expo@56.0.8))(expo-web-browser@56.0.5(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6)))(expo@56.0.8)(react-dom@19.2.3(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)':
     dependencies:
-      '@clerk/clerk-js': 6.14.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      '@clerk/react': 6.7.3(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      '@clerk/shared': 4.15.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@clerk/clerk-js': 6.16.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@clerk/react': 6.9.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@clerk/shared': 4.17.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       base-64: 1.0.0
       expo: 56.0.8(@babel/core@7.29.7)(@expo/dom-webview@56.0.5)(@expo/metro-runtime@56.0.13)(bufferutil@4.1.0)(expo-router@56.2.8)(expo-widgets@56.0.16)(react-dom@19.2.3(react@19.2.3))(react-native-worklets@0.8.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)(typescript@6.0.3)(utf-8-validate@6.0.6)
       react: 19.2.3
-      react-dom: 19.2.3(react@19.2.3)
       react-native: 0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6)
       react-native-url-polyfill: 2.0.0(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))
       tslib: 2.8.1
@@ -10732,22 +10911,23 @@ snapshots:
       expo-crypto: 56.0.4(expo@56.0.8)
       expo-secure-store: 56.0.4(expo@56.0.8)
       expo-web-browser: 56.0.5(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))
+      react-dom: 19.2.3(react@19.2.3)
 
-  '@clerk/react@6.7.3(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@clerk/react@6.9.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
-      '@clerk/shared': 4.15.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@clerk/shared': 4.17.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
       tslib: 2.8.1
 
-  '@clerk/react@6.7.3(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+  '@clerk/react@6.9.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
-      '@clerk/shared': 4.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@clerk/shared': 4.17.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
       tslib: 2.8.1
 
-  '@clerk/shared@4.15.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@clerk/shared@4.17.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
       '@tanstack/query-core': 5.100.14
       dequal: 2.0.3
@@ -10757,7 +10937,7 @@ snapshots:
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
 
-  '@clerk/shared@4.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+  '@clerk/shared@4.17.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
       '@tanstack/query-core': 5.100.14
       dequal: 2.0.3
@@ -11675,6 +11855,43 @@ snapshots:
       chalk: 4.1.2
       js-yaml: 4.2.0
 
+  '@ff-labs/fff-bin-darwin-arm64@0.9.4':
+    optional: true
+
+  '@ff-labs/fff-bin-darwin-x64@0.9.4':
+    optional: true
+
+  '@ff-labs/fff-bin-linux-arm64-gnu@0.9.4':
+    optional: true
+
+  '@ff-labs/fff-bin-linux-arm64-musl@0.9.4':
+    optional: true
+
+  '@ff-labs/fff-bin-linux-x64-gnu@0.9.4':
+    optional: true
+
+  '@ff-labs/fff-bin-linux-x64-musl@0.9.4':
+    optional: true
+
+  '@ff-labs/fff-bin-win32-arm64@0.9.4':
+    optional: true
+
+  '@ff-labs/fff-bin-win32-x64@0.9.4':
+    optional: true
+
+  '@ff-labs/fff-node@0.9.4(patch_hash=2b16019ce7ab61aec6478dd02f79ef468cc1d5c51e9d00764f7d2ab8167210c8)':
+    dependencies:
+      ffi-rs: 1.3.2
+    optionalDependencies:
+      '@ff-labs/fff-bin-darwin-arm64': 0.9.4
+      '@ff-labs/fff-bin-darwin-x64': 0.9.4
+      '@ff-labs/fff-bin-linux-arm64-gnu': 0.9.4
+      '@ff-labs/fff-bin-linux-arm64-musl': 0.9.4
+      '@ff-labs/fff-bin-linux-x64-gnu': 0.9.4
+      '@ff-labs/fff-bin-linux-x64-musl': 0.9.4
+      '@ff-labs/fff-bin-win32-arm64': 0.9.4
+      '@ff-labs/fff-bin-win32-x64': 0.9.4
+
   '@floating-ui/core@1.7.5':
     dependencies:
       '@floating-ui/utils': 0.2.11
@@ -12439,9 +12656,10 @@ snapshots:
 
   '@oxlint/plugins@1.68.0': {}
 
-  '@pierre/diffs@1.1.20(patch_hash=e4e35ba95100de3708f900e0d9ea62bca732b1e4486024b5055f48cd128dd9e0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@pierre/diffs@1.3.0-beta.4(patch_hash=f5d41705ce94bbafc731d92e9cb1671db710df046dd135cb894e3e3e9164a75b)(@shikijs/themes@3.23.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
-      '@pierre/theme': 0.0.28
+      '@pierre/theme': 1.0.3
+      '@pierre/theming': 0.0.1(@pierre/theme@1.0.3)(@shikijs/themes@3.23.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(shiki@3.23.0)
       '@shikijs/transformers': 3.23.0
       diff: 8.0.3
       hast-util-to-html: 9.0.5
@@ -12449,10 +12667,13 @@ snapshots:
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
       shiki: 3.23.0
+    transitivePeerDependencies:
+      - '@shikijs/themes'
 
-  '@pierre/diffs@1.1.20(patch_hash=e4e35ba95100de3708f900e0d9ea62bca732b1e4486024b5055f48cd128dd9e0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+  '@pierre/diffs@1.3.0-beta.4(patch_hash=f5d41705ce94bbafc731d92e9cb1671db710df046dd135cb894e3e3e9164a75b)(@shikijs/themes@4.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
-      '@pierre/theme': 0.0.28
+      '@pierre/theme': 1.0.3
+      '@pierre/theming': 0.0.1(@pierre/theme@1.0.3)(@shikijs/themes@4.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(shiki@3.23.0)
       '@shikijs/transformers': 3.23.0
       diff: 8.0.3
       hast-util-to-html: 9.0.5
@@ -12460,8 +12681,40 @@ snapshots:
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
       shiki: 3.23.0
+    transitivePeerDependencies:
+      - '@shikijs/themes'
 
-  '@pierre/theme@0.0.28': {}
+  '@pierre/theme@1.0.3': {}
+
+  '@pierre/theming@0.0.1(@pierre/theme@1.0.3)(@shikijs/themes@3.23.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(shiki@3.23.0)':
+    optionalDependencies:
+      '@pierre/theme': 1.0.3
+      '@shikijs/themes': 3.23.0
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+      shiki: 3.23.0
+
+  '@pierre/theming@0.0.1(@pierre/theme@1.0.3)(@shikijs/themes@4.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(shiki@3.23.0)':
+    optionalDependencies:
+      '@pierre/theme': 1.0.3
+      '@shikijs/themes': 4.1.0
+      react: 19.2.6
+      react-dom: 19.2.6(react@19.2.6)
+      shiki: 3.23.0
+
+  '@pierre/trees@1.0.0-beta.4(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      preact: 11.0.0-beta.0
+      preact-render-to-string: 6.6.5(preact@11.0.0-beta.0)
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+
+  '@pierre/trees@1.0.0-beta.4(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+    dependencies:
+      preact: 11.0.0-beta.0
+      preact-render-to-string: 6.6.5(preact@11.0.0-beta.0)
+      react: 19.2.6
+      react-dom: 19.2.6(react@19.2.6)
 
   '@polka/url@1.0.0-next.29': {}
 
@@ -13228,6 +13481,16 @@ snapshots:
     dependencies:
       defer-to-connect: 2.0.1
 
+  '@t3tools/mobile-markdown-text@file:apps/mobile/modules/t3-markdown-text(e909ee9a8f7fbe234da80c739fca4984)':
+    dependencies:
+      expo-asset: 56.0.15(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)(typescript@6.0.3)
+      expo-clipboard: 56.0.3(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)
+      expo-haptics: 56.0.3(expo@56.0.8)
+      expo-symbols: 56.0.5(expo-font@56.0.5)(expo@56.0.8)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)
+      react: 19.2.3
+      react-native: 0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6)
+      react-native-nitro-markdown: 0.5.8(react-native-nitro-modules@0.35.9(patch_hash=825622aae63a8fb5b904f3c77908a0e216261d727ea171709f2c0b6088422675)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(react-native-svg@15.15.4(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.16)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)
+
   '@t3tools/mobile-review-diff-native@file:apps/mobile/modules/t3-review-diff': {}
 
   '@t3tools/mobile-terminal-native@file:apps/mobile/modules/t3-terminal': {}
@@ -13871,6 +14134,39 @@ snapshots:
   '@xterm/addon-fit@0.11.0': {}
 
   '@xterm/xterm@6.0.0': {}
+
+  '@yuuang/ffi-rs-android-arm64@1.3.2':
+    optional: true
+
+  '@yuuang/ffi-rs-darwin-arm64@1.3.2':
+    optional: true
+
+  '@yuuang/ffi-rs-darwin-x64@1.3.2':
+    optional: true
+
+  '@yuuang/ffi-rs-linux-arm-gnueabihf@1.3.2':
+    optional: true
+
+  '@yuuang/ffi-rs-linux-arm64-gnu@1.3.2':
+    optional: true
+
+  '@yuuang/ffi-rs-linux-arm64-musl@1.3.2':
+    optional: true
+
+  '@yuuang/ffi-rs-linux-x64-gnu@1.3.2':
+    optional: true
+
+  '@yuuang/ffi-rs-linux-x64-musl@1.3.2':
+    optional: true
+
+  '@yuuang/ffi-rs-win32-arm64-msvc@1.3.2':
+    optional: true
+
+  '@yuuang/ffi-rs-win32-ia32-msvc@1.3.2':
+    optional: true
+
+  '@yuuang/ffi-rs-win32-x64-msvc@1.3.2':
+    optional: true
 
   '@zxcvbn-ts/core@3.0.4':
     dependencies:
@@ -15665,6 +15961,20 @@ snapshots:
       picomatch: 4.0.4
 
   fetch-nodeshim@0.4.10: {}
+
+  ffi-rs@1.3.2:
+    optionalDependencies:
+      '@yuuang/ffi-rs-android-arm64': 1.3.2
+      '@yuuang/ffi-rs-darwin-arm64': 1.3.2
+      '@yuuang/ffi-rs-darwin-x64': 1.3.2
+      '@yuuang/ffi-rs-linux-arm-gnueabihf': 1.3.2
+      '@yuuang/ffi-rs-linux-arm64-gnu': 1.3.2
+      '@yuuang/ffi-rs-linux-arm64-musl': 1.3.2
+      '@yuuang/ffi-rs-linux-x64-gnu': 1.3.2
+      '@yuuang/ffi-rs-linux-x64-musl': 1.3.2
+      '@yuuang/ffi-rs-win32-arm64-msvc': 1.3.2
+      '@yuuang/ffi-rs-win32-ia32-msvc': 1.3.2
+      '@yuuang/ffi-rs-win32-x64-msvc': 1.3.2
 
   filelist@1.0.6:
     dependencies:
@@ -17747,6 +18057,12 @@ snapshots:
     dependencies:
       commander: 9.5.0
     optional: true
+
+  preact-render-to-string@6.6.5(preact@11.0.0-beta.0):
+    dependencies:
+      preact: 11.0.0-beta.0
+
+  preact@11.0.0-beta.0: {}
 
   prettier@3.8.3: {}
 

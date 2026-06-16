@@ -258,6 +258,7 @@ const make = Effect.gen(function* () {
       minHeight: 620,
       show: false,
       autoHideMenuBar: true,
+      ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,
       title: environment.displayName,
@@ -270,6 +271,10 @@ const make = Effect.gen(function* () {
         webviewTag: true,
       },
     });
+
+    if (environment.platform === "darwin") {
+      window.setAutoHideCursor(false);
+    }
 
     yield* previewManager.setMainWindow(window);
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
