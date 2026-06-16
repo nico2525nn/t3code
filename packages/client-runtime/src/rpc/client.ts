@@ -150,6 +150,11 @@ export function runStream<TTag extends EnvironmentStreamCommandRpcTag>(
 export function subscribe<TTag extends EnvironmentSubscriptionRpcTag>(
   tag: TTag,
   input: EnvironmentRpcInput<TTag>,
+  options?: {
+    readonly onExpectedFailure?: (
+      cause: Cause.Cause<EnvironmentRpcStreamFailure<TTag>>,
+    ) => Effect.Effect<void, never, never>;
+  },
 ): Stream.Stream<
   EnvironmentRpcStreamValue<TTag>,
   EnvironmentRpcStreamFailure<TTag>,
@@ -171,24 +176,30 @@ export function subscribe<TTag extends EnvironmentSubscriptionRpcTag>(
                 >;
                 return method(input).pipe(
                   Stream.catchCause((cause) => {
-                    const isTransportFailure =
+                    const hasOnlyExpectedFailures =
                       cause.reasons.length > 0 &&
+                      cause.reasons.every((reason) => reason._tag === "Fail");
+                    const isTransportFailure =
+                      hasOnlyExpectedFailures &&
                       cause.reasons.every(
                         (reason) => reason._tag === "Fail" && isRpcClientError(reason.error),
                       );
-                    if (!isTransportFailure) {
-                      return Stream.failCause(cause);
+                    if (isTransportFailure) {
+                      return Stream.fromEffect(
+                        Effect.logWarning(
+                          "Durable RPC subscription lost its transport; waiting for the next session.",
+                          {
+                            cause: Cause.pretty(cause),
+                            method: tag,
+                            environmentId: supervisor.target.environmentId,
+                          },
+                        ),
+                      ).pipe(Stream.drain);
                     }
-                    return Stream.fromEffect(
-                      Effect.logWarning(
-                        "Durable RPC subscription lost its transport; waiting for the next session.",
-                        {
-                          cause: Cause.pretty(cause),
-                          method: tag,
-                          environmentId: supervisor.target.environmentId,
-                        },
-                      ),
-                    ).pipe(Stream.drain);
+                    if (hasOnlyExpectedFailures && options?.onExpectedFailure !== undefined) {
+                      return Stream.fromEffect(options.onExpectedFailure(cause)).pipe(Stream.drain);
+                    }
+                    return Stream.failCause(cause);
                   }),
                 );
               },

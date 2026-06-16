@@ -128,13 +128,13 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     });
   });
 
-  yield* subscribe(ORCHESTRATION_WS_METHODS.subscribeShell, {}).pipe(
-    Stream.runForEach(applyItem),
-    Effect.catchCause((cause) =>
-      Cause.hasInterruptsOnly(cause) ? Effect.interrupt : setStreamError(Cause.squash(cause)),
-    ),
-    Effect.forkScoped,
-  );
+  yield* subscribe(
+    ORCHESTRATION_WS_METHODS.subscribeShell,
+    {},
+    {
+      onExpectedFailure: (cause) => setStreamError(Cause.squash(cause)),
+    },
+  ).pipe(Stream.runForEach(applyItem), Effect.forkScoped);
   yield* SubscriptionRef.changes(supervisor.state).pipe(
     Stream.runForEach((connectionState) => {
       switch (connectionProjectionPhase(connectionState)) {

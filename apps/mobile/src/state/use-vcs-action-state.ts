@@ -1,83 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
-import {
-  applyVcsActionProgressEvent,
-  EMPTY_VCS_ACTION_ATOM,
-  EMPTY_VCS_ACTION_STATE,
-  getVcsActionTargetKey,
-  type VcsActionState,
-  type VcsActionTarget,
-  vcsActionStateAtom,
-} from "@t3tools/client-runtime/state/vcs";
-import type { GitActionProgressEvent } from "@t3tools/contracts";
-import * as Option from "effect/Option";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { type VcsActionState, type VcsActionTarget } from "@t3tools/client-runtime/state/vcs";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { appAtomRegistry } from "./atom-registry";
-import { gitEnvironment } from "./git";
-
-function setVcsActionState(target: VcsActionTarget, state: VcsActionState): void {
-  const targetKey = getVcsActionTargetKey(target);
-  if (targetKey !== null) {
-    appAtomRegistry.set(vcsActionStateAtom(targetKey), state);
-  }
-}
-
-export function beginVcsAction(
-  target: VcsActionTarget,
-  input: {
-    readonly operation: VcsActionState["operation"];
-    readonly label: string;
-  },
-): void {
-  setVcsActionState(target, {
-    ...EMPTY_VCS_ACTION_STATE,
-    isRunning: true,
-    operation: input.operation,
-    currentLabel: input.label,
-    currentPhaseLabel: input.label,
-    phaseStartedAtMs: Date.now(),
-  });
-}
-
-export function completeVcsAction(target: VcsActionTarget): void {
-  setVcsActionState(target, EMPTY_VCS_ACTION_STATE);
-}
-
-export function failVcsAction(
-  target: VcsActionTarget,
-  operation: VcsActionState["operation"],
-  error: unknown,
-): void {
-  setVcsActionState(target, {
-    ...EMPTY_VCS_ACTION_STATE,
-    operation,
-    error: error instanceof Error ? error.message : "Source control action failed.",
-  });
-}
+import { vcsActionManager } from "./vcs";
 
 export function useVcsActionState(target: VcsActionTarget): VcsActionState {
-  const targetKey = getVcsActionTargetKey(target);
-  const runStackedActionState = useAtomValue(gitEnvironment.runStackedAction);
-  const state = useAtomValue(
-    targetKey !== null ? vcsActionStateAtom(targetKey) : EMPTY_VCS_ACTION_ATOM,
-  );
-
-  useEffect(() => {
-    const event = Option.getOrNull(AsyncResult.value(runStackedActionState));
-    if (event === null || targetKey === null || event.cwd !== target.cwd) {
-      return;
-    }
-    appAtomRegistry.set(
-      vcsActionStateAtom(targetKey),
-      applyVcsActionProgressEvent(
-        appAtomRegistry.get(vcsActionStateAtom(targetKey)),
-        event as GitActionProgressEvent,
-      ),
-    );
-  }, [runStackedActionState, target.cwd, targetKey]);
-
-  return targetKey === null ? EMPTY_VCS_ACTION_STATE : state;
+  return useAtomValue(vcsActionManager.stateAtom(target));
 }
 
 export interface GitActionResultNotification {

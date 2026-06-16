@@ -20,6 +20,7 @@ import {
   BearerConnectionCredential,
   BearerConnectionProfile,
   BearerConnectionRegistration,
+  type ConnectionRegistration,
   ConnectionCredentialStore,
   ConnectionProfileStore,
   PrimaryConnectionRegistration,
@@ -134,6 +135,9 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
   initialCredentials: ReadonlyArray<readonly [string, ConnectionCredential]> = [],
   options?: {
     readonly beforeSessionConnect?: (environmentId: EnvironmentId) => Effect.Effect<void>;
+    readonly beforeRegistrationRegister?: (
+      registration: ConnectionRegistration,
+    ) => Effect.Effect<void, ConnectionPersistenceError>;
     readonly beforeRegistrationRemove?: (
       target: ConnectionTarget,
     ) => Effect.Effect<void, ConnectionPersistenceError>;
@@ -179,6 +183,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
   const registrationStore = ConnectionRegistrationStore.of({
     register: (registration) =>
       Effect.gen(function* () {
+        yield* options?.beforeRegistrationRegister?.(registration) ?? Effect.void;
         yield* Ref.update(storedTargets, (current) => {
           const next = new Map(current);
           next.set(registration.target.environmentId, registration.target);
@@ -685,7 +690,7 @@ describe("EnvironmentRegistry", () => {
     }),
   );
 
-  it.effect("closes relay runtimes before fallible persistence removal", () =>
+  it.effect("keeps the runtime registered when durable removal fails", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness([RELAY_TARGET], [], [], {
         beforeRegistrationRemove: () =>
@@ -709,11 +714,13 @@ describe("EnvironmentRegistry", () => {
         const error = yield* Effect.flip(registry.removeRelayEnvironments());
 
         expect(error._tag).toBe("ConnectionPersistenceError");
-        expect(yield* Ref.get(harness.releasedSessions)).toBe(1);
+        expect(yield* Ref.get(harness.releasedSessions)).toBe(0);
         expect((yield* SubscriptionRef.get(registry.entries)).has(RELAY_TARGET.environmentId)).toBe(
-          false,
+          true,
         );
         expect((yield* Ref.get(harness.storedTargets)).has(RELAY_TARGET.environmentId)).toBe(true);
+        expect(yield* Ref.get(harness.cacheClears)).toEqual([]);
+        expect(yield* Ref.get(harness.ownedDataClears)).toEqual([]);
       }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );
@@ -772,6 +779,76 @@ describe("EnvironmentRegistry", () => {
           (yield* SubscriptionRef.get(registry.entries)).get(TARGET.environmentId)?.target,
         ).toEqual(TARGET);
       }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
+  it.effect("gives a primary platform registration precedence over persisted registrations", () =>
+    Effect.gen(function* () {
+      const shadowedTarget = new RelayConnectionTarget({
+        environmentId: TARGET.environmentId,
+        label: "Shadowed relay environment",
+      });
+      const harness = yield* makeHarness([shadowedTarget]);
+
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry;
+        yield* registry.registerPlatform(new PrimaryConnectionRegistration({ target: TARGET }));
+
+        expect(
+          (yield* SubscriptionRef.get(registry.entries)).get(TARGET.environmentId)?.target,
+        ).toEqual(TARGET);
+        expect((yield* Ref.get(harness.storedTargets)).has(TARGET.environmentId)).toBe(false);
+
+        yield* registry.register(new RelayConnectionRegistration({ target: shadowedTarget }));
+
+        expect(
+          (yield* SubscriptionRef.get(registry.entries)).get(TARGET.environmentId)?.target,
+        ).toEqual(TARGET);
+        expect((yield* Ref.get(harness.storedTargets)).has(TARGET.environmentId)).toBe(false);
+      }).pipe(Effect.provide(harness.layer), Effect.scoped);
+    }),
+  );
+
+  it.effect("rechecks platform ownership after waiting for the environment lease", () =>
+    Effect.gen(function* () {
+      const registrationStarted = yield* Deferred.make<void>();
+      const continueRegistration = yield* Deferred.make<void>();
+      const shadowedTarget = new RelayConnectionTarget({
+        environmentId: TARGET.environmentId,
+        label: "Shadowed relay environment",
+      });
+      const harness = yield* makeHarness([], [], [], {
+        beforeRegistrationRegister: () =>
+          Deferred.succeed(registrationStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(continueRegistration)),
+          ),
+      });
+
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry;
+        const persistedRegistration = yield* registry
+          .register(new RelayConnectionRegistration({ target: shadowedTarget }))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Deferred.await(registrationStarted);
+
+        const platformRegistration = yield* registry
+          .registerPlatform(new PrimaryConnectionRegistration({ target: TARGET }))
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Effect.yieldNow;
+        const removal = yield* Effect.flip(registry.remove(TARGET.environmentId)).pipe(
+          Effect.forkChild({ startImmediately: true }),
+        );
+
+        yield* Deferred.succeed(continueRegistration, undefined);
+        yield* Fiber.join(persistedRegistration);
+        yield* Fiber.join(platformRegistration);
+        const error = yield* Fiber.join(removal);
+
+        expect(error._tag).toBe("PlatformEnvironmentRemovalError");
+        expect(
+          (yield* SubscriptionRef.get(registry.entries)).get(TARGET.environmentId)?.target,
+        ).toEqual(TARGET);
+      }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );
 

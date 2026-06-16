@@ -1,15 +1,54 @@
-import { EnvironmentId, type GitActionProgressEvent } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type GitActionProgressEvent,
+  type GitRunStackedActionResult,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
+import { Atom, AtomRegistry } from "effect/unstable/reactivity";
 
+import type { EnvironmentRegistry } from "../connection/registry.ts";
 import {
   applyVcsActionProgressEvent,
+  beginVcsActionState,
+  consumeVcsActionProgress,
+  createVcsActionManager,
+  createVcsActionTransportId,
   EMPTY_VCS_ACTION_STATE,
   getVcsActionTargetKey,
+  normalizeVcsActionProgressEvent,
 } from "./vcsAction.ts";
 
 const actionId = "action-123";
 const action = "commit_push" as const;
 const cwd = "/repo";
+const environmentId = EnvironmentId.make("environment-1");
+const result: GitRunStackedActionResult = {
+  action,
+  branch: {
+    status: "skipped_not_requested",
+  },
+  commit: {
+    status: "created",
+    commitSha: "abc123",
+    subject: "Test commit",
+  },
+  push: {
+    status: "pushed",
+    branch: "feature",
+  },
+  pr: {
+    status: "skipped_not_requested",
+  },
+  toast: {
+    title: "Changes pushed",
+    cta: {
+      kind: "none",
+    },
+  },
+};
 
 function progress<T extends GitActionProgressEvent>(event: T): T {
   return event;
@@ -17,8 +56,13 @@ function progress<T extends GitActionProgressEvent>(event: T): T {
 
 describe("vcsActionState", () => {
   it("projects phase and hook progress without owning the async operation", () => {
+    const initial = beginVcsActionState({
+      operation: "run_change_request",
+      label: "Running source control action",
+      actionId,
+    });
     const phase = applyVcsActionProgressEvent(
-      EMPTY_VCS_ACTION_STATE,
+      initial,
       progress({
         actionId,
         action,
@@ -81,8 +125,13 @@ describe("vcsActionState", () => {
   });
 
   it("retains a terminal action error for presentation", () => {
+    const initial = beginVcsActionState({
+      operation: "run_change_request",
+      label: "Running source control action",
+      actionId,
+    });
     const failed = applyVcsActionProgressEvent(
-      EMPTY_VCS_ACTION_STATE,
+      initial,
       progress({
         actionId,
         action,
@@ -102,19 +151,190 @@ describe("vcsActionState", () => {
     });
   });
 
+  it("ignores progress after a newer action owns the target", () => {
+    const current = beginVcsActionState({
+      operation: "pull",
+      label: "Pulling latest changes",
+      actionId: "newer-action",
+    });
+
+    expect(
+      applyVcsActionProgressEvent(
+        current,
+        progress({
+          actionId,
+          action,
+          cwd,
+          kind: "phase_started",
+          phase: "push",
+          label: "Pushing...",
+        }),
+      ),
+    ).toBe(current);
+  });
+
   it("keys presentation state only when the environment and repository are known", () => {
     expect(
       getVcsActionTargetKey({
-        environmentId: EnvironmentId.make("environment-1"),
+        environmentId,
         cwd,
       }),
-    ).toBe(`environment-1:${cwd}`);
+    ).toBe(JSON.stringify([environmentId, cwd]));
     expect(getVcsActionTargetKey({ environmentId: null, cwd })).toBeNull();
     expect(
       getVcsActionTargetKey({
-        environmentId: EnvironmentId.make("environment-1"),
+        environmentId,
         cwd: null,
       }),
     ).toBeNull();
+  });
+
+  it("normalizes progress only for the matching environment-scoped action", () => {
+    const target = { environmentId, cwd };
+    const otherTarget = {
+      environmentId: EnvironmentId.make("environment-2"),
+      cwd,
+    };
+    const transportActionId = createVcsActionTransportId(target, actionId);
+    const event = progress({
+      actionId: createVcsActionTransportId(otherTarget, actionId),
+      action,
+      cwd,
+      kind: "phase_started",
+      phase: "push",
+      label: "Pushing...",
+    });
+
+    expect(normalizeVcsActionProgressEvent(target, transportActionId, actionId, event)).toBeNull();
+    expect(
+      normalizeVcsActionProgressEvent(target, transportActionId, actionId, {
+        ...event,
+        actionId: transportActionId,
+      }),
+    ).toEqual({
+      ...event,
+      actionId,
+    });
+  });
+
+  it.effect("consumes progress through the terminal event and returns its result", () =>
+    Effect.gen(function* () {
+      const target = { environmentId, cwd };
+      const transportActionId = createVcsActionTransportId(target, actionId);
+      const observed: GitActionProgressEvent[] = [];
+      const events: GitActionProgressEvent[] = [
+        {
+          actionId: "unrelated-action",
+          action,
+          cwd,
+          kind: "phase_started",
+          phase: "commit",
+          label: "Ignored",
+        },
+        {
+          actionId: transportActionId,
+          action,
+          cwd,
+          kind: "phase_started",
+          phase: "push",
+          label: "Pushing...",
+        },
+        {
+          actionId: transportActionId,
+          action,
+          cwd,
+          kind: "action_finished",
+          result,
+        },
+      ];
+
+      const actual = yield* consumeVcsActionProgress(Stream.fromIterable(events), {
+        target,
+        transportActionId,
+        actionId,
+        onProgress: (event) =>
+          Effect.sync(() => {
+            observed.push(event);
+          }),
+      });
+
+      expect(actual).toEqual(result);
+      expect(observed.map((event) => event.actionId)).toEqual([actionId, actionId]);
+      expect(observed.map((event) => event.kind)).toEqual(["phase_started", "action_finished"]);
+    }),
+  );
+
+  it("keys mutation ownership by environment and cwd", () => {
+    const runtime = Atom.runtime(Layer.empty) as unknown as Atom.AtomRuntime<
+      EnvironmentRegistry,
+      never
+    >;
+    const manager = createVcsActionManager(runtime);
+    const registry = AtomRegistry.make();
+    const target = { environmentId, cwd };
+    const otherTarget = {
+      environmentId: EnvironmentId.make("environment-2"),
+      cwd,
+    };
+
+    expect(manager.runStackedAction(target)).toBe(manager.runStackedAction({ ...target }));
+    expect(manager.runStackedAction(target)).not.toBe(manager.runStackedAction(otherTarget));
+    expect(registry.get(manager.stateAtom(target))).toEqual(EMPTY_VCS_ACTION_STATE);
+
+    registry.dispose();
+  });
+
+  it("tracks finite mutations without letting an older completion clear newer state", async () => {
+    const runtime = Atom.runtime(Layer.empty) as unknown as Atom.AtomRuntime<
+      EnvironmentRegistry,
+      never
+    >;
+    const manager = createVcsActionManager(runtime);
+    const registry = AtomRegistry.make();
+    const target = { environmentId, cwd };
+    let finishFirst!: () => void;
+    let failSecond!: (error: Error) => void;
+    const firstAction = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const secondAction = new Promise<void>((_resolve, reject) => {
+      failSecond = reject;
+    });
+
+    const first = manager.track(
+      registry,
+      target,
+      { operation: "pull", label: "Pulling latest changes" },
+      () => firstAction,
+    );
+    const firstActionId = registry.get(manager.stateAtom(target)).actionId;
+    const second = manager.track(
+      registry,
+      target,
+      { operation: "switch_ref", label: "Switching branch" },
+      () => secondAction,
+    );
+    const secondActionId = registry.get(manager.stateAtom(target)).actionId;
+
+    finishFirst();
+    await first;
+    expect(registry.get(manager.stateAtom(target))).toMatchObject({
+      actionId: secondActionId,
+      isRunning: true,
+      operation: "switch_ref",
+    });
+    expect(secondActionId).not.toBe(firstActionId);
+
+    const secondFailure = expect(second).rejects.toThrow("switch failed");
+    failSecond(new Error("switch failed"));
+    await secondFailure;
+    expect(registry.get(manager.stateAtom(target))).toMatchObject({
+      actionId: secondActionId,
+      error: "switch failed",
+      isRunning: false,
+      operation: "switch_ref",
+    });
+
+    registry.dispose();
   });
 });

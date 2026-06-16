@@ -1,5 +1,8 @@
-import type { ContextMenuItem, DesktopBridge } from "@t3tools/contracts";
-import { EnvironmentId } from "@t3tools/contracts";
+import {
+  DEFAULT_CLIENT_SETTINGS,
+  type ContextMenuItem,
+  type DesktopBridge,
+} from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const showContextMenuFallbackMock =
@@ -82,60 +85,40 @@ describe("LocalApi", () => {
   it("delegates host capabilities and persistence to the desktop bridge", async () => {
     const showContextMenu = vi.fn().mockResolvedValue("delete");
     const pickFolder = vi.fn().mockResolvedValue("/tmp/project");
-    const getSavedEnvironmentSecret = vi.fn().mockResolvedValue("secret");
-    const setSavedEnvironmentSecret = vi.fn().mockResolvedValue(true);
-    const removeSavedEnvironmentSecret = vi.fn().mockResolvedValue(undefined);
+    const getClientSettings = vi.fn().mockResolvedValue(DEFAULT_CLIENT_SETTINGS);
+    const setClientSettings = vi.fn().mockResolvedValue(undefined);
     testWindow().desktopBridge = {
       showContextMenu,
       pickFolder,
-      getSavedEnvironmentSecret,
-      setSavedEnvironmentSecret,
-      removeSavedEnvironmentSecret,
+      getClientSettings,
+      setClientSettings,
     } as unknown as DesktopBridge;
 
     const { createLocalApi } = await import("./localApi");
     const api = createLocalApi();
-    const environmentId = EnvironmentId.make("environment-1");
     const items = [{ id: "delete", label: "Delete" }] as const;
 
     await expect(api.contextMenu.show(items)).resolves.toBe("delete");
     await expect(api.dialogs.pickFolder({ initialPath: "/tmp" })).resolves.toBe("/tmp/project");
-    await expect(api.persistence.getSavedEnvironmentSecret(environmentId)).resolves.toBe("secret");
-    await expect(api.persistence.setSavedEnvironmentSecret(environmentId, "next")).resolves.toBe(
-      true,
-    );
-    await api.persistence.removeSavedEnvironmentSecret(environmentId);
+    await expect(api.persistence.getClientSettings()).resolves.toEqual(DEFAULT_CLIENT_SETTINGS);
+    await api.persistence.setClientSettings(DEFAULT_CLIENT_SETTINGS);
 
     expect(showContextMenu).toHaveBeenCalledWith(items, undefined);
     expect(pickFolder).toHaveBeenCalledWith({ initialPath: "/tmp" });
-    expect(getSavedEnvironmentSecret).toHaveBeenCalledWith(environmentId);
-    expect(setSavedEnvironmentSecret).toHaveBeenCalledWith(environmentId, "next");
-    expect(removeSavedEnvironmentSecret).toHaveBeenCalledWith(environmentId);
+    expect(getClientSettings).toHaveBeenCalledTimes(1);
+    expect(setClientSettings).toHaveBeenCalledWith(DEFAULT_CLIENT_SETTINGS);
   });
 
-  it("persists connection records and secrets in browser storage", async () => {
+  it("persists client settings in browser storage", async () => {
     const { createLocalApi } = await import("./localApi");
     const api = createLocalApi();
-    const environmentId = EnvironmentId.make("environment-1");
-    const records = [
-      {
-        environmentId,
-        label: "Remote",
-        httpBaseUrl: "https://remote.example.test",
-        wsBaseUrl: "wss://remote.example.test",
-        createdAt: "2026-06-06T00:00:00.000Z",
-        lastConnectedAt: null,
-      },
-    ];
+    const settings = {
+      ...DEFAULT_CLIENT_SETTINGS,
+      timestampFormat: "12-hour" as const,
+    };
 
-    await api.persistence.setSavedEnvironmentRegistry(records);
-    await api.persistence.setSavedEnvironmentSecret(environmentId, "secret");
-
-    await expect(api.persistence.getSavedEnvironmentRegistry()).resolves.toEqual(records);
-    await expect(api.persistence.getSavedEnvironmentSecret(environmentId)).resolves.toBe("secret");
-
-    await api.persistence.removeSavedEnvironmentSecret(environmentId);
-    await expect(api.persistence.getSavedEnvironmentSecret(environmentId)).resolves.toBeNull();
+    await api.persistence.setClientSettings(settings);
+    await expect(api.persistence.getClientSettings()).resolves.toEqual(settings);
   });
 
   it("prefers the native LocalApi when one is injected", async () => {

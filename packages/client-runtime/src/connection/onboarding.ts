@@ -82,20 +82,15 @@ export const preparePairingRegistration = Effect.fn(
 )(function* (input: PairingConnectionInput) {
   const target = yield* resolvePairingTarget(input);
   const presentation = yield* ClientPresentation;
-  const { descriptor, access } = yield* Effect.all(
-    {
-      descriptor: fetchRemoteEnvironmentDescriptor({
-        httpBaseUrl: target.httpBaseUrl,
-      }),
-      access: bootstrapRemoteBearerSession({
-        httpBaseUrl: target.httpBaseUrl,
-        credential: target.credential,
-        scopes: presentation.scopes,
-        clientMetadata: presentation.metadata,
-      }),
-    },
-    { concurrency: "unbounded" },
-  ).pipe(Effect.mapError(mapRemoteEnvironmentError));
+  const descriptor = yield* fetchRemoteEnvironmentDescriptor({
+    httpBaseUrl: target.httpBaseUrl,
+  }).pipe(Effect.mapError(mapRemoteEnvironmentError));
+  const access = yield* bootstrapRemoteBearerSession({
+    httpBaseUrl: target.httpBaseUrl,
+    credential: target.credential,
+    scopes: presentation.scopes,
+    clientMetadata: presentation.metadata,
+  }).pipe(Effect.mapError(mapRemoteEnvironmentError));
   const connectionId = `bearer:${descriptor.environmentId}`;
 
   return new BearerConnectionRegistration({

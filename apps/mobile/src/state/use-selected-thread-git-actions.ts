@@ -13,23 +13,17 @@ import {
   sanitizeFeatureBranchName,
 } from "@t3tools/shared/git";
 
-import { gitEnvironment } from "../state/git";
 import { useBranches } from "../state/queries";
 import { threadEnvironment } from "../state/threads";
-import { vcsEnvironment } from "../state/vcs";
+import { vcsActionManager, vcsEnvironment } from "../state/vcs";
 import { uuidv4 } from "../lib/uuid";
+import { appAtomRegistry } from "./atom-registry";
 import { setPendingConnectionError } from "./use-remote-environment-registry";
-import {
-  beginVcsAction,
-  completeVcsAction,
-  failVcsAction,
-  showGitActionResult,
-} from "./use-vcs-action-state";
+import { showGitActionResult } from "./use-vcs-action-state";
 import { useThreadSelection } from "./use-thread-selection";
 import { useSelectedThreadWorktree } from "./use-selected-thread-worktree";
 
 export function useSelectedThreadGitActions() {
-  const runStackedAction = useAtomSet(gitEnvironment.runStackedAction, { mode: "promise" });
   const updateThreadMetadata = useAtomSet(threadEnvironment.updateMetadata, { mode: "promise" });
   const refreshStatus = useAtomSet(vcsEnvironment.refreshStatus, { mode: "promise" });
   const switchRef = useAtomSet(vcsEnvironment.switchRef, { mode: "promise" });
@@ -38,6 +32,13 @@ export function useSelectedThreadGitActions() {
   const pull = useAtomSet(vcsEnvironment.pull, { mode: "promise" });
   const { selectedThread, selectedThreadProject } = useThreadSelection();
   const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadWorktree();
+  const runStackedAction = useAtomSet(
+    vcsActionManager.runStackedAction({
+      environmentId: selectedThread?.environmentId ?? null,
+      cwd: selectedThreadCwd,
+    }),
+    { mode: "promise" },
+  );
 
   const selectedThreadGitRootCwd = selectedThreadProject?.workspaceRoot ?? null;
   const branchTarget = useMemo(
@@ -81,26 +82,26 @@ export function useSelectedThreadGitActions() {
       }
 
       const target = { environmentId: selectedThread.environmentId, cwd };
-      if (!options?.quiet) {
-        beginVcsAction(target, {
-          operation: "refresh_status",
-          label: "Refreshing source control status",
-        });
-      }
       try {
-        const result = await refreshStatus({
-          environmentId: selectedThread.environmentId,
-          input: { cwd },
-        });
-        if (!options?.quiet) {
-          completeVcsAction(target);
-        }
+        const execute = () =>
+          refreshStatus({
+            environmentId: selectedThread.environmentId,
+            input: { cwd },
+          });
+        const result = options?.quiet
+          ? await execute()
+          : await vcsActionManager.track(
+              appAtomRegistry,
+              target,
+              {
+                operation: "refresh_status",
+                label: "Refreshing source control status",
+              },
+              execute,
+            );
         setPendingConnectionError(null);
         return result;
       } catch (error) {
-        if (!options?.quiet) {
-          failVcsAction(target, "refresh_status", error);
-        }
         const message = error instanceof Error ? error.message : "Failed to refresh git status.";
         setPendingConnectionError(message);
         return null;
@@ -125,6 +126,7 @@ export function useSelectedThreadGitActions() {
         readonly project: EnvironmentProject;
         readonly cwd: string;
       }) => Promise<T>,
+      options?: { readonly managedExternally?: boolean },
     ): Promise<T | null> => {
       if (!selectedThread || !selectedThreadProject || !selectedThreadCwd) {
         return null;
@@ -134,18 +136,20 @@ export function useSelectedThreadGitActions() {
         environmentId: selectedThread.environmentId,
         cwd: selectedThreadCwd,
       };
-      beginVcsAction(target, { operation, label });
       try {
         setPendingConnectionError(null);
-        const result = await execute({
-          thread: selectedThread,
-          project: selectedThreadProject,
-          cwd: selectedThreadCwd,
-        });
-        completeVcsAction(target);
+        const run = () =>
+          execute({
+            thread: selectedThread,
+            project: selectedThreadProject,
+            cwd: selectedThreadCwd,
+          });
+        const result =
+          options?.managedExternally === true
+            ? await run()
+            : await vcsActionManager.track(appAtomRegistry, target, { operation, label }, run);
         return result;
       } catch (error) {
-        failVcsAction(target, operation, error);
         const message = error instanceof Error ? error.message : "Git action failed.";
         setPendingConnectionError(message);
         showGitActionResult({ type: "error", title: "Git action failed", description: message });
@@ -290,29 +294,19 @@ export function useSelectedThreadGitActions() {
 
   const onRunSelectedThreadGitAction = useCallback(
     async (input: GitActionRequestInput): Promise<GitRunStackedActionResult | null> => {
+      const actionId = uuidv4();
       return await runSelectedThreadGitMutation(
         "run_change_request",
         "Running source control action",
         async ({ thread, cwd }) => {
-          const event = await runStackedAction({
-            environmentId: thread.environmentId,
-            input: {
-              cwd,
-              actionId: uuidv4(),
-              action: input.action,
-              ...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
-              ...(input.featureBranch ? { featureBranch: input.featureBranch } : {}),
-              ...(input.filePaths?.length ? { filePaths: [...input.filePaths] } : {}),
-            },
+          const result = await runStackedAction({
+            actionId,
+            action: input.action,
+            ...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
+            ...(input.featureBranch ? { featureBranch: input.featureBranch } : {}),
+            ...(input.filePaths?.length ? { filePaths: [...input.filePaths] } : {}),
           });
-          if (event.kind === "action_failed") {
-            throw new Error(event.message);
-          }
-          if (event.kind !== "action_finished") {
-            throw new Error("Source control action ended without a result.");
-          }
 
-          const result = event.result;
           showGitActionResult({
             type: "success",
             title: result.toast.title,
@@ -334,6 +328,7 @@ export function useSelectedThreadGitActions() {
           }
           return result;
         },
+        { managedExternally: true },
       );
     },
     [

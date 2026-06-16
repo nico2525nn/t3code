@@ -18,7 +18,11 @@ import {
 import { fetchRemoteEnvironmentDescriptor } from "@t3tools/client-runtime/environment";
 import { managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import { EnvironmentRpcRequestObserver } from "@t3tools/client-runtime/rpc";
-import { AuthStandardClientScopes } from "@t3tools/contracts";
+import {
+  AuthStandardClientScopes,
+  type DesktopBridge,
+  type DesktopSshEnvironmentTarget,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -127,6 +131,39 @@ function sshPreparationError(cause: unknown) {
   });
 }
 
+export const provisionDesktopSshEnvironment = Effect.fn(
+  "web.connectionPlatform.ssh.provisionDesktop",
+)(function* (bridge: DesktopBridge, target: DesktopSshEnvironmentTarget) {
+  const bootstrap = yield* Effect.tryPromise({
+    try: () =>
+      bridge.ensureSshEnvironment(target, {
+        issuePairingToken: true,
+      }),
+    catch: sshPreparationError,
+  });
+  const pairingToken = bootstrap.pairingToken;
+  if (pairingToken === null) {
+    return yield* new ConnectionBlockedError({
+      reason: "authentication",
+      message: "The SSH environment did not issue a pairing credential.",
+    });
+  }
+  const descriptor = yield* Effect.tryPromise({
+    try: () => bridge.fetchSshEnvironmentDescriptor(bootstrap.httpBaseUrl),
+    catch: sshPreparationError,
+  });
+  const access = yield* Effect.tryPromise({
+    try: () => bridge.bootstrapSshBearerSession(bootstrap.httpBaseUrl, pairingToken),
+    catch: sshPreparationError,
+  });
+  return {
+    environmentId: descriptor.environmentId,
+    label: descriptor.label,
+    bootstrap,
+    bearerToken: access.access_token,
+  };
+});
+
 const capabilitiesLayer = Layer.effectContext(
   Effect.sync(() => {
     const presentation = ClientPresentation.of({
@@ -172,39 +209,7 @@ const capabilitiesLayer = Layer.effectContext(
             message: "SSH environments are only available in the desktop app.",
           });
         }
-        const bootstrap = yield* Effect.tryPromise({
-          try: () =>
-            bridge.ensureSshEnvironment(target, {
-              issuePairingToken: true,
-            }),
-          catch: sshPreparationError,
-        });
-        if (bootstrap.pairingToken === null) {
-          return yield* new ConnectionBlockedError({
-            reason: "authentication",
-            message: "The SSH environment did not issue a pairing credential.",
-          });
-        }
-        const { descriptor, access } = yield* Effect.all(
-          {
-            descriptor: Effect.tryPromise({
-              try: () => bridge.fetchSshEnvironmentDescriptor(bootstrap.httpBaseUrl),
-              catch: sshPreparationError,
-            }),
-            access: Effect.tryPromise({
-              try: () =>
-                bridge.bootstrapSshBearerSession(bootstrap.httpBaseUrl, bootstrap.pairingToken!),
-              catch: sshPreparationError,
-            }),
-          },
-          { concurrency: "unbounded" },
-        );
-        return {
-          environmentId: descriptor.environmentId,
-          label: descriptor.label,
-          bootstrap,
-          bearerToken: access.access_token,
-        };
+        return yield* provisionDesktopSshEnvironment(bridge, target);
       }),
       prepare: Effect.fn("web.connectionPlatform.ssh.prepare")(function* (input) {
         const bridge = window.desktopBridge;

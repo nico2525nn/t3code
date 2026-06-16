@@ -7,15 +7,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { scopedThreadKey } from "../lib/scopedEntities";
 import { appAtomRegistry } from "./atom-registry";
 import { useThreadShells } from "./entities";
+import { ensureThreadOutboxLoaded, removeThreadOutboxMessage } from "./thread-outbox";
 import {
-  ensureThreadOutboxLoaded,
-  removeThreadOutboxMessage,
+  resolveThreadOutboxDeliveryAction,
   shouldRetryThreadOutboxDelivery,
   threadOutboxRetryDelayMs,
   type QueuedThreadMessage,
-  useThreadOutboxMessages,
-} from "./thread-outbox";
+} from "./thread-outbox-model";
 import { threadEnvironment } from "./threads";
+import { useThreadOutboxMessages, useThreadOutboxShellStatuses } from "./use-thread-outbox";
 import { useRemoteConnectionStatus } from "./use-remote-environment-registry";
 
 export const dispatchingQueuedMessageIdAtom = Atom.make<MessageId | null>(null).pipe(
@@ -46,6 +46,7 @@ export function useThreadOutboxDrain(): void {
   const startTurn = useAtomSet(threadEnvironment.startTurn, { mode: "promise" });
   const dispatchingQueuedMessageId = useAtomValue(dispatchingQueuedMessageIdAtom);
   const queuedMessagesByThreadKey = useThreadOutboxMessages();
+  const shellStatuses = useThreadOutboxShellStatuses();
   const threads = useThreadShells();
   const { connectedEnvironments } = useRemoteConnectionStatus();
   const [retryTick, setRetryTick] = useState(0);
@@ -64,13 +65,7 @@ export function useThreadOutboxDrain(): void {
   }, []);
 
   const sendQueuedMessage = useCallback(
-    async (queuedMessage: QueuedThreadMessage) => {
-      const thread = findThread(threads, queuedMessage);
-      if (!thread) {
-        await removeThreadOutboxMessage(queuedMessage);
-        return true;
-      }
-
+    async (queuedMessage: QueuedThreadMessage, thread: EnvironmentThreadShell) => {
       try {
         await startTurn({
           environmentId: queuedMessage.environmentId,
@@ -88,8 +83,6 @@ export function useThreadOutboxDrain(): void {
             createdAt: queuedMessage.createdAt,
           },
         });
-        await removeThreadOutboxMessage(queuedMessage);
-        return true;
       } catch (error) {
         const retry = shouldRetryThreadOutboxDelivery(error);
         console.warn("[thread-outbox] queued message delivery failed", {
@@ -102,11 +95,22 @@ export function useThreadOutboxDrain(): void {
         if (retry) {
           return false;
         }
+      }
+
+      try {
         await removeThreadOutboxMessage(queuedMessage);
         return true;
+      } catch (error) {
+        console.warn("[thread-outbox] failed to remove delivered queued message", {
+          environmentId: queuedMessage.environmentId,
+          threadId: queuedMessage.threadId,
+          messageId: queuedMessage.messageId,
+          error,
+        });
+        return false;
       }
     },
-    [startTurn, threads],
+    [startTurn],
   );
 
   useEffect(() => {
@@ -124,23 +128,42 @@ export function useThreadOutboxDrain(): void {
       }
 
       const thread = findThread(threads, nextQueuedMessage);
-      if (!thread || scopedThreadKey(thread.environmentId, thread.id) !== threadKey) {
+      if (thread && scopedThreadKey(thread.environmentId, thread.id) !== threadKey) {
         continue;
       }
 
       const environment = connectedEnvironments.find(
         (candidate) => candidate.environmentId === nextQueuedMessage.environmentId,
       );
-      if (!environment || environment.connectionState !== "connected") {
-        continue;
-      }
-
-      if (thread.session?.status === "running" || thread.session?.status === "starting") {
+      const deliveryAction = resolveThreadOutboxDeliveryAction({
+        threadExists: thread !== undefined,
+        shellStatus: shellStatuses.get(nextQueuedMessage.environmentId) ?? "empty",
+        environmentConnected: environment?.connectionState === "connected",
+        threadBusy: thread?.session?.status === "running" || thread?.session?.status === "starting",
+      });
+      if (deliveryAction === "wait") {
         continue;
       }
 
       beginDispatchingQueuedMessage(nextQueuedMessage.messageId);
-      void sendQueuedMessage(nextQueuedMessage)
+      const delivery =
+        deliveryAction === "remove"
+          ? removeThreadOutboxMessage(nextQueuedMessage).then(
+              () => true,
+              (error) => {
+                console.warn("[thread-outbox] failed to remove message for a missing thread", {
+                  environmentId: nextQueuedMessage.environmentId,
+                  threadId: nextQueuedMessage.threadId,
+                  messageId: nextQueuedMessage.messageId,
+                  error,
+                });
+                return false;
+              },
+            )
+          : thread !== undefined
+            ? sendQueuedMessage(nextQueuedMessage, thread)
+            : Promise.resolve(false);
+      void delivery
         .then((sent) => {
           if (sent) {
             retryAttemptRef.current.delete(nextQueuedMessage.messageId);
@@ -178,6 +201,7 @@ export function useThreadOutboxDrain(): void {
     queuedMessagesByThreadKey,
     retryTick,
     sendQueuedMessage,
+    shellStatuses,
     threads,
   ]);
 }

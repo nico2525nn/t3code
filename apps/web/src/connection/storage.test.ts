@@ -3,8 +3,9 @@ import { ConnectionCatalogDocument } from "@t3tools/client-runtime/platform";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import { afterEach, vi } from "vite-plus/test";
 
-import { makeCatalogStore } from "./storage";
+import { makeCatalogBackend, makeCatalogStore } from "./storage";
 
 const emptyCatalog = {
   schemaVersion: 1,
@@ -14,6 +15,11 @@ const emptyCatalog = {
   remoteDpopTokens: [],
 } as const;
 const decodeCatalog = Schema.decodeUnknownSync(Schema.fromJsonString(ConnectionCatalogDocument));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("makeCatalogStore", () => {
   it.effect("quarantines malformed catalogs and starts from an empty document", () =>
@@ -45,6 +51,27 @@ describe("makeCatalogStore", () => {
       });
 
       expect(yield* Effect.flip(store.read)).toBe(failure);
+    }),
+  );
+});
+
+describe("makeCatalogBackend", () => {
+  it.effect("fails writes when desktop secure storage declines the catalog", () =>
+    Effect.gen(function* () {
+      const setConnectionCatalog = vi.fn().mockResolvedValue(false);
+      vi.stubGlobal("window", {
+        desktopBridge: {
+          getConnectionCatalog: vi.fn().mockResolvedValue(null),
+          setConnectionCatalog,
+        },
+      });
+      const backend = makeCatalogBackend({} as IDBDatabase);
+
+      const error = yield* backend.write("{}").pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(ConnectionTransientError);
+      expect(error.message).toContain("Desktop secure storage is unavailable");
+      expect(setConnectionCatalog).toHaveBeenCalledWith("{}");
     }),
   );
 });

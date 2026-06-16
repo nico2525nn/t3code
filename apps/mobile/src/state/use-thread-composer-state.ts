@@ -27,7 +27,8 @@ import {
 import { setPendingConnectionError } from "../state/use-remote-environment-registry";
 import { useSelectedThreadDetail } from "../state/use-thread-detail";
 import { useThreadSelection } from "../state/use-thread-selection";
-import { enqueueThreadOutboxMessage, useThreadOutboxMessages } from "./thread-outbox";
+import { enqueueThreadOutboxMessage } from "./thread-outbox";
+import { useThreadOutboxMessages } from "./use-thread-outbox";
 import { dispatchingQueuedMessageIdAtom } from "./use-thread-outbox-drain";
 
 export function appendReviewCommentToDraft(input: {

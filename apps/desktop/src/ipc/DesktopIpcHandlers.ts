@@ -15,13 +15,6 @@ import {
   setConnectionCatalog,
 } from "./methods/connectionCatalog.ts";
 import {
-  getSavedEnvironmentRegistry,
-  getSavedEnvironmentSecret,
-  removeSavedEnvironmentSecret,
-  setSavedEnvironmentRegistry,
-  setSavedEnvironmentSecret,
-} from "./methods/savedEnvironments.ts";
-import {
   getAdvertisedEndpoints,
   getServerExposureState,
   setServerExposureMode,
@@ -64,11 +57,6 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
 
   yield* ipc.handle(getClientSettings);
   yield* ipc.handle(setClientSettings);
-  yield* ipc.handle(getSavedEnvironmentRegistry);
-  yield* ipc.handle(setSavedEnvironmentRegistry);
-  yield* ipc.handle(getSavedEnvironmentSecret);
-  yield* ipc.handle(setSavedEnvironmentSecret);
-  yield* ipc.handle(removeSavedEnvironmentSecret);
   yield* ipc.handle(getConnectionCatalog);
   yield* ipc.handle(setConnectionCatalog);
   yield* ipc.handle(clearConnectionCatalog);

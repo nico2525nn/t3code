@@ -49,9 +49,11 @@ The supervisor is the only retry owner.
 The UI derives `available`, `offline`, `connecting`, `reconnecting`,
 `connected`, and `error` from supervisor state plus explicit data-sync state.
 It does not infer connection health from cached data or the existence of a
-transport object. A healthy RPC transport with a failed mandatory shell
-subscription is shown as a synchronization error, not as a reconnect that is
-not actually scheduled.
+transport object. An environment becomes `connected` after the socket opens and
+the initial config RPC succeeds, proving that the server is responsive. Shell
+and thread synchronization are independent data states. A healthy RPC
+transport with a failed shell subscription is shown as connected with a
+synchronization error, not as a reconnect that is not actually scheduled.
 
 ## Data Boundary
 
@@ -59,10 +61,12 @@ Finite requests, durable subscriptions, and commands are separate APIs:
 
 - Query atoms revalidate when the RPC generation changes.
 - Subscription atoms switch to replacement sessions.
+- Expected subscription failures update domain sync state and wait for a
+  replacement session; they do not take down a healthy transport.
 - Mutations resolve the current environment runtime at execution time.
 - Shell and thread snapshots are available while offline.
-- A ready transport remains `synchronizing` until the first live shell snapshot
-  arrives.
+- A connected transport may have `empty`, `cached`, `synchronizing`, `live`, or
+  failed shell and thread data independently.
 - Cached shell and thread projections are never allowed to overwrite newer live
   data during a fast reconnect.
 - Domain atom factories route effects through the environment registry and

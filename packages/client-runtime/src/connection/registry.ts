@@ -22,8 +22,12 @@ import {
   connectionRegistrationCatalogEntry,
 } from "./catalog.ts";
 import { Connectivity } from "./connectivity.ts";
-import type { NetworkStatus, SupervisorConnectionState } from "./model.ts";
-import type { ConnectionAttemptError } from "./model.ts";
+import type {
+  ConnectionAttemptError,
+  ConnectionTarget,
+  NetworkStatus,
+  SupervisorConnectionState,
+} from "./model.ts";
 import {
   type ConnectionPersistenceError,
   ConnectionRegistrationStore,
@@ -146,6 +150,9 @@ const makeEnvironmentRegistry = Effect.fn("EnvironmentRegistry.make")(function* 
     ReadonlyMap<EnvironmentId, EnvironmentServiceScope>
   >(new Map());
   const platformEnvironmentIds = yield* Ref.make<ReadonlySet<EnvironmentId>>(new Set());
+  const persistedTargetsByEnvironment = yield* Ref.make<
+    ReadonlyMap<EnvironmentId, ConnectionTarget>
+  >(new Map(persistedTargets.map((target) => [target.environmentId, target])));
   interface LeaseLock {
     readonly semaphore: Semaphore.Semaphore;
     readonly users: number;
@@ -338,42 +345,52 @@ const makeEnvironmentRegistry = Effect.fn("EnvironmentRegistry.make")(function* 
     );
   }).pipe(Effect.withSpan("EnvironmentRegistry.start"));
 
-  const installEntry = Effect.fn("EnvironmentRegistry.installEntry")(function* (
+  const installEntryLocked = Effect.fn("EnvironmentRegistry.installEntryLocked")(function* (
     entry: ConnectionCatalogEntry,
     options?: { readonly retainEquivalentRuntime?: boolean },
   ) {
     const target = entry.target;
-    yield* withLeaseLock(
-      target.environmentId,
-      Effect.gen(function* () {
-        const previous = (yield* SubscriptionRef.get(entries)).get(target.environmentId);
-        const existingScope = (yield* SubscriptionRef.get(serviceScopes)).get(target.environmentId);
-        if (
-          options?.retainEquivalentRuntime === true &&
-          previous !== undefined &&
-          Equal.equals(previous, entry) &&
-          existingScope !== undefined &&
-          Equal.equals(existingScope.entry, entry)
-        ) {
-          return;
-        }
+    const previous = (yield* SubscriptionRef.get(entries)).get(target.environmentId);
+    const existingScope = (yield* SubscriptionRef.get(serviceScopes)).get(target.environmentId);
+    if (
+      options?.retainEquivalentRuntime === true &&
+      previous !== undefined &&
+      Equal.equals(previous, entry) &&
+      existingScope !== undefined &&
+      Equal.equals(existingScope.entry, entry)
+    ) {
+      return;
+    }
 
-        yield* closeServiceScope(target.environmentId);
-        yield* SubscriptionRef.update(entries, (current) => {
-          const next = new Map(current);
-          next.set(target.environmentId, entry);
-          return next;
-        });
-        yield* createServiceScope(entry);
-      }),
-    );
+    yield* closeServiceScope(target.environmentId);
+    yield* SubscriptionRef.update(entries, (current) => {
+      const next = new Map(current);
+      next.set(target.environmentId, entry);
+      return next;
+    });
+    yield* createServiceScope(entry);
   });
 
   const register = Effect.fn("EnvironmentRegistry.register")(function* (
     registration: ConnectionRegistration,
   ) {
-    yield* registrations.register(registration);
-    yield* installEntry(connectionRegistrationCatalogEntry(registration));
+    const entry = connectionRegistrationCatalogEntry(registration);
+    const environmentId = entry.target.environmentId;
+    yield* withLeaseLock(
+      environmentId,
+      Effect.gen(function* () {
+        if ((yield* Ref.get(platformEnvironmentIds)).has(environmentId)) {
+          return;
+        }
+        yield* registrations.register(registration);
+        yield* Ref.update(persistedTargetsByEnvironment, (current) => {
+          const next = new Map(current);
+          next.set(environmentId, registration.target);
+          return next;
+        });
+        yield* installEntryLocked(entry);
+      }),
+    );
   });
 
   const registerPlatform = Effect.fn("EnvironmentRegistry.registerPlatform")(function* (
@@ -381,29 +398,86 @@ const makeEnvironmentRegistry = Effect.fn("EnvironmentRegistry.make")(function* 
   ) {
     const entry = connectionRegistrationCatalogEntry(registration);
     const target = entry.target;
-    yield* Ref.update(platformEnvironmentIds, (current) => {
-      const next = new Set(current);
-      next.add(target.environmentId);
-      return next;
-    });
-    yield* installEntry(entry, { retainEquivalentRuntime: true });
+    yield* withLeaseLock(
+      target.environmentId,
+      Effect.gen(function* () {
+        yield* Ref.update(platformEnvironmentIds, (current) => {
+          const next = new Set(current);
+          next.add(target.environmentId);
+          return next;
+        });
+
+        const persistedTarget = (yield* Ref.get(persistedTargetsByEnvironment)).get(
+          target.environmentId,
+        );
+        if (persistedTarget !== undefined) {
+          yield* registrations.remove(persistedTarget).pipe(
+            Effect.tap(() =>
+              Ref.update(persistedTargetsByEnvironment, (current) => {
+                const next = new Map(current);
+                next.delete(target.environmentId);
+                return next;
+              }),
+            ),
+            Effect.catch((error) =>
+              Effect.logWarning(
+                "Could not remove a persisted registration shadowed by the primary environment.",
+                {
+                  environmentId: target.environmentId,
+                  error,
+                },
+              ),
+            ),
+          );
+        }
+
+        yield* installEntryLocked(entry, { retainEquivalentRuntime: true });
+      }),
+    );
   });
 
   const remove = Effect.fn("EnvironmentRegistry.remove")(function* (environmentId: EnvironmentId) {
-    if ((yield* Ref.get(platformEnvironmentIds)).has(environmentId)) {
-      return yield* new PlatformEnvironmentRemovalError({
-        environmentId,
-        message: "Platform-managed environments cannot be removed.",
-      });
-    }
     return yield* withLeaseLock(
       environmentId,
       Effect.gen(function* () {
+        if ((yield* Ref.get(platformEnvironmentIds)).has(environmentId)) {
+          return yield* new PlatformEnvironmentRemovalError({
+            environmentId,
+            message: "Platform-managed environments cannot be removed.",
+          });
+        }
         const target = (yield* getEntry(environmentId)).target;
         const profile =
           target._tag === "BearerConnectionTarget" || target._tag === "SshConnectionTarget"
             ? yield* profiles.get(target.connectionId)
             : Option.none();
+
+        yield* registrations.remove(target);
+        yield* Ref.update(persistedTargetsByEnvironment, (current) => {
+          const next = new Map(current);
+          next.delete(environmentId);
+          return next;
+        });
+        yield* closeServiceScope(environmentId);
+        yield* SubscriptionRef.update(entries, (current) => {
+          const next = new Map(current);
+          next.delete(environmentId);
+          return next;
+        });
+        yield* Effect.all(
+          [
+            cache.clear(environmentId).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Could not clear cached environment data after removal.", {
+                  environmentId,
+                  error,
+                }),
+              ),
+            ),
+            ownedDataCleanup.clear(environmentId),
+          ],
+          { concurrency: "unbounded", discard: true },
+        );
 
         if (
           target._tag === "SshConnectionTarget" &&
@@ -420,18 +494,6 @@ const makeEnvironmentRegistry = Effect.fn("EnvironmentRegistry.make")(function* 
             Effect.ignore,
           );
         }
-
-        yield* closeServiceScope(environmentId);
-        yield* SubscriptionRef.update(entries, (current) => {
-          const next = new Map(current);
-          next.delete(environmentId);
-          return next;
-        });
-        yield* registrations.remove(target);
-        yield* Effect.all([cache.clear(environmentId), ownedDataCleanup.clear(environmentId)], {
-          concurrency: "unbounded",
-          discard: true,
-        });
       }),
     );
   });

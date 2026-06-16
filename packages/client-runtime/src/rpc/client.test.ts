@@ -4,7 +4,9 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -246,6 +248,91 @@ describe("environment RPC", () => {
 
       expect(error).toBe(domainError);
       expect(yield* Ref.get(retryCount)).toBe(0);
+    }),
+  );
+
+  it.effect("keeps handled domain failures dormant until a replacement session arrives", () =>
+    Effect.gen(function* () {
+      const domainError = new Error("terminal subscription rejected");
+      const subscriptions: string[] = [];
+      const observedFailures: Error[] = [];
+      const firstClient = {
+        [WS_METHODS.subscribeTerminalEvents]: () => {
+          subscriptions.push("first");
+          return Stream.fail(domainError);
+        },
+      } as unknown as WsRpcProtocolClient;
+      const secondClient = {
+        [WS_METHODS.subscribeTerminalEvents]: () => {
+          subscriptions.push("second");
+          return Stream.never;
+        },
+      } as unknown as WsRpcProtocolClient;
+      const { activeSession, retryCount, supervisor } = yield* makeHarness();
+
+      yield* SubscriptionRef.set(activeSession, Option.some(session(firstClient)));
+      const subscriptionFiber = yield* subscribe(
+        WS_METHODS.subscribeTerminalEvents,
+        {},
+        {
+          onExpectedFailure: (cause) =>
+            Effect.sync(() => {
+              observedFailures.push(Cause.squash(cause) as Error);
+            }),
+        },
+      ).pipe(
+        Stream.runDrain,
+        Effect.provideService(EnvironmentSupervisor, supervisor),
+        Effect.forkChild,
+      );
+      for (let attempt = 0; attempt < 100 && observedFailures.length < 1; attempt += 1) {
+        yield* Effect.yieldNow;
+      }
+
+      expect(subscriptions).toEqual(["first"]);
+      expect(observedFailures).toEqual([domainError]);
+
+      yield* SubscriptionRef.set(activeSession, Option.some(session(secondClient)));
+      for (let attempt = 0; attempt < 100 && subscriptions.length < 2; attempt += 1) {
+        yield* Effect.yieldNow;
+      }
+      yield* Fiber.interrupt(subscriptionFiber);
+
+      expect(subscriptions).toEqual(["first", "second"]);
+      expect(yield* Ref.get(retryCount)).toBe(0);
+    }),
+  );
+
+  it.effect("does not classify subscription defects as expected failures", () =>
+    Effect.gen(function* () {
+      const defect = new Error("subscription invariant failed");
+      let expectedFailureCount = 0;
+      const client = {
+        [WS_METHODS.subscribeTerminalEvents]: () => Stream.die(defect),
+      } as unknown as WsRpcProtocolClient;
+      const { activeSession, supervisor } = yield* makeHarness();
+
+      yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
+      const exit = yield* subscribe(
+        WS_METHODS.subscribeTerminalEvents,
+        {},
+        {
+          onExpectedFailure: () =>
+            Effect.sync(() => {
+              expectedFailureCount += 1;
+            }),
+        },
+      ).pipe(
+        Stream.runDrain,
+        Effect.provideService(EnvironmentSupervisor, supervisor),
+        Effect.exit,
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+      }
+      expect(expectedFailureCount).toBe(0);
     }),
   );
 });

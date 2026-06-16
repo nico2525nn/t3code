@@ -26,12 +26,20 @@ const CLIENT_PRESENTATION_LAYER = Layer.succeed(
   }),
 );
 
-function pairingHttpLayer(calls: Array<{ readonly url: string; readonly init: RequestInit }>) {
+function pairingHttpLayer(
+  calls: Array<{ readonly url: string; readonly init: RequestInit }>,
+  options?: { readonly failDescriptor?: boolean },
+) {
   const fetchFn = ((input, init = {}) => {
     const url = String(input);
     calls.push({ url, init });
 
     if (url.endsWith("/.well-known/t3/environment")) {
+      if (options?.failDescriptor === true) {
+        return Promise.resolve(
+          Response.json({ message: "descriptor unavailable" }, { status: 503 }),
+        );
+      }
       return Promise.resolve(
         Response.json({
           environmentId: "environment-paired",
@@ -93,7 +101,7 @@ describe("connection onboarding", () => {
           token: "bearer-token",
         },
       });
-      expect(calls.map((call) => call.url).toSorted()).toEqual([
+      expect(calls.map((call) => call.url)).toEqual([
         "https://remote.example.test/.well-known/t3/environment",
         "https://remote.example.test/oauth/token",
       ]);
@@ -107,6 +115,29 @@ describe("connection onboarding", () => {
       expect(tokenParams.get("subject_token")).toBe("pairing-token");
       expect(tokenParams.get("scope")).toBe(AuthStandardClientScopes.join(" "));
       expect(tokenParams.get("client_label")).toBe("T3 Code Test");
+    }),
+  );
+
+  it.effect("does not consume a pairing credential when descriptor discovery fails", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+
+      yield* preparePairingRegistration({
+        host: "remote.example.test",
+        pairingCode: "pairing-token",
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            CLIENT_PRESENTATION_LAYER,
+            pairingHttpLayer(calls, { failDescriptor: true }),
+          ),
+        ),
+        Effect.flip,
+      );
+
+      expect(calls.map((call) => call.url)).toEqual([
+        "https://remote.example.test/.well-known/t3/environment",
+      ]);
     }),
   );
 

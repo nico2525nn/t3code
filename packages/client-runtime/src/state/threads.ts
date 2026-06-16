@@ -201,13 +201,13 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   );
 
   yield* setSynchronizing;
-  yield* subscribe(ORCHESTRATION_WS_METHODS.subscribeThread, { threadId }).pipe(
-    Stream.runForEach(applyItem),
-    Effect.catchCause((cause) =>
-      Cause.hasInterruptsOnly(cause) ? Effect.interrupt : setStreamError(cause),
-    ),
-    Effect.forkScoped,
-  );
+  yield* subscribe(
+    ORCHESTRATION_WS_METHODS.subscribeThread,
+    { threadId },
+    {
+      onExpectedFailure: setStreamError,
+    },
+  ).pipe(Stream.runForEach(applyItem), Effect.forkScoped);
 
   yield* Effect.addFinalizer(() =>
     SubscriptionRef.get(state).pipe(

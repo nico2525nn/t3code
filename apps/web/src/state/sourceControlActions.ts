@@ -1,4 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import type { VcsActionOperation } from "@t3tools/client-runtime/state/vcs";
 import type {
   EnvironmentId,
   GitActionProgressEvent,
@@ -11,22 +12,13 @@ import type {
   ThreadId,
   VcsPullResult,
 } from "@t3tools/contracts";
-import * as Option from "effect/Option";
-import { AsyncResult } from "effect/unstable/reactivity";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  useTransition,
-} from "react";
+import { useCallback, useEffect } from "react";
 
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import { gitEnvironment } from "./git";
 import { useEnvironmentQuery } from "./query";
 import { sourceControlEnvironment } from "./sourceControl";
-import { vcsEnvironment } from "./vcs";
+import { vcsActionManager, vcsEnvironment } from "./vcs";
 
 export type SourceControlActionKind =
   | "init"
@@ -47,107 +39,57 @@ interface SourceControlActionState<TArgs extends ReadonlyArray<unknown>, TResult
   readonly resetError: () => void;
 }
 
-const actionListeners = new Set<() => void>();
-const activeActionCounts = new Map<string, number>();
 const pullRequestResolutionCache = new Map<string, GitResolvePullRequestResult>();
 
-interface GitActionProgressListener {
-  readonly transportActionId: string;
-  readonly actionId: string;
-  readonly cwd: string;
-  readonly onProgress: (event: GitActionProgressEvent) => void;
-}
-
-export function createGitActionTransportId(environmentId: EnvironmentId, actionId: string): string {
-  return `${environmentId.length}:${environmentId}${actionId}`;
-}
-
-export function deliverGitActionProgress(
-  listener: GitActionProgressListener | null,
-  event: GitActionProgressEvent,
-): void {
-  if (
-    listener === null ||
-    event.actionId !== listener.transportActionId ||
-    event.cwd !== listener.cwd
-  ) {
-    return;
-  }
-  listener.onProgress({
-    ...event,
-    actionId: listener.actionId,
-  });
-}
-
-function actionKey(kind: SourceControlActionKind, scope: SourceControlActionScope): string {
-  return `${kind}:${scope.environmentId ?? ""}:${scope.cwd ?? ""}`;
-}
-
-function notifyActionListeners(): void {
-  for (const listener of actionListeners) {
-    listener();
-  }
-}
-
-function beginAction(key: string): () => void {
-  activeActionCounts.set(key, (activeActionCounts.get(key) ?? 0) + 1);
-  notifyActionListeners();
-  let completed = false;
-  return () => {
-    if (completed) {
-      return;
-    }
-    completed = true;
-    const next = (activeActionCounts.get(key) ?? 1) - 1;
-    if (next <= 0) {
-      activeActionCounts.delete(key);
-    } else {
-      activeActionCounts.set(key, next);
-    }
-    notifyActionListeners();
-  };
-}
+const ACTION_OPERATION = {
+  init: "init",
+  pull: "pull",
+  publishRepository: "publish_repository",
+  runStackedAction: "run_change_request",
+  preparePullRequestThread: "prepare_pull_request_thread",
+} as const satisfies Record<SourceControlActionKind, VcsActionOperation>;
 
 function useAction<TArgs extends ReadonlyArray<unknown>, TResult>(input: {
   readonly kind: SourceControlActionKind;
+  readonly label: string;
   readonly scope: SourceControlActionScope;
   readonly action: (...args: TArgs) => Promise<TResult>;
   readonly onSuccess?: () => void;
+  readonly managedExternally?: boolean;
 }): SourceControlActionState<TArgs, TResult> {
-  const [error, setError] = useState<unknown>(null);
-  const [activeCount, setActiveCount] = useState(0);
-  const [isTransitionPending, startTransition] = useTransition();
-  const key = actionKey(input.kind, input.scope);
+  const operation = ACTION_OPERATION[input.kind];
+  const state = useAtomValue(vcsActionManager.stateAtom(input.scope));
+  const ownsState = state.operation === operation;
 
   const resetError = useCallback(() => {
-    startTransition(() => setError(null));
-  }, []);
+    vcsActionManager.resetError(appAtomRegistry, input.scope, operation);
+  }, [input.scope, operation]);
 
   const run = useCallback(
     async (...args: TArgs): Promise<TResult> => {
-      const complete = beginAction(key);
-      startTransition(() => {
-        setError(null);
-        setActiveCount((count) => count + 1);
-      });
-      try {
+      const execute = async () => {
         const result = await input.action(...args);
         input.onSuccess?.();
         return result;
-      } catch (cause) {
-        startTransition(() => setError(cause));
-        throw cause;
-      } finally {
-        complete();
-        startTransition(() => setActiveCount((count) => Math.max(0, count - 1)));
-      }
+      };
+      return input.managedExternally === true
+        ? execute()
+        : vcsActionManager.track(
+            appAtomRegistry,
+            input.scope,
+            {
+              operation,
+              label: input.label,
+            },
+            execute,
+          );
     },
-    [input.action, input.onSuccess, key],
+    [input.action, input.label, input.managedExternally, input.onSuccess, input.scope, operation],
   );
 
   return {
-    error,
-    isPending: activeCount > 0 || isTransitionPending,
+    error: ownsState ? state.error : null,
+    isPending: ownsState && state.isRunning,
     resetError,
     run,
   };
@@ -167,14 +109,11 @@ export function useSourceControlActionRunning(
   scope: SourceControlActionScope,
   kinds: ReadonlyArray<SourceControlActionKind>,
 ): boolean {
-  const stableKinds = useMemo(() => kinds.toSorted(), [kinds]);
-  return useSyncExternalStore(
-    (listener) => {
-      actionListeners.add(listener);
-      return () => actionListeners.delete(listener);
-    },
-    () => stableKinds.some((kind) => (activeActionCounts.get(actionKey(kind, scope)) ?? 0) > 0),
-    () => false,
+  const state = useAtomValue(vcsActionManager.stateAtom(scope));
+  return (
+    state.isRunning &&
+    state.operation !== null &&
+    kinds.some((kind) => ACTION_OPERATION[kind] === state.operation)
   );
 }
 
@@ -187,7 +126,7 @@ export function useVcsInitAction(scope: SourceControlActionScope) {
       input: { cwd: target.cwd },
     });
   }, [init, scope]);
-  return useAction({ kind: "init", scope, action });
+  return useAction({ kind: "init", label: "Initializing repository", scope, action });
 }
 
 export function useVcsPullAction(scope: SourceControlActionScope) {
@@ -209,6 +148,7 @@ export function useVcsPullAction(scope: SourceControlActionScope) {
   }, [pull, scope]);
   return useAction({
     kind: "pull",
+    label: "Pulling latest changes",
     scope,
     action,
     onSuccess: status.refresh,
@@ -216,10 +156,9 @@ export function useVcsPullAction(scope: SourceControlActionScope) {
 }
 
 export function useGitStackedAction(scope: SourceControlActionScope) {
-  const runStackedAction = useAtomSet(gitEnvironment.runStackedAction, {
+  const runStackedAction = useAtomSet(vcsActionManager.runStackedAction(scope), {
     mode: "promise",
   });
-  const progress = useAtomValue(gitEnvironment.runStackedAction);
   const status = useEnvironmentQuery(
     scope.environmentId !== null && scope.cwd !== null
       ? vcsEnvironment.status({
@@ -228,14 +167,6 @@ export function useGitStackedAction(scope: SourceControlActionScope) {
         })
       : null,
   );
-  const progressListenerRef = useRef<GitActionProgressListener | null>(null);
-
-  useEffect(() => {
-    const event = Option.getOrNull(AsyncResult.value(progress));
-    if (event !== null) {
-      deliverGitActionProgress(progressListenerRef.current, event);
-    }
-  }, [progress]);
 
   const action = useCallback(
     async (input: {
@@ -246,48 +177,26 @@ export function useGitStackedAction(scope: SourceControlActionScope) {
       filePaths?: string[];
       onProgress?: (event: GitActionProgressEvent) => void;
     }): Promise<GitRunStackedActionResult> => {
-      const target = requireScope(scope, "Git action is unavailable.");
-      const transportActionId = createGitActionTransportId(target.environmentId, input.actionId);
-      progressListenerRef.current =
-        input.onProgress === undefined
-          ? null
-          : {
-              transportActionId,
-              actionId: input.actionId,
-              cwd: target.cwd,
-              onProgress: input.onProgress,
-            };
-      try {
-        const event = await runStackedAction({
-          environmentId: target.environmentId,
-          input: {
-            actionId: transportActionId,
-            cwd: target.cwd,
-            action: input.action,
-            ...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
-            ...(input.featureBranch ? { featureBranch: true } : {}),
-            ...(input.filePaths?.length ? { filePaths: input.filePaths } : {}),
-          },
-        });
-        if (event.kind === "action_failed") {
-          throw new Error(event.message);
-        }
-        if (event.kind !== "action_finished") {
-          throw new Error("Source control action ended without a result.");
-        }
-        return event.result;
-      } finally {
-        progressListenerRef.current = null;
-      }
+      requireScope(scope, "Git action is unavailable.");
+      return runStackedAction({
+        actionId: input.actionId,
+        action: input.action,
+        ...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
+        ...(input.featureBranch ? { featureBranch: true } : {}),
+        ...(input.filePaths?.length ? { filePaths: input.filePaths } : {}),
+        ...(input.onProgress ? { onProgress: input.onProgress } : {}),
+      });
     },
-    [progressListenerRef, runStackedAction, scope],
+    [runStackedAction, scope],
   );
 
   return useAction({
     kind: "runStackedAction",
+    label: "Running source control action",
     scope,
     action,
     onSuccess: status.refresh,
+    managedExternally: true,
   });
 }
 
@@ -324,6 +233,7 @@ export function useSourceControlPublishRepositoryAction(scope: SourceControlActi
   );
   return useAction({
     kind: "publishRepository",
+    label: "Publishing repository",
     scope,
     action,
     onSuccess: status.refresh,
@@ -349,7 +259,12 @@ export function usePreparePullRequestThreadAction(scope: SourceControlActionScop
     },
     [preparePullRequestThread, scope],
   );
-  return useAction({ kind: "preparePullRequestThread", scope, action });
+  return useAction({
+    kind: "preparePullRequestThread",
+    label: "Preparing pull request thread",
+    scope,
+    action,
+  });
 }
 
 export interface PullRequestResolutionTarget {

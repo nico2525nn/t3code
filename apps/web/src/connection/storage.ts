@@ -208,13 +208,13 @@ const encodeCatalog = Effect.fn("web.connectionStorage.encodeCatalog")(function*
   );
 });
 
-interface CatalogBackend {
+export interface CatalogBackend {
   readonly read: Effect.Effect<string | null, ConnectionTransientError>;
   readonly write: (raw: string) => Effect.Effect<void, ConnectionTransientError>;
   readonly quarantine?: (raw: string) => Effect.Effect<void, ConnectionTransientError>;
 }
 
-function makeCatalogBackend(database: IDBDatabase): CatalogBackend {
+export function makeCatalogBackend(database: IDBDatabase): CatalogBackend {
   const bridge = window.desktopBridge;
   if (bridge?.getConnectionCatalog !== undefined && bridge.setConnectionCatalog !== undefined) {
     return {
@@ -230,8 +230,11 @@ function makeCatalogBackend(database: IDBDatabase): CatalogBackend {
           Effect.flatMap((stored) =>
             stored
               ? Effect.void
-              : Effect.logWarning(
-                  "Desktop secure storage is unavailable; connection changes will be kept only for this session.",
+              : Effect.fail(
+                  catalogError(
+                    "save",
+                    "Desktop secure storage is unavailable in this system context.",
+                  ),
                 ),
           ),
         ),

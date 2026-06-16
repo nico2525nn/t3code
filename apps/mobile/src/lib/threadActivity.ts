@@ -10,7 +10,7 @@ import type {
 } from "@t3tools/contracts";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 
-import type { QueuedThreadMessage } from "../state/thread-outbox";
+import type { QueuedThreadMessage } from "../state/thread-outbox-model";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 
