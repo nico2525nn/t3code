@@ -7,6 +7,7 @@ import {
   getBackgroundActivityPresetSettings,
   resolveServerBackgroundActivitySettings,
 } from "@t3tools/shared/backgroundActivitySettings";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -194,8 +195,9 @@ const macShellLayer = Layer.effect(
 ).pipe(Layer.provide(ProcessRunner.layer));
 
 export const layer = Layer.unwrap(
-  Effect.sync(() => {
-    switch (process.platform) {
+  Effect.gen(function* () {
+    const platform = yield* HostProcessPlatform;
+    switch (platform) {
       case "darwin":
         return macShellLayer;
       case "linux":

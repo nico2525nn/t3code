@@ -15,6 +15,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { type ClaudeSettings, type ModelSelection } from "@t3tools/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import { TextGenerationError } from "@t3tools/contracts";
 import { type TextGenerationShape } from "./TextGeneration.ts";
@@ -37,6 +38,7 @@ import {
 } from "@t3tools/shared/model";
 import {
   getClaudeModelCapabilities,
+  isClaudeUltracodeEffort,
   normalizeClaudeCliEffort,
   resolveClaudeApiModelId,
   resolveClaudeEffort,
@@ -58,7 +60,7 @@ const decodeClaudeOutputEnvelope = Schema.decodeEffect(Schema.fromJsonString(Cla
 
 export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(function* (
   claudeSettings: ClaudeSettings,
-  environment: NodeJS.ProcessEnv = process.env,
+  environment?: NodeJS.ProcessEnv,
 ) {
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, environment);
@@ -132,7 +134,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     const findDescriptor = (id: string) => descriptors.find((descriptor) => descriptor.id === id);
     const rawEffortSelection = getModelSelectionStringOptionValue(modelSelection, "effort");
     const resolvedEffort = resolveClaudeEffort(caps, rawEffortSelection);
-    const cliEffort = normalizeClaudeCliEffort(resolvedEffort);
+    const cliEffort = normalizeClaudeCliEffort(resolvedEffort, modelSelection.model);
+    const ultracode = isClaudeUltracodeEffort(resolvedEffort);
     const thinkingDescriptor = findDescriptor("thinking");
     const fastModeDescriptor = findDescriptor("fastMode");
     const thinking =
@@ -142,6 +145,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     const settings = {
       ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
       ...(fastMode ? { fastMode: true } : {}),
+      ...(ultracode ? { ultracode: true } : {}),
     };
     const settingsJson =
       Object.keys(settings).length > 0
@@ -153,7 +157,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
         : undefined;
 
     const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
-      const command = ChildProcess.make(
+      const spawnCommand = yield* resolveSpawnCommand(
         claudeSettings.binaryPath || "claude",
         [
           "-p",
@@ -167,15 +171,16 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
           ...(settingsJson ? ["--settings", settingsJson] : []),
           "--dangerously-skip-permissions",
         ],
-        {
-          env: claudeEnvironment,
-          cwd,
-          shell: process.platform === "win32",
-          stdin: {
-            stream: Stream.encodeText(Stream.make(prompt)),
-          },
-        },
+        { env: claudeEnvironment },
       );
+      const command = ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+        env: claudeEnvironment,
+        cwd,
+        shell: spawnCommand.shell,
+        stdin: {
+          stream: Stream.encodeText(Stream.make(prompt)),
+        },
+      });
 
       const child = yield* commandSpawner
         .spawn(command)

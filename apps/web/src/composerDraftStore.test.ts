@@ -21,6 +21,7 @@ import { createModelSelection } from "@t3tools/shared/model";
 // `stickyModelSelectionByProvider` maps are keyed by `ProviderInstanceId`
 // in production; these aliases keep the legacy-key migration tests concise.
 const CODEX_INSTANCE = ProviderInstanceId.make("codex");
+const CODEX_SECONDARY_INSTANCE = ProviderInstanceId.make("codex_secondary");
 const CLAUDE_AGENT_INSTANCE = ProviderInstanceId.make("claudeAgent");
 const CURSOR_INSTANCE = ProviderInstanceId.make("cursor");
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
@@ -54,7 +55,7 @@ function selectionsByProvider(
   }
   return result;
 }
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   COMPOSER_DRAFT_STORAGE_KEY,
@@ -518,6 +519,99 @@ describe("composerDraftStore terminal contexts", () => {
     expect(mergedState.draftsByThreadKey[threadKeyFor(threadId)]).toBeUndefined();
     expect(mergedState.draftThreadsByThreadKey).toEqual({});
     expect(mergedState.logicalProjectDraftThreadKeyByLogicalProjectKey).toEqual({});
+  });
+});
+
+describe("composerDraftStore element contexts", () => {
+  const threadId = ThreadId.make("thread-element");
+  const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
+  const baseSelection = {
+    pageUrl: "https://example.com/dashboard",
+    pageTitle: "Dashboard",
+    tagName: "button",
+    selector: "button.submit",
+    htmlPreview: "<button>Save</button>",
+    componentName: "SubmitButton",
+    source: {
+      functionName: "SubmitButton",
+      fileName: "/repo/Button.tsx",
+      lineNumber: 12,
+      columnNumber: 5,
+    },
+    styles: ".submit { color: white; }",
+  } as const;
+
+  beforeEach(() => {
+    resetComposerDraftStore();
+  });
+
+  it("adds an element context and stamps id + threadId + pickedAt", () => {
+    const accepted = useComposerDraftStore.getState().addElementContext(threadRef, baseSelection);
+    expect(accepted).toBe(true);
+    const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
+    expect(draft?.elementContexts).toHaveLength(1);
+    const entry = draft?.elementContexts[0]!;
+    expect(entry.id.startsWith("el_")).toBe(true);
+    expect(entry.threadId).toBe(threadId);
+    expect(entry.pickedAt.length).toBeGreaterThan(0);
+    expect(entry.componentName).toBe("SubmitButton");
+  });
+
+  it("dedupes by selector + tag + componentName + pageUrl signature", () => {
+    const store = useComposerDraftStore.getState();
+    expect(store.addElementContext(threadRef, baseSelection)).toBe(true);
+    const second = store.addElementContext(threadRef, {
+      ...baseSelection,
+      htmlPreview: "<button>Save 2</button>",
+    });
+    expect(second).toBe(false);
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.elementContexts).toHaveLength(1);
+  });
+
+  it("removeElementContext drops by id + leaves siblings intact", () => {
+    const store = useComposerDraftStore.getState();
+    store.addElementContext(threadRef, baseSelection);
+    store.addElementContext(threadRef, { ...baseSelection, selector: "button.cancel" });
+    const ids = draftFor(threadId, TEST_ENVIRONMENT_ID)!.elementContexts.map((c) => c.id);
+    store.removeElementContext(threadRef, ids[0]!);
+    const remaining = draftFor(threadId, TEST_ENVIRONMENT_ID)?.elementContexts;
+    expect(remaining?.map((c) => c.id)).toEqual([ids[1]]);
+  });
+
+  it("setElementContexts replaces the slice and clearComposerContent wipes it", () => {
+    const store = useComposerDraftStore.getState();
+    store.addElementContext(threadRef, baseSelection);
+    store.setElementContexts(threadRef, []);
+    // Fully empty draft should be removed via shouldRemoveDraft.
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+
+    store.addElementContext(threadRef, baseSelection);
+    store.clearComposerContent(threadRef);
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+  });
+
+  it("persists element contexts via the partializer (round-trippable)", () => {
+    useComposerDraftStore.getState().addElementContext(threadRef, baseSelection);
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
+      };
+    };
+    const persisted = persistApi.getOptions().partialize(useComposerDraftStore.getState()) as {
+      draftsByThreadKey?: Record<string, { elementContexts?: Array<Record<string, unknown>> }>;
+    };
+    const entry =
+      persisted.draftsByThreadKey?.[threadKeyFor(threadId, TEST_ENVIRONMENT_ID)]
+        ?.elementContexts?.[0];
+    expect(entry).toMatchObject({
+      pageUrl: baseSelection.pageUrl,
+      tagName: baseSelection.tagName,
+      selector: baseSelection.selector,
+      componentName: baseSelection.componentName,
+    });
+    // Persistence does NOT include htmlPreview / styles oversize-clamping —
+    // that happens at normalization time, before the value reaches the store.
+    expect(typeof entry?.htmlPreview).toBe("string");
   });
 });
 
@@ -1197,6 +1291,43 @@ describe("composerDraftStore modelSelection", () => {
     expect(useComposerDraftStore.getState().stickyModelSelectionByProvider[CODEX_INSTANCE]).toEqual(
       modelSelection(CODEX_DRIVER, "gpt-5.4", {
         fastMode: true,
+      }),
+    );
+  });
+
+  it("stores provider option changes on a selected custom instance", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setProviderModelOptions(
+      threadRef,
+      CODEX_DRIVER,
+      toSelections({ reasoningEffort: "low" }),
+      {
+        instanceId: CODEX_SECONDARY_INSTANCE,
+        model: "gpt-5-codex",
+        persistSticky: true,
+      },
+    );
+
+    expect(
+      draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider[CODEX_SECONDARY_INSTANCE],
+    ).toEqual(
+      expect.objectContaining({
+        instanceId: CODEX_SECONDARY_INSTANCE,
+        options: [{ id: "reasoningEffort", value: "low" }],
+      }),
+    );
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.activeProvider).toBe(CODEX_SECONDARY_INSTANCE);
+    expect(useComposerDraftStore.getState().stickyActiveProvider).toBe(CODEX_SECONDARY_INSTANCE);
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider[CODEX_INSTANCE]).toBe(
+      undefined,
+    );
+    expect(
+      useComposerDraftStore.getState().stickyModelSelectionByProvider[CODEX_SECONDARY_INSTANCE],
+    ).toEqual(
+      expect.objectContaining({
+        instanceId: CODEX_SECONDARY_INSTANCE,
+        options: [{ id: "reasoningEffort", value: "low" }],
       }),
     );
   });

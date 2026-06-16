@@ -172,6 +172,7 @@ describe("makeManagedServerProvider", () => {
             Effect.forkChild,
           );
           yield* Effect.yieldNow;
+          assert.strictEqual(yield* Ref.get(checkCalls), 1);
 
           yield* Deferred.succeed(releaseCheck, undefined);
 

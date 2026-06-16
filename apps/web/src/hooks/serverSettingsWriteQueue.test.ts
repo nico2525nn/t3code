@@ -1,6 +1,6 @@
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createServerSettingsWriteQueue } from "./serverSettingsWriteQueue";
 
 describe("serverSettingsWriteQueue", () => {

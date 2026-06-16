@@ -2,6 +2,7 @@ import type { BackgroundScope, ClientActivityReportInput } from "@t3tools/contra
 import * as DateTime from "effect/DateTime";
 
 import type { EnvironmentConnection } from "../environments/runtime/connection";
+import { randomUUID } from "./utils";
 
 const CLIENT_ID_STORAGE_KEY = "t3.backgroundActivity.clientId";
 const REPORT_INTERVAL_MS = 25_000;
@@ -46,7 +47,7 @@ function getClientId(): string {
   try {
     const existing = window.localStorage.getItem(CLIENT_ID_STORAGE_KEY);
     if (existing) return existing;
-    const next = crypto.randomUUID();
+    const next = randomUUID();
     window.localStorage.setItem(CLIENT_ID_STORAGE_KEY, next);
     return next;
   } catch {

@@ -4,7 +4,7 @@ import {
   ProviderInstanceId,
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { resolveServerBackgroundActivitySettings } from "./backgroundActivitySettings.ts";
 import { createModelSelection } from "./model.ts";
 import {

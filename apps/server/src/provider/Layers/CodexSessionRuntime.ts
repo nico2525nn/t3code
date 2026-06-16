@@ -16,7 +16,9 @@ import {
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
+import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { normalizeModelSlug } from "@t3tools/shared/model";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -25,7 +27,6 @@ import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
-import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SchemaIssue from "effect/SchemaIssue";
@@ -61,6 +62,10 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "unknown thread",
   "does not exist",
 ];
+
+export function hasConfiguredMcpServer(appServerArgs: ReadonlyArray<string> | undefined): boolean {
+  return appServerArgs?.some((argument) => argument.includes("mcp_servers.")) === true;
+}
 
 export const CodexResumeCursorSchema = Schema.Struct({
   threadId: Schema.String,
@@ -103,6 +108,7 @@ export interface CodexSessionRuntimeOptions {
   readonly model?: string;
   readonly serviceTier?: CodexServiceTier | undefined;
   readonly resumeCursor?: CodexResumeCursor;
+  readonly appServerArgs?: ReadonlyArray<string>;
 }
 
 export interface CodexSessionRuntimeSendTurnInput {
@@ -697,11 +703,12 @@ export const makeCodexSessionRuntime = (
 ): Effect.Effect<
   CodexSessionRuntimeShape,
   CodexErrors.CodexAppServerError,
-  ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
+  ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | Scope.Scope
 > =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const runtimeScope = yield* Scope.Scope;
+    const crypto = yield* Crypto.Crypto;
     const events = yield* Queue.unbounded<ProviderEvent>();
     const pendingApprovalsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingApproval>());
     const approvalCorrelationsRef = yield* Ref.make(new Map<string, ApprovalCorrelation>());
@@ -714,16 +721,23 @@ export const makeCodexSessionRuntime = (
     // `CODEX_HOME=~/.codex_work` reach codex as an absolute path.
     const resolvedHomePath = options.homePath ? expandHomePath(options.homePath) : undefined;
     const env = {
-      ...(options.environment ?? process.env),
+      ...options.environment,
       ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
     };
+    const extendEnv = options.environment === undefined;
+    const spawnCommand = yield* resolveSpawnCommand(
+      options.binaryPath,
+      ["app-server", ...(options.appServerArgs ?? [])],
+      { env, extendEnv },
+    );
     const child = yield* spawner
       .spawn(
-        ChildProcess.make(options.binaryPath, ["app-server"], {
+        ChildProcess.make(spawnCommand.command, spawnCommand.args, {
           cwd: options.cwd,
           env,
+          extendEnv,
           forceKillAfter: CODEX_APP_SERVER_FORCE_KILL_AFTER,
-          shell: process.platform === "win32",
+          shell: spawnCommand.shell,
         }),
       )
       .pipe(
@@ -746,6 +760,15 @@ export const makeCodexSessionRuntime = (
     );
     const serverNotifications = yield* Queue.unbounded<CodexServerNotification>();
     const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
+    const randomUUIDv4 = crypto.randomUUIDv4.pipe(
+      Effect.mapError(
+        (cause) =>
+          new CodexErrors.CodexAppServerTransportError({
+            detail: "Failed to generate Codex runtime identifier.",
+            cause,
+          }),
+      ),
+    );
 
     const sessionCreatedAt = yield* nowIso;
     const initialSession = {
@@ -765,7 +788,7 @@ export const makeCodexSessionRuntime = (
 
     const emitEvent = (event: Omit<ProviderEvent, "id" | "provider" | "createdAt">) =>
       Effect.gen(function* () {
-        const id = yield* Random.nextUUIDv4;
+        const id = yield* randomUUIDv4;
         return yield* offerEvent({
           id: EventId.make(id),
           provider: PROVIDER,
@@ -933,7 +956,7 @@ export const makeCodexSessionRuntime = (
 
     yield* client.handleServerRequest("item/commandExecution/requestApproval", (payload) =>
       Effect.gen(function* () {
-        const requestId = ApprovalRequestId.make(yield* Random.nextUUIDv4);
+        const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
         const decision = yield* Deferred.make<ProviderApprovalDecision>();
@@ -989,7 +1012,7 @@ export const makeCodexSessionRuntime = (
 
     yield* client.handleServerRequest("item/fileChange/requestApproval", (payload) =>
       Effect.gen(function* () {
-        const requestId = ApprovalRequestId.make(yield* Random.nextUUIDv4);
+        const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
         const decision = yield* Deferred.make<ProviderApprovalDecision>();
@@ -1045,7 +1068,7 @@ export const makeCodexSessionRuntime = (
 
     yield* client.handleServerRequest("item/tool/requestUserInput", (payload) =>
       Effect.gen(function* () {
-        const requestId = ApprovalRequestId.make(yield* Random.nextUUIDv4);
+        const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
         const answers = yield* Deferred.make<ProviderUserInputAnswers>();
@@ -1229,7 +1252,11 @@ export const makeCodexSessionRuntime = (
         status: "closed",
         activeTurnId: undefined,
       });
-      yield* emitSessionEvent("session/closed", "Session stopped");
+      yield* emitSessionEvent("session/closed", "Session stopped").pipe(
+        Effect.catch((cause) =>
+          Effect.logError("Failed to emit Codex session closed event.", { cause }),
+        ),
+      );
       yield* Scope.close(runtimeScope, Exit.void);
       yield* Queue.shutdown(serverNotifications);
       yield* Queue.shutdown(events);
@@ -1241,6 +1268,15 @@ export const makeCodexSessionRuntime = (
       sendTurn: (input) =>
         Effect.gen(function* () {
           const providerThreadId = yield* readProviderThreadId;
+          if (hasConfiguredMcpServer(options.appServerArgs)) {
+            yield* client.request("config/mcpServer/reload", undefined).pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("Failed to refresh Codex MCP tool catalog before turn.", {
+                  cause,
+                }),
+              ),
+            );
+          }
           const normalizedModel = normalizeCodexModelSlug(
             input.model ?? (yield* Ref.get(sessionRef)).model,
           );
