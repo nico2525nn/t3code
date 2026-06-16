@@ -324,7 +324,7 @@ describe("desktop update release notes helpers", () => {
         channel: "nightly",
         availableVersion: "1.1.0-nightly.20260501.17",
       }),
-    ).toBe("https://github.com/pingdotgg/t3code/releases/tag/nightly-v1.1.0-nightly.20260501.17");
+    ).toBe("https://github.com/pingdotgg/t3code/releases/tag/v1.1.0-nightly.20260501.17");
   });
 
   it("falls back to the releases page when no latest version is known", () => {

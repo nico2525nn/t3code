@@ -88,7 +88,7 @@ export function getDesktopUpdateReleaseNotesUrl(state: DesktopUpdateState | null
     return DESKTOP_UPDATE_RELEASES_URL;
   }
 
-  const tag = state.channel === "nightly" ? `nightly-v${latestVersion}` : `v${latestVersion}`;
+  const tag = `v${latestVersion}`;
   return `${DESKTOP_UPDATE_RELEASES_URL}/tag/${encodeURIComponent(tag)}`;
 }
 
