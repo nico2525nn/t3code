@@ -42,6 +42,7 @@ const StageWorkspaceConfig = Schema.Struct({
   supportedArchitectures: Schema.Struct({
     os: Schema.Array(Schema.String),
     cpu: Schema.Array(Schema.String),
+    libc: Schema.optional(Schema.Array(Schema.String)),
   }),
 });
 
@@ -328,10 +329,26 @@ export function createStageWorkspaceConfig(
   platform: typeof BuildPlatform.Type,
   arch: typeof BuildArch.Type,
 ): typeof StageWorkspaceConfig.Type {
+  const hostOs = platform === "mac" ? "darwin" : platform === "win" ? "win32" : "linux";
+  const hostCpu = arch === "universal" ? ["arm64", "x64"] : [arch];
+  // Windows artifacts also bundle the WSL (Linux x64) backend, which loads
+  // Linux-native optional deps at runtime (e.g. @yuuang/ffi-rs-linux-x64-gnu).
+  // Pull the linux-x64 (glibc) variants in addition to the host platform's so
+  // they ship in the asar; without them the WSL backend crash-loops on require
+  // ("Cannot find module '@yuuang/ffi-rs-linux-x64-gnu'").
+  if (platform === "win") {
+    return {
+      supportedArchitectures: {
+        os: Array.from(new Set([hostOs, "linux"])),
+        cpu: Array.from(new Set([...hostCpu, "x64"])),
+        libc: ["glibc"],
+      },
+    };
+  }
   return {
     supportedArchitectures: {
-      os: [platform === "mac" ? "darwin" : platform === "win" ? "win32" : "linux"],
-      cpu: arch === "universal" ? ["arm64", "x64"] : [arch],
+      os: [hostOs],
+      cpu: hostCpu,
     },
   };
 }
