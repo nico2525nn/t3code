@@ -5,7 +5,6 @@ import {
   EventId,
   ORCHESTRATION_WS_METHODS,
   EnvironmentId,
-  type EnvironmentApi,
   type MessageId,
   type OrchestrationReadModel,
   type ProjectId,
@@ -22,7 +21,7 @@ import {
   DEFAULT_TERMINAL_ID,
   ServerConfig as ServerConfigSchema,
 } from "@t3tools/contracts";
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { createModelCapabilities, createModelSelection } from "@t3tools/shared/model";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import * as Option from "effect/Option";
@@ -43,17 +42,11 @@ import {
 import { render } from "vitest-browser-react";
 
 import { useCommandPaletteStore } from "../commandPaletteStore";
-import { useComposerDraftStore, DraftId } from "../composerDraftStore";
 import {
-  __resetEnvironmentApiOverridesForTests,
-  __setEnvironmentApiOverrideForTests,
-} from "../environmentApi";
-import {
-  resetSavedEnvironmentRegistryStoreForTests,
-  resetSavedEnvironmentRuntimeStoreForTests,
-  useSavedEnvironmentRegistryStore,
-  useSavedEnvironmentRuntimeStore,
-} from "../environments/runtime/catalog";
+  useComposerDraftStore,
+  DraftId,
+  markPromotedDraftThreadByRef,
+} from "../composerDraftStore";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   removeInlineTerminalContextPlaceholder,
@@ -61,53 +54,25 @@ import {
 } from "../lib/terminalContext";
 import { isMacPlatform } from "../lib/utils";
 import { __resetLocalApiForTests } from "../localApi";
-import { AppAtomRegistryProvider } from "../rpc/atomRegistry";
-import { getServerConfig } from "../rpc/serverState";
+import { appAtomRegistry, resetAppAtomRegistryForTests } from "../rpc/atomRegistry";
 import { getRouter } from "../router";
+import { primaryServerConfigAtom } from "../state/server";
+import { environmentSnapshotAtom } from "../state/shell";
+import { environmentProjects } from "../state/projects";
+import { readThreadDetail } from "../state/entities";
 import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
+import { shortcutLabelForCommand } from "../keybindings";
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
-import { selectBootstrapCompleteForActiveEnvironment, useStore } from "../store";
-import { terminalSessionManager } from "../terminalSessionState";
-import { useTerminalUiStateStore } from "../terminalUiStateStore";
+import {
+  __resetClientSettingsPersistenceForTests,
+  __setClientSettingsForTests,
+} from "../hooks/useSettings";
+import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useUiStateStore } from "../uiStateStore";
 import { createAuthenticatedSessionHandlers } from "../../test/authHttpHandlers";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
 
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
-
-vi.mock("../lib/vcsStatusState", () => {
-  const status = {
-    data: {
-      isRepo: true,
-      sourceControlProvider: {
-        kind: "github",
-        name: "GitHub",
-        baseUrl: "https://github.com",
-      },
-      hasPrimaryRemote: true,
-      isDefaultRef: true,
-      refName: "main",
-      hasWorkingTreeChanges: false,
-      workingTree: { files: [], insertions: 0, deletions: 0 },
-      hasUpstream: true,
-      aheadCount: 0,
-      behindCount: 0,
-      pr: null,
-    },
-    error: null,
-    cause: null,
-    isPending: false,
-  };
-
-  return {
-    getVcsStatusDataForTarget: (state: typeof status) => state.data,
-    getVcsStatusSnapshot: () => status,
-    useVcsStatus: () => status,
-    useVcsStatuses: () => new Map(),
-    refreshVcsStatus: () => Promise.resolve(null),
-    resetVcsStatusStateForTests: () => undefined,
-  };
-});
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
 const THREAD_TITLE = "Browser test thread";
@@ -115,7 +80,6 @@ const ARCHIVED_SECONDARY_THREAD_ID = "thread-secondary-project-archived" as Thre
 const PROJECT_ID = "project-1" as ProjectId;
 const SECOND_PROJECT_ID = "project-2" as ProjectId;
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
-const REMOTE_ENVIRONMENT_ID = EnvironmentId.make("environment-remote");
 const THREAD_REF = scopeThreadRef(LOCAL_ENVIRONMENT_ID, THREAD_ID);
 const THREAD_KEY = scopedThreadKey(THREAD_REF);
 const UUID_ROUTE_RE = /^\/draft\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -124,7 +88,7 @@ const PROJECT_LOGICAL_KEY = deriveLogicalProjectKeyFromSettings(
   {
     environmentId: LOCAL_ENVIRONMENT_ID,
     id: PROJECT_ID,
-    cwd: "/repo/project",
+    workspaceRoot: "/repo/project",
     repositoryIdentity: null,
   },
   {
@@ -136,6 +100,28 @@ const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'></svg>";
 const ADD_PROJECT_SUBMENU_PLACEHOLDER = "Enter path (e.g. ~/projects/my-app)";
+const INITIAL_VCS_STATUS_EVENT = {
+  _tag: "snapshot" as const,
+  local: {
+    isRepo: true,
+    sourceControlProvider: {
+      kind: "github" as const,
+      name: "GitHub",
+      baseUrl: "https://github.com",
+    },
+    hasPrimaryRemote: true,
+    isDefaultRef: true,
+    refName: "main",
+    hasWorkingTreeChanges: false,
+    workingTree: { files: [], insertions: 0, deletions: 0 },
+  },
+  remote: {
+    hasUpstream: true,
+    aheadCount: 0,
+    behindCount: 0,
+    pr: null,
+  },
+};
 
 interface TestFixture {
   snapshot: OrchestrationReadModel;
@@ -241,76 +227,6 @@ function createBaseServerConfig(): ServerConfig {
   };
 }
 
-function createMockEnvironmentApi(input: {
-  browse: EnvironmentApi["filesystem"]["browse"];
-  dispatchCommand: EnvironmentApi["orchestration"]["dispatchCommand"];
-}): EnvironmentApi {
-  return {
-    terminal: {} as EnvironmentApi["terminal"],
-    projects: {} as EnvironmentApi["projects"],
-    filesystem: {
-      browse: input.browse,
-    },
-    assets: {
-      createUrl: vi.fn(async ({ resource }) => ({
-        relativeUrl: `/api/assets/test/${encodeURIComponent(
-          resource._tag === "attachment"
-            ? resource.attachmentId
-            : resource._tag === "project-favicon"
-              ? "favicon.svg"
-              : (resource.path.split(/[\\/]/).at(-1) ?? "asset"),
-        )}`,
-        expiresAt: Date.now() + 60_000,
-      })),
-    },
-    sourceControl: {} as EnvironmentApi["sourceControl"],
-    vcs: {} as EnvironmentApi["vcs"],
-    git: {} as EnvironmentApi["git"],
-    review: {} as EnvironmentApi["review"],
-    orchestration: {
-      dispatchCommand: input.dispatchCommand,
-      getTurnDiff: (() => {
-        throw new Error("Not implemented in browser test.");
-      }) as EnvironmentApi["orchestration"]["getTurnDiff"],
-      getFullThreadDiff: (() => {
-        throw new Error("Not implemented in browser test.");
-      }) as EnvironmentApi["orchestration"]["getFullThreadDiff"],
-      getArchivedShellSnapshot: (() => {
-        throw new Error("Not implemented in browser test.");
-      }) as EnvironmentApi["orchestration"]["getArchivedShellSnapshot"],
-      subscribeShell: (() => () => undefined) as EnvironmentApi["orchestration"]["subscribeShell"],
-      subscribeThread: (() => () =>
-        undefined) as EnvironmentApi["orchestration"]["subscribeThread"],
-    },
-    preview: {
-      open: () => {
-        throw new Error("Not implemented in browser test.");
-      },
-      navigate: () => {
-        throw new Error("Not implemented in browser test.");
-      },
-      refresh: () => {
-        throw new Error("Not implemented in browser test.");
-      },
-      close: () => {
-        throw new Error("Not implemented in browser test.");
-      },
-      list: () => Promise.resolve({ sessions: [] }),
-      reportStatus: () => {
-        throw new Error("Not implemented in browser test.");
-      },
-      automation: {
-        connect: () => () => undefined,
-        respond: () => Promise.resolve(),
-        reportOwner: () => Promise.resolve(),
-        clearOwner: () => Promise.resolve(),
-      },
-      onEvent: () => () => undefined,
-      subscribePorts: () => () => undefined,
-    } as EnvironmentApi["preview"],
-  };
-}
-
 function createUserMessage(options: {
   id: MessageId;
   text: string;
@@ -386,6 +302,7 @@ function createSnapshotForTargetUser(options: {
             name: `attachment-${attachmentIndex + 1}.png`,
             mimeType: "image/png",
             sizeBytes: 128,
+            previewUrl: `/attachments/attachment-${attachmentIndex + 1}`,
           }))
         : undefined;
 
@@ -586,33 +503,20 @@ function updateThreadSessionInSnapshot(
   };
 }
 
-function sendShellThreadUpsert(
-  threadId: ThreadId,
-  options?: {
-    readonly session?: OrchestrationReadModel["threads"][number]["session"];
-  },
-): void {
-  const thread = fixture.snapshot.threads.find((entry) => entry.id === threadId);
-  if (!thread) {
-    throw new Error(`Expected thread ${threadId} in snapshot.`);
-  }
-
-  const shellThread =
-    options?.session !== undefined
-      ? toShellThread({ ...thread, session: options.session })
-      : toShellThread(thread);
-  rpcHarness.emitStreamValue(ORCHESTRATION_WS_METHODS.subscribeShell, {
-    kind: "thread-upserted",
-    sequence: fixture.snapshot.snapshotSequence,
-    thread: shellThread,
-  });
-}
-
-async function waitForWsClient(): Promise<void> {
+async function waitForWsClient(router?: ReturnType<typeof getRouter>): Promise<void> {
   await vi.waitFor(
     () => {
+      const receivedRequestTags = wsRequests.map((request) => request._tag).join(", ");
+      const diagnostics = [
+        `requests=${receivedRequestTags}`,
+        `pathname=${router?.state.location.pathname ?? "unknown"}`,
+        `routerStatus=${router?.state.status ?? "unknown"}`,
+        `matches=${router?.state.matches.map((match) => match.routeId).join(",") ?? "unknown"}`,
+        `body=${document.body.textContent?.trim().slice(0, 200) || "<empty>"}`,
+      ].join("; ");
       expect(
         wsRequests.some((request) => request._tag === ORCHESTRATION_WS_METHODS.subscribeShell),
+        `Expected shell subscription. ${diagnostics}`,
       ).toBe(true);
       expect(
         wsRequests.some((request) => request._tag === WS_METHODS.subscribeServerLifecycle),
@@ -662,8 +566,22 @@ function serverThreadPath(threadId: ThreadId): string {
 async function waitForAppBootstrap(): Promise<void> {
   await vi.waitFor(
     () => {
-      expect(getServerConfig()).not.toBeNull();
-      expect(selectBootstrapCompleteForActiveEnvironment(useStore.getState())).toBe(true);
+      const serverConfig = appAtomRegistry.get(primaryServerConfigAtom);
+      expect(serverConfig?.keybindings).toEqual(fixture.serverConfig.keybindings);
+      const snapshot = appAtomRegistry.get(environmentSnapshotAtom(LOCAL_ENVIRONMENT_ID));
+      expect(snapshot?.snapshotSequence).toBe(fixture.snapshot.snapshotSequence);
+      expect(snapshot?.projects.map((project) => project.id)).toEqual(
+        fixture.snapshot.projects.map((project) => project.id),
+      );
+      expect(snapshot?.threads.map((thread) => thread.id)).toEqual(
+        fixture.snapshot.threads.map((thread) => thread.id),
+      );
+      expect(
+        appAtomRegistry.get(environmentProjects.projectsAtom).map((project) => project.id),
+      ).toEqual(fixture.snapshot.projects.map((project) => project.id));
+      for (const thread of fixture.snapshot.threads) {
+        expect(readThreadDetail(threadRefFor(thread.id))?.worktreePath).toBe(thread.worktreePath);
+      }
     },
     { timeout: 8_000, interval: 16 },
   );
@@ -673,7 +591,12 @@ async function materializePromotedDraftThreadViaDomainEvent(threadId: ThreadId):
   await waitForWsClient();
   fixture.snapshot = addThreadToSnapshot(fixture.snapshot, threadId);
   fixture.snapshot = updateThreadSessionInSnapshot(fixture.snapshot, threadId, null);
-  sendShellThreadUpsert(threadId, { session: null });
+  markPromotedDraftThreadByRef(threadRefFor(threadId));
+  await waitForLayout();
+  rpcHarness.emitStreamValue(ORCHESTRATION_WS_METHODS.subscribeShell, {
+    kind: "snapshot",
+    snapshot: toShellSnapshot(fixture.snapshot),
+  });
 }
 
 async function startPromotedServerThreadViaDomainEvent(threadId: ThreadId): Promise<void> {
@@ -686,7 +609,23 @@ async function startPromotedServerThreadViaDomainEvent(threadId: ThreadId): Prom
     lastError: null,
     updatedAt: NOW_ISO,
   });
-  sendShellThreadUpsert(threadId);
+  await waitForLayout();
+  rpcHarness.emitStreamValue(ORCHESTRATION_WS_METHODS.subscribeShell, {
+    kind: "snapshot",
+    snapshot: toShellSnapshot(fixture.snapshot),
+  });
+  const thread = fixture.snapshot.threads.find((entry) => entry.id === threadId);
+  if (!thread) {
+    throw new Error(`Expected promoted thread ${threadId} in snapshot.`);
+  }
+  await waitForLayout();
+  rpcHarness.emitStreamValue(ORCHESTRATION_WS_METHODS.subscribeThread, {
+    kind: "snapshot",
+    snapshot: {
+      snapshotSequence: fixture.snapshot.snapshotSequence,
+      thread,
+    },
+  });
 }
 
 async function promoteDraftThreadViaDomainEvent(threadId: ThreadId): Promise<void> {
@@ -1165,13 +1104,14 @@ const worker = setupWorker(
     });
   }),
   ...createAuthenticatedSessionHandlers(() => fixture.serverConfig.auth),
-  http.get("*/api/assets/test/:assetName", () =>
+  http.get("*/attachments/:attachmentId", () =>
     HttpResponse.text(ATTACHMENT_SVG, {
       headers: {
         "Content-Type": "image/svg+xml",
       },
     }),
   ),
+  http.get("*/api/project-favicon", () => new HttpResponse(null, { status: 204 })),
 );
 
 async function nextFrame(): Promise<void> {
@@ -1236,7 +1176,7 @@ async function waitForURL(
   await vi.waitFor(
     () => {
       pathname = router.state.location.pathname;
-      expect(predicate(pathname), errorMessage).toBe(true);
+      expect(predicate(pathname), `${errorMessage} Current path: ${pathname}`).toBe(true);
     },
     { timeout: 8_000, interval: 16 },
   );
@@ -1526,6 +1466,9 @@ async function waitForServerConfigToApply(): Promise<void> {
       expect(wsRequests.some((request) => request._tag === WS_METHODS.subscribeServerConfig)).toBe(
         true,
       );
+      expect(appAtomRegistry.get(primaryServerConfigAtom)?.keybindings).toEqual(
+        fixture.serverConfig.keybindings,
+      );
     },
     { timeout: 8_000, interval: 16 },
   );
@@ -1540,18 +1483,6 @@ function dispatchChatNewShortcut(): void {
       shiftKey: true,
       metaKey: useMetaForMod,
       ctrlKey: !useMetaForMod,
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
-}
-
-function dispatchConfiguredDiffToggleShortcut(): void {
-  window.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "g",
-      shiftKey: true,
-      altKey: true,
       bubbles: true,
       cancelable: true,
     }),
@@ -1596,16 +1527,6 @@ async function openCommandPaletteFromTrigger(): Promise<void> {
     () => document.querySelector('[data-testid="command-palette"]'),
     "Command palette should have opened from the sidebar trigger.",
   );
-}
-
-async function waitForNewThreadShortcutLabel(): Promise<void> {
-  const newThreadButton = page.getByTestId("new-thread-button");
-  await expect.element(newThreadButton).toBeInTheDocument();
-  await newThreadButton.hover();
-  const shortcutLabel = isMacPlatform(navigator.platform)
-    ? "New thread (⇧⌘O)"
-    : "New thread (Ctrl+Shift+O)";
-  await expect.element(page.getByText(shortcutLabel)).toBeInTheDocument();
 }
 
 async function waitForCommandPaletteShortcutLabel(): Promise<void> {
@@ -1676,22 +1597,29 @@ async function mountChatView(options: {
   host.style.overflow = "hidden";
   document.body.append(host);
 
+  const defaultInitialPath = (() => {
+    if (options.snapshot.threads.some((thread) => thread.id === THREAD_ID)) {
+      return `/${LOCAL_ENVIRONMENT_ID}/${THREAD_ID}`;
+    }
+    const draftEntry = Object.entries(
+      useComposerDraftStore.getState().draftThreadsByThreadKey,
+    ).find(
+      ([, draftSession]) =>
+        draftSession.environmentId === LOCAL_ENVIRONMENT_ID && draftSession.threadId === THREAD_ID,
+    );
+    return draftEntry ? `/draft/${draftEntry[0]}` : `/${LOCAL_ENVIRONMENT_ID}/${THREAD_ID}`;
+  })();
   const router = getRouter(
     createMemoryHistory({
-      initialEntries: [options.initialPath ?? `/${LOCAL_ENVIRONMENT_ID}/${THREAD_ID}`],
+      initialEntries: [options.initialPath ?? defaultInitialPath],
     }),
   );
 
-  const screen = await render(
-    <AppAtomRegistryProvider>
-      <RouterProvider router={router} />
-    </AppAtomRegistryProvider>,
-    {
-      container: host,
-    },
-  );
+  const screen = await render(<RouterProvider router={router} />, {
+    container: host,
+  });
 
-  await waitForWsClient();
+  await waitForWsClient(router);
   await waitForAppBootstrap();
   await waitForLayout();
 
@@ -1741,6 +1669,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   beforeEach(async () => {
+    resetAppAtomRegistryForTests();
     await rpcHarness.reset({
       resolveUnary: resolveWsRpc,
       getInitialStreamValues: (request) => {
@@ -1788,18 +1717,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
         if (request._tag === WS_METHODS.subscribeTerminalMetadata) {
           return fixture.terminalMetadataEvents;
         }
+        if (request._tag === WS_METHODS.subscribeVcsStatus) {
+          return [INITIAL_VCS_STATUS_EVENT];
+        }
         return [];
       },
     });
     await __resetLocalApiForTests();
     await setViewport(DEFAULT_VIEWPORT);
+    __resetClientSettingsPersistenceForTests();
+    useComposerDraftStore.persist.clearStorage();
     localStorage.clear();
     document.body.innerHTML = "";
     wsRequests.length = 0;
     customWsRpcResolver = null;
-    __resetEnvironmentApiOverridesForTests();
-    resetSavedEnvironmentRegistryStoreForTests();
-    resetSavedEnvironmentRuntimeStoreForTests();
     Reflect.deleteProperty(window, "desktopBridge");
     useComposerDraftStore.setState({
       draftsByThreadKey: {},
@@ -1811,10 +1742,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useCommandPaletteStore.setState({
       open: false,
       openIntent: null,
-    });
-    useStore.setState({
-      activeEnvironmentId: null,
-      environmentStateById: {},
     });
     useUiStateStore.setState({
       projectExpandedById: {},
@@ -1832,6 +1759,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   afterEach(() => {
     customWsRpcResolver = null;
     document.body.innerHTML = "";
+    resetAppAtomRegistryForTests();
   });
 
   it("renders locked single-environment mobile run context as a static workspace label", async () => {
@@ -2080,12 +2008,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const terminalToggle = await waitForElement(
+      const toggle = await waitForElement(
         () =>
           document.querySelector<HTMLButtonElement>('button[aria-label="Toggle terminal drawer"]'),
         "Unable to find terminal drawer toggle.",
       );
-      terminalToggle.click();
+      toggle.click();
 
       await vi.waitFor(
         () => {
@@ -2098,10 +2026,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
             terminalId: DEFAULT_TERMINAL_ID,
             cwd: "/repo/project",
           });
-          expect(
-            selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF)
-              .isOpen,
-          ).toBe(false);
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -2110,454 +2034,180 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps panel toggles fixed and can maximize the right panel", async () => {
-    const mounted = await mountChatView({
-      viewport: WIDE_FOOTER_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-maximize-right-panel" as MessageId,
-        targetText: "maximize right panel",
-      }),
-    });
-
-    try {
-      const terminalToggle = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Toggle terminal drawer"]'),
-        "Unable to find terminal drawer toggle.",
-      );
-      const rightPanelToggle = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Toggle right panel"]'),
-        "Unable to find right panel toggle.",
-      );
-      const chatHeader = await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-chat-header]"),
-        "Unable to find chat header.",
-      );
-      const panelLayoutControls = await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-panel-layout-controls]"),
-        "Unable to find panel layout controls.",
-      );
-      expect(chatHeader.getBoundingClientRect().height).toBe(52);
-      expect(panelLayoutControls.getBoundingClientRect().height).toBe(52);
-      expect(panelLayoutControls.getBoundingClientRect().top).toBe(
-        chatHeader.getBoundingClientRect().top,
-      );
-      expect(
-        window.getComputedStyle(panelLayoutControls).getPropertyValue("-webkit-app-region"),
-      ).toBe("no-drag");
-      expect(chatHeader.classList.contains("drag-region")).toBe(false);
-      expect(chatHeader.contains(panelLayoutControls)).toBe(true);
-      expect(window.innerWidth - panelLayoutControls.getBoundingClientRect().right).toBe(12);
-      const initialTerminalRect = terminalToggle.getBoundingClientRect();
-      const initialRightPanelRect = rightPanelToggle.getBoundingClientRect();
-      const initialControlRects = [initialTerminalRect, initialRightPanelRect];
-      expect(document.querySelector('button[aria-label="Maximize panel"]')).toBeNull();
-      expect(initialControlRects.every((rect) => rect.width === 28 && rect.height === 28)).toBe(
-        true,
-      );
-      expect(initialControlRects.every((rect) => rect.top === initialControlRects[0]?.top)).toBe(
-        true,
-      );
-      expect(initialRightPanelRect.left - initialTerminalRect.right).toBe(4);
-
-      document.documentElement.classList.add("wco");
-      expect(panelLayoutControls.getBoundingClientRect().height).toBe(52);
-      expect(panelLayoutControls.getBoundingClientRect().top).toBe(
-        chatHeader.getBoundingClientRect().top,
-      );
-      expect(window.innerWidth - panelLayoutControls.getBoundingClientRect().right).toBe(12);
-      document.documentElement.classList.remove("wco");
-
-      rightPanelToggle.click();
-
-      const maximizeButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Maximize panel"]'),
-        "Unable to find maximize panel button.",
-      );
-      const rightPanelTabbar = await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-right-panel-tabbar]"),
-        "Unable to find right panel tab bar.",
-      );
-      const rightPanelTabList = await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-right-panel-tab-list]"),
-        "Unable to find right panel tab list.",
-      );
-      const maximizeRect = maximizeButton.getBoundingClientRect();
-      const rightPanelTabbarRect = rightPanelTabbar.getBoundingClientRect();
-      const openPanelLayoutControls = await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-panel-layout-controls]"),
-        "Unable to find open panel layout controls.",
-      );
-      const openTerminalToggle = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Toggle terminal drawer"]'),
-        "Unable to find open panel terminal toggle.",
-      );
-      const openRightPanelToggle = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Toggle right panel"]'),
-        "Unable to find open panel right panel toggle.",
-      );
-      expect(document.querySelector('button[aria-label="Add panel surface"]')).toBeNull();
-      expect(rightPanelTabbarRect.height).toBe(52);
-      expect(rightPanelTabbarRect.top).toBe(chatHeader.getBoundingClientRect().top);
-      expect(chatHeader.contains(openPanelLayoutControls)).toBe(false);
-      expect(
-        window.getComputedStyle(rightPanelTabbar).getPropertyValue("-webkit-app-region"),
-      ).not.toBe("drag");
-      expect(rightPanelTabList.classList.contains("drag-region")).toBe(false);
-      expect(window.getComputedStyle(maximizeButton).getPropertyValue("-webkit-app-region")).toBe(
-        "no-drag",
-      );
-      expect(
-        window.getComputedStyle(openTerminalToggle).getPropertyValue("-webkit-app-region"),
-      ).toBe("no-drag");
-      expect(
-        window.getComputedStyle(openRightPanelToggle).getPropertyValue("-webkit-app-region"),
-      ).toBe("no-drag");
-      expect(maximizeRect.width).toBe(28);
-      expect(maximizeRect.height).toBe(28);
-      expect(maximizeRect.top).toBe(initialTerminalRect.top);
-      expect(initialTerminalRect.left - maximizeRect.right).toBe(4);
-      expect(openTerminalToggle.getBoundingClientRect().left).toBeCloseTo(
-        initialTerminalRect.left,
-        1,
-      );
-      expect(openRightPanelToggle.getBoundingClientRect().left).toBeCloseTo(
-        initialRightPanelRect.left,
-        1,
-      );
-
-      useRightPanelStore.getState().openFile(THREAD_REF, "components.json");
-      const fileTabIcon = await waitForElement(
-        () =>
-          document.querySelector<SVGElement>(
-            '[data-right-panel-tabbar] [data-pierre-icon][data-icon-token="json"]',
-          ),
-        "Unable to find the Pierre file icon in the file tab.",
-      );
-      expect(fileTabIcon.closest("button")?.textContent).toContain("components.json");
-
-      document.documentElement.classList.add("wco");
-      expect(rightPanelTabbar.getBoundingClientRect().height).toBe(
-        openPanelLayoutControls.getBoundingClientRect().height,
-      );
-      expect(rightPanelTabbar.getBoundingClientRect().top).toBe(
-        openPanelLayoutControls.getBoundingClientRect().top,
-      );
-      document.documentElement.classList.remove("wco");
-
-      maximizeButton.click();
-
-      await vi.waitFor(() => {
-        const chatColumn = document.querySelector<HTMLElement>(
-          '[data-chat-column-maximized-away="true"]',
-        );
-        const panel = document.querySelector<HTMLElement>(
-          '[data-preview-panel-mode="inline"][data-preview-panel-maximized="true"]',
-        );
-        expect(chatColumn?.getBoundingClientRect().width).toBe(0);
-        expect(panel?.getBoundingClientRect().width).toBeGreaterThan(1_000);
-        expect(
-          document.querySelector<HTMLButtonElement>('button[aria-label="Restore panel size"]'),
-        ).not.toBeNull();
-        expect(
-          document
-            .querySelector<HTMLButtonElement>('button[aria-label="Toggle terminal drawer"]')
-            ?.getBoundingClientRect().left,
-        ).toBeCloseTo(initialTerminalRect.left, 1);
-        expect(
-          document
-            .querySelector<HTMLButtonElement>('button[aria-label="Toggle right panel"]')
-            ?.getBoundingClientRect().left,
-        ).toBeCloseTo(initialRightPanelRect.left, 1);
-      });
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("loads file previews from the active thread worktree", async () => {
-    const worktreePath = "/repo/worktrees/file-preview-thread";
-    const snapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-worktree-file-preview" as MessageId,
-      targetText: "open the worktree file preview",
-    });
-    const targetThread = snapshot.threads.find((thread) => thread.id === THREAD_ID);
-    if (!targetThread) {
-      throw new Error("Missing target thread fixture.");
-    }
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: {
-        ...snapshot,
-        threads: snapshot.threads.map((thread) =>
-          thread.id === THREAD_ID ? { ...thread, worktreePath } : thread,
-        ),
-      },
-      resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.projectsListEntries) {
-          return { entries: [{ path: "src/index.ts", kind: "file" }], truncated: false };
-        }
-        if (body._tag === WS_METHODS.projectsReadFile) {
-          return {
-            relativePath: "src/index.ts",
-            contents: "export const worktree = true;\n",
-            byteLength: 30,
-            truncated: false,
-          };
-        }
-        return undefined;
+  it("preserves vertical panel splits, routes split actions to the panel, and attaches each pane at its own launch location", async () => {
+    useRightPanelStore.setState({
+      byThreadKey: {
+        [THREAD_KEY]: {
+          isOpen: true,
+          activeSurfaceId: "terminal:term-1",
+          surfaces: [
+            {
+              id: "terminal:term-1",
+              kind: "terminal",
+              resourceId: "term-1",
+              terminalIds: ["term-1", "term-2"],
+              activeTerminalId: "term-1",
+              splitDirection: "vertical",
+            },
+          ],
+        },
       },
     });
-
-    try {
-      useRightPanelStore.getState().open(THREAD_REF, "files");
-      await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-file-browser-panel]"),
-        "Unable to find the worktree file explorer.",
-      );
-
-      useRightPanelStore.getState().openFile(THREAD_REF, "src/index.ts");
-      await waitForElement(
-        () => document.querySelector<HTMLElement>(".file-preview-virtualizer"),
-        "Unable to find the worktree file preview.",
-      );
-
-      const listRequest = wsRequests.find(
-        (request) => request._tag === WS_METHODS.projectsListEntries,
-      );
-      const readRequest = wsRequests.find(
-        (request) => request._tag === WS_METHODS.projectsReadFile,
-      );
-      expect(listRequest).toMatchObject({ cwd: worktreePath });
-      expect(readRequest).toMatchObject({ cwd: worktreePath, relativePath: "src/index.ts" });
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("scrolls file tabs and preserves the workspace explorer across file previews", async () => {
-    const workspaceEntries = [
-      { path: "src", kind: "directory" as const },
-      { path: "src/index.ts", kind: "file" as const },
-      { path: "src/router.ts", kind: "file" as const },
-      { path: "src/store.ts", kind: "file" as const },
-      { path: "src/styles.css", kind: "file" as const },
-      { path: "src/large.ts", kind: "file" as const },
-      { path: "e2e", kind: "directory" as const },
-      { path: "e2e/test-results", kind: "directory" as const },
-      {
-        path: "e2e/test-results/playwright-integration-results",
-        kind: "directory" as const,
-      },
-      {
-        path: "e2e/test-results/playwright-integration-results/chromium-desktop-project",
-        kind: "directory" as const,
-      },
-      {
-        path: "e2e/test-results/playwright-integration-results/chromium-desktop-project/.last-run.json",
-        kind: "file" as const,
-      },
-      { path: "README.md", kind: "file" as const },
-      { path: "AGENTS.md", kind: "file" as const },
-      { path: "package.json", kind: "file" as const },
-      { path: "tsconfig.json", kind: "file" as const },
-    ];
-    const mounted = await mountChatView({
-      viewport: WIDE_FOOTER_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-file-tabs-and-tree-state" as MessageId,
-        targetText: "keep file tabs readable and preserve tree state",
-      }),
-      resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.projectsListEntries) {
-          return { entries: workspaceEntries, truncated: false };
-        }
-        if (body._tag === WS_METHODS.projectsReadFile) {
-          const relativePath =
-            typeof body.relativePath === "string" ? body.relativePath : "file.ts";
-          const contents =
-            relativePath === "src/large.ts"
-              ? Array.from(
-                  { length: 5_000 },
-                  (_, index) => `export const line${index + 1} = ${index + 1};`,
-                ).join("\n")
-              : `// ${relativePath}\n`;
-          return {
-            relativePath,
-            contents,
-            byteLength: new TextEncoder().encode(contents).byteLength,
-            truncated: false,
-          };
-        }
-        return undefined;
-      },
-    });
-
-    try {
-      useRightPanelStore.getState().open(THREAD_REF, "files");
-
-      const explorer = await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-file-browser-panel]"),
-        "Unable to find the workspace file explorer.",
-      );
-
-      for (const entry of workspaceEntries) {
-        if (entry.kind === "file") {
-          useRightPanelStore.getState().openFile(THREAD_REF, entry.path);
-        }
-      }
-
-      const tabList = await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-right-panel-tab-list]"),
-        "Unable to find the right panel tab list.",
-      );
-      const tabViewport = await waitForElement(
-        () => tabList.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]'),
-        "Unable to find the right panel tab viewport.",
-      );
-
-      await vi.waitFor(() => {
-        const fileTabs = Array.from(tabList.querySelectorAll<HTMLElement>("[data-active-tab]"));
-        expect(fileTabs.length).toBe(
-          workspaceEntries.filter((entry) => entry.kind === "file").length,
-        );
-        expect(tabViewport.scrollWidth).toBeGreaterThan(tabViewport.clientWidth);
-        expect(tabViewport.scrollLeft).toBeGreaterThan(0);
-        expect(tabList.querySelector('[data-slot="scroll-area-scrollbar"]')).toBeNull();
-        expect(
-          fileTabs.every((tab) => {
-            const width = tab.getBoundingClientRect().width;
-            return width >= 100 && width <= 176;
-          }),
-        ).toBe(true);
-        expect(document.querySelector<HTMLElement>("[data-file-browser-panel]")).toBe(explorer);
-      });
-
-      useRightPanelStore.getState().openFile(THREAD_REF, "src/index.ts");
-      await vi.waitFor(() => {
-        expect(document.querySelector<HTMLElement>("[data-file-browser-panel]")).toBe(explorer);
-      });
-
-      useRightPanelStore
-        .getState()
-        .openFile(
-          THREAD_REF,
-          "e2e/test-results/playwright-integration-results/chromium-desktop-project/.last-run.json",
-        );
-      await mounted.setContainerSize({ width: 800, height: WIDE_FOOTER_VIEWPORT.height });
-      const breadcrumbs = await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-file-breadcrumbs]"),
-        "Unable to find the responsive file breadcrumbs.",
-      );
-      const fileSubheader = breadcrumbs.closest<HTMLElement>("[data-surface-subheader]");
-      const breadcrumbViewport = await waitForElement(
-        () => breadcrumbs.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]'),
-        "Unable to find the file breadcrumb viewport.",
-      );
-      const currentCrumb = await waitForElement(
-        () =>
-          Array.from(
-            breadcrumbs.querySelectorAll<HTMLElement>("[data-current-file-crumb='true']"),
-          ).find((crumb) => crumb.textContent === ".last-run.json") ?? null,
-        "Unable to find the current file breadcrumb.",
-      );
-      const explorerToggle = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Hide file explorer"]'),
-        "Unable to find the file explorer toggle.",
-      );
-
-      await vi.waitFor(() => {
-        const viewportRect = breadcrumbViewport.getBoundingClientRect();
-        const currentCrumbRect = currentCrumb.getBoundingClientRect();
-        expect(breadcrumbViewport.scrollWidth).toBeGreaterThan(breadcrumbViewport.clientWidth);
-        expect(breadcrumbViewport.scrollLeft).toBeGreaterThan(0);
-        expect(breadcrumbs.querySelector('[data-slot="scroll-area-scrollbar"]')).toBeNull();
-        expect(currentCrumbRect.right).toBeLessThanOrEqual(viewportRect.right + 1);
-        expect(viewportRect.right).toBeLessThan(explorerToggle.getBoundingClientRect().left);
-        expect(explorerToggle.getAttribute("aria-pressed")).toBe("true");
-        expect(explorerToggle.getBoundingClientRect().width).toBe(28);
-        expect(explorerToggle.getBoundingClientRect().height).toBe(28);
-        expect(fileSubheader?.getBoundingClientRect().height).toBe(40);
-        expect(window.getComputedStyle(fileSubheader!).borderTopWidth).toBe("0px");
-        expect(window.getComputedStyle(fileSubheader!).borderBottomWidth).toBe("1px");
-      });
-
-      const fileSearchButton = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Search workspace files"]'),
-        "Unable to find the workspace file search button.",
-      );
-      fileSearchButton.click();
-      const fileTree = await waitForElement(
-        () => document.querySelector<HTMLElement>("file-tree-container"),
-        "Unable to find the file tree host.",
-      );
-      const fileSearchInput = await waitForElement(
-        () =>
-          fileTree.shadowRoot?.querySelector<HTMLInputElement>("[data-file-tree-search-input]") ??
-          null,
-        "Unable to find the file tree search input.",
-      );
-      fileSearchInput.focus();
-      const searchKeyEvent = new KeyboardEvent("keydown", {
-        key: "r",
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-      });
-      fileSearchInput.dispatchEvent(searchKeyEvent);
-      await waitForLayout();
-      expect(searchKeyEvent.defaultPrevented).toBe(false);
-      expect(fileTree.shadowRoot?.activeElement).toBe(fileSearchInput);
-      expect(useComposerDraftStore.getState().draftsByThreadKey[THREAD_KEY]?.prompt ?? "").toBe("");
-
-      useRightPanelStore.getState().openFile(THREAD_REF, "src/large.ts");
-      const codeVirtualizer = await waitForElement(
-        () => document.querySelector<HTMLElement>(".file-preview-virtualizer"),
-        "Unable to find the virtualized file preview.",
-      );
-      expect(codeVirtualizer.querySelector("diffs-container")).not.toBeNull();
-      expect(codeVirtualizer.classList.contains("overflow-auto")).toBe(true);
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("removes persisted file tabs when a draft workspace no longer exists", async () => {
-    const orphanedDraftId = DraftId.make("draft-orphaned-file-panel");
-    const orphanedThreadId = "thread-orphaned-file-panel" as ThreadId;
-    const orphanedThreadRef = scopeThreadRef(LOCAL_ENVIRONMENT_ID, orphanedThreadId);
-    useComposerDraftStore.getState().setProjectDraftThreadId(
-      {
-        environmentId: LOCAL_ENVIRONMENT_ID,
-        projectId: "project-deleted" as ProjectId,
-      },
-      orphanedDraftId,
-      { threadId: orphanedThreadId },
-    );
-    useRightPanelStore.getState().openFile(orphanedThreadRef, "conductor.json");
 
     const mounted = await mountChatView({
       viewport: WIDE_FOOTER_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-orphaned-file-panel" as MessageId,
-        targetText: "orphaned persisted file panel",
+        targetMessageId: "msg-user-vertical-terminal-panel" as MessageId,
+        targetText: "vertical terminal panel",
       }),
-      initialPath: `/draft/${orphanedDraftId}`,
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "terminal.splitVertical",
+              shortcut: {
+                key: "d",
+                metaKey: false,
+                ctrlKey: true,
+                shiftKey: true,
+                altKey: false,
+                modKey: false,
+              },
+              whenAst: { type: "identifier", name: "terminalFocus" },
+            },
+          ],
+        };
+        nextFixture.terminalMetadataEvents = [
+          {
+            type: "upsert",
+            terminal: {
+              threadId: THREAD_ID,
+              terminalId: "term-1",
+              cwd: "/repo/worktrees/one",
+              worktreePath: "/repo/worktrees/one",
+              status: "running",
+              pid: 101,
+              exitCode: null,
+              exitSignal: null,
+              hasRunningSubprocess: false,
+              label: "Terminal One",
+              updatedAt: isoAt(0),
+            },
+          },
+          {
+            type: "upsert",
+            terminal: {
+              threadId: THREAD_ID,
+              terminalId: "term-2",
+              cwd: "/repo/worktrees/two",
+              worktreePath: "/repo/worktrees/two",
+              status: "running",
+              pid: 102,
+              exitCode: null,
+              exitSignal: null,
+              hasRunningSubprocess: false,
+              label: "Terminal Two",
+              updatedAt: isoAt(1),
+            },
+          },
+        ];
+      },
     });
 
     try {
+      const panel = await waitForElement(
+        () => document.querySelector<HTMLElement>('[data-terminal-owner="right-panel"]'),
+        "Unable to find right-panel terminal.",
+      );
+
+      await vi.waitFor(
+        () => {
+          const splitGrid = panel.querySelector<HTMLElement>(".grid");
+          expect(splitGrid?.style.gridTemplateRows).toContain("repeat(2");
+          expect(splitGrid?.style.gridTemplateColumns).toBe("");
+
+          const attachRequests = wsRequests.filter(
+            (request) => request._tag === WS_METHODS.terminalAttach,
+          );
+          expect(attachRequests).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                terminalId: "term-1",
+                cwd: "/repo/worktrees/one",
+                worktreePath: "/repo/worktrees/one",
+                env: expect.objectContaining({
+                  T3CODE_WORKTREE_PATH: "/repo/worktrees/one",
+                }),
+              }),
+              expect.objectContaining({
+                terminalId: "term-2",
+                cwd: "/repo/worktrees/two",
+                worktreePath: "/repo/worktrees/two",
+                env: expect.objectContaining({
+                  T3CODE_WORKTREE_PATH: "/repo/worktrees/two",
+                }),
+              }),
+            ]),
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const verticalSplitButton = await waitForElement(
+        () =>
+          Array.from(panel.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+            button.getAttribute("aria-label")?.startsWith("Split Terminal Vertically"),
+          ) ?? null,
+        "Unable to find vertical split action.",
+      );
+      verticalSplitButton.click();
+
       await vi.waitFor(() => {
         expect(
-          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, orphanedThreadRef),
-        ).toEqual({
-          isOpen: false,
-          activeSurfaceId: null,
-          surfaces: [],
+          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF)
+            .surfaces[0],
+        ).toMatchObject({
+          terminalIds: ["term-1", "term-2", "term-3"],
+          activeTerminalId: "term-3",
+          splitDirection: "vertical",
         });
-        expect(document.querySelector("[data-right-panel-tabbar]")).toBeNull();
+      });
+
+      const terminalInput = await waitForElement(
+        () =>
+          Array.from(panel.querySelectorAll<HTMLTextAreaElement>(".xterm-helper-textarea")).at(
+            -1,
+          ) ?? null,
+        "Unable to find terminal input.",
+      );
+      terminalInput.focus();
+      terminalInput.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "d",
+          code: "KeyD",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(
+          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF)
+            .surfaces[0],
+        ).toMatchObject({
+          terminalIds: ["term-1", "term-2", "term-3", "term-4"],
+          activeTerminalId: "term-4",
+          splitDirection: "vertical",
+        });
+        expect(
+          selectThreadTerminalUiState(
+            useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+            THREAD_REF,
+          ).terminalOpen,
+        ).toBe(false);
       });
     } finally {
       await mounted.cleanup();
@@ -2582,14 +2232,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(() => {
         expect(document.body.textContent).toContain("Open a surface");
-      });
-      expect(document.querySelector('button[aria-label="Add panel surface"]')).toBeNull();
-      expect(
-        selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
-      ).toEqual({
-        isOpen: true,
-        activeSurfaceId: null,
-        surfaces: [],
+        expect(
+          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
+        ).toEqual({
+          isOpen: true,
+          activeSurfaceId: null,
+          surfaces: [],
+        });
       });
       expect(wsRequests.some((request) => request._tag === WS_METHODS.terminalOpen)).toBe(false);
 
@@ -2631,9 +2280,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               .surfaces.filter((surface) => surface.kind === "terminal")
               .map((surface) => surface.resourceId),
           ).toEqual(["term-1", "term-2"]);
-          expect(
-            document.querySelector('[data-preview-panel-mode="inline"] .thread-terminal-drawer'),
-          ).not.toBeNull();
+          expect(document.querySelector('[data-terminal-owner="right-panel"]')).not.toBeNull();
           expect(
             wsRequests
               .filter((request) => request._tag === WS_METHODS.terminalOpen)
@@ -2678,6 +2325,133 @@ describe("ChatView timeline estimator parity (full app)", () => {
           ),
         ).toBe(true);
       });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("mounts one diff viewer through the right panel across responsive layouts", async () => {
+    const mounted = await mountChatView({
+      viewport: WIDE_FOOTER_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-single-diff-panel" as MessageId,
+        targetText: "single diff panel",
+      }),
+      initialPath: `/${LOCAL_ENVIRONMENT_ID}/${THREAD_ID}?diff=1`,
+    });
+
+    try {
+      await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stacked diff view"]'),
+        "Unable to find diff viewer.",
+      );
+      for (const viewport of [WIDE_FOOTER_VIEWPORT, COMPACT_FOOTER_VIEWPORT]) {
+        await mounted.setViewport(viewport);
+        expect(
+          document.querySelectorAll<HTMLButtonElement>('button[aria-label="Stacked diff view"]'),
+        ).toHaveLength(1);
+        expect(
+          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
+        ).toMatchObject({
+          isOpen: true,
+          activeSurfaceId: "diff",
+          surfaces: [{ id: "diff", kind: "diff" }],
+        });
+      }
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders a persisted plan surface across responsive layouts", async () => {
+    useRightPanelStore.getState().open(THREAD_REF, "plan");
+
+    const mounted = await mountChatView({
+      viewport: WIDE_FOOTER_VIEWPORT,
+      snapshot: createSnapshotWithLongProposedPlan(),
+    });
+
+    try {
+      await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Close plan sidebar"]'),
+        "Unable to find persisted plan surface content.",
+      );
+      for (const viewport of [WIDE_FOOTER_VIEWPORT, COMPACT_FOOTER_VIEWPORT]) {
+        await mounted.setViewport(viewport);
+        await vi.waitFor(() => {
+          expect(
+            document.querySelectorAll<HTMLButtonElement>('button[aria-label="Close plan sidebar"]'),
+          ).toHaveLength(1);
+          expect(document.body.textContent).toContain("Ship plan mode follow-up");
+        });
+        expect(
+          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
+        ).toMatchObject({
+          isOpen: true,
+          activeSurfaceId: "plan",
+          surfaces: [{ id: "plan", kind: "plan" }],
+        });
+      }
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows configured terminal and right-panel shortcuts in header tooltips", async () => {
+    const keybindings = [
+      {
+        command: "terminal.toggle" as const,
+        shortcut: {
+          key: "u",
+          metaKey: false,
+          ctrlKey: true,
+          shiftKey: true,
+          altKey: false,
+          modKey: false,
+        },
+      },
+      {
+        command: "rightPanel.toggle" as const,
+        shortcut: {
+          key: "i",
+          metaKey: false,
+          ctrlKey: false,
+          shiftKey: false,
+          altKey: true,
+          modKey: false,
+        },
+      },
+    ];
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-header-shortcut-labels" as MessageId,
+        targetText: "header shortcut labels",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings,
+        };
+      },
+    });
+
+    try {
+      await waitForServerConfigToApply();
+      const terminalLabel = shortcutLabelForCommand(keybindings, "terminal.toggle");
+      const rightPanelLabel = shortcutLabelForCommand(keybindings, "rightPanel.toggle");
+
+      const terminalToggle = page.getByRole("button", { name: "Toggle terminal drawer" }).first();
+      await terminalToggle.hover();
+      await expect
+        .element(page.getByText(`Toggle terminal drawer (${terminalLabel})`, { exact: true }))
+        .toBeInTheDocument();
+
+      const rightPanelToggle = page.getByRole("button", { name: "Toggle right panel" }).first();
+      await rightPanelToggle.hover();
+      await expect
+        .element(page.getByText(`Toggle right panel (${rightPanelLabel})`, { exact: true }))
+        .toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }
@@ -3168,13 +2942,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       checkoutItem.click();
 
-      const worktreeButton = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll("button")).find(
-            (button) => button.textContent?.trim() === "Worktree",
-          ) as HTMLButtonElement | null,
-        "Unable to find Worktree button.",
-      );
+      const worktreeButton = await waitForElement(() => {
+        const dialog = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).find(
+          (candidate) => candidate.textContent?.includes("Checkout pull request"),
+        );
+        return (
+          Array.from(dialog?.querySelectorAll("button") ?? []).find(
+            (button) => button.textContent?.trim() === "Worktree" && !button.disabled,
+          ) ?? null
+        );
+      }, "Unable to find Worktree button.");
       worktreeButton.click();
 
       await vi.waitFor(
@@ -3709,13 +3486,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("shows the send state once bootstrap dispatch is in flight", async () => {
+    const sendStateThreadId = "thread-send-state-bootstrap" as ThreadId;
+    const sendStateThreadRef = scopeThreadRef(LOCAL_ENVIRONMENT_ID, sendStateThreadId);
+    const sendStateThreadKey = scopedThreadKey(sendStateThreadRef);
     useTerminalUiStateStore.setState({
       terminalUiStateByThreadKey: {},
     });
     useComposerDraftStore.setState({
       draftThreadsByThreadKey: {
-        [THREAD_KEY]: {
-          threadId: THREAD_ID,
+        [sendStateThreadKey]: {
+          threadId: sendStateThreadId,
           environmentId: LOCAL_ENVIRONMENT_ID,
           projectId: PROJECT_ID,
           logicalProjectKey: PROJECT_DRAFT_KEY,
@@ -3728,7 +3508,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
       },
       logicalProjectDraftThreadKeyByLogicalProjectKey: {
-        [PROJECT_DRAFT_KEY]: THREAD_KEY,
+        [PROJECT_DRAFT_KEY]: sendStateThreadKey,
       },
     });
 
@@ -3748,6 +3528,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           runOnWorktreeCreate: true,
         },
       ]),
+      initialPath: `/draft/${sendStateThreadKey}`,
       resolveRpc: (body) => {
         if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
           return dispatchPromise;
@@ -3757,7 +3538,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      useComposerDraftStore.getState().setPrompt(THREAD_REF, "Ship it");
+      useComposerDraftStore.getState().setPrompt(sendStateThreadRef, "Ship it");
       await waitForLayout();
 
       const sendButton = await waitForSendButton();
@@ -3850,76 +3631,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("uses the configured diff toggle binding without discarding its surface", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-target-diff-hotkey" as MessageId,
-        targetText: "diff hotkey target",
-      }),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "diff.toggle",
-              shortcut: {
-                key: "g",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: true,
-                altKey: true,
-                modKey: false,
-              },
-              whenAst: {
-                type: "not",
-                node: { type: "identifier", name: "terminalFocus" },
-              },
-            },
-          ],
-        };
-      },
-    });
-
-    try {
-      await waitForServerConfigToApply();
-      dispatchConfiguredDiffToggleShortcut();
-      await vi.waitFor(() => {
-        expect(
-          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
-        ).toEqual({
-          isOpen: true,
-          activeSurfaceId: "diff",
-          surfaces: [{ id: "diff", kind: "diff" }],
-        });
-      });
-
-      dispatchConfiguredDiffToggleShortcut();
-      await vi.waitFor(() => {
-        expect(
-          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
-        ).toEqual({
-          isOpen: false,
-          activeSurfaceId: "diff",
-          surfaces: [{ id: "diff", kind: "diff" }],
-        });
-      });
-
-      dispatchConfiguredDiffToggleShortcut();
-      await vi.waitFor(() => {
-        expect(
-          selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
-        ).toEqual({
-          isOpen: true,
-          activeSurfaceId: "diff",
-          surfaces: [{ id: "diff", kind: "diff" }],
-        });
-      });
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
   it("focuses the composer and inserts printable text typed from the page background", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -4006,11 +3717,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("uses the active draft route session when changing the base branch", async () => {
     const staleDraftId = draftIdFromPath("/draft/draft-stale-branch-session");
     const activeDraftId = draftIdFromPath("/draft/draft-active-branch-session");
+    const staleThreadId = "thread-stale-branch-session" as ThreadId;
+    const activeThreadId = "thread-active-branch-session" as ThreadId;
 
     useComposerDraftStore.setState({
       draftThreadsByThreadKey: {
         [staleDraftId]: {
-          threadId: THREAD_ID,
+          threadId: staleThreadId,
           environmentId: LOCAL_ENVIRONMENT_ID,
           projectId: PROJECT_ID,
           logicalProjectKey: `${PROJECT_DRAFT_KEY}:stale`,
@@ -4022,7 +3735,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           envMode: "worktree",
         },
         [activeDraftId]: {
-          threadId: THREAD_ID,
+          threadId: activeThreadId,
           environmentId: LOCAL_ENVIRONMENT_ID,
           projectId: PROJECT_ID,
           logicalProjectKey: PROJECT_DRAFT_KEY,
@@ -4118,6 +3831,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("keeps the new worktree branch picker anchored at the top when opening with a preselected branch", async () => {
     const draftId = DraftId.make("draft-branch-picker-scroll-regression");
+    const draftThreadId = "thread-branch-picker-scroll-regression" as ThreadId;
     const branches = [
       {
         name: "feature/current",
@@ -4148,7 +3862,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadKey: {
         [draftId]: {
-          threadId: THREAD_ID,
+          threadId: draftThreadId,
           environmentId: LOCAL_ENVIRONMENT_ID,
           projectId: PROJECT_ID,
           logicalProjectKey: PROJECT_DRAFT_KEY,
@@ -4763,24 +4477,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await vi.waitFor(
         () => {
-          expect(
-            terminalSessionManager.listSessions({
-              environmentId: LOCAL_ENVIRONMENT_ID,
-              threadId: THREAD_ID,
-            }),
-          ).toMatchObject([
-            {
-              state: {
-                hasRunningSubprocess: true,
-              },
-            },
-          ]);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await vi.waitFor(
-        () => {
           const terminalIndicator = document.querySelector<HTMLElement>(
             '[aria-label="Terminal process running"]',
           );
@@ -5295,7 +4991,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      await waitForNewThreadShortcutLabel();
       await waitForServerConfigToApply();
       const composerEditor = await waitForComposerEditor();
       composerEditor.focus();
@@ -5314,6 +5009,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createProjectlessSnapshot(),
+      initialPath: "/",
       configureFixture: (nextFixture) => {
         nextFixture.serverConfig = {
           ...nextFixture.serverConfig,
@@ -5321,7 +5017,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             {
               command: "chat.new",
               shortcut: {
-                key: "o",
+                key: "p",
                 metaKey: false,
                 ctrlKey: false,
                 shiftKey: true,
@@ -5340,10 +5036,28 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await waitForServerConfigToApply();
-      dispatchChatNewShortcut();
+      await mounted.router.navigate({ to: "/" });
+      await waitForURL(
+        mounted.router,
+        (path) => path === "/",
+        "Projectless fixture should settle on the no-active-thread route.",
+      );
+      const pathBeforeShortcut = mounted.router.state.location.pathname;
+      const useMetaForMod = isMacPlatform(navigator.platform);
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "p",
+          code: "KeyP",
+          metaKey: useMetaForMod,
+          ctrlKey: !useMetaForMod,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
       await waitForLayout();
 
-      expect(mounted.router.state.location.pathname).toBe(serverThreadPath(THREAD_ID));
+      expect(mounted.router.state.location.pathname).toBe(pathBeforeShortcut);
       expect(Object.keys(useComposerDraftStore.getState().draftThreadsByThreadKey)).toHaveLength(0);
     } finally {
       await mounted.cleanup();
@@ -5964,132 +5678,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("selects an environment before browsing when multiple environments are available", async () => {
-    const remoteBrowseMock = vi.fn(async ({ partialPath }: { partialPath: string }) => {
-      if (partialPath === "~/workspaces/") {
-        return {
-          parentPath: "~/workspaces/",
-          entries: [{ name: "codething", fullPath: "~/workspaces/codething" }],
-        };
-      }
-
-      return {
-        parentPath: "~/",
-        entries: [{ name: "workspaces", fullPath: "~/workspaces" }],
-      };
-    });
-    const remoteDispatchMock = vi.fn(async () => ({
-      sequence: fixture.snapshot.snapshotSequence + 1,
-    }));
-
-    __setEnvironmentApiOverrideForTests(
-      REMOTE_ENVIRONMENT_ID,
-      createMockEnvironmentApi({
-        browse: remoteBrowseMock,
-        dispatchCommand: remoteDispatchMock,
-      }),
-    );
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-command-palette-add-project-multi-env" as MessageId,
-        targetText: "command palette add project multi env",
-      }),
-    });
-
-    try {
-      await waitForServerConfigToApply();
-      useSavedEnvironmentRegistryStore.getState().upsert({
-        environmentId: REMOTE_ENVIRONMENT_ID,
-        label: "Staging",
-        httpBaseUrl: "https://staging.example.test",
-        wsBaseUrl: "wss://staging.example.test/ws",
-        createdAt: NOW_ISO,
-        lastConnectedAt: NOW_ISO,
-      });
-      useSavedEnvironmentRuntimeStore.getState().patch(REMOTE_ENVIRONMENT_ID, {
-        connectionState: "connected",
-        authState: "authenticated",
-        descriptor: {
-          ...fixture.serverConfig.environment,
-          environmentId: REMOTE_ENVIRONMENT_ID,
-          label: "Staging",
-        },
-        serverConfig: {
-          ...fixture.serverConfig,
-          environment: {
-            ...fixture.serverConfig.environment,
-            environmentId: REMOTE_ENVIRONMENT_ID,
-            label: "Staging",
-          },
-          settings: {
-            ...fixture.serverConfig.settings,
-            addProjectBaseDirectory: "~/workspaces",
-          },
-        },
-        connectedAt: NOW_ISO,
-      });
-
-      const palette = page.getByTestId("command-palette");
-      await openCommandPaletteFromTrigger();
-
-      await expect.element(palette).toBeInTheDocument();
-      await palette.getByText("Add project", { exact: true }).click();
-      await expect.element(palette.getByText("Environments", { exact: true })).toBeInTheDocument();
-      await expect
-        .element(palette.getByText("This device", { exact: true }).first())
-        .toBeInTheDocument();
-      await palette.getByText("Staging", { exact: true }).click();
-      await palette.getByText("Local folder", { exact: true }).click();
-
-      const browseInput = await waitForCommandPaletteInput(ADD_PROJECT_SUBMENU_PLACEHOLDER);
-      await expect.element(browseInput).toHaveValue("~/workspaces/");
-
-      await vi.waitFor(
-        () => {
-          expect(remoteBrowseMock).toHaveBeenCalledWith({ partialPath: "~/workspaces/" });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await page.getByPlaceholder(ADD_PROJECT_SUBMENU_PLACEHOLDER).fill("~/workspaces/");
-      await vi.waitFor(
-        () => {
-          expect(remoteBrowseMock).toHaveBeenCalledWith({ partialPath: "~/workspaces/" });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      await expect.element(palette.getByText("codething", { exact: true })).toBeInTheDocument();
-      await expect
-        .element(palette.getByRole("button", { name: "Add (Enter)" }))
-        .toBeInTheDocument();
-
-      await dispatchInputKey(browseInput, { key: "Enter" });
-
-      await vi.waitFor(
-        () => {
-          expect(remoteDispatchMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-              type: "project.create",
-              workspaceRoot: "~/workspaces",
-              title: "workspaces",
-            }),
-          );
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread after adding a remote project.",
-      );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
   it("picks a local project from the native file manager", async () => {
     const pickFolder = vi.fn().mockResolvedValue("/Users/julius/Projects/finder-picked");
 
@@ -6600,6 +6188,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("keeps long proposed plans lightweight until the user expands them", async () => {
+    __setClientSettingsForTests({
+      ...DEFAULT_CLIENT_SETTINGS,
+      autoOpenPlanSidebar: false,
+    });
+
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithLongProposedPlan(),
@@ -6637,6 +6230,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("uses the active worktree path when saving a proposed plan to the workspace", async () => {
+    __setClientSettingsForTests({
+      ...DEFAULT_CLIENT_SETTINGS,
+      autoOpenPlanSidebar: false,
+    });
     const snapshot = createSnapshotWithLongProposedPlan();
     const threads = snapshot.threads.slice();
     const targetThreadIndex = threads.findIndex((thread) => thread.id === THREAD_ID);
@@ -6657,10 +6254,26 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const planActionsButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Plan actions"]'),
-        "Unable to find proposed plan actions button.",
+      const expandPlanButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+            (button) => button.textContent?.trim() === "Expand plan",
+          ) ?? null,
+        "Unable to find proposed plan card.",
       );
+      const planActionsButton = await waitForElement(() => {
+        let ancestor = expandPlanButton.parentElement;
+        while (ancestor) {
+          const button = ancestor.querySelector<HTMLButtonElement>(
+            'button[aria-label="Plan actions"]',
+          );
+          if (button) {
+            return button;
+          }
+          ancestor = ancestor.parentElement;
+        }
+        return null;
+      }, "Unable to find proposed plan card actions button.");
       planActionsButton.click();
 
       const saveToWorkspaceItem = await waitForElement(

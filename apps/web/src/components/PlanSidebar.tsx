@@ -1,5 +1,6 @@
 import { memo, useState, useCallback } from "react";
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import { useAtomSet } from "@effect/atom-react";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -25,7 +26,7 @@ import {
   stripDisplayedPlanMarkdown,
 } from "../proposedPlan";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
-import { readEnvironmentApi } from "~/environmentApi";
+import { projectEnvironment } from "~/state/projects";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 
@@ -56,11 +57,10 @@ interface PlanSidebarProps {
   activeProposedPlan: LatestProposedPlanState | null;
   label?: string;
   environmentId: EnvironmentId;
-  threadRef?: ScopedThreadRef | undefined;
   markdownCwd: string | undefined;
   workspaceRoot: string | undefined;
   timestampFormat: TimestampFormat;
-  mode?: "sheet" | "sidebar" | "embedded";
+  mode?: "sheet" | "sidebar";
   onClose: () => void;
 }
 
@@ -69,7 +69,6 @@ const PlanSidebar = memo(function PlanSidebar({
   activeProposedPlan,
   label = "Plan",
   environmentId,
-  threadRef,
   markdownCwd,
   workspaceRoot,
   timestampFormat,
@@ -78,6 +77,7 @@ const PlanSidebar = memo(function PlanSidebar({
 }: PlanSidebarProps) {
   const [proposedPlanExpanded, setProposedPlanExpanded] = useState(false);
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
+  const writeProjectFile = useAtomSet(projectEnvironment.writeFile, { mode: "promise" });
   const { copyToClipboard, isCopied } = useCopyToClipboard();
 
   const planMarkdown = activeProposedPlan?.planMarkdown ?? null;
@@ -96,16 +96,17 @@ const PlanSidebar = memo(function PlanSidebar({
   }, [planMarkdown]);
 
   const handleSaveToWorkspace = useCallback(() => {
-    const api = readEnvironmentApi(environmentId);
-    if (!api || !workspaceRoot || !planMarkdown) return;
+    if (!workspaceRoot || !planMarkdown) return;
     const filename = buildProposedPlanMarkdownFilename(planMarkdown);
     setIsSavingToWorkspace(true);
-    void api.projects
-      .writeFile({
+    void writeProjectFile({
+      environmentId,
+      input: {
         cwd: workspaceRoot,
         relativePath: filename,
         contents: normalizePlanMarkdownForExport(planMarkdown),
-      })
+      },
+    })
       .then((result) => {
         toastManager.add({
           type: "success",
@@ -126,7 +127,7 @@ const PlanSidebar = memo(function PlanSidebar({
         () => setIsSavingToWorkspace(false),
         () => setIsSavingToWorkspace(false),
       );
-  }, [environmentId, planMarkdown, workspaceRoot]);
+  }, [environmentId, planMarkdown, workspaceRoot, writeProjectFile]);
 
   return (
     <div
@@ -259,7 +260,6 @@ const PlanSidebar = memo(function PlanSidebar({
                   <ChatMarkdown
                     text={displayedPlanMarkdown ?? ""}
                     cwd={markdownCwd}
-                    threadRef={threadRef}
                     isStreaming={false}
                   />
                 </div>

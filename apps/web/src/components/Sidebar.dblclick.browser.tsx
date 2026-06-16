@@ -1,6 +1,12 @@
 import "../index.css";
 
-import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_RUNTIME_MODE,
+  EnvironmentId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { useCallback, useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -46,11 +52,16 @@ function buildThread(title: string): SidebarThreadSummary {
     environmentId: ENVIRONMENT_ID,
     projectId: PROJECT_ID,
     title,
+    modelSelection: {
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5.4",
+    },
+    runtimeMode: DEFAULT_RUNTIME_MODE,
     interactionMode: DEFAULT_INTERACTION_MODE,
     session: null,
     createdAt: "2024-01-01T00:00:00.000Z",
     archivedAt: null,
-    updatedAt: undefined,
+    updatedAt: "2024-01-01T00:00:00.000Z",
     latestTurn: null,
     branch: null,
     worktreePath: null,

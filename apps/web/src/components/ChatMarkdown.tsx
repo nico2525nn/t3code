@@ -41,7 +41,7 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "./ui/collapsi
 import { ScrollArea } from "./ui/scroll-area";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { stackedThreadToast, toastManager } from "./ui/toast";
-import { openInPreferredEditor } from "../editorPreferences";
+import { useOpenInPreferredEditor } from "../editorPreferences";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
@@ -59,6 +59,13 @@ import {
 import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
+import { useActiveEnvironmentId } from "../state/entities";
+import { useEnvironmentQuery } from "../state/query";
+import { serverEnvironment } from "../state/server";
+import { assetEnvironment } from "../state/assets";
+import { usePreparedConnection } from "../state/session";
+import { usePreviewActions } from "../state/preview";
+import { useAtomSet } from "@effect/atom-react";
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import {
   isBrowserPreviewFile,
@@ -663,6 +670,8 @@ interface MarkdownFileLinkProps {
   copyMarkdown: string;
   theme: "light" | "dark";
   threadRef?: ScopedThreadRef | undefined;
+  onOpen: (targetPath: string) => Promise<unknown>;
+  onOpenInBrowser?: (() => Promise<void>) | undefined;
   className?: string | undefined;
 }
 
@@ -929,54 +938,6 @@ function MarkdownExternalLinkContent({
   );
 }
 
-function MarkdownExternalLink({
-  href,
-  threadRef,
-  children,
-  ...props
-}: React.ComponentProps<"a"> & {
-  href: string;
-  threadRef?: ScopedThreadRef | undefined;
-}) {
-  const handleContextMenu = useCallback(
-    async (event: ReactMouseEvent<HTMLAnchorElement>) => {
-      if (!threadRef || !isPreviewSupportedInRuntime()) return;
-      event.preventDefault();
-      event.stopPropagation();
-
-      const api = readLocalApi();
-      if (!api) return;
-      const clicked = await api.contextMenu.show(
-        [
-          { id: "open-in-browser", label: "Open in integrated browser" },
-          { id: "open-external", label: "Open in system browser" },
-        ] as const,
-        { x: event.clientX, y: event.clientY },
-      );
-      if (clicked === "open-in-browser") {
-        void openUrlInPreview(threadRef, href).catch((error) => {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Unable to open link in browser",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        });
-      } else if (clicked === "open-external") {
-        void api.shell.openExternal(href);
-      }
-    },
-    [href, threadRef],
-  );
-
-  return (
-    <a {...props} href={href} onContextMenu={handleContextMenu}>
-      {children}
-    </a>
-  );
-}
-
 const MarkdownFileLink = memo(function MarkdownFileLink({
   href,
   targetPath,
@@ -987,19 +948,12 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   copyMarkdown,
   theme,
   threadRef,
+  onOpen,
+  onOpenInBrowser,
   className,
 }: MarkdownFileLinkProps) {
   const handleOpenInEditor = useCallback(() => {
-    const api = readLocalApi();
-    if (!api) {
-      toastManager.add({
-        type: "error",
-        title: "Open in editor is unavailable",
-      });
-      return;
-    }
-
-    void openInPreferredEditor(api, targetPath).catch((error) => {
+    void onOpen(targetPath).catch((error) => {
       toastManager.add(
         stackedThreadToast({
           type: "error",
@@ -1008,7 +962,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         }),
       );
     });
-  }, [targetPath]);
+  }, [onOpen, targetPath]);
 
   const handleOpenInFilePreview = useCallback(() => {
     if (!threadRef || !workspaceRelativePath) {
@@ -1019,8 +973,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   }, [handleOpenInEditor, threadRef, workspaceRelativePath]);
 
   const handleOpenInBrowser = useCallback(() => {
-    if (!threadRef) return;
-    void openFileInPreview(threadRef, iconPath).catch((error) => {
+    void onOpenInBrowser?.().catch((error) => {
       toastManager.add(
         stackedThreadToast({
           type: "error",
@@ -1029,7 +982,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         }),
       );
     });
-  }, [iconPath, threadRef]);
+  }, [onOpenInBrowser]);
 
   const handleCopy = useCallback((value: string, title: string) => {
     if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
@@ -1071,12 +1024,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       const api = readLocalApi();
       if (!api) return;
 
-      const canOpenInBrowser =
-        Boolean(threadRef) && isPreviewSupportedInRuntime() && isBrowserPreviewFile(iconPath);
       const clicked = await api.contextMenu.show(
         [
           { id: "open", label: "Open in editor" },
-          ...(canOpenInBrowser
+          ...(onOpenInBrowser
             ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
             : []),
           { id: "copy-relative", label: "Copy relative path" },
@@ -1101,15 +1052,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         handleCopy(targetPath, "Full path");
       }
     },
-    [
-      displayPath,
-      handleCopy,
-      handleOpenInBrowser,
-      handleOpenInEditor,
-      iconPath,
-      targetPath,
-      threadRef,
-    ],
+    [displayPath, handleCopy, handleOpenInBrowser, handleOpenInEditor, onOpenInBrowser, targetPath],
   );
 
   return (
@@ -1123,7 +1066,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              if (threadRef && isPreviewSupportedInRuntime() && isBrowserPreviewFile(iconPath)) {
+              if (onOpenInBrowser) {
                 handleOpenInBrowser();
                 return;
               }
@@ -1160,8 +1103,9 @@ function areMarkdownFileLinkPropsEqual(
     previous.label === next.label &&
     previous.copyMarkdown === next.copyMarkdown &&
     previous.theme === next.theme &&
-    previous.threadRef?.environmentId === next.threadRef?.environmentId &&
-    previous.threadRef?.threadId === next.threadRef?.threadId &&
+    previous.threadRef === next.threadRef &&
+    previous.onOpen === next.onOpen &&
+    previous.onOpenInBrowser === next.onOpenInBrowser &&
     previous.className === next.className
   );
 }
@@ -1176,6 +1120,17 @@ function ChatMarkdown({
   lineBreaks = false,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
+  const createAssetUrl = useAtomSet(assetEnvironment.createUrl, { mode: "promise" });
+  const { open: openPreview } = usePreviewActions();
+  const preparedConnection = usePreparedConnection(threadRef?.environmentId ?? null);
+  const environmentId = useActiveEnvironmentId();
+  const serverConfig = useEnvironmentQuery(
+    environmentId === null ? null : serverEnvironment.config({ environmentId, input: {} }),
+  );
+  const openInPreferredEditor = useOpenInPreferredEditor(
+    environmentId,
+    serverConfig.data?.availableEditors ?? [],
+  );
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const markdownFileLinkMetaByHref = useMemo(() => {
     const metaByHref = new Map<
@@ -1210,6 +1165,28 @@ function ChatMarkdown({
     event.clipboardData.setData("text/plain", payload.text);
     event.clipboardData.setData("text/html", payload.html);
   }, []);
+  const openExternalLinkInPreview = useCallback(
+    (url: string) => {
+      if (!threadRef) return Promise.reject(new Error("Thread context is unavailable."));
+      return openUrlInPreview({ threadRef, url, openPreview });
+    },
+    [openPreview, threadRef],
+  );
+  const openMarkdownFileInPreview = useCallback(
+    (path: string) => {
+      if (!threadRef || preparedConnection._tag === "None") {
+        return Promise.reject(new Error("Environment is not connected."));
+      }
+      return openFileInPreview({
+        threadRef,
+        filePath: path,
+        httpBaseUrl: preparedConnection.value.httpBaseUrl,
+        createAssetUrl,
+        openPreview,
+      });
+    },
+    [createAssetUrl, openPreview, preparedConnection, threadRef],
+  );
   const markdownComponents = useMemo<Components>(
     () => ({
       p({ node: _node, children, ...props }) {
@@ -1225,11 +1202,11 @@ function ChatMarkdown({
           const faviconHost = resolveExternalLinkHost(href);
           const isSameDocumentLink = href?.startsWith("#") ?? false;
           const onClick = props.onClick;
+          const canOpenInPreview = Boolean(threadRef) && isPreviewSupportedInRuntime();
           const link = (
-            <MarkdownExternalLink
+            <a
               {...props}
-              href={href ?? ""}
-              threadRef={faviconHost && isPreviewSupportedInRuntime() ? threadRef : undefined}
+              href={href}
               target={isSameDocumentLink ? undefined : "_blank"}
               rel={isSameDocumentLink ? undefined : "noopener noreferrer"}
               onClick={(event) => {
@@ -1237,6 +1214,28 @@ function ChatMarkdown({
                 if (isSameDocumentLink && href) {
                   handleMarkdownFragmentClick(event, href);
                 }
+              }}
+              onContextMenu={(event) => {
+                if (!canOpenInPreview || !href) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const api = readLocalApi();
+                if (!api) return;
+                void api.contextMenu
+                  .show(
+                    [
+                      { id: "open-in-browser", label: "Open in integrated browser" },
+                      { id: "open-external", label: "Open in system browser" },
+                    ] as const,
+                    { x: event.clientX, y: event.clientY },
+                  )
+                  .then((clicked) => {
+                    if (clicked === "open-in-browser") {
+                      return openExternalLinkInPreview(href);
+                    }
+                    if (clicked === "open-external") return api.shell.openExternal(href);
+                  })
+                  .catch(() => undefined);
               }}
             >
               {faviconHost ? (
@@ -1246,7 +1245,7 @@ function ChatMarkdown({
               ) : (
                 children
               )}
-            </MarkdownExternalLink>
+            </a>
           );
           if (!faviconHost || !href) {
             return link;
@@ -1286,6 +1285,14 @@ function ChatMarkdown({
             copyMarkdown={`[${fileLinkMeta.basename}](${normalizedHref})`}
             theme={resolvedTheme}
             threadRef={threadRef}
+            onOpen={openInPreferredEditor}
+            onOpenInBrowser={
+              threadRef &&
+              isPreviewSupportedInRuntime() &&
+              isBrowserPreviewFile(fileLinkMeta.filePath)
+                ? () => openMarkdownFileInPreview(fileLinkMeta.filePath)
+                : undefined
+            }
             className={props.className}
           />
         );
@@ -1330,9 +1337,12 @@ function ChatMarkdown({
       fileLinkParentSuffixByPath,
       isStreaming,
       markdownFileLinkMetaByHref,
-      threadRef,
+      openInPreferredEditor,
+      openExternalLinkInPreview,
+      openMarkdownFileInPreview,
       resolvedTheme,
       skills,
+      threadRef,
     ],
   );
 

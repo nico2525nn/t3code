@@ -2,24 +2,27 @@ import {
   addProjectRemoteSourceLabel,
   addProjectRemoteSourcePathHint,
   addProjectRemoteSourceProvider,
-  appendBrowsePathSegment,
   buildAddProjectRemoteSourceReadiness,
   buildProjectCreateCommand,
-  canNavigateUp,
-  ensureBrowseDirectoryPath,
   findExistingAddProject,
   getAddProjectInitialQuery,
+  resolveAddProjectPath,
+  sortAddProjectProviderSources,
+  type AddProjectRemoteSource,
+} from "@t3tools/client-runtime/operations/projects";
+import {
+  appendBrowsePathSegment,
+  canNavigateUp,
+  ensureBrowseDirectoryPath,
   getBrowseDirectoryPath,
   getBrowseLeafPathSegment,
   getBrowseParentPath,
   hasTrailingPathSeparator,
   inferProjectTitleFromPath,
   isFilesystemBrowseQuery,
-  resolveAddProjectPath,
-  sortAddProjectProviderSources,
-  type AddProjectRemoteSource,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/state/projects";
 import { CommandId, type EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { useAtomSet } from "@effect/atom-react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -28,19 +31,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 
+import { useProjects, useServerConfigs } from "../../state/entities";
+import { filesystemEnvironment } from "../../state/filesystem";
+import { projectEnvironment } from "../../state/projects";
+import { useEnvironmentQuery } from "../../state/query";
+import { sourceControlEnvironment } from "../../state/sourceControl";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { SourceControlIcon } from "../../components/SourceControlIcon";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { uuidv4 } from "../../lib/uuid";
-import { getEnvironmentClient } from "../../state/environment-session-registry";
-import { useFilesystemBrowse } from "../../state/use-filesystem-browse";
-import { useRemoteCatalog } from "../../state/use-remote-catalog";
-import { useRemoteEnvironmentState } from "../../state/use-remote-environment-registry";
-import {
-  refreshSourceControlDiscoveryForEnvironment,
-  useSourceControlDiscovery,
-} from "../../state/use-source-control-discovery";
+import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 
 interface EnvironmentOption {
   readonly environmentId: EnvironmentId;
@@ -224,12 +225,12 @@ function ProjectPathInput(props: {
 }
 
 function useEnvironmentOptions(): ReadonlyArray<EnvironmentOption> {
-  const { serverConfigByEnvironmentId } = useRemoteCatalog();
-  const { savedConnectionsById } = useRemoteEnvironmentState();
+  const serverConfigByEnvironmentId = useServerConfigs();
+  const { savedConnectionsById } = useSavedRemoteConnections();
 
   return useMemo<ReadonlyArray<EnvironmentOption>>(() => {
     const options = Object.values(savedConnectionsById).map((connection) => {
-      const config = serverConfigByEnvironmentId[connection.environmentId];
+      const config = serverConfigByEnvironmentId.get(connection.environmentId);
       return {
         environmentId: connection.environmentId,
         label: connection.environmentLabel,
@@ -336,16 +337,18 @@ export function AddProjectSourceScreen() {
   const iconColor = useThemeColor("--color-icon");
   const { environmentOptions, selectedEnvironment, setSelectedEnvironmentId } =
     useSelectedEnvironment();
-  const discoveryState = useSourceControlDiscovery(selectedEnvironment?.environmentId ?? null);
+  const discoveryState = useEnvironmentQuery(
+    selectedEnvironment === null
+      ? null
+      : sourceControlEnvironment.discovery({
+          environmentId: selectedEnvironment.environmentId,
+          input: {},
+        }),
+  );
   const readiness = useMemo(
     () => buildAddProjectRemoteSourceReadiness(discoveryState.data),
     [discoveryState.data],
   );
-
-  useEffect(() => {
-    if (!selectedEnvironment) return;
-    void refreshSourceControlDiscoveryForEnvironment(selectedEnvironment.environmentId);
-  }, [selectedEnvironment]);
 
   return (
     <AddProjectShell>
@@ -435,13 +438,12 @@ export function AddProjectSourceScreen() {
 
 function useCreateProject(environment: EnvironmentOption | null) {
   const router = useRouter();
-  const { projects } = useRemoteCatalog();
+  const createProject = useAtomSet(projectEnvironment.create, { mode: "promise" });
+  const projects = useProjects();
 
   return useCallback(
     async (workspaceRoot: string) => {
       if (!environment) return;
-      const client = getEnvironmentClient(environment.environmentId);
-      if (!client) throw new Error("Environment API is not available.");
 
       const existing = findExistingAddProject({
         projects,
@@ -462,14 +464,16 @@ function useCreateProject(environment: EnvironmentOption | null) {
       }
 
       const projectId = ProjectId.make(uuidv4());
-      await client.orchestration.dispatchCommand(
-        buildProjectCreateCommand({
-          commandId: CommandId.make(uuidv4()),
-          projectId,
-          workspaceRoot,
-          createdAt: new Date().toISOString(),
-        }),
-      );
+      const command = buildProjectCreateCommand({
+        commandId: CommandId.make(uuidv4()),
+        projectId,
+        workspaceRoot,
+        createdAt: new Date().toISOString(),
+      });
+      await createProject({
+        environmentId: environment.environmentId,
+        input: command,
+      });
       router.replace({
         pathname: "/new/draft",
         params: {
@@ -479,7 +483,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
         },
       });
     },
-    [environment, projects, router],
+    [createProject, environment, projects, router],
   );
 }
 
@@ -495,6 +499,9 @@ function useEnvironmentFromParam(): EnvironmentOption | null {
 }
 
 export function AddProjectRepositoryScreen() {
+  const lookupRepositoryMutation = useAtomSet(sourceControlEnvironment.lookupRepository, {
+    mode: "promise",
+  });
   const router = useRouter();
   const params = useLocalSearchParams<{ environmentId?: string; source?: string }>();
   const environment = useEnvironmentFromParam();
@@ -523,11 +530,12 @@ export function AddProjectRepositoryScreen() {
         return;
       }
 
-      const client = getEnvironmentClient(environment.environmentId);
-      if (!client) throw new Error("Environment API is not available.");
-      const repository = await client.sourceControl.lookupRepository({
-        provider,
-        repository: repositoryInput.trim(),
+      const repository = await lookupRepositoryMutation({
+        environmentId: environment.environmentId,
+        input: {
+          provider,
+          repository: repositoryInput.trim(),
+        },
       });
       router.push({
         pathname: "/new/add-project/destination",
@@ -543,7 +551,7 @@ export function AddProjectRepositoryScreen() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [environment, isSubmitting, repositoryInput, router, source]);
+  }, [environment, isSubmitting, lookupRepositoryMutation, repositoryInput, router, source]);
 
   return (
     <AddProjectShell>
@@ -593,7 +601,14 @@ function FolderBrowser(props: {
     () => (browseDirectoryPath.length > 0 ? { partialPath: browseDirectoryPath } : null),
     [browseDirectoryPath],
   );
-  const browseState = useFilesystemBrowse(props.environment.environmentId, browseInput);
+  const browseState = useEnvironmentQuery(
+    browseInput === null
+      ? null
+      : filesystemEnvironment.browse({
+          environmentId: props.environment.environmentId,
+          input: browseInput,
+        }),
+  );
   const visibleBrowseEntries = useMemo(
     () =>
       Arr.sort(
@@ -725,6 +740,9 @@ export function AddProjectLocalFolderScreen() {
 }
 
 export function AddProjectDestinationScreen() {
+  const cloneRepository = useAtomSet(sourceControlEnvironment.cloneRepository, {
+    mode: "promise",
+  });
   const params = useLocalSearchParams<{
     environmentId?: string;
     remoteUrl?: string;
@@ -760,11 +778,12 @@ export function AddProjectDestinationScreen() {
 
     setIsSubmitting(true);
     try {
-      const client = getEnvironmentClient(environment.environmentId);
-      if (!client) throw new Error("Environment API is not available.");
-      const result = await client.sourceControl.cloneRepository({
-        remoteUrl,
-        destinationPath: resolved.path,
+      const result = await cloneRepository({
+        environmentId: environment.environmentId,
+        input: {
+          remoteUrl,
+          destinationPath: resolved.path,
+        },
       });
       await createProject(result.cwd);
     } catch (nextError) {
@@ -772,7 +791,7 @@ export function AddProjectDestinationScreen() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [createProject, environment, isSubmitting, pathInput, remoteUrl]);
+  }, [cloneRepository, createProject, environment, isSubmitting, pathInput, remoteUrl]);
 
   return (
     <AddProjectShell>

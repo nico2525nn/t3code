@@ -26,7 +26,7 @@ const {
 }));
 
 vi.mock("../editorPreferences", () => ({
-  openInPreferredEditor: openInPreferredEditorMock,
+  useOpenInPreferredEditor: () => openInPreferredEditorMock,
 }));
 
 vi.mock("../localApi", () => ({
@@ -39,6 +39,14 @@ vi.mock("../localApi", () => ({
 vi.mock("../previewStateStore", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../previewStateStore")>()),
   isPreviewSupportedInRuntime: () => true,
+}));
+
+vi.mock("../state/session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../state/session")>()),
+  usePreparedConnection: () => ({
+    _tag: "Some",
+    value: { httpBaseUrl: "http://localhost:3000" },
+  }),
 }));
 
 vi.mock("../browser/openFileInPreview", async (importOriginal) => ({
@@ -84,7 +92,7 @@ describe("ChatMarkdown", () => {
       await link.click();
 
       await vi.waitFor(() => {
-        expect(openInPreferredEditorMock).toHaveBeenCalledWith(expect.anything(), filePath);
+        expect(openInPreferredEditorMock).toHaveBeenCalledWith(filePath);
       });
     } finally {
       await screen.unmount();
@@ -106,7 +114,7 @@ describe("ChatMarkdown", () => {
       await link.click();
 
       await vi.waitFor(() => {
-        expect(openInPreferredEditorMock).toHaveBeenCalledWith(expect.anything(), `${filePath}:1`);
+        expect(openInPreferredEditorMock).toHaveBeenCalledWith(`${filePath}:1`);
       });
     } finally {
       await screen.unmount();
@@ -128,10 +136,7 @@ describe("ChatMarkdown", () => {
       await link.click();
 
       await vi.waitFor(() => {
-        expect(openInPreferredEditorMock).toHaveBeenCalledWith(
-          expect.anything(),
-          `${filePath}:1:7`,
-        );
+        expect(openInPreferredEditorMock).toHaveBeenCalledWith(`${filePath}:1:7`);
       });
     } finally {
       await screen.unmount();
@@ -213,7 +218,11 @@ describe("ChatMarkdown", () => {
 
       await vi.waitFor(() => {
         expect(contextMenuShowMock).toHaveBeenCalled();
-        expect(openUrlInPreviewMock).toHaveBeenCalledWith(threadRef, "https://openai.com/docs");
+        expect(openUrlInPreviewMock).toHaveBeenCalledWith({
+          threadRef,
+          url: "https://openai.com/docs",
+          openPreview: expect.any(Function),
+        });
       });
     } finally {
       await screen.unmount();
@@ -243,7 +252,13 @@ describe("ChatMarkdown", () => {
           ]),
           { x: 4, y: 8 },
         );
-        expect(openFileInPreviewMock).toHaveBeenCalledWith(threadRef, filePath);
+        expect(openFileInPreviewMock).toHaveBeenCalledWith({
+          threadRef,
+          filePath,
+          httpBaseUrl: "http://localhost:3000",
+          createAssetUrl: expect.any(Function),
+          openPreview: expect.any(Function),
+        });
       });
     } finally {
       await screen.unmount();
@@ -293,13 +308,17 @@ describe("ChatMarkdown", () => {
       await vi.waitFor(() => {
         expect(openFileInPreviewMock).toHaveBeenNthCalledWith(
           1,
-          threadRef,
-          "/repo/project/report.html",
+          expect.objectContaining({
+            threadRef,
+            filePath: "/repo/project/report.html",
+          }),
         );
         expect(openFileInPreviewMock).toHaveBeenNthCalledWith(
           2,
-          threadRef,
-          "/repo/project/report.pdf",
+          expect.objectContaining({
+            threadRef,
+            filePath: "/repo/project/report.pdf",
+          }),
         );
         expect(openInPreferredEditorMock).not.toHaveBeenCalled();
       });
@@ -329,7 +348,7 @@ describe("ChatMarkdown", () => {
         );
 
       await vi.waitFor(() => {
-        expect(openInPreferredEditorMock).toHaveBeenCalledWith(expect.anything(), filePath);
+        expect(openInPreferredEditorMock).toHaveBeenCalledWith(filePath);
       });
     } finally {
       await screen.unmount();

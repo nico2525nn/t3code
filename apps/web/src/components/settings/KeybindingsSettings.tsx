@@ -27,13 +27,19 @@ import {
   type ServerRemoveKeybindingInput,
   type ServerUpsertKeybindingInput,
 } from "@t3tools/contracts";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 
 import { isElectron } from "../../env";
-import { openInPreferredEditor } from "../../editorPreferences";
+import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { formatShortcutLabel } from "../../keybindings";
 import { cn } from "../../lib/utils";
-import { ensureLocalApi } from "../../localApi";
-import { useServerKeybindings, useServerKeybindingsConfigPath } from "../../rpc/serverState";
+import {
+  primaryServerAvailableEditorsAtom,
+  primaryServerKeybindingsAtom,
+  primaryServerKeybindingsConfigPathAtom,
+  serverEnvironment,
+} from "../../state/server";
+import { usePrimaryEnvironment } from "../../state/environments";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Kbd, KbdGroup } from "../ui/kbd";
@@ -1069,8 +1075,20 @@ function NewKeybindingTableRow({
 }
 
 export function KeybindingsSettingsPanel() {
-  const keybindings = useServerKeybindings();
-  const keybindingsConfigPath = useServerKeybindingsConfigPath();
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const keybindingsConfigPath = useAtomValue(primaryServerKeybindingsConfigPathAtom);
+  const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
+  const primaryEnvironment = usePrimaryEnvironment();
+  const upsertKeybinding = useAtomSet(serverEnvironment.upsertKeybinding, {
+    mode: "promise",
+  });
+  const removeKeybindingMutation = useAtomSet(serverEnvironment.removeKeybinding, {
+    mode: "promise",
+  });
+  const openInPreferredEditor = useOpenInPreferredEditor(
+    primaryEnvironment?.environmentId ?? null,
+    availableEditors,
+  );
   const [query, setQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -1107,7 +1125,7 @@ export function KeybindingsSettingsPanel() {
 
   const openKeybindingsFile = useCallback(() => {
     if (!keybindingsConfigPath) return;
-    void openInPreferredEditor(ensureLocalApi(), keybindingsConfigPath).catch((error: unknown) => {
+    void openInPreferredEditor(keybindingsConfigPath).catch((error: unknown) => {
       toastManager.add({
         title: "Unable to open keybindings file",
         description:
@@ -1115,48 +1133,60 @@ export function KeybindingsSettingsPanel() {
         type: "error",
       });
     });
-  }, [keybindingsConfigPath]);
+  }, [keybindingsConfigPath, openInPreferredEditor]);
 
-  const saveKeybinding = useCallback((input: ServerUpsertKeybindingInput) => {
-    setSavingCommand(input.command);
-    const payload: ServerUpsertKeybindingInput = {
-      command: input.command,
-      key: input.key.trim(),
-      ...(input.when?.trim() ? { when: input.when.trim() } : {}),
-      ...(input.replace ? { replace: input.replace } : {}),
-    };
-    void ensureLocalApi()
-      .server.upsertKeybinding(payload)
-      .then(() => {
-        setIsAddingBinding(false);
+  const saveKeybinding = useCallback(
+    (input: ServerUpsertKeybindingInput) => {
+      if (!primaryEnvironment) return;
+      setSavingCommand(input.command);
+      const payload: ServerUpsertKeybindingInput = {
+        command: input.command,
+        key: input.key.trim(),
+        ...(input.when?.trim() ? { when: input.when.trim() } : {}),
+        ...(input.replace ? { replace: input.replace } : {}),
+      };
+      void upsertKeybinding({
+        environmentId: primaryEnvironment.environmentId,
+        input: payload,
       })
-      .catch((error: unknown) => {
-        toastManager.add({
-          title: "Unable to save keybinding",
-          description: error instanceof Error ? error.message : "The keybinding was not saved.",
-          type: "error",
+        .then(() => {
+          setIsAddingBinding(false);
+        })
+        .catch((error: unknown) => {
+          toastManager.add({
+            title: "Unable to save keybinding",
+            description: error instanceof Error ? error.message : "The keybinding was not saved.",
+            type: "error",
+          });
+        })
+        .finally(() => {
+          setSavingCommand(null);
         });
-      })
-      .finally(() => {
-        setSavingCommand(null);
-      });
-  }, []);
+    },
+    [primaryEnvironment, upsertKeybinding],
+  );
 
-  const removeKeybinding = useCallback((row: KeybindingRow) => {
-    setSavingCommand(row.command);
-    void ensureLocalApi()
-      .server.removeKeybinding(rowKeybindingTarget(row))
-      .catch((error: unknown) => {
-        toastManager.add({
-          title: "Unable to remove keybinding",
-          description: error instanceof Error ? error.message : "The keybinding was not removed.",
-          type: "error",
-        });
+  const removeKeybinding = useCallback(
+    (row: KeybindingRow) => {
+      if (!primaryEnvironment) return;
+      setSavingCommand(row.command);
+      void removeKeybindingMutation({
+        environmentId: primaryEnvironment.environmentId,
+        input: rowKeybindingTarget(row),
       })
-      .finally(() => {
-        setSavingCommand(null);
-      });
-  }, []);
+        .catch((error: unknown) => {
+          toastManager.add({
+            title: "Unable to remove keybinding",
+            description: error instanceof Error ? error.message : "The keybinding was not removed.",
+            type: "error",
+          });
+        })
+        .finally(() => {
+          setSavingCommand(null);
+        });
+    },
+    [primaryEnvironment, removeKeybindingMutation],
+  );
 
   const resetKeybinding = useCallback(
     (row: KeybindingRow) => {

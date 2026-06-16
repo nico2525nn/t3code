@@ -33,8 +33,11 @@ import {
 } from "@tanstack/react-router";
 
 import { __resetLocalApiForTests } from "../../localApi";
-import { AppAtomRegistryProvider, resetAppAtomRegistryForTests } from "../../rpc/atomRegistry";
-import { resetServerStateForTests, setServerConfigSnapshot } from "../../rpc/serverState";
+import {
+  appAtomRegistry,
+  AppAtomRegistryProvider,
+  resetAppAtomRegistryForTests,
+} from "../../rpc/atomRegistry";
 import { useUiStateStore } from "../../uiStateStore";
 import { ConnectionsSettings } from "./ConnectionsSettings";
 import { DiagnosticsSettingsPanel } from "./DiagnosticsSettings";
@@ -64,11 +67,18 @@ const authAccessHarness = vi.hoisted(() => {
     clientSessions: [],
   };
   let revision = 1;
-  const listeners = new Set<(event: AuthAccessStreamEvent) => void>();
+  let currentEvent: AuthAccessStreamEvent = {
+    version: 1,
+    revision,
+    type: "snapshot",
+    payload: snapshot,
+  };
+  const listeners = new Set<() => void>();
 
   const emitEvent = (event: AuthAccessStreamEvent) => {
+    currentEvent = event;
     for (const listener of listeners) {
-      listener(event);
+      listener();
     }
   };
 
@@ -79,10 +89,22 @@ const authAccessHarness = vi.hoisted(() => {
         clientSessions: [],
       };
       revision = 1;
+      currentEvent = {
+        version: 1,
+        revision,
+        type: "snapshot",
+        payload: snapshot,
+      };
       listeners.clear();
     },
     setSnapshot(next: Snapshot) {
       snapshot = next;
+      currentEvent = {
+        version: 1,
+        revision,
+        type: "snapshot",
+        payload: snapshot,
+      };
     },
     emitSnapshot() {
       emitEvent({
@@ -132,14 +154,11 @@ const authAccessHarness = vi.hoisted(() => {
       });
       revision += 1;
     },
-    subscribe(listener: (event: AuthAccessStreamEvent) => void) {
+    getSnapshot() {
+      return currentEvent;
+    },
+    subscribe(listener: () => void) {
       listeners.add(listener);
-      listener({
-        version: 1,
-        revision: 1,
-        type: "snapshot",
-        payload: snapshot,
-      });
       return () => {
         listeners.delete(listener);
       };
@@ -149,73 +168,492 @@ const authAccessHarness = vi.hoisted(() => {
 
 const mockConnectDesktopSshEnvironment = vi.hoisted(() => vi.fn());
 const mockGetClerkToken = vi.hoisted(() => vi.fn(async () => null));
-const mockOpenClerkWaitlist = vi.hoisted(() => vi.fn());
+const mockConnectPairingEnvironment = vi.hoisted(() => vi.fn());
+const mockConnectRelayEnvironment = vi.hoisted(() => vi.fn());
+const mockRemoveEnvironment = vi.hoisted(() => vi.fn());
+const mockRetryEnvironment = vi.hoisted(() => vi.fn());
+const mockRefreshRelayEnvironments = vi.hoisted(() => vi.fn(async () => undefined));
+const mockRefreshProviders = vi.hoisted(() =>
+  vi.fn(async ({ input }: { readonly input: Record<string, never> }) => {
+    return window.nativeApi?.server.refreshProviders(input);
+  }),
+);
+const mockUpdateProvider = vi.hoisted(() =>
+  vi.fn(
+    async ({ input }: { readonly input: Parameters<LocalApi["server"]["updateProvider"]>[0] }) => {
+      return window.nativeApi?.server.updateProvider(input);
+    },
+  ),
+);
+const directAtomMocks = vi.hoisted(() => ({
+  authAccessQuery: Symbol("auth-access-query"),
+  openInEditorAction: Symbol("open-in-editor-action"),
+  removeKeybindingAction: Symbol("remove-keybinding-action"),
+  refreshProvidersAction: Symbol("refresh-providers-action"),
+  signalProcessAction: Symbol("signal-process-action"),
+  updateProviderAction: Symbol("update-provider-action"),
+  updateSettingsAction: Symbol("update-settings-action"),
+  upsertKeybindingAction: Symbol("upsert-keybinding-action"),
+}));
+const serverConfigHarness = vi.hoisted(() => ({
+  configAtom: null as unknown,
+}));
+
+function setServerConfigSnapshot(config: ServerConfig): void {
+  appAtomRegistry.set(serverConfigHarness.configAtom as never, config as never);
+}
+
+function resetServerConfigSnapshot(): void {
+  appAtomRegistry.set(serverConfigHarness.configAtom as never, null as never);
+}
+
+vi.mock("@effect/atom-react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@effect/atom-react")>();
+
+  return {
+    ...actual,
+    useAtomSet: (atom: unknown, options: unknown) => {
+      if (atom === directAtomMocks.refreshProvidersAction) {
+        return mockRefreshProviders;
+      }
+      if (atom === directAtomMocks.updateProviderAction) {
+        return mockUpdateProvider;
+      }
+      if (atom === directAtomMocks.signalProcessAction) {
+        return async ({
+          input,
+        }: {
+          readonly input: Parameters<LocalApi["server"]["signalProcess"]>[0];
+        }) => window.nativeApi?.server.signalProcess(input);
+      }
+      if (atom === directAtomMocks.openInEditorAction) {
+        return async ({
+          input,
+        }: {
+          readonly input: {
+            readonly cwd: string;
+            readonly editor: Parameters<LocalApi["shell"]["openInEditor"]>[1];
+          };
+        }) => window.nativeApi?.shell.openInEditor(input.cwd, input.editor);
+      }
+      if (
+        atom === directAtomMocks.removeKeybindingAction ||
+        atom === directAtomMocks.updateSettingsAction ||
+        atom === directAtomMocks.upsertKeybindingAction
+      ) {
+        return async () => undefined;
+      }
+      return actual.useAtomSet(atom as never, options as never);
+    },
+  };
+});
 
 vi.mock("@clerk/react", () => ({
   useAuth: () => ({
     getToken: mockGetClerkToken,
     isSignedIn: false,
   }),
-  useClerk: () => ({
-    openWaitlist: mockOpenClerkWaitlist,
+}));
+
+vi.mock("../../cloud/linkEnvironmentAtoms", async () => {
+  const Effect = await import("effect/Effect");
+  const { Atom } = await import("effect/unstable/reactivity");
+
+  return {
+    linkPrimaryEnvironment: Atom.fn(() => Effect.void),
+    unlinkPrimaryEnvironment: Atom.fn(() => Effect.void),
+  };
+});
+
+vi.mock("../../lib/archivedThreadsState", () => ({
+  refreshArchivedThreadsForEnvironment: vi.fn(),
+  useArchivedThreadSnapshots: () => ({
+    snapshots: [],
+    error: null,
+    isLoading: false,
+    refresh: vi.fn(),
   }),
 }));
 
-vi.mock("../../environments/runtime", () => {
-  const primaryConnection = {
-    kind: "primary" as const,
-    knownEnvironment: {
-      id: "environment-local",
-      label: "Local environment",
-      source: "manual" as const,
-      environmentId: EnvironmentId.make("environment-local"),
-      target: {
-        httpBaseUrl: "http://localhost:3000",
-        wsBaseUrl: "ws://localhost:3000",
-      },
+const sourceControlDiscoveryQueryAtom = vi.hoisted(() => Symbol("source-control-discovery-query"));
+const serverQueryHarness = vi.hoisted(() => {
+  const kinds = {
+    processDiagnostics: "process-diagnostics",
+    processResourceHistory: "process-resource-history",
+    traceDiagnostics: "trace-diagnostics",
+  } as const;
+  return {
+    kinds,
+    isMarker(atom: unknown) {
+      if (typeof atom !== "object" || atom === null || !("kind" in atom)) {
+        return false;
+      }
+      return Object.values(kinds).includes(
+        (atom as { readonly kind: (typeof kinds)[keyof typeof kinds] }).kind,
+      );
     },
-    environmentId: EnvironmentId.make("environment-local"),
-    client: {
-      server: {
-        subscribeAuthAccess: (listener: Parameters<typeof authAccessHarness.subscribe>[0]) =>
-          authAccessHarness.subscribe(listener),
-      },
+  };
+});
+
+type ServerQueryMarker =
+  | {
+      readonly kind: typeof serverQueryHarness.kinds.processDiagnostics;
+    }
+  | {
+      readonly kind: typeof serverQueryHarness.kinds.processResourceHistory;
+      readonly input: Parameters<LocalApi["server"]["getProcessResourceHistory"]>[0];
+    }
+  | {
+      readonly kind: typeof serverQueryHarness.kinds.traceDiagnostics;
+    };
+
+vi.mock("../../state/sourceControl", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../state/sourceControl")>();
+  return {
+    ...actual,
+    sourceControlEnvironment: {
+      ...actual.sourceControlEnvironment,
+      discovery: () => sourceControlDiscoveryQueryAtom,
     },
-    ensureBootstrapped: async () => undefined,
-    reconnect: async () => undefined,
-    dispose: async () => undefined,
+  };
+});
+
+vi.mock("../../state/query", async (importOriginal) => {
+  const React = await import("react");
+  const actual = await importOriginal<typeof import("../../state/query")>();
+  type Snapshot = {
+    readonly data: SourceControlDiscoveryResult | null;
+    readonly error: string | null;
+    readonly isPending: boolean;
+    readonly refresh: () => void;
+  };
+  type State = {
+    snapshot: Snapshot;
+    started: boolean;
+    readonly listeners: Set<() => void>;
+  };
+  const disabledSnapshot: Snapshot = {
+    data: null,
+    error: null,
+    isPending: false,
+    refresh: () => undefined,
+  };
+  const states = new WeakMap<LocalApi, State>();
+
+  const stateFor = (api: LocalApi): State => {
+    const existing = states.get(api);
+    if (existing) {
+      return existing;
+    }
+    const listeners = new Set<() => void>();
+    const state: State = {
+      started: false,
+      listeners,
+      snapshot: {
+        data: null,
+        error: null,
+        isPending: true,
+        refresh: () => {
+          state.started = false;
+          start(state, api);
+        },
+      },
+    };
+    states.set(api, state);
+    return state;
+  };
+
+  const publish = (state: State, next: Omit<Snapshot, "refresh">) => {
+    state.snapshot = {
+      ...next,
+      refresh: state.snapshot.refresh,
+    };
+    for (const listener of state.listeners) {
+      listener();
+    }
+  };
+
+  const start = (state: State, api: LocalApi) => {
+    if (state.started) {
+      return;
+    }
+    state.started = true;
+    publish(state, {
+      data: state.snapshot.data,
+      error: null,
+      isPending: true,
+    });
+    void api.server.discoverSourceControl().then(
+      (data) =>
+        publish(state, {
+          data,
+          error: null,
+          isPending: false,
+        }),
+      (error) =>
+        publish(state, {
+          data: state.snapshot.data,
+          error: error instanceof Error ? error.message : String(error),
+          isPending: false,
+        }),
+    );
+  };
+
+  const useSourceControlDiscoveryQuery = (enabled: boolean) => {
+    const api = enabled ? window.nativeApi : undefined;
+    const state = React.useMemo(() => (api ? stateFor(api) : null), [api]);
+    const snapshot = React.useSyncExternalStore(
+      React.useCallback(
+        (listener) => {
+          state?.listeners.add(listener);
+          return () => {
+            state?.listeners.delete(listener);
+          };
+        },
+        [state],
+      ),
+      React.useCallback(() => state?.snapshot ?? disabledSnapshot, [state]),
+    );
+    React.useEffect(() => {
+      if (state && api) {
+        start(state, api);
+      }
+    }, [api, state]);
+    return snapshot;
+  };
+
+  const useNativeQuery = <A,>(
+    enabled: boolean,
+    load: () => Promise<A> | undefined,
+    dependencies: React.DependencyList,
+  ) => {
+    const [state, setState] = React.useState<{
+      readonly data: A | null;
+      readonly error: string | null;
+      readonly isPending: boolean;
+    }>({
+      data: null,
+      error: null,
+      isPending: enabled,
+    });
+    const refresh = React.useCallback(async () => {
+      if (!enabled) {
+        return;
+      }
+      setState((current) => ({ ...current, isPending: true }));
+      try {
+        const data = await load();
+        setState({
+          data: data ?? null,
+          error: null,
+          isPending: false,
+        });
+      } catch (error) {
+        setState({
+          data: null,
+          error: error instanceof Error ? error.message : String(error),
+          isPending: false,
+        });
+      }
+    }, [enabled, ...dependencies]);
+    React.useEffect(() => {
+      if (enabled) {
+        void refresh();
+      }
+    }, [enabled, refresh]);
+    return { ...state, refresh };
   };
 
   return {
-    getEnvironmentHttpBaseUrl: () => "http://localhost:3000",
-    getSavedEnvironmentRecord: () => null,
-    getSavedEnvironmentRuntimeState: () => null,
-    hasSavedEnvironmentRegistryHydrated: () => true,
-    listSavedEnvironmentRecords: () => [],
-    resetSavedEnvironmentRegistryStoreForTests: () => undefined,
-    resetSavedEnvironmentRuntimeStoreForTests: () => undefined,
-    resolveEnvironmentHttpUrl: (_environmentId: unknown, path: string) =>
-      new URL(path, "http://localhost:3000").toString(),
-    waitForSavedEnvironmentRegistryHydration: async () => undefined,
-    addManagedRelayEnvironment: vi.fn(),
-    addSavedEnvironment: vi.fn(),
-    connectDesktopSshEnvironment: mockConnectDesktopSshEnvironment,
-    disconnectSavedEnvironment: vi.fn(),
-    ensureEnvironmentConnectionBootstrapped: async () => undefined,
-    getPrimaryEnvironmentConnection: () => primaryConnection,
-    readEnvironmentConnection: () => primaryConnection,
-    reconnectSavedEnvironment: vi.fn(),
-    removeSavedEnvironment: vi.fn(),
-    requireEnvironmentConnection: () => primaryConnection,
-    resetEnvironmentServiceForTests: () => undefined,
-    startEnvironmentConnectionService: () => undefined,
-    subscribeEnvironmentConnections: () => () => {},
-    useSavedEnvironmentRegistryStore: (
-      selector: (state: { byId: Record<string, never> }) => unknown,
-    ) => selector({ byId: {} }),
-    useSavedEnvironmentRuntimeStore: (
-      selector: (state: { byId: Record<string, never> }) => unknown,
-    ) => selector({ byId: {} }),
+    ...actual,
+    useEnvironmentQuery: (atom: unknown) => {
+      const isSourceControlDiscovery = atom === sourceControlDiscoveryQueryAtom;
+      const isAuthAccess = atom === directAtomMocks.authAccessQuery;
+      const serverQuery = serverQueryHarness.isMarker(atom) ? (atom as ServerQueryMarker) : null;
+      const isMockedQuery = isSourceControlDiscovery || isAuthAccess || serverQuery !== null;
+      const query = actual.useEnvironmentQuery(isMockedQuery ? null : (atom as never));
+      const sourceControlDiscovery = useSourceControlDiscoveryQuery(isSourceControlDiscovery);
+      const authAccessEvent = React.useSyncExternalStore(
+        authAccessHarness.subscribe,
+        authAccessHarness.getSnapshot,
+        authAccessHarness.getSnapshot,
+      );
+      const traceDiagnostics = useNativeQuery(
+        serverQuery?.kind === serverQueryHarness.kinds.traceDiagnostics,
+        () => window.nativeApi?.server.getTraceDiagnostics(),
+        [],
+      );
+      const processDiagnostics = useNativeQuery(
+        serverQuery?.kind === serverQueryHarness.kinds.processDiagnostics,
+        () => window.nativeApi?.server.getProcessDiagnostics(),
+        [],
+      );
+      const resourceInput =
+        serverQuery?.kind === serverQueryHarness.kinds.processResourceHistory
+          ? serverQuery.input
+          : null;
+      const processResourceHistory = useNativeQuery(
+        resourceInput !== null,
+        () =>
+          resourceInput === null
+            ? Promise.resolve(undefined)
+            : window.nativeApi?.server.getProcessResourceHistory(resourceInput),
+        [resourceInput?.windowMs, resourceInput?.bucketMs],
+      );
+
+      if (isSourceControlDiscovery) {
+        return sourceControlDiscovery;
+      }
+      if (isAuthAccess) {
+        return {
+          data: authAccessEvent,
+          error: null,
+          isPending: false,
+          refresh: () => undefined,
+        };
+      }
+      switch (serverQuery?.kind) {
+        case serverQueryHarness.kinds.traceDiagnostics:
+          return traceDiagnostics;
+        case serverQueryHarness.kinds.processDiagnostics:
+          return processDiagnostics;
+        case serverQueryHarness.kinds.processResourceHistory:
+          return processResourceHistory;
+        default:
+          return query;
+      }
+    },
+  };
+});
+
+vi.mock("../../state/server", async () => {
+  const { Atom } = await import("effect/unstable/reactivity");
+  const { DEFAULT_RESOLVED_KEYBINDINGS } = await import("@t3tools/shared/keybindings");
+  const { DEFAULT_SERVER_SETTINGS: defaultServerSettings } = await import("@t3tools/contracts");
+  const configAtom = Atom.make<ServerConfig | null>(null);
+  serverConfigHarness.configAtom = configAtom;
+
+  return {
+    primaryServerConfigAtom: configAtom,
+    primaryServerSettingsAtom: Atom.make(
+      (get) => get(configAtom)?.settings ?? defaultServerSettings,
+    ),
+    primaryServerProvidersAtom: Atom.make((get) => get(configAtom)?.providers ?? []),
+    primaryServerKeybindingsAtom: Atom.make(
+      (get) => get(configAtom)?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS,
+    ),
+    primaryServerAvailableEditorsAtom: Atom.make((get) => get(configAtom)?.availableEditors ?? []),
+    primaryServerKeybindingsConfigPathAtom: Atom.make(
+      (get) => get(configAtom)?.keybindingsConfigPath ?? null,
+    ),
+    primaryServerObservabilityAtom: Atom.make((get) => get(configAtom)?.observability ?? null),
+    serverEnvironment: {
+      processDiagnostics: () => ({ kind: serverQueryHarness.kinds.processDiagnostics }),
+      processResourceHistory: ({
+        input,
+      }: {
+        readonly input: Parameters<LocalApi["server"]["getProcessResourceHistory"]>[0];
+      }) => ({
+        kind: serverQueryHarness.kinds.processResourceHistory,
+        input,
+      }),
+      refreshProviders: directAtomMocks.refreshProvidersAction,
+      removeKeybinding: directAtomMocks.removeKeybindingAction,
+      signalProcess: directAtomMocks.signalProcessAction,
+      traceDiagnostics: () => ({ kind: serverQueryHarness.kinds.traceDiagnostics }),
+      updateProvider: directAtomMocks.updateProviderAction,
+      updateSettings: directAtomMocks.updateSettingsAction,
+      upsertKeybinding: directAtomMocks.upsertKeybindingAction,
+    },
+  };
+});
+
+vi.mock("../../state/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../state/auth")>();
+
+  return {
+    ...actual,
+    authEnvironment: {
+      ...actual.authEnvironment,
+      accessChanges: () => directAtomMocks.authAccessQuery,
+    },
+  };
+});
+
+vi.mock("../../state/shell", async () => {
+  const { Atom } = await import("effect/unstable/reactivity");
+  return {
+    environmentSnapshotAtom: Atom.family(() => Atom.make(null)),
+    environmentShellSummaryAtom: Atom.make([]),
+    shellEnvironment: {
+      openInEditor: directAtomMocks.openInEditorAction,
+    },
+  };
+});
+
+vi.mock("../../state/environments", async () => {
+  const React = await import("react");
+  const { useAtomValue } = await import("@effect/atom-react");
+  const EffectOption = await import("effect/Option");
+  const { EnvironmentId: EnvironmentIdSchema } = await import("@t3tools/contracts");
+  const environmentId = EnvironmentIdSchema.make("environment-local");
+
+  const usePrimaryEnvironment = () => {
+    const serverConfig = useAtomValue(serverConfigHarness.configAtom as never);
+    return React.useMemo(
+      () => ({
+        environmentId,
+        label: "Local environment",
+        displayUrl: "http://localhost:3000",
+        relayManaged: false,
+        entry: {
+          target: {
+            _tag: "PrimaryConnectionTarget" as const,
+            environmentId,
+            label: "Local environment",
+            httpBaseUrl: "http://localhost:3000",
+            wsBaseUrl: "ws://localhost:3000",
+          },
+          profile: EffectOption.none(),
+        },
+        connection: {
+          phase: "connected" as const,
+          error: null,
+          traceId: null,
+        },
+        serverConfig,
+      }),
+      [serverConfig],
+    );
+  };
+
+  return {
+    useEnvironments: () => {
+      const primary = usePrimaryEnvironment();
+      return {
+        isReady: true,
+        networkStatus: "online" as const,
+        environments: [primary],
+        presentationById: new Map([[environmentId, primary]]),
+        shellStateById: new Map(),
+      };
+    },
+    usePrimaryEnvironment: usePrimaryEnvironment,
+    useRelayEnvironmentDiscovery: () => ({
+      environments: new Map(),
+      refreshing: false,
+      offline: false,
+      error: EffectOption.none(),
+    }),
+    useEnvironmentActions: () => ({
+      connectPairing: mockConnectPairingEnvironment,
+      connectSshEnvironment: mockConnectDesktopSshEnvironment,
+      connectRelayEnvironment: mockConnectRelayEnvironment,
+      removeEnvironment: mockRemoveEnvironment,
+      retryEnvironment: mockRetryEnvironment,
+      refreshRelayEnvironments: mockRefreshRelayEnvironments,
+    }),
+    useEnvironmentHttpBaseUrl: () => "http://localhost:3000",
   };
 });
 
@@ -503,7 +941,7 @@ describe("GeneralSettingsPanel observability", () => {
     | null = null;
 
   beforeEach(async () => {
-    resetServerStateForTests();
+    resetServerConfigSnapshot();
     await __resetLocalApiForTests();
     localStorage.clear();
     useUiStateStore.setState({ defaultAdvertisedEndpointKey: null });
@@ -521,7 +959,7 @@ describe("GeneralSettingsPanel observability", () => {
     Reflect.deleteProperty(window, "desktopBridge");
     Reflect.deleteProperty(window, "nativeApi");
     document.body.innerHTML = "";
-    resetServerStateForTests();
+    resetServerConfigSnapshot();
     await __resetLocalApiForTests();
     authAccessHarness.reset();
   });
@@ -902,10 +1340,10 @@ describe("GeneralSettingsPanel observability", () => {
     await expect.element(page.getByRole("checkbox", { name: /Operate tasks/ })).not.toBeChecked();
     await page.getByRole("button", { name: "Create link", exact: true }).click();
     authAccessHarness.emitPairingLinkUpserted(pairingLinks[0]!);
-    authAccessHarness.emitClientUpserted(clientSessions[1]!);
     await expect
       .element(page.getByRole("button", { name: "Pairing link scopes: show 1 scope" }))
       .toBeInTheDocument();
+    authAccessHarness.emitClientUpserted(clientSessions[1]!);
     await expect
       .element(page.getByText("Mobile · iOS · Safari · 192.168.1.88"))
       .toBeInTheDocument();
@@ -1139,15 +1577,15 @@ describe("GeneralSettingsPanel observability", () => {
       .click();
 
     await vi.waitFor(() => {
-      expect(mockConnectDesktopSshEnvironment).toHaveBeenCalledWith(
-        {
+      expect(mockConnectDesktopSshEnvironment).toHaveBeenCalledWith({
+        target: {
           alias: "devbox.example.com",
           hostname: "devbox.example.com",
           username: "julius",
           port: 2222,
         },
-        { label: "" },
-      );
+        label: "",
+      });
     });
   });
 
@@ -1340,10 +1778,14 @@ describe("SourceControlSettingsPanel discovery states", () => {
     discoverSourceControl: () => Promise<SourceControlDiscoveryResult>,
   ) {
     window.nativeApi = {
+      persistence: {
+        getClientSettings: vi.fn().mockResolvedValue(null),
+        setClientSettings: vi.fn().mockResolvedValue(undefined),
+      },
       server: {
         discoverSourceControl,
       },
-    } as LocalApi;
+    } as unknown as LocalApi;
   }
 
   it("shows skeleton sections while the first source control scan is pending", async () => {

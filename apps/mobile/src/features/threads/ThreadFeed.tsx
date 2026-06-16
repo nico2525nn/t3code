@@ -12,6 +12,7 @@ import {
   type PartialMarkdownTheme,
 } from "react-native-nitro-markdown";
 import {
+  ActivityIndicator,
   Image,
   Linking,
   type NativeScrollEvent,
@@ -37,7 +38,6 @@ import {
 } from "../../native/SelectableMarkdownText";
 
 import { AppText as Text } from "../../components/AppText";
-import { EmptyState } from "../../components/EmptyState";
 import { CopyTextButton } from "../../components/CopyTextButton";
 import {
   parseReviewCommentMessageSegments,
@@ -53,7 +53,7 @@ import {
 } from "../review/nativeReviewDiffAdapter";
 import { buildReviewParsedDiff } from "../review/reviewModel";
 import { cn } from "../../lib/cn";
-import type { MobileLayoutVariant } from "../../lib/mobileLayout";
+import type { LayoutVariant } from "../../lib/layout";
 import { markdownFileIconSource } from "@t3tools/mobile-markdown-text/file-icons";
 import { resolveMarkdownLinkPresentation } from "@t3tools/mobile-markdown-text/links";
 import {
@@ -64,6 +64,8 @@ import {
 import { isThreadFeedNearEnd } from "../../lib/threadFeedLayout";
 import { relativeTime } from "../../lib/time";
 import { messageImageUrl } from "./threadPresentation";
+import type { ThreadContentPresentation } from "./threadContentPresentation";
+import { useRemoteHttpHeaders } from "../../state/remote-http";
 
 const THREAD_FEED_END_THRESHOLD = 80;
 const MESSAGE_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
@@ -82,15 +84,50 @@ function formatMessageTime(input: string): string {
 export interface ThreadFeedProps {
   readonly threadId: ThreadId;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
+  readonly contentPresentation: ThreadContentPresentation;
   readonly httpBaseUrl: string | null;
   readonly bearerToken: string | null;
+  readonly dpopAccessToken?: string;
   readonly agentLabel: string;
   readonly latestTurn: ThreadFeedLatestTurn | null;
   readonly contentTopInset?: number;
   readonly contentBottomInset?: number;
-  readonly layoutVariant?: MobileLayoutVariant;
+  readonly layoutVariant?: LayoutVariant;
   readonly composerExpanded?: boolean;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
+}
+
+function MessageAttachmentImage(props: {
+  readonly uri: string;
+  readonly bearerToken: string | null;
+  readonly dpopAccessToken?: string;
+  readonly className: string;
+  readonly onPressImage: (uri: string, headers?: Record<string, string>) => void;
+}) {
+  const request = useRemoteHttpHeaders({
+    url: props.uri,
+    bearerToken: props.bearerToken,
+    ...(props.dpopAccessToken ? { dpopAccessToken: props.dpopAccessToken } : {}),
+  });
+
+  if (!request.isReady) {
+    return (
+      <View className={`${props.className} items-center justify-center`}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  const headers = request.headers ?? undefined;
+  return (
+    <TouchableOpacity activeOpacity={0.7} onPress={() => props.onPressImage(props.uri, headers)}>
+      <Image
+        source={{ uri: props.uri, ...(headers ? { headers } : {}) }}
+        className={props.className}
+        resizeMode="cover"
+      />
+    </TouchableOpacity>
+  );
 }
 
 function stripShellWrapper(value: string): string {
@@ -654,7 +691,7 @@ function useMarkdownStyles(): MarkdownStyleSets {
 
 function renderFeedEntry(
   info: { item: ThreadFeedEntry; index: number },
-  props: Pick<ThreadFeedProps, "bearerToken" | "httpBaseUrl" | "skills"> & {
+  props: Pick<ThreadFeedProps, "bearerToken" | "dpopAccessToken" | "httpBaseUrl" | "skills"> & {
     readonly copiedRowId: string | null;
     readonly expandedWorkGroups: Record<string, boolean>;
     readonly expandedWorkRows: Record<string, boolean>;
@@ -737,22 +774,15 @@ function renderFeedEntry(
               if (!uri) {
                 return null;
               }
-              const headers = props.bearerToken
-                ? { Authorization: `Bearer ${props.bearerToken}` }
-                : undefined;
-
               return (
-                <TouchableOpacity
+                <MessageAttachmentImage
                   key={attachment.id}
-                  activeOpacity={0.7}
-                  onPress={() => props.onPressImage(uri, headers)}
-                >
-                  <Image
-                    source={{ uri, ...(headers ? { headers } : {}) }}
-                    className="aspect-[1.3] w-full rounded-[14px] bg-white/15"
-                    resizeMode="cover"
-                  />
-                </TouchableOpacity>
+                  uri={uri}
+                  bearerToken={props.bearerToken}
+                  dpopAccessToken={props.dpopAccessToken}
+                  className="aspect-[1.3] w-full rounded-[14px] bg-white/15"
+                  onPressImage={props.onPressImage}
+                />
               );
             })}
           </View>
@@ -805,23 +835,15 @@ function renderFeedEntry(
           if (!uri) {
             return null;
           }
-          const headers = props.bearerToken
-            ? { Authorization: `Bearer ${props.bearerToken}` }
-            : undefined;
-
           return (
-            <TouchableOpacity
+            <MessageAttachmentImage
               key={attachment.id}
-              activeOpacity={0.7}
-              className="mt-1.5"
-              onPress={() => props.onPressImage(uri, headers)}
-            >
-              <Image
-                source={{ uri, ...(headers ? { headers } : {}) }}
-                className="aspect-[1.3] w-full rounded-[18px] bg-neutral-200 dark:bg-neutral-800"
-                resizeMode="cover"
-              />
-            </TouchableOpacity>
+              uri={uri}
+              bearerToken={props.bearerToken}
+              dpopAccessToken={props.dpopAccessToken}
+              className="mt-1.5 aspect-[1.3] w-full rounded-[18px] bg-neutral-200 dark:bg-neutral-800"
+              onPressImage={props.onPressImage}
+            />
           );
         })}
         {showAssistantMeta ? (
@@ -1217,6 +1239,37 @@ function compactFileName(filePath: string): string {
   return lastSlashIndex >= 0 ? normalized.slice(lastSlashIndex + 1) : normalized;
 }
 
+function ThreadFeedPlaceholder(props: {
+  readonly bottomInset: number;
+  readonly detail: string;
+  readonly horizontalPadding: number;
+  readonly loading?: boolean;
+  readonly title: string;
+  readonly topInset: number;
+}) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        flexGrow: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingTop: props.topInset,
+        paddingBottom: props.bottomInset,
+        paddingHorizontal: props.horizontalPadding + 24,
+      }}
+    >
+      <View className="max-w-[320px] items-center gap-2">
+        {props.loading ? <ActivityIndicator style={{ marginBottom: 6 }} /> : null}
+        <Text className="text-center font-t3-bold text-lg text-foreground">{props.title}</Text>
+        <Text className="text-center text-sm leading-5 text-foreground-secondary">
+          {props.detail}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const listRef = useRef<LegendListRef>(null);
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1444,6 +1497,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     (info: { item: ThreadFeedEntry; index: number }) =>
       renderFeedEntry(info, {
         bearerToken: props.bearerToken,
+        dpopAccessToken: props.dpopAccessToken,
         copiedRowId,
         httpBaseUrl: props.httpBaseUrl,
         expandedWorkGroups,
@@ -1479,29 +1533,46 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkGroup,
       onToggleWorkRow,
       props.bearerToken,
+      props.dpopAccessToken,
       props.httpBaseUrl,
       props.skills,
     ],
   );
 
+  if (props.contentPresentation.kind === "loading") {
+    return (
+      <ThreadFeedPlaceholder
+        title="Loading conversation"
+        detail="Fetching the latest messages from this environment."
+        loading
+        topInset={topContentInset}
+        bottomInset={bottomContentInset}
+        horizontalPadding={horizontalPadding}
+      />
+    );
+  }
+
+  if (props.contentPresentation.kind === "unavailable") {
+    return (
+      <ThreadFeedPlaceholder
+        title={props.contentPresentation.title}
+        detail={props.contentPresentation.detail}
+        topInset={topContentInset}
+        bottomInset={bottomContentInset}
+        horizontalPadding={horizontalPadding}
+      />
+    );
+  }
+
   if (props.feed.length === 0) {
     return (
-      <ScrollView
-        style={{ flex: 1 }}
-        contentInsetAdjustmentBehavior="never"
-        contentInset={{ top: topContentInset, bottom: bottomContentInset }}
-        contentOffset={{ x: 0, y: -topContentInset }}
-        scrollIndicatorInsets={{ top: topContentInset, bottom: bottomContentInset }}
-        contentContainerStyle={{
-          flexGrow: 1,
-          paddingHorizontal: horizontalPadding,
-        }}
-      >
-        <EmptyState
-          title="No conversation yet"
-          detail="Ask the agent to inspect the repo, run a command, or continue the active thread."
-        />
-      </ScrollView>
+      <ThreadFeedPlaceholder
+        title="No conversation yet"
+        detail="Ask the agent to inspect the repo, run a command, or continue the active thread."
+        topInset={topContentInset}
+        bottomInset={bottomContentInset}
+        horizontalPadding={horizontalPadding}
+      />
     );
   }
 

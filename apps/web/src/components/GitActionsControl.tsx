@@ -63,7 +63,7 @@ import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { stackedThreadToast, toastManager, type ThreadToastData } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { openInPreferredEditor } from "~/editorPreferences";
+import { useOpenInPreferredEditor } from "~/editorPreferences";
 import {
   useGitStackedAction,
   useSourceControlActionRunning,
@@ -71,16 +71,18 @@ import {
   useVcsInitAction,
   useVcsPullAction,
 } from "~/lib/sourceControlActions";
-import { getVcsStatusDataForTarget, refreshVcsStatus, useVcsStatus } from "~/lib/vcsStatusState";
-import { useSourceControlDiscovery } from "~/lib/sourceControlDiscoveryState";
-import { newCommandId, randomUUID } from "~/lib/utils";
+import { useThreadDetail } from "~/state/entities";
+import { useEnvironmentQuery } from "~/state/query";
+import { serverEnvironment } from "~/state/server";
+import { sourceControlEnvironment } from "~/state/sourceControl";
+import { threadEnvironment } from "~/state/threads";
+import { vcsEnvironment } from "~/state/vcs";
+import { useAtomSet } from "@effect/atom-react";
+import { randomUUID } from "~/lib/utils";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
-import { readEnvironmentApi } from "~/environmentApi";
 import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
-import { useStore } from "~/store";
-import { createThreadSelectorByRef } from "~/storeSelectors";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -348,7 +350,14 @@ interface PublishRepositoryDialogProps {
 
 function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
   const navigate = useNavigate();
-  const sourceControlDiscovery = useSourceControlDiscovery();
+  const sourceControlDiscovery = useEnvironmentQuery(
+    props.environmentId === null
+      ? null
+      : sourceControlEnvironment.discovery({
+          environmentId: props.environmentId,
+          input: {},
+        }),
+  );
   const [publishProvider, setPublishProvider] = useState<PublishProviderKind>("github");
   const [publishRepository, setPublishRepository] = useState("");
   const [publishVisibility, setPublishVisibility] =
@@ -479,9 +488,6 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
           setPublishResult(result);
           setPublishWizardStep(2);
         });
-        void refreshVcsStatus({ environmentId: props.environmentId, cwd: props.gitCwd }).catch(
-          () => undefined,
-        );
       })
       .catch((err: unknown) => {
         setPublishError(err instanceof Error ? err.message : "An error occurred.");
@@ -951,16 +957,24 @@ export default function GitActionsControl({
   activeThreadRef,
   draftId,
 }: GitActionsControlProps) {
+  const updateThreadMetadata = useAtomSet(threadEnvironment.updateMetadata, {
+    mode: "promise",
+  });
   const activeEnvironmentId = activeThreadRef?.environmentId ?? null;
+  const serverConfig = useEnvironmentQuery(
+    activeEnvironmentId === null
+      ? null
+      : serverEnvironment.config({ environmentId: activeEnvironmentId, input: {} }),
+  );
+  const openInPreferredEditor = useOpenInPreferredEditor(
+    activeEnvironmentId,
+    serverConfig.data?.availableEditors ?? [],
+  );
   const threadToastData = useMemo(
     () => (activeThreadRef ? { threadRef: activeThreadRef } : undefined),
     [activeThreadRef],
   );
-  const activeServerThreadSelector = useMemo(
-    () => createThreadSelectorByRef(activeThreadRef),
-    [activeThreadRef],
-  );
-  const activeServerThread = useStore(activeServerThreadSelector);
+  const activeServerThread = useThreadDetail(activeThreadRef);
   const activeDraftThread = useComposerDraftStore((store) =>
     draftId
       ? store.getDraftSession(draftId)
@@ -969,7 +983,6 @@ export default function GitActionsControl({
         : null,
   );
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
-  const setThreadBranch = useStore((store) => store.setThreadBranch);
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
@@ -1010,20 +1023,15 @@ export default function GitActionsControl({
         }
 
         const worktreePath = activeServerThread.worktreePath;
-        const api = readEnvironmentApi(activeThreadRef.environmentId);
-        if (api) {
-          void api.orchestration
-            .dispatchCommand({
-              type: "thread.meta.update",
-              commandId: newCommandId(),
-              threadId: activeThreadRef.threadId,
-              branch,
-              worktreePath,
-            })
-            .catch(() => undefined);
-        }
+        void updateThreadMetadata({
+          environmentId: activeThreadRef.environmentId,
+          input: {
+            threadId: activeThreadRef.threadId,
+            branch,
+            worktreePath,
+          },
+        }).catch(() => undefined);
 
-        setThreadBranch(activeThreadRef, branch, worktreePath);
         return;
       }
 
@@ -1042,7 +1050,7 @@ export default function GitActionsControl({
       activeThreadRef,
       draftId,
       setDraftThreadContext,
-      setThreadBranch,
+      updateThreadMetadata,
     ],
   );
 
@@ -1058,13 +1066,15 @@ export default function GitActionsControl({
     [persistThreadBranchSync],
   );
 
-  const vcsStatusTarget = useMemo(
-    () => ({ environmentId: activeEnvironmentId, cwd: gitCwd }),
-    [activeEnvironmentId, gitCwd],
+  const gitStatusQuery = useEnvironmentQuery(
+    activeEnvironmentId !== null && gitCwd !== null
+      ? vcsEnvironment.status({
+          environmentId: activeEnvironmentId,
+          input: { cwd: gitCwd },
+        })
+      : null,
   );
-  const gitStatusQuery = useVcsStatus(vcsStatusTarget);
-  const { error: gitStatusError } = gitStatusQuery;
-  const gitStatus = getVcsStatusDataForTarget(gitStatusQuery, vcsStatusTarget);
+  const { data: gitStatus, error: gitStatusError } = gitStatusQuery;
   const sourceControlPresentation = useMemo(
     () => getSourceControlPresentation(gitStatus?.sourceControlProvider),
     [gitStatus?.sourceControlProvider],
@@ -1166,9 +1176,7 @@ export default function GitActionsControl({
       }
       refreshTimeout = window.setTimeout(() => {
         refreshTimeout = null;
-        void refreshVcsStatus({ environmentId: activeEnvironmentId, cwd: gitCwd }).catch(
-          () => undefined,
-        );
+        gitStatusQuery.refresh();
       }, GIT_STATUS_WINDOW_REFRESH_DEBOUNCE_MS);
     };
     const handleVisibilityChange = () => {
@@ -1187,7 +1195,7 @@ export default function GitActionsControl({
       window.removeEventListener("focus", scheduleRefreshCurrentGitStatus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [activeEnvironmentId, gitCwd]);
+  }, [gitCwd, gitStatusQuery.refresh]);
 
   const openExistingPr = useCallback(async () => {
     const api = readLocalApi();
@@ -1576,8 +1584,7 @@ export default function GitActionsControl({
 
   const openChangedFileInEditor = useCallback(
     (filePath: string) => {
-      const api = readLocalApi();
-      if (!api || !gitCwd) {
+      if (!gitCwd) {
         toastManager.add({
           type: "error",
           title: "Editor opening is unavailable.",
@@ -1586,7 +1593,7 @@ export default function GitActionsControl({
         return;
       }
       const target = resolvePathLinkTarget(filePath, gitCwd);
-      void openInPreferredEditor(api, target).catch((error) => {
+      void openInPreferredEditor(target).catch((error) => {
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -1597,7 +1604,7 @@ export default function GitActionsControl({
         );
       });
     },
-    [gitCwd, threadToastData],
+    [gitCwd, openInPreferredEditor, threadToastData],
   );
 
   const canPublishRepository = isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
@@ -1664,10 +1671,7 @@ export default function GitActionsControl({
           <Menu
             onOpenChange={(open) => {
               if (open) {
-                void refreshVcsStatus({
-                  environmentId: activeEnvironmentId,
-                  cwd: gitCwd,
-                }).catch(() => undefined);
+                gitStatusQuery.refresh();
               }
             }}
           >
@@ -1748,7 +1752,7 @@ export default function GitActionsControl({
                   </p>
                 )}
               {gitStatusError && (
-                <p className="px-2 py-1.5 text-xs text-destructive">{gitStatusError.message}</p>
+                <p className="px-2 py-1.5 text-xs text-destructive">{gitStatusError}</p>
               )}
             </MenuPopup>
           </Menu>

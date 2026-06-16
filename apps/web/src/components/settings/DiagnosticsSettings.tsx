@@ -7,6 +7,7 @@ import {
   InfoIcon,
   RefreshCwIcon,
 } from "lucide-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import type {
   ServerProcessDiagnosticsEntry,
@@ -16,16 +17,17 @@ import type {
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 
-import { ensureLocalApi } from "../../localApi";
 import { cn } from "../../lib/utils";
 import { resolveAndPersistPreferredEditor } from "../../editorPreferences";
 import { formatRelativeTime } from "../../timestampFormat";
-import { useServerAvailableEditors, useServerObservability } from "../../rpc/serverState";
+import { useEnvironmentQuery } from "../../state/query";
 import {
-  useProcessDiagnostics,
-  useProcessResourceHistory,
-} from "../../lib/processDiagnosticsState";
-import { useTraceDiagnostics } from "../../lib/traceDiagnosticsState";
+  primaryServerAvailableEditorsAtom,
+  primaryServerObservabilityAtom,
+  serverEnvironment,
+} from "../../state/server";
+import { shellEnvironment } from "../../state/shell";
+import { usePrimaryEnvironment } from "../../state/environments";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -803,28 +805,47 @@ function DiagnosticsRefreshButton({
 }
 
 export function DiagnosticsSettingsPanel() {
-  const observability = useServerObservability();
-  const availableEditors = useServerAvailableEditors();
+  const observability = useAtomValue(primaryServerObservabilityAtom);
+  const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
+  const primaryEnvironment = usePrimaryEnvironment();
+  const environmentId = primaryEnvironment?.environmentId ?? null;
+  const signalServerProcess = useAtomSet(serverEnvironment.signalProcess, { mode: "promise" });
+  const openInEditor = useAtomSet(shellEnvironment.openInEditor, { mode: "promise" });
   const [resourceWindowMs, setResourceWindowMs] = useState(15 * 60_000);
   const selectedResourceWindow =
     RESOURCE_HISTORY_WINDOWS.find((option) => option.windowMs === resourceWindowMs) ??
     RESOURCE_HISTORY_WINDOWS[1];
-  const { data, error, isPending, refresh } = useTraceDiagnostics();
+  const { data, error, isPending, refresh } = useEnvironmentQuery(
+    environmentId === null
+      ? null
+      : serverEnvironment.traceDiagnostics({ environmentId, input: {} }),
+  );
   const {
     data: processData,
     error: processError,
     isPending: isProcessPending,
     refresh: refreshProcesses,
-  } = useProcessDiagnostics();
+  } = useEnvironmentQuery(
+    environmentId === null
+      ? null
+      : serverEnvironment.processDiagnostics({ environmentId, input: {} }),
+  );
   const {
     data: resourceData,
     error: resourceError,
     isPending: isResourcePending,
     refresh: refreshResources,
-  } = useProcessResourceHistory({
-    windowMs: selectedResourceWindow.windowMs,
-    bucketMs: selectedResourceWindow.bucketMs,
-  });
+  } = useEnvironmentQuery(
+    environmentId === null
+      ? null
+      : serverEnvironment.processResourceHistory({
+          environmentId,
+          input: {
+            windowMs: selectedResourceWindow.windowMs,
+            bucketMs: selectedResourceWindow.bucketMs,
+          },
+        }),
+  );
   const [isOpeningLogsDirectory, setIsOpeningLogsDirectory] = useState(false);
   const [openLogsDirectoryError, setOpenLogsDirectoryError] = useState<string | null>(null);
   const [signalingPid, setSignalingPid] = useState<number | null>(null);
@@ -838,11 +859,20 @@ export function DiagnosticsSettingsPanel() {
       setOpenLogsDirectoryError("No available editors found.");
       return;
     }
+    if (environmentId === null) {
+      setOpenLogsDirectoryError("No environment is selected.");
+      return;
+    }
 
     setIsOpeningLogsDirectory(true);
     setOpenLogsDirectoryError(null);
-    void ensureLocalApi()
-      .shell.openInEditor(logsDirectoryPath, editor)
+    void openInEditor({
+      environmentId,
+      input: {
+        cwd: logsDirectoryPath,
+        editor,
+      },
+    })
       .catch((error: unknown) => {
         setOpenLogsDirectoryError(
           error instanceof Error ? error.message : "Unable to open logs folder.",
@@ -851,7 +881,7 @@ export function DiagnosticsSettingsPanel() {
       .finally(() => {
         setIsOpeningLogsDirectory(false);
       });
-  }, [availableEditors, observability?.logsDirectoryPath]);
+  }, [availableEditors, environmentId, observability?.logsDirectoryPath, openInEditor]);
 
   const isInitialLoading = isPending && data === null;
   const isProcessInitialLoading = isProcessPending && processData === null;
@@ -863,10 +893,15 @@ export function DiagnosticsSettingsPanel() {
       ) {
         return;
       }
+      if (environmentId === null) {
+        return;
+      }
 
       setSignalingPid(pid);
-      void ensureLocalApi()
-        .server.signalProcess({ pid, signal })
+      void signalServerProcess({
+        environmentId,
+        input: { pid, signal },
+      })
         .then((result) => {
           if (!result.signaled) {
             const message = Option.getOrUndefined(result.message);
@@ -901,7 +936,7 @@ export function DiagnosticsSettingsPanel() {
           setSignalingPid(null);
         });
     },
-    [refreshProcesses],
+    [environmentId, refreshProcesses, signalServerProcess],
   );
 
   const processDiagnosticsError = processData ? Option.getOrNull(processData.error) : null;

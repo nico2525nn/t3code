@@ -1,4 +1,5 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
+import { useAtomValue } from "@effect/atom-react";
 import { useEffect } from "react";
 
 import { useCommandPaletteStore } from "../commandPaletteStore";
@@ -18,14 +19,14 @@ import { useThreadSelectionStore } from "../threadSelectionStore";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { useSettings } from "~/hooks/useSettings";
-import { useServerKeybindings } from "~/rpc/serverState";
+import { primaryServerKeybindingsAtom } from "~/state/server";
 
 function ChatRouteGlobalShortcuts() {
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
-  const keybindings = useServerKeybindings();
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const terminalOpen = useTerminalUiStateStore((state) =>
     routeThreadRef
       ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen
@@ -68,7 +69,7 @@ function ChatRouteGlobalShortcuts() {
         event.stopPropagation();
         void startNewLocalThreadFromContext({
           activeDraftThread,
-          activeThread,
+          activeThread: activeThread ?? undefined,
           defaultProjectRef,
           defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
             defaultEnvMode: appSettings.defaultThreadEnvMode,
@@ -83,7 +84,7 @@ function ChatRouteGlobalShortcuts() {
         event.stopPropagation();
         void startNewThreadFromContext({
           activeDraftThread,
-          activeThread,
+          activeThread: activeThread ?? undefined,
           defaultProjectRef,
           defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
             defaultEnvMode: appSettings.defaultThreadEnvMode,
