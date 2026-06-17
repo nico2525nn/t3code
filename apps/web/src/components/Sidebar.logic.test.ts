@@ -64,6 +64,20 @@ describe("hasUnseenCompletion", () => {
       }),
     ).toBe(true);
   });
+
+  it("treats a missing client visit marker as read", () => {
+    expect(
+      hasUnseenCompletion({
+        hasActionableProposedPlan: false,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        interactionMode: "default",
+        latestTurn: makeLatestTurn(),
+        lastVisitedAt: undefined,
+        session: null,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("createThreadJumpHintVisibilityController", () => {
@@ -369,6 +383,25 @@ describe("orderItemsByPreferredIds", () => {
       "/work/beta",
     ]);
   });
+
+  it("resolves legacy preference aliases without materializing project state", () => {
+    const ordered = orderItemsByPreferredIds({
+      items: [
+        { id: "physical-a", cwd: "/work/a" },
+        { id: "physical-b", cwd: "/work/b" },
+        { id: "physical-c", cwd: "/work/c" },
+      ],
+      preferredIds: ["legacy:/work/c", "legacy:/work/a"],
+      getId: (project) => project.id,
+      getPreferenceIds: (project) => [project.id, `legacy:${project.cwd}`],
+    });
+
+    expect(ordered.map((project) => project.id)).toEqual([
+      "physical-c",
+      "physical-a",
+      "physical-b",
+    ]);
+  });
 });
 
 describe("resolveAdjacentThreadId", () => {
@@ -557,7 +590,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Plan Ready", pulse: false });
   });
 
-  it("does not show plan ready after the proposed plan was implemented elsewhere", () => {
+  it("does not manufacture completed state without a client visit marker", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -570,7 +603,7 @@ describe("resolveThreadStatusPill", () => {
           },
         },
       }),
-    ).toMatchObject({ label: "Completed", pulse: false });
+    ).toBeNull();
   });
 
   it("shows completed when there is an unseen completion and no active blocker", () => {

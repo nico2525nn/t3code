@@ -1,4 +1,7 @@
-import { Atom } from "effect/unstable/reactivity";
+import {
+  createAtomCommandScheduler,
+  createRuntimeCommand,
+} from "@t3tools/client-runtime/state/runtime";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import {
@@ -7,16 +10,24 @@ import {
   unlinkPrimaryEnvironmentFromCloud,
 } from "./linkEnvironment";
 
-export const linkPrimaryEnvironment = connectionAtomRuntime
-  .fn<{
-    readonly target: CloudLinkTarget;
-    readonly clerkToken: string;
-  }>()(linkPrimaryEnvironmentToCloud)
-  .pipe(Atom.withLabel("web:cloud:link-primary-environment"));
+const cloudLinkScheduler = createAtomCommandScheduler();
+const cloudLinkConcurrency = {
+  mode: "serial" as const,
+  key: (input: { readonly target: CloudLinkTarget }) => input.target.environmentId,
+};
 
-export const unlinkPrimaryEnvironment = connectionAtomRuntime
-  .fn<{
-    readonly target: CloudLinkTarget;
-    readonly clerkToken: string | null;
-  }>()(unlinkPrimaryEnvironmentFromCloud)
-  .pipe(Atom.withLabel("web:cloud:unlink-primary-environment"));
+export const linkPrimaryEnvironment = createRuntimeCommand(connectionAtomRuntime, {
+  label: "web:cloud:link-primary-environment",
+  scheduler: cloudLinkScheduler,
+  concurrency: cloudLinkConcurrency,
+  execute: (input: { readonly target: CloudLinkTarget; readonly clerkToken: string }) =>
+    linkPrimaryEnvironmentToCloud(input),
+});
+
+export const unlinkPrimaryEnvironment = createRuntimeCommand(connectionAtomRuntime, {
+  label: "web:cloud:unlink-primary-environment",
+  scheduler: cloudLinkScheduler,
+  concurrency: cloudLinkConcurrency,
+  execute: (input: { readonly target: CloudLinkTarget; readonly clerkToken: string | null }) =>
+    unlinkPrimaryEnvironmentFromCloud(input),
+});

@@ -1,116 +1,22 @@
-import {
-  mapAtomCommandResult,
-  type AtomCommandResult,
-} from "@t3tools/client-runtime/state/runtime";
-import type { AssetCreateUrlResult, AssetResource, EnvironmentId } from "@t3tools/contracts";
-import { AsyncResult } from "effect/unstable/reactivity";
-import { useEffect, useMemo, useState } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
+import type { AssetResource, EnvironmentId } from "@t3tools/contracts";
 
 import { assetEnvironment } from "~/state/assets";
 import { usePreparedConnection } from "~/state/session";
-import { useAtomCommand } from "~/state/use-atom-command";
 
-const REFRESH_MARGIN_MS = 30_000;
-
-interface CachedAssetUrl {
-  readonly url: string;
-  readonly expiresAt: number;
-}
-
-const assetUrlCache = new Map<string, CachedAssetUrl>();
-const assetUrlRequests = new Map<string, Promise<AtomCommandResult<CachedAssetUrl, unknown>>>();
-
-function assetCacheKey(environmentId: EnvironmentId, resource: AssetResource): string {
-  return `${environmentId}:${JSON.stringify(resource)}`;
-}
-
-export async function resolveAssetUrl<E>(input: {
-  readonly environmentId: EnvironmentId;
-  readonly httpBaseUrl: string;
-  readonly resource: AssetResource;
-  readonly createUrl: (input: {
-    readonly environmentId: EnvironmentId;
-    readonly input: { readonly resource: AssetResource };
-  }) => Promise<AtomCommandResult<AssetCreateUrlResult, E>>;
-}): Promise<AtomCommandResult<CachedAssetUrl, E>> {
-  const key = assetCacheKey(input.environmentId, input.resource);
-  const cached = assetUrlCache.get(key);
-  if (cached && cached.expiresAt - REFRESH_MARGIN_MS > Date.now()) {
-    return AsyncResult.success(cached);
-  }
-
-  const inFlight = assetUrlRequests.get(key) as
-    | Promise<AtomCommandResult<CachedAssetUrl, E>>
-    | undefined;
-  if (inFlight) {
-    return inFlight;
-  }
-
-  const request = input
-    .createUrl({
-      environmentId: input.environmentId,
-      input: { resource: input.resource },
-    })
-    .then((result) =>
-      mapAtomCommandResult(result, (value) => {
-        const cachedResult = {
-          url: new URL(value.relativeUrl, input.httpBaseUrl).toString(),
-          expiresAt: value.expiresAt,
-        };
-        assetUrlCache.set(key, cachedResult);
-        return cachedResult;
-      }),
-    )
-    .finally(() => {
-      assetUrlRequests.delete(key);
-    });
-  assetUrlRequests.set(key, request as Promise<AtomCommandResult<CachedAssetUrl, unknown>>);
-  return request;
-}
+export { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 
 export function useAssetUrl(environmentId: EnvironmentId, resource: AssetResource): string | null {
-  const createUrl = useAtomCommand(assetEnvironment.createUrl);
   const preparedConnection = usePreparedConnection(environmentId);
-  const resourceJson = JSON.stringify(resource);
-  const stableResource = useMemo(() => JSON.parse(resourceJson) as AssetResource, [resourceJson]);
-  const key = assetCacheKey(environmentId, stableResource);
-  const [url, setUrl] = useState<string | null>(() => assetUrlCache.get(key)?.url ?? null);
-
-  useEffect(() => {
-    if (preparedConnection._tag === "None") {
-      setUrl(null);
-      return;
-    }
-    let cancelled = false;
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-    const httpBaseUrl = preparedConnection.value.httpBaseUrl;
-
-    const load = () => {
-      void resolveAssetUrl({
-        environmentId,
-        httpBaseUrl,
-        resource: stableResource,
-        createUrl,
-      }).then((result) => {
-        if (cancelled) return;
-        if (result._tag === "Failure") {
-          setUrl(null);
-          return;
-        }
-        setUrl(result.value.url);
-        refreshTimer = setTimeout(
-          load,
-          Math.max(0, result.value.expiresAt - Date.now() - REFRESH_MARGIN_MS),
-        );
-      });
-    };
-    load();
-
-    return () => {
-      cancelled = true;
-      if (refreshTimer) clearTimeout(refreshTimer);
-    };
-  }, [createUrl, environmentId, key, preparedConnection, stableResource]);
-
-  return url;
+  const result = useAtomValue(
+    assetEnvironment.createUrl({
+      environmentId,
+      input: { resource },
+    }),
+  );
+  if (preparedConnection._tag === "None" || result._tag !== "Success") {
+    return null;
+  }
+  return resolveAssetUrl(preparedConnection.value.httpBaseUrl, result.value.relativeUrl);
 }

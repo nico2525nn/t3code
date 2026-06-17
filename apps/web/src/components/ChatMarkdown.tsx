@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { DiffsHighlighter, getSharedHighlighter, SupportedLanguages } from "@pierre/diffs";
 import {
   CheckIcon,
@@ -67,12 +68,12 @@ import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useActiveEnvironmentId } from "../state/entities";
-import { useEnvironmentQuery } from "../state/query";
 import { serverEnvironment } from "../state/server";
 import { assetEnvironment } from "../state/assets";
 import { usePreparedConnection } from "../state/session";
 import { previewEnvironment } from "../state/preview";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import {
   isBrowserPreviewFile,
@@ -1157,7 +1158,7 @@ function ChatMarkdown({
   lineBreaks = false,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
-  const createAssetUrl = useAtomCommand(assetEnvironment.createUrl, {
+  const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
   });
   const openPreview = useAtomCommand(previewEnvironment.open, {
@@ -1165,12 +1166,10 @@ function ChatMarkdown({
   });
   const preparedConnection = usePreparedConnection(threadRef?.environmentId ?? null);
   const environmentId = useActiveEnvironmentId();
-  const serverConfig = useEnvironmentQuery(
-    environmentId === null ? null : serverEnvironment.config({ environmentId, input: {} }),
-  );
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
     environmentId,
-    serverConfig.data?.availableEditors ?? [],
+    serverConfig?.availableEditors ?? [],
   );
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const markdownFileLinkMetaByHref = useMemo(() => {

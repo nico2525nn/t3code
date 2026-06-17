@@ -1,12 +1,18 @@
 import { WS_METHODS } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
-import { createEnvironmentRpcMutation, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
+import {
+  createAtomCommandScheduler,
+  createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
+} from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
+import { vcsCommandConcurrency, vcsCommandScheduler } from "./vcsCommandScheduler.ts";
 
 export function createSourceControlEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {
+  const commandScheduler = createAtomCommandScheduler();
   return {
     discovery: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:source-control-discovery",
@@ -16,17 +22,20 @@ export function createSourceControlEnvironmentAtoms<R, E>(
       label: "environment-data:source-control:repository",
       tag: WS_METHODS.sourceControlLookupRepository,
     }),
-    lookupRepository: createEnvironmentRpcMutation(runtime, {
-      label: "environment-data:source-control:lookup-repository",
-      tag: WS_METHODS.sourceControlLookupRepository,
-    }),
-    cloneRepository: createEnvironmentRpcMutation(runtime, {
+    cloneRepository: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:source-control:clone-repository",
       tag: WS_METHODS.sourceControlCloneRepository,
+      scheduler: commandScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId }) => environmentId,
+      },
     }),
-    publishRepository: createEnvironmentRpcMutation(runtime, {
+    publishRepository: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:source-control:publish-repository",
       tag: WS_METHODS.sourceControlPublishRepository,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
     }),
   };
 }

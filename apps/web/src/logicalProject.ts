@@ -76,8 +76,7 @@ export function deriveProjectGroupingOverrideKey(
 }
 
 // Key under which a project's manual sort order (projectOrder) is stored.
-// Must stay aligned with the writer side in `uiStateStore.syncProjects` and
-// the drag handlers in `Sidebar` so readers and writers agree.
+// Must stay aligned with the drag handlers and readers in `Sidebar`.
 export function getProjectOrderKey(
   project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot">,
 ): string {

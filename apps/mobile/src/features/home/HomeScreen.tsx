@@ -134,9 +134,6 @@ function deriveEmptyState(props: {
 function ProjectGroupLabel(props: {
   readonly project: EnvironmentProject;
   readonly totalThreadCount: number;
-  readonly httpBaseUrl: string | null;
-  readonly bearerToken: string | null;
-  readonly dpopAccessToken?: string;
   readonly isExpanded: boolean;
   readonly onToggleExpand: () => void;
 }) {
@@ -145,12 +142,10 @@ function ProjectGroupLabel(props: {
   return (
     <View className="flex-row items-center gap-2.5 px-1 pb-2">
       <ProjectFavicon
+        environmentId={props.project.environmentId}
         size={18}
         projectTitle={props.project.title}
-        httpBaseUrl={props.httpBaseUrl}
         workspaceRoot={props.project.workspaceRoot}
-        bearerToken={props.bearerToken}
-        dpopAccessToken={props.dpopAccessToken}
       />
       <Text
         className="flex-1 text-[12px] font-t3-medium uppercase text-foreground-muted"
@@ -427,7 +422,6 @@ export function HomeScreen(props: HomeScreenProps) {
           <EmptyState title="No results" detail={`No threads matching "${props.searchQuery}".`} />
         ) : (
           projectGroups.map((group) => {
-            const connection = props.savedConnectionsById[group.project.environmentId];
             const isExpanded = expandedProjects.has(group.key);
             const visibleThreads = isExpanded
               ? group.threads
@@ -438,9 +432,6 @@ export function HomeScreen(props: HomeScreenProps) {
                 <ProjectGroupLabel
                   project={group.project}
                   totalThreadCount={group.threads.length}
-                  httpBaseUrl={connection?.httpBaseUrl ?? null}
-                  bearerToken={connection?.bearerToken ?? null}
-                  dpopAccessToken={connection?.dpopAccessToken}
                   isExpanded={isExpanded}
                   onToggleExpand={() => toggleExpanded(group.key)}
                 />

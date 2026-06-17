@@ -33,6 +33,7 @@ import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "~/state/envi
 import { previewEnvironment } from "~/state/preview";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
 import FileBrowserPanel from "./FileBrowserPanel";
 import {
@@ -611,7 +612,7 @@ export default function FilePreviewPanel({
   const { resolvedTheme } = useTheme();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
-  const createAssetUrl = useAtomCommand(assetEnvironment.createUrl, {
+  const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
   });
   const openPreview = useAtomCommand(previewEnvironment.open, {

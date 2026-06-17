@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { FitAddon } from "@xterm/addon-fit";
 import {
   isAtomCommandInterrupted,
@@ -57,10 +58,10 @@ import {
   type ThreadTerminalGroup,
 } from "../types";
 import { readLocalApi } from "~/localApi";
-import { useTerminalController } from "../state/terminalSessions";
-import { useEnvironmentQuery } from "../state/query";
+import { useAttachedTerminalSession } from "../state/terminalSessions";
 import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
+import { terminalEnvironment } from "../state/terminal";
 import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
 import { useAtomCommand } from "../state/use-atom-command";
 
@@ -309,13 +310,19 @@ export function TerminalViewport({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const environmentId = threadRef.environmentId;
-  const serverConfig = useEnvironmentQuery(serverEnvironment.config({ environmentId, input: {} }));
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
     environmentId,
-    serverConfig.data?.availableEditors ?? [],
+    serverConfig?.availableEditors ?? [],
   );
   const openTerminalPath = useEffectEvent((target: string) => openInPreferredEditor(target));
   const openPreview = useAtomCommand(previewEnvironment.open, {
+    reportFailure: false,
+  });
+  const runTerminalWrite = useAtomCommand(terminalEnvironment.write, {
+    reportFailure: false,
+  });
+  const runTerminalResize = useAtomCommand(terminalEnvironment.resize, {
     reportFailure: false,
   });
   const hasHandledExitRef = useRef(false);
@@ -333,7 +340,7 @@ export function TerminalViewport({
     onAddTerminalContext(selection);
   });
   const readTerminalLabel = useEffectEvent(() => terminalLabel);
-  const terminalController = useTerminalController({
+  const terminalSession = useAttachedTerminalSession({
     environmentId,
     terminal: {
       threadId,
@@ -343,10 +350,28 @@ export function TerminalViewport({
       ...(runtimeEnv ? { env: runtimeEnv } : {}),
     },
   });
-  const writeTerminal = useEffectEvent(terminalController.write);
-  const resizeTerminal = useEffectEvent(terminalController.resize);
-  const readTerminalSession = useEffectEvent(() => terminalController.session);
-  const previousSessionRef = useRef(terminalController.session);
+  const writeTerminal = useEffectEvent((data: string) =>
+    runTerminalWrite({
+      environmentId,
+      input: { threadId, terminalId, data },
+    }),
+  );
+  const resizeTerminal = useEffectEvent((cols: number, rows: number) =>
+    runTerminalResize({
+      environmentId,
+      input: { threadId, terminalId, cols, rows },
+    }),
+  );
+  const terminalBuffer = terminalSession.buffer;
+  const terminalError = terminalSession.error;
+  const terminalStatus = terminalSession.status;
+  const terminalVersion = terminalSession.version;
+  const previousSessionRef = useRef({
+    buffer: terminalBuffer,
+    error: terminalError,
+    status: terminalStatus,
+    version: terminalVersion,
+  });
 
   useEffect(() => {
     keybindingsRef.current = keybindings;
@@ -375,7 +400,6 @@ export function TerminalViewport({
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
     previousSessionRef.current = {
-      ...readTerminalSession(),
       buffer: "",
       status: "closed",
       error: null,
@@ -684,13 +708,18 @@ export function TerminalViewport({
 
   useEffect(() => {
     const terminal = terminalRef.current;
+    const current = {
+      buffer: terminalBuffer,
+      error: terminalError,
+      status: terminalStatus,
+      version: terminalVersion,
+    };
     if (!terminal) {
-      previousSessionRef.current = terminalController.session;
+      previousSessionRef.current = current;
       return;
     }
 
     const previous = previousSessionRef.current;
-    const current = terminalController.session;
     if (current.version === previous.version) {
       return;
     }
@@ -734,13 +763,7 @@ export function TerminalViewport({
       });
     }
     previousSessionRef.current = current;
-  }, [
-    autoFocus,
-    terminalController.session.buffer,
-    terminalController.session.error,
-    terminalController.session.status,
-    terminalController.session.version,
-  ]);
+  }, [autoFocus, terminalBuffer, terminalError, terminalStatus, terminalVersion]);
 
   useEffect(() => {
     if (!autoFocus) return;

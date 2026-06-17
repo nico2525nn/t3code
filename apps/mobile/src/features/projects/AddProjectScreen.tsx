@@ -43,6 +43,7 @@ import { SourceControlIcon } from "../../components/SourceControlIcon";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { uuidv4 } from "../../lib/uuid";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 
 interface EnvironmentOption {
@@ -505,7 +506,7 @@ function useEnvironmentFromParam(): EnvironmentOption | null {
 }
 
 export function AddProjectRepositoryScreen() {
-  const lookupRepositoryMutation = useAtomCommand(sourceControlEnvironment.lookupRepository, {
+  const lookupRepositoryQuery = useAtomQueryRunner(sourceControlEnvironment.repository, {
     reportFailure: false,
   });
   const router = useRouter();
@@ -536,7 +537,7 @@ export function AddProjectRepositoryScreen() {
       return;
     }
 
-    const result = await lookupRepositoryMutation({
+    const result = await lookupRepositoryQuery({
       environmentId: environment.environmentId,
       input: {
         provider,
@@ -558,7 +559,7 @@ export function AddProjectRepositoryScreen() {
       });
     }
     setIsSubmitting(false);
-  }, [environment, isSubmitting, lookupRepositoryMutation, repositoryInput, router, source]);
+  }, [environment, isSubmitting, lookupRepositoryQuery, repositoryInput, router, source]);
 
   return (
     <AddProjectShell>

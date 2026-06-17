@@ -18,10 +18,12 @@ import { connectionAtomRuntime } from "../connection/runtime";
 import { primaryEnvironmentIdAtom } from "./environments";
 import { environmentSession } from "./session";
 
-export const serverEnvironment = createServerEnvironmentAtoms(connectionAtomRuntime);
+export const serverEnvironment = createServerEnvironmentAtoms(connectionAtomRuntime, {
+  initialConfigValueAtom: environmentSession.configValueAtom,
+});
 export const environmentServerConfigsAtom = createEnvironmentServerConfigsAtom({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
-  configValueAtom: environmentSession.configValueAtom,
+  configValueAtom: serverEnvironment.configValueAtom,
 });
 
 interface PrimaryServerState {
@@ -48,11 +50,10 @@ export const primaryServerStateAtom = Atom.make((get): PrimaryServerState => {
   const configProjection = Option.getOrNull(
     AsyncResult.value(get(serverEnvironment.configProjection(target))),
   );
-  const queriedConfig = Option.getOrNull(AsyncResult.value(get(serverEnvironment.config(target))));
   const welcome = Option.getOrNull(AsyncResult.value(get(serverEnvironment.welcome(target))));
 
   return {
-    config: configProjection?.config ?? queriedConfig,
+    config: get(serverEnvironment.configValueAtom(environmentId)),
     latestEvent: configProjection?.latestEvent ?? null,
     welcome,
   };

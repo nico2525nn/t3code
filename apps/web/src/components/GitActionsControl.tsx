@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { type ScopedThreadRef } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
@@ -971,14 +972,10 @@ export default function GitActionsControl({
     "thread branch metadata update",
   );
   const activeEnvironmentId = activeThreadRef?.environmentId ?? null;
-  const serverConfig = useEnvironmentQuery(
-    activeEnvironmentId === null
-      ? null
-      : serverEnvironment.config({ environmentId: activeEnvironmentId, input: {} }),
-  );
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(activeEnvironmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
     activeEnvironmentId,
-    serverConfig.data?.availableEditors ?? [],
+    serverConfig?.availableEditors ?? [],
   );
   const threadToastData = useMemo(
     () => (activeThreadRef ? { threadRef: activeThreadRef } : undefined),

@@ -1606,24 +1606,21 @@ function ChatViewContent(props: ChatViewProps) {
 
   useEffect(() => {
     if (!serverThread?.id) return;
-    if (!latestTurnSettled) return;
-    if (!activeLatestTurn?.completedAt) return;
-    const turnCompletedAt = Date.parse(activeLatestTurn.completedAt);
-    if (Number.isNaN(turnCompletedAt)) return;
+    const threadUpdatedAt = Date.parse(serverThread.updatedAt);
+    if (Number.isNaN(threadUpdatedAt)) return;
     const lastVisitedAt = activeThreadLastVisitedAt ? Date.parse(activeThreadLastVisitedAt) : NaN;
-    if (!Number.isNaN(lastVisitedAt) && lastVisitedAt >= turnCompletedAt) return;
+    if (!Number.isNaN(lastVisitedAt) && lastVisitedAt >= threadUpdatedAt) return;
 
     markThreadVisited(
       scopedThreadKey(scopeThreadRef(serverThread.environmentId, serverThread.id)),
-      activeLatestTurn.completedAt,
+      serverThread.updatedAt,
     );
   }, [
-    activeLatestTurn?.completedAt,
     activeThreadLastVisitedAt,
-    latestTurnSettled,
     markThreadVisited,
     serverThread?.environmentId,
     serverThread?.id,
+    serverThread?.updatedAt,
   ]);
 
   const selectedProviderByThreadId = composerActiveProvider ?? null;

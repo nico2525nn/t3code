@@ -5,26 +5,11 @@ import {
   type KnownTerminalSession,
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
-import {
-  type AtomCommandFailure,
-  type AtomCommandResult,
-  type AtomCommandSuccess,
-} from "@t3tools/client-runtime/state/runtime";
 import { ThreadId, type EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
-import * as Cause from "effect/Cause";
-import * as Data from "effect/Data";
-import { AsyncResult } from "effect/unstable/reactivity";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 
 import { useEnvironmentQuery } from "./query";
 import { terminalEnvironment } from "./terminal";
-import { useAtomCommand } from "./use-atom-command";
-
-export class TerminalRestartUnavailableError extends Data.TaggedError(
-  "TerminalRestartUnavailableError",
-)<{
-  readonly message: string;
-}> {}
 
 export function useAttachedTerminalSession(input: {
   readonly environmentId: EnvironmentId | null;
@@ -103,108 +88,4 @@ export function useThreadRunningTerminalIds(input: {
   return useKnownTerminalSessions(input)
     .filter((session) => session.state.status === "running")
     .map((session) => session.target.terminalId);
-}
-
-export function useTerminalController(input: {
-  readonly environmentId: EnvironmentId;
-  readonly terminal: TerminalAttachInput;
-}) {
-  const writeTerminal = useAtomCommand(terminalEnvironment.write, {
-    reportFailure: false,
-  });
-  const resizeTerminal = useAtomCommand(terminalEnvironment.resize, {
-    reportFailure: false,
-  });
-  const clearTerminal = useAtomCommand(terminalEnvironment.clear);
-  const restartTerminal = useAtomCommand(terminalEnvironment.restart, {
-    reportFailure: false,
-  });
-  const closeTerminal = useAtomCommand(terminalEnvironment.close);
-  type RestartTerminalError = AtomCommandFailure<Awaited<ReturnType<typeof restartTerminal>>>;
-  type RestartTerminalValue = AtomCommandSuccess<Awaited<ReturnType<typeof restartTerminal>>>;
-  const session = useAttachedTerminalSession(input);
-  const { environmentId, terminal } = input;
-
-  const write = useCallback(
-    (data: string) =>
-      writeTerminal({
-        environmentId,
-        input: {
-          threadId: terminal.threadId,
-          terminalId: terminal.terminalId,
-          data,
-        },
-      }),
-    [environmentId, terminal.terminalId, terminal.threadId, writeTerminal],
-  );
-  const resize = useCallback(
-    (cols: number, rows: number) =>
-      resizeTerminal({
-        environmentId,
-        input: {
-          threadId: terminal.threadId,
-          terminalId: terminal.terminalId,
-          cols,
-          rows,
-        },
-      }),
-    [environmentId, resizeTerminal, terminal.terminalId, terminal.threadId],
-  );
-  const clear = useCallback(
-    () =>
-      clearTerminal({
-        environmentId,
-        input: {
-          threadId: terminal.threadId,
-          terminalId: terminal.terminalId,
-        },
-      }),
-    [clearTerminal, environmentId, terminal.terminalId, terminal.threadId],
-  );
-  const restart = useCallback(async (): Promise<
-    AtomCommandResult<RestartTerminalValue, RestartTerminalError | TerminalRestartUnavailableError>
-  > => {
-    if (terminal.cwd === undefined || terminal.cols === undefined || terminal.rows === undefined) {
-      return AsyncResult.failure(
-        Cause.fail(
-          new TerminalRestartUnavailableError({
-            message: "Terminal restart requires the working directory and dimensions.",
-          }),
-        ),
-      );
-    }
-    return restartTerminal({
-      environmentId,
-      input: {
-        threadId: terminal.threadId,
-        terminalId: terminal.terminalId,
-        cwd: terminal.cwd,
-        cols: terminal.cols,
-        rows: terminal.rows,
-        ...(terminal.worktreePath !== undefined ? { worktreePath: terminal.worktreePath } : {}),
-        ...(terminal.env !== undefined ? { env: terminal.env } : {}),
-      },
-    });
-  }, [environmentId, restartTerminal, terminal]);
-  const close = useCallback(
-    (options?: { readonly deleteHistory?: boolean }) =>
-      closeTerminal({
-        environmentId,
-        input: {
-          threadId: terminal.threadId,
-          terminalId: terminal.terminalId,
-          ...(options?.deleteHistory ? { deleteHistory: true } : {}),
-        },
-      }),
-    [closeTerminal, environmentId, terminal.terminalId, terminal.threadId],
-  );
-
-  return {
-    session,
-    write,
-    resize,
-    clear,
-    restart,
-    close,
-  };
 }

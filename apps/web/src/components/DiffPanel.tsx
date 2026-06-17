@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { Virtualizer } from "@pierre/diffs/react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -156,17 +157,12 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
       : null,
   );
   const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
-  const serverConfig = useEnvironmentQuery(
-    activeThread === null || activeThread === undefined
-      ? null
-      : serverEnvironment.config({
-          environmentId: activeThread.environmentId,
-          input: {},
-        }),
+  const serverConfig = useAtomValue(
+    serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
   );
   const openInPreferredEditor = useOpenInPreferredEditor(
     activeThread?.environmentId ?? null,
-    serverConfig.data?.availableEditors ?? [],
+    serverConfig?.availableEditors ?? [],
   );
   const gitStatusQuery = useEnvironmentQuery(
     activeThread !== null && activeThread !== undefined && activeCwd != null

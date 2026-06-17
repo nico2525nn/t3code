@@ -12,7 +12,6 @@ import { useProjects, useThreadShells } from "../../state/entities";
 import type { WorkspaceState } from "../../state/workspaceModel";
 import { useWorkspaceState } from "../../state/workspace";
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
-import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 
 function deriveProjectEmptyState(catalogState: WorkspaceState): {
   readonly title: string;
@@ -73,7 +72,6 @@ export default function NewTaskRoute() {
   const projects = useProjects();
   const threads = useThreadShells();
   const { state: catalogState } = useWorkspaceState();
-  const { savedConnectionsById } = useSavedRemoteConnections();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const chevronColor = useThemeColor("--color-chevron");
@@ -192,18 +190,10 @@ export default function NewTaskRoute() {
                     <View className="flex-row items-center justify-between gap-3">
                       <View className="h-7 w-7 items-center justify-center">
                         <ProjectFavicon
+                          environmentId={item.environmentId}
                           size={20}
                           projectTitle={item.title}
-                          httpBaseUrl={
-                            savedConnectionsById[item.environmentId]?.httpBaseUrl ?? null
-                          }
                           workspaceRoot={item.workspaceRoot}
-                          bearerToken={
-                            savedConnectionsById[item.environmentId]?.bearerToken ?? null
-                          }
-                          dpopAccessToken={
-                            savedConnectionsById[item.environmentId]?.dpopAccessToken
-                          }
                         />
                       </View>
                       <View className="flex-1">

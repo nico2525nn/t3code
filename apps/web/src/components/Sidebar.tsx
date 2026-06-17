@@ -85,7 +85,11 @@ import { useThreadDiscoveredPorts } from "../portDiscoveryState";
 import { openDiscoveredPort } from "./preview/openDiscoveredPort";
 import { useAtomCommand } from "../state/use-atom-command";
 import { previewEnvironment } from "../state/preview";
-import { useUiStateStore } from "../uiStateStore";
+import {
+  legacyProjectCwdPreferenceKey,
+  resolveProjectExpanded,
+  useUiStateStore,
+} from "../uiStateStore";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
@@ -253,6 +257,14 @@ function formatProjectMemberActionLabel(
   return member.environmentLabel
     ? `${member.environmentLabel} — ${member.workspaceRoot}`
     : member.workspaceRoot;
+}
+
+function projectExpansionPreferenceKeys(project: SidebarProjectSnapshot): string[] {
+  return [
+    project.projectKey,
+    ...project.memberProjects.map((member) => member.physicalProjectKey),
+    ...project.memberProjects.map((member) => legacyProjectCwdPreferenceKey(member.workspaceRoot)),
+  ];
 }
 
 function projectGroupingModeDescription(mode: SidebarProjectGroupingMode): string {
@@ -1097,7 +1109,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
-  const toggleProject = useUiStateStore((state) => state.toggleProject);
+  const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
   const toggleThreadSelection = useThreadSelectionStore((state) => state.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((state) => state.rangeSelectTo);
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
@@ -1183,8 +1195,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const sidebarThreadByKeyRef = useRef(sidebarThreadByKey);
   sidebarThreadByKeyRef.current = sidebarThreadByKey;
   const projectThreads = sidebarThreads;
-  const projectExpanded = useUiStateStore(
-    (state) => state.projectExpandedById[project.projectKey] ?? true,
+  const projectPreferenceKeys = useMemo(() => projectExpansionPreferenceKeys(project), [project]);
+  const projectExpanded = useUiStateStore((state) =>
+    resolveProjectExpanded(state.projectExpandedById, projectPreferenceKeys),
   );
   const threadLastVisitedAts = useUiStateStore(
     useShallow((state) =>
@@ -1367,15 +1380,16 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (useThreadSelectionStore.getState().hasSelection()) {
         clearSelection();
       }
-      toggleProject(project.projectKey);
+      setProjectExpanded(projectPreferenceKeys, !projectExpanded);
     },
     [
       clearSelection,
       dragInProgressRef,
-      project.projectKey,
+      projectExpanded,
+      projectPreferenceKeys,
+      setProjectExpanded,
       suppressProjectClickAfterDragRef,
       suppressProjectClickForContextMenuRef,
-      toggleProject,
     ],
   );
 
@@ -1386,9 +1400,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (dragInProgressRef.current) {
         return;
       }
-      toggleProject(project.projectKey);
+      setProjectExpanded(projectPreferenceKeys, !projectExpanded);
     },
-    [dragInProgressRef, project.projectKey, toggleProject],
+    [dragInProgressRef, projectExpanded, projectPreferenceKeys, setProjectExpanded],
   );
 
   const handleProjectButtonPointerDownCapture = useCallback(
@@ -3051,6 +3065,10 @@ export default function Sidebar() {
       items: projects,
       preferredIds: projectOrder,
       getId: getProjectOrderKey,
+      getPreferenceIds: (project) => [
+        getProjectOrderKey(project),
+        legacyProjectCwdPreferenceKey(project.workspaceRoot),
+      ],
     });
   }, [projectOrder, projects]);
 
@@ -3205,9 +3223,9 @@ export default function Sidebar() {
         (member) => member.physicalProjectKey,
       );
       const overMemberKeys = overProject.memberProjects.map((member) => member.physicalProjectKey);
-      reorderProjects(activeMemberKeys, overMemberKeys);
+      reorderProjects(orderedProjects.map(getProjectOrderKey), activeMemberKeys, overMemberKeys);
     },
-    [sidebarProjectSortOrder, reorderProjects, sidebarProjects],
+    [orderedProjects, sidebarProjectSortOrder, reorderProjects, sidebarProjects],
   );
 
   const handleProjectDragStart = useCallback(
@@ -3288,7 +3306,10 @@ export default function Sidebar() {
           ),
           sidebarThreadSortOrder,
         );
-        const projectExpanded = projectExpandedById[project.projectKey] ?? true;
+        const projectExpanded = resolveProjectExpanded(
+          projectExpandedById,
+          projectExpansionPreferenceKeys(project),
+        );
         const activeThreadKey = routeThreadKey ?? undefined;
         const pinnedCollapsedThread =
           !projectExpanded && activeThreadKey

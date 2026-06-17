@@ -3,7 +3,8 @@ import * as Stream from "effect/Stream";
 import { Atom } from "effect/unstable/reactivity";
 
 import {
-  createEnvironmentRpcMutation,
+  createAtomCommandScheduler,
+  createEnvironmentRpcCommand,
   createEnvironmentRpcSubscriptionAtomFamily,
   createEnvironmentSubscriptionAtomFamily,
 } from "./runtime.ts";
@@ -18,6 +19,23 @@ import {
 export function createTerminalEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {
+  const lifecycleScheduler = createAtomCommandScheduler();
+  const resizeScheduler = createAtomCommandScheduler();
+  const terminalThreadKey = ({
+    environmentId,
+    input,
+  }: {
+    readonly environmentId: string;
+    readonly input: { readonly threadId: string; readonly terminalId?: string | undefined };
+  }) => JSON.stringify([environmentId, input.threadId]);
+  const terminalSessionKey = ({
+    environmentId,
+    input,
+  }: {
+    readonly environmentId: string;
+    readonly input: { readonly threadId: string; readonly terminalId?: string | undefined };
+  }) => JSON.stringify([environmentId, input.threadId, input.terminalId ?? null]);
+  const lifecycleConcurrency = { mode: "serial" as const, key: terminalThreadKey };
   return {
     attach: createEnvironmentSubscriptionAtomFamily(runtime, {
       label: "environment-data:terminal:attach",
@@ -37,29 +55,39 @@ export function createTerminalEnvironmentAtoms<R, E>(
           Stream.scan([] as ReadonlyArray<TerminalSummary>, applyTerminalMetadataStreamEvent),
         ),
     }),
-    open: createEnvironmentRpcMutation(runtime, {
+    open: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:terminal:open",
       tag: WS_METHODS.terminalOpen,
+      scheduler: lifecycleScheduler,
+      concurrency: lifecycleConcurrency,
     }),
-    write: createEnvironmentRpcMutation(runtime, {
+    write: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:terminal:write",
       tag: WS_METHODS.terminalWrite,
     }),
-    resize: createEnvironmentRpcMutation(runtime, {
+    resize: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:terminal:resize",
       tag: WS_METHODS.terminalResize,
+      scheduler: resizeScheduler,
+      concurrency: { mode: "latest", key: terminalSessionKey },
     }),
-    clear: createEnvironmentRpcMutation(runtime, {
+    clear: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:terminal:clear",
       tag: WS_METHODS.terminalClear,
+      scheduler: lifecycleScheduler,
+      concurrency: lifecycleConcurrency,
     }),
-    restart: createEnvironmentRpcMutation(runtime, {
+    restart: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:terminal:restart",
       tag: WS_METHODS.terminalRestart,
+      scheduler: lifecycleScheduler,
+      concurrency: lifecycleConcurrency,
     }),
-    close: createEnvironmentRpcMutation(runtime, {
+    close: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:terminal:close",
       tag: WS_METHODS.terminalClose,
+      scheduler: lifecycleScheduler,
+      concurrency: lifecycleConcurrency,
     }),
   };
 }

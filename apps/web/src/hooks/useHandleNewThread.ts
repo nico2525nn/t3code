@@ -16,7 +16,7 @@ import {
 } from "../logicalProject";
 import { useProjects, useThreadDetail } from "../state/entities";
 import { resolveThreadRouteTarget } from "../threadRoutes";
-import { useUiStateStore } from "../uiStateStore";
+import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useSettings } from "./useSettings";
 
 export function useNewThreadHandler() {
@@ -159,6 +159,10 @@ export function useHandleNewThread() {
       items: projects,
       preferredIds: projectOrder,
       getId: getProjectOrderKey,
+      getPreferenceIds: (project) => [
+        getProjectOrderKey(project),
+        legacyProjectCwdPreferenceKey(project.workspaceRoot),
+      ],
     });
   }, [projectOrder, projects]);
   const handleNewThread = useNewThreadHandler();

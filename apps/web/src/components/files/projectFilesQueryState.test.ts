@@ -3,7 +3,7 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
-  __resetProjectFileQueryDataForTests,
+  clearProjectFileQueryData,
   confirmProjectFileQueryData,
   getOptimisticProjectFileQueryData,
   resolveProjectFileQueryData,
@@ -14,7 +14,7 @@ const environmentId = EnvironmentId.make("environment-project-files-query-test")
 
 describe("project files queries", () => {
   afterEach(() => {
-    __resetProjectFileQueryDataForTests();
+    clearProjectFileQueryData(environmentId, "/repo", "convex.json");
     vi.unstubAllGlobals();
   });
 

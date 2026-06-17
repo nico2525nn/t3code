@@ -1,4 +1,5 @@
 import {
+  type EnvironmentId,
   type ServerConfig,
   type ServerConfigStreamEvent,
   type ServerLifecycleWelcomePayload,
@@ -6,10 +7,11 @@ import {
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
-import { Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
 import {
-  createEnvironmentRpcMutation,
+  createAtomCommandScheduler,
+  createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
   createEnvironmentRpcSubscriptionAtomFamily,
 } from "./runtime.ts";
@@ -85,16 +87,40 @@ export function projectServerWelcome(
 
 export function createServerEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
+  options: {
+    readonly initialConfigValueAtom: (
+      environmentId: EnvironmentId,
+    ) => Atom.Atom<ServerConfig | null>;
+  },
 ) {
+  const configScheduler = createAtomCommandScheduler();
+  const configConcurrency = {
+    mode: "serial" as const,
+    key: ({ environmentId }: { readonly environmentId: string }) => environmentId,
+  };
+  const configProjection = createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+    label: "environment-data:server:config-projection",
+    tag: WS_METHODS.subscribeServerConfig,
+    transform: (stream) =>
+      stream.pipe(Stream.mapAccum(Option.none<ServerConfigProjection>, projectServerConfig)),
+  });
+  const emptyConfigAtom = Atom.make<ServerConfig | null>(null).pipe(
+    Atom.withLabel("environment-data:server:config:empty"),
+  );
+  const configValueAtom = Atom.family((environmentId: EnvironmentId | null) => {
+    if (environmentId === null) {
+      return emptyConfigAtom;
+    }
+    return Atom.make((get): ServerConfig | null => {
+      const projection = Option.getOrNull(
+        AsyncResult.value(get(configProjection({ environmentId, input: {} }))),
+      );
+      return projection?.config ?? get(options.initialConfigValueAtom(environmentId));
+    }).pipe(Atom.withLabel(`environment-data:server:config:${environmentId}`));
+  });
+
   return {
-    config: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:config",
-      tag: WS_METHODS.serverGetConfig,
-    }),
-    settings: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:settings",
-      tag: WS_METHODS.serverGetSettings,
-    }),
+    configValueAtom,
     traceDiagnostics: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:trace-diagnostics",
       tag: WS_METHODS.serverGetTraceDiagnostics,
@@ -107,12 +133,7 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:process-resource-history",
       tag: WS_METHODS.serverGetProcessResourceHistory,
     }),
-    configProjection: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
-      label: "environment-data:server:config-projection",
-      tag: WS_METHODS.subscribeServerConfig,
-      transform: (stream) =>
-        stream.pipe(Stream.mapAccum(Option.none<ServerConfigProjection>, projectServerConfig)),
-    }),
+    configProjection,
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:welcome",
       tag: WS_METHODS.subscribeServerLifecycle,
@@ -121,27 +142,39 @@ export function createServerEnvironmentAtoms<R, E>(
           Stream.mapAccum(Option.none<ServerLifecycleWelcomePayload>, projectServerWelcome),
         ),
     }),
-    refreshProviders: createEnvironmentRpcMutation(runtime, {
+    refreshProviders: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:refresh-providers",
       tag: WS_METHODS.serverRefreshProviders,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId }) => environmentId,
+      },
     }),
-    updateProvider: createEnvironmentRpcMutation(runtime, {
+    updateProvider: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:update-provider",
       tag: WS_METHODS.serverUpdateProvider,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
     }),
-    upsertKeybinding: createEnvironmentRpcMutation(runtime, {
+    upsertKeybinding: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:upsert-keybinding",
       tag: WS_METHODS.serverUpsertKeybinding,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
     }),
-    removeKeybinding: createEnvironmentRpcMutation(runtime, {
+    removeKeybinding: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:remove-keybinding",
       tag: WS_METHODS.serverRemoveKeybinding,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
     }),
-    updateSettings: createEnvironmentRpcMutation(runtime, {
+    updateSettings: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:update-settings",
       tag: WS_METHODS.serverUpdateSettings,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
     }),
-    signalProcess: createEnvironmentRpcMutation(runtime, {
+    signalProcess: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:signal-process",
       tag: WS_METHODS.serverSignalProcess,
     }),

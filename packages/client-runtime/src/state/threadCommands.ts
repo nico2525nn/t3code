@@ -1,7 +1,7 @@
 import * as Crypto from "effect/Crypto";
 import { Atom } from "effect/unstable/reactivity";
 
-import { createEnvironmentMutation } from "./runtime.ts";
+import { createAtomCommandScheduler, createEnvironmentCommand } from "./runtime.ts";
 import {
   type ArchiveThreadInput,
   type CreateThreadInput,
@@ -51,58 +51,90 @@ export type {
 export function createThreadEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | Crypto.Crypto | R, E>,
 ) {
+  const scheduler = createAtomCommandScheduler();
+  const concurrency = {
+    mode: "serial" as const,
+    key: ({ environmentId, input }: { environmentId: string; input: { threadId: string } }) =>
+      JSON.stringify([environmentId, input.threadId]),
+  };
   return {
-    create: createEnvironmentMutation(runtime, {
+    create: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:create",
       execute: (input: CreateThreadInput) => createThread(input),
+      scheduler,
+      concurrency,
     }),
-    delete: createEnvironmentMutation(runtime, {
+    delete: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:delete",
       execute: (input: DeleteThreadInput) => deleteThread(input),
+      scheduler,
+      concurrency,
     }),
-    archive: createEnvironmentMutation(runtime, {
+    archive: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:archive",
       execute: (input: ArchiveThreadInput) => archiveThread(input),
+      scheduler,
+      concurrency,
     }),
-    unarchive: createEnvironmentMutation(runtime, {
+    unarchive: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:unarchive",
       execute: (input: UnarchiveThreadInput) => unarchiveThread(input),
+      scheduler,
+      concurrency,
     }),
-    updateMetadata: createEnvironmentMutation(runtime, {
+    updateMetadata: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:update-metadata",
       execute: (input: UpdateThreadMetadataInput) => updateThreadMetadata(input),
+      scheduler,
+      concurrency,
     }),
-    setRuntimeMode: createEnvironmentMutation(runtime, {
+    setRuntimeMode: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:set-runtime-mode",
       execute: (input: SetThreadRuntimeModeInput) => setThreadRuntimeMode(input),
+      scheduler,
+      concurrency,
     }),
-    setInteractionMode: createEnvironmentMutation(runtime, {
+    setInteractionMode: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:set-interaction-mode",
       execute: (input: SetThreadInteractionModeInput) => setThreadInteractionMode(input),
+      scheduler,
+      concurrency,
     }),
-    startTurn: createEnvironmentMutation(runtime, {
+    startTurn: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:start-turn",
       execute: (input: StartThreadTurnInput) => startThreadTurn(input),
+      scheduler,
+      concurrency,
     }),
-    interruptTurn: createEnvironmentMutation(runtime, {
+    interruptTurn: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:interrupt-turn",
       execute: (input: InterruptThreadTurnInput) => interruptThreadTurn(input),
+      scheduler,
+      concurrency,
     }),
-    respondToApproval: createEnvironmentMutation(runtime, {
+    respondToApproval: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:respond-to-approval",
       execute: (input: RespondToThreadApprovalInput) => respondToThreadApproval(input),
+      scheduler,
+      concurrency,
     }),
-    respondToUserInput: createEnvironmentMutation(runtime, {
+    respondToUserInput: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:respond-to-user-input",
       execute: (input: RespondToThreadUserInputInput) => respondToThreadUserInput(input),
+      scheduler,
+      concurrency,
     }),
-    revertCheckpoint: createEnvironmentMutation(runtime, {
+    revertCheckpoint: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:revert-checkpoint",
       execute: (input: RevertThreadCheckpointInput) => revertThreadCheckpoint(input),
+      scheduler,
+      concurrency,
     }),
-    stopSession: createEnvironmentMutation(runtime, {
+    stopSession: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:stop-session",
       execute: (input: StopThreadSessionInput) => stopThreadSession(input),
+      scheduler,
+      concurrency,
     }),
   };
 }

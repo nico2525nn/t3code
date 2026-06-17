@@ -67,22 +67,28 @@ export async function openFileInPreview<AssetError, PreviewError>(input: {
       ),
     );
   }
-  const assetResult = await resolveAssetUrl({
+  const assetResult = await input.createAssetUrl({
     environmentId: input.threadRef.environmentId,
-    httpBaseUrl: input.httpBaseUrl,
-    resource: {
-      _tag: "workspace-file",
-      threadId: input.threadRef.threadId,
-      path: input.filePath,
+    input: {
+      resource: {
+        _tag: "workspace-file",
+        threadId: input.threadRef.threadId,
+        path: input.filePath,
+      },
     },
-    createUrl: input.createAssetUrl,
   });
   if (assetResult._tag === "Failure") {
     return AsyncResult.failure(assetResult.cause);
   }
+  const assetUrl = resolveAssetUrl(input.httpBaseUrl, assetResult.value.relativeUrl);
+  if (assetUrl === null) {
+    return AsyncResult.failure(
+      Cause.die(new Error("The environment returned an invalid asset URL.")),
+    );
+  }
   return openUrlInPreview({
     threadRef: input.threadRef,
-    url: assetResult.value.url,
+    url: assetUrl,
     openPreview: input.openPreview,
   });
 }

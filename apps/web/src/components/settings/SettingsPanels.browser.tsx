@@ -192,6 +192,7 @@ const directAtomMocks = vi.hoisted(() => ({
   environmentRegisterAction: Symbol("environment-register-action"),
   environmentRemoveAction: Symbol("environment-remove-action"),
   environmentRetryAction: Symbol("environment-retry-action"),
+  linkPrimaryEnvironmentAction: Symbol("link-primary-environment-action"),
   openInEditorAction: Symbol("open-in-editor-action"),
   refreshRelayEnvironmentsAction: Symbol("refresh-relay-environments-action"),
   removeKeybindingAction: Symbol("remove-keybinding-action"),
@@ -199,6 +200,7 @@ const directAtomMocks = vi.hoisted(() => ({
   signalProcessAction: Symbol("signal-process-action"),
   updateProviderAction: Symbol("update-provider-action"),
   updateSettingsAction: Symbol("update-settings-action"),
+  unlinkPrimaryEnvironmentAction: Symbol("unlink-primary-environment-action"),
   upsertKeybindingAction: Symbol("upsert-keybinding-action"),
 }));
 const serverConfigHarness = vi.hoisted(() => ({
@@ -213,28 +215,25 @@ function resetServerConfigSnapshot(): void {
   appAtomRegistry.set(serverConfigHarness.configAtom as never, null as never);
 }
 
-vi.mock("@effect/atom-react", async (importOriginal) => {
-  const [actual, Exit] = await Promise.all([
-    importOriginal<typeof import("@effect/atom-react")>(),
-    import("effect/Exit"),
-  ]);
-  const withSuccessfulExit =
+vi.mock("../../state/use-atom-command", async () => {
+  const { AsyncResult } = await import("effect/unstable/reactivity");
+  const withSuccessfulResult =
     <Args extends Array<unknown>, A>(run: (...args: Args) => A | Promise<A>) =>
     async (...args: Args) =>
-      Exit.succeed(await run(...args));
-  const refreshProviders = withSuccessfulExit(mockRefreshProviders);
-  const connectPairingEnvironment = withSuccessfulExit(mockConnectPairingEnvironment);
-  const connectDesktopSshEnvironment = withSuccessfulExit(mockConnectDesktopSshEnvironment);
-  const connectRelayEnvironment = withSuccessfulExit(mockConnectRelayEnvironment);
-  const removeEnvironment = withSuccessfulExit(mockRemoveEnvironment);
-  const retryEnvironment = withSuccessfulExit(mockRetryEnvironment);
-  const refreshRelayEnvironments = withSuccessfulExit(mockRefreshRelayEnvironments);
-  const updateProvider = withSuccessfulExit(mockUpdateProvider);
-  const signalProcess = withSuccessfulExit(
+      AsyncResult.success(await run(...args));
+  const refreshProviders = withSuccessfulResult(mockRefreshProviders);
+  const connectPairingEnvironment = withSuccessfulResult(mockConnectPairingEnvironment);
+  const connectDesktopSshEnvironment = withSuccessfulResult(mockConnectDesktopSshEnvironment);
+  const connectRelayEnvironment = withSuccessfulResult(mockConnectRelayEnvironment);
+  const removeEnvironment = withSuccessfulResult(mockRemoveEnvironment);
+  const retryEnvironment = withSuccessfulResult(mockRetryEnvironment);
+  const refreshRelayEnvironments = withSuccessfulResult(mockRefreshRelayEnvironments);
+  const updateProvider = withSuccessfulResult(mockUpdateProvider);
+  const signalProcess = withSuccessfulResult(
     ({ input }: { readonly input: Parameters<LocalApi["server"]["signalProcess"]>[0] }) =>
       window.nativeApi?.server.signalProcess(input),
   );
-  const openInEditor = withSuccessfulExit(
+  const openInEditor = withSuccessfulResult(
     ({
       input,
     }: {
@@ -244,49 +243,50 @@ vi.mock("@effect/atom-react", async (importOriginal) => {
       };
     }) => window.nativeApi?.shell.openInEditor(input.cwd, input.editor),
   );
-  const succeedWithNoResult = async () => Exit.succeed(undefined);
+  const succeedWithNoResult = async () => AsyncResult.success(undefined);
 
   return {
-    ...actual,
-    useAtomSet: (atom: unknown, options: unknown) => {
-      if (atom === directAtomMocks.refreshProvidersAction) {
+    useAtomCommand: (command: unknown) => {
+      if (command === directAtomMocks.refreshProvidersAction) {
         return refreshProviders;
       }
-      if (atom === directAtomMocks.connectPairingAction) {
+      if (command === directAtomMocks.connectPairingAction) {
         return connectPairingEnvironment;
       }
-      if (atom === directAtomMocks.connectSshEnvironmentAction) {
+      if (command === directAtomMocks.connectSshEnvironmentAction) {
         return connectDesktopSshEnvironment;
       }
-      if (atom === directAtomMocks.environmentRegisterAction) {
+      if (command === directAtomMocks.environmentRegisterAction) {
         return connectRelayEnvironment;
       }
-      if (atom === directAtomMocks.environmentRemoveAction) {
+      if (command === directAtomMocks.environmentRemoveAction) {
         return removeEnvironment;
       }
-      if (atom === directAtomMocks.environmentRetryAction) {
+      if (command === directAtomMocks.environmentRetryAction) {
         return retryEnvironment;
       }
-      if (atom === directAtomMocks.refreshRelayEnvironmentsAction) {
+      if (command === directAtomMocks.refreshRelayEnvironmentsAction) {
         return refreshRelayEnvironments;
       }
-      if (atom === directAtomMocks.updateProviderAction) {
+      if (command === directAtomMocks.updateProviderAction) {
         return updateProvider;
       }
-      if (atom === directAtomMocks.signalProcessAction) {
+      if (command === directAtomMocks.signalProcessAction) {
         return signalProcess;
       }
-      if (atom === directAtomMocks.openInEditorAction) {
+      if (command === directAtomMocks.openInEditorAction) {
         return openInEditor;
       }
       if (
-        atom === directAtomMocks.removeKeybindingAction ||
-        atom === directAtomMocks.updateSettingsAction ||
-        atom === directAtomMocks.upsertKeybindingAction
+        command === directAtomMocks.linkPrimaryEnvironmentAction ||
+        command === directAtomMocks.removeKeybindingAction ||
+        command === directAtomMocks.unlinkPrimaryEnvironmentAction ||
+        command === directAtomMocks.updateSettingsAction ||
+        command === directAtomMocks.upsertKeybindingAction
       ) {
         return succeedWithNoResult;
       }
-      return actual.useAtomSet(atom as never, options as never);
+      throw new Error("Unexpected atom command in settings browser test.");
     },
   };
 });
@@ -298,15 +298,10 @@ vi.mock("@clerk/react", () => ({
   }),
 }));
 
-vi.mock("../../cloud/linkEnvironmentAtoms", async () => {
-  const Effect = await import("effect/Effect");
-  const { Atom } = await import("effect/unstable/reactivity");
-
-  return {
-    linkPrimaryEnvironment: Atom.fn(() => Effect.void),
-    unlinkPrimaryEnvironment: Atom.fn(() => Effect.void),
-  };
-});
+vi.mock("../../cloud/linkEnvironmentAtoms", () => ({
+  linkPrimaryEnvironment: directAtomMocks.linkPrimaryEnvironmentAction,
+  unlinkPrimaryEnvironment: directAtomMocks.unlinkPrimaryEnvironmentAction,
+}));
 
 vi.mock("../../connection/catalog", () => ({
   environmentCatalog: {

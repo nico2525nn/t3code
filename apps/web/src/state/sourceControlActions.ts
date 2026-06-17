@@ -18,8 +18,9 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { gitEnvironment } from "./git";
@@ -53,8 +54,6 @@ interface SourceControlActionState<
   >;
   readonly resetError: () => void;
 }
-
-const pullRequestResolutionCache = new Map<string, GitResolvePullRequestResult>();
 
 const ACTION_OPERATION = {
   init: "init",
@@ -315,18 +314,22 @@ export interface PullRequestResolutionTarget {
   readonly reference: string | null;
 }
 
-function pullRequestResolutionKey(target: PullRequestResolutionTarget): string | null {
-  if (target.environmentId === null || target.cwd === null || target.reference === null) {
-    return null;
-  }
-  return `${target.environmentId}:${target.cwd}:${target.reference}`;
-}
-
 export function readCachedPullRequestResolution(
   target: PullRequestResolutionTarget,
 ): GitResolvePullRequestResult | null {
-  const key = pullRequestResolutionKey(target);
-  return key === null ? null : (pullRequestResolutionCache.get(key) ?? null);
+  if (target.environmentId === null || target.cwd === null || target.reference === null) {
+    return null;
+  }
+  return Option.getOrNull(
+    AsyncResult.value(
+      appAtomRegistry.get(
+        gitEnvironment.pullRequestResolution({
+          environmentId: target.environmentId,
+          input: { cwd: target.cwd, reference: target.reference },
+        }),
+      ),
+    ),
+  );
 }
 
 export function usePullRequestResolutionState(target: PullRequestResolutionTarget) {
@@ -341,18 +344,12 @@ export function usePullRequestResolutionState(target: PullRequestResolutionTarge
         })
       : null,
   );
-  const key = pullRequestResolutionKey(target);
-
-  useEffect(() => {
-    if (key !== null && query.data !== null) {
-      pullRequestResolutionCache.set(key, query.data);
-    }
-  }, [key, query.data]);
+  const cached = readCachedPullRequestResolution(target);
 
   return {
-    data: query.data ?? readCachedPullRequestResolution(target),
+    data: query.data ?? cached,
     error: query.error,
-    isPending: query.isPending && readCachedPullRequestResolution(target) === null,
+    isPending: query.isPending && cached === null,
     isFetching: query.isPending,
     refresh: query.refresh,
   };

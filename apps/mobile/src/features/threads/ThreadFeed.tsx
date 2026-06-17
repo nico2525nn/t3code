@@ -2,7 +2,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { KeyboardAvoidingLegendList } from "@legendapp/list/keyboard";
 import { type LegendListRef } from "@legendapp/list/react-native";
-import type { ThreadId, TurnId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, TurnId } from "@t3tools/contracts";
 import { SymbolView } from "expo-symbols";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -63,9 +63,8 @@ import {
 } from "../../lib/threadActivity";
 import { isThreadFeedNearEnd } from "../../lib/threadFeedLayout";
 import { relativeTime } from "../../lib/time";
-import { messageImageUrl } from "./threadPresentation";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
-import { useRemoteHttpHeaders } from "../../state/remote-http";
+import { useAssetUrl } from "../../state/assets";
 
 const THREAD_FEED_END_THRESHOLD = 80;
 const MESSAGE_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
@@ -82,12 +81,10 @@ function formatMessageTime(input: string): string {
 }
 
 export interface ThreadFeedProps {
+  readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
   readonly contentPresentation: ThreadContentPresentation;
-  readonly httpBaseUrl: string | null;
-  readonly bearerToken: string | null;
-  readonly dpopAccessToken?: string;
   readonly agentLabel: string;
   readonly latestTurn: ThreadFeedLatestTurn | null;
   readonly contentTopInset?: number;
@@ -98,19 +95,17 @@ export interface ThreadFeedProps {
 }
 
 function MessageAttachmentImage(props: {
-  readonly uri: string;
-  readonly bearerToken: string | null;
-  readonly dpopAccessToken?: string;
+  readonly environmentId: EnvironmentId;
+  readonly attachmentId: string;
   readonly className: string;
   readonly onPressImage: (uri: string, headers?: Record<string, string>) => void;
 }) {
-  const request = useRemoteHttpHeaders({
-    url: props.uri,
-    bearerToken: props.bearerToken,
-    ...(props.dpopAccessToken ? { dpopAccessToken: props.dpopAccessToken } : {}),
+  const uri = useAssetUrl(props.environmentId, {
+    _tag: "attachment",
+    attachmentId: props.attachmentId,
   });
 
-  if (!request.isReady) {
+  if (uri === null) {
     return (
       <View className={`${props.className} items-center justify-center`}>
         <ActivityIndicator />
@@ -118,14 +113,9 @@ function MessageAttachmentImage(props: {
     );
   }
 
-  const headers = request.headers ?? undefined;
   return (
-    <TouchableOpacity activeOpacity={0.7} onPress={() => props.onPressImage(props.uri, headers)}>
-      <Image
-        source={{ uri: props.uri, ...(headers ? { headers } : {}) }}
-        className={props.className}
-        resizeMode="cover"
-      />
+    <TouchableOpacity activeOpacity={0.7} onPress={() => props.onPressImage(uri)}>
+      <Image source={{ uri }} className={props.className} resizeMode="cover" />
     </TouchableOpacity>
   );
 }
@@ -691,7 +681,7 @@ function useMarkdownStyles(): MarkdownStyleSets {
 
 function renderFeedEntry(
   info: { item: ThreadFeedEntry; index: number },
-  props: Pick<ThreadFeedProps, "bearerToken" | "dpopAccessToken" | "httpBaseUrl" | "skills"> & {
+  props: Pick<ThreadFeedProps, "environmentId" | "skills"> & {
     readonly copiedRowId: string | null;
     readonly expandedWorkGroups: Record<string, boolean>;
     readonly expandedWorkRows: Record<string, boolean>;
@@ -770,16 +760,11 @@ function renderFeedEntry(
               />
             ) : null}
             {attachments.map((attachment) => {
-              const uri = messageImageUrl(props.httpBaseUrl, attachment.id);
-              if (!uri) {
-                return null;
-              }
               return (
                 <MessageAttachmentImage
                   key={attachment.id}
-                  uri={uri}
-                  bearerToken={props.bearerToken}
-                  dpopAccessToken={props.dpopAccessToken}
+                  environmentId={props.environmentId}
+                  attachmentId={attachment.id}
                   className="aspect-[1.3] w-full rounded-[14px] bg-white/15"
                   onPressImage={props.onPressImage}
                 />
@@ -831,16 +816,11 @@ function renderFeedEntry(
           )
         ) : null}
         {attachments.map((attachment) => {
-          const uri = messageImageUrl(props.httpBaseUrl, attachment.id);
-          if (!uri) {
-            return null;
-          }
           return (
             <MessageAttachmentImage
               key={attachment.id}
-              uri={uri}
-              bearerToken={props.bearerToken}
-              dpopAccessToken={props.dpopAccessToken}
+              environmentId={props.environmentId}
+              attachmentId={attachment.id}
               className="mt-1.5 aspect-[1.3] w-full rounded-[18px] bg-neutral-200 dark:bg-neutral-800"
               onPressImage={props.onPressImage}
             />
@@ -1499,10 +1479,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const renderItem = useCallback(
     (info: { item: ThreadFeedEntry; index: number }) =>
       renderFeedEntry(info, {
-        bearerToken: props.bearerToken,
-        dpopAccessToken: props.dpopAccessToken,
+        environmentId: props.environmentId,
         copiedRowId,
-        httpBaseUrl: props.httpBaseUrl,
         expandedWorkGroups,
         expandedWorkRows,
         terminalAssistantMessageIds,
@@ -1535,9 +1513,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleTurnFold,
       onToggleWorkGroup,
       onToggleWorkRow,
-      props.bearerToken,
-      props.dpopAccessToken,
-      props.httpBaseUrl,
+      props.environmentId,
       props.skills,
     ],
   );

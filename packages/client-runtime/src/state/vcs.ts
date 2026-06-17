@@ -4,12 +4,13 @@ import * as Stream from "effect/Stream";
 import { Atom } from "effect/unstable/reactivity";
 
 import {
-  createEnvironmentRpcMutation,
+  createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
   createEnvironmentSubscriptionAtomFamily,
 } from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { subscribe, type EnvironmentRpcInput } from "../rpc/client.ts";
+import { vcsCommandConcurrency, vcsCommandScheduler } from "./vcsCommandScheduler.ts";
 
 export function createVcsEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
@@ -33,33 +34,47 @@ export function createVcsEnvironmentAtoms<R, E>(
           ),
         ),
     }),
-    pull: createEnvironmentRpcMutation(runtime, {
+    pull: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:pull",
       tag: WS_METHODS.vcsPull,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
     }),
-    refreshStatus: createEnvironmentRpcMutation(runtime, {
+    refreshStatus: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:refresh-status",
       tag: WS_METHODS.vcsRefreshStatus,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
     }),
-    createWorktree: createEnvironmentRpcMutation(runtime, {
+    createWorktree: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:create-worktree",
       tag: WS_METHODS.vcsCreateWorktree,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
     }),
-    removeWorktree: createEnvironmentRpcMutation(runtime, {
+    removeWorktree: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:remove-worktree",
       tag: WS_METHODS.vcsRemoveWorktree,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
     }),
-    createRef: createEnvironmentRpcMutation(runtime, {
+    createRef: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:create-ref",
       tag: WS_METHODS.vcsCreateRef,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
     }),
-    switchRef: createEnvironmentRpcMutation(runtime, {
+    switchRef: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:switch-ref",
       tag: WS_METHODS.vcsSwitchRef,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
     }),
-    init: createEnvironmentRpcMutation(runtime, {
+    init: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:init",
       tag: WS_METHODS.vcsInit,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
     }),
   };
 }

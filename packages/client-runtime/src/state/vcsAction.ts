@@ -16,7 +16,13 @@ import { AsyncResult, Atom, type AtomRegistry } from "effect/unstable/reactivity
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { runStream } from "../rpc/client.ts";
-import { runStreamInEnvironment, type AtomCommandResult } from "./runtime.ts";
+import {
+  createRuntimeCommand,
+  runStreamInEnvironment,
+  type AtomCommand,
+  type AtomCommandResult,
+} from "./runtime.ts";
+import { vcsCommandScheduler } from "./vcsCommandScheduler.ts";
 
 export type VcsActionOperation =
   | "refresh_status"
@@ -334,11 +340,28 @@ export function createVcsActionManager<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {
   const unavailableTargetKey = "vcs-action-target:unavailable";
-  const runStackedActionFamily = Atom.family((key: string) => {
+  const runStackedActionCommands = new Map<
+    string,
+    AtomCommand<RunVcsStackedActionInput, GitRunStackedActionResult, unknown>
+  >();
+  const getRunStackedActionCommand = (key: string) => {
+    const existing = runStackedActionCommands.get(key);
+    if (existing !== undefined) {
+      return existing;
+    }
     const target = key === unavailableTargetKey ? null : parseVcsActionTargetKey(key);
     const stateAtom = target === null ? EMPTY_VCS_ACTION_ATOM : vcsActionStateAtom(key);
-    return runtime
-      .fn<RunVcsStackedActionInput>()<unknown, GitRunStackedActionResult>((input, get) => {
+    const command = createRuntimeCommand<
+      EnvironmentRegistry | R,
+      E,
+      RunVcsStackedActionInput,
+      GitRunStackedActionResult,
+      unknown
+    >(runtime, {
+      label: `vcs-action:run-stacked:${key}`,
+      scheduler: vcsCommandScheduler,
+      concurrency: { mode: "serial", key: () => key },
+      execute: (input: RunVcsStackedActionInput, registry) => {
         if (target === null) {
           return Effect.fail(
             new VcsActionUnavailableError({
@@ -347,7 +370,7 @@ export function createVcsActionManager<R, E>(
           );
         }
         const transportActionId = createVcsActionTransportId(target, input.actionId);
-        get.set(
+        registry.set(
           stateAtom,
           beginVcsActionState({
             operation: "run_change_request",
@@ -375,11 +398,11 @@ export function createVcsActionManager<R, E>(
             actionId: input.actionId,
             onProgress: (event) =>
               Effect.sync(() => {
-                const current = get(stateAtom);
+                const current = registry.get(stateAtom);
                 if (current.actionId !== input.actionId) {
                   return;
                 }
-                get.set(stateAtom, applyVcsActionProgressEvent(current, event));
+                registry.set(stateAtom, applyVcsActionProgressEvent(current, event));
                 if (input.onProgress !== undefined) {
                   try {
                     input.onProgress(event);
@@ -392,16 +415,21 @@ export function createVcsActionManager<R, E>(
         ).pipe(
           Effect.tapError((error) =>
             Effect.sync(() => {
-              const current = get(stateAtom);
+              const current = registry.get(stateAtom);
               if (current.actionId === input.actionId && current.isRunning) {
-                get.set(stateAtom, failVcsActionState("run_change_request", input.actionId, error));
+                registry.set(
+                  stateAtom,
+                  failVcsActionState("run_change_request", input.actionId, error),
+                );
               }
             }),
           ),
         );
-      })
-      .pipe(Atom.withLabel(`vcs-action:run-stacked:${key}`));
-  });
+      },
+    });
+    runStackedActionCommands.set(key, command);
+    return command;
+  };
 
   const setState = (
     registry: AtomRegistry.AtomRegistry,
@@ -420,7 +448,7 @@ export function createVcsActionManager<R, E>(
     stateAtom: getVcsActionStateAtom,
     runStackedAction: (target: VcsActionTarget) => {
       const key = getVcsActionTargetKey(target);
-      return runStackedActionFamily(key ?? unavailableTargetKey);
+      return getRunStackedActionCommand(key ?? unavailableTargetKey);
     },
     track: async <A, E>(
       registry: AtomRegistry.AtomRegistry,

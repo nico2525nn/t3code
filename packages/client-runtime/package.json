@@ -47,10 +47,6 @@
       "types": "./src/state/assets.ts",
       "default": "./src/state/assets.ts"
     },
-    "./state/cloud": {
-      "types": "./src/state/cloud.ts",
-      "default": "./src/state/cloud.ts"
-    },
     "./state/connections": {
       "types": "./src/state/connections.ts",
       "default": "./src/state/connections.ts"

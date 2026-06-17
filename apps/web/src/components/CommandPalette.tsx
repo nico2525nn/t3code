@@ -51,6 +51,7 @@ import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
 import {
@@ -399,7 +400,7 @@ function OpenCommandPaletteDialog() {
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
-  const lookupRepository = useAtomCommand(sourceControlEnvironment.lookupRepository, {
+  const lookupRepository = useAtomQueryRunner(sourceControlEnvironment.repository, {
     reportFailure: false,
   });
   const cloneRepository = useAtomCommand(sourceControlEnvironment.cloneRepository, {

@@ -8,6 +8,7 @@ import {
   EMPTY_RELAY_ENVIRONMENT_DISCOVERY_STATE,
   RelayEnvironmentDiscovery,
 } from "../relay/discovery.ts";
+import { createRuntimeCommand } from "./runtime.ts";
 
 export function createRelayEnvironmentDiscoveryAtoms<R, E>(
   runtime: Atom.AtomRuntime<RelayEnvironmentDiscovery | R, E>,
@@ -26,9 +27,12 @@ export function createRelayEnvironmentDiscoveryAtoms<R, E>(
       () => EMPTY_RELAY_ENVIRONMENT_DISCOVERY_STATE,
     ),
   ).pipe(Atom.withLabel("relay-environment-discovery-value"));
-  const refresh = runtime.fn(() =>
-    RelayEnvironmentDiscovery.pipe(Effect.flatMap((discovery) => discovery.refresh)),
-  );
+  const refresh = createRuntimeCommand(runtime, {
+    label: "relay-environment-discovery:refresh",
+    concurrency: { mode: "singleFlight", key: () => "refresh" },
+    execute: (_input: void) =>
+      RelayEnvironmentDiscovery.pipe(Effect.flatMap((discovery) => discovery.refresh)),
+  });
 
   return {
     stateAtom,

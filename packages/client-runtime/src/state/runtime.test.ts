@@ -5,14 +5,19 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Latch from "effect/Latch";
+import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
 
 import {
   environmentRpcKey,
+  createAtomCommandScheduler,
+  createRuntimeCommand,
   executeAtomCommand,
+  executeAtomQuery,
   isAtomCommandInterrupted,
   mapAtomCommandResult,
+  runAtomCommand,
   settleAsyncResult,
   settlePromise,
   squashAtomCommandFailure,
@@ -264,4 +269,183 @@ describe("Atom.fn mutation semantics", () => {
         registry.dispose();
       }),
   );
+});
+
+describe("executeAtomQuery", () => {
+  it("keeps concurrent query results correlated to their atoms", async () => {
+    const firstLatch = Latch.makeUnsafe();
+    const secondLatch = Latch.makeUnsafe();
+    const firstAtom = Atom.make(firstLatch.await.pipe(Effect.as("first")));
+    const secondAtom = Atom.make(secondLatch.await.pipe(Effect.as("second")));
+    const registry = AtomRegistry.make();
+
+    const firstResult = executeAtomQuery(registry, firstAtom);
+    const secondResult = executeAtomQuery(registry, secondAtom);
+
+    secondLatch.openUnsafe();
+    firstLatch.openUnsafe();
+
+    const [first, second] = await Promise.all([firstResult, secondResult]);
+    expect(first._tag).toBe("Success");
+    expect(second._tag).toBe("Success");
+    if (first._tag === "Success" && second._tag === "Success") {
+      expect(first.value).toBe("first");
+      expect(second.value).toBe("second");
+    }
+
+    registry.dispose();
+  });
+});
+
+describe("runtime command runner", () => {
+  it("encodes custom command rejections as defects", async () => {
+    const defect = new Error("custom command rejected");
+    const registry = AtomRegistry.make();
+    const result = await runAtomCommand(
+      registry,
+      {
+        label: "test.rejected-command",
+        run: () => Promise.reject(defect),
+      },
+      undefined,
+      { reportDefect: false },
+    );
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(Cause.hasDies(result.cause)).toBe(true);
+      expect(Cause.squash(result.cause)).toBe(defect);
+    }
+    registry.dispose();
+  });
+
+  it("settles generated command scheduler defects from direct callers", async () => {
+    const defect = new Error("invalid command key");
+    const runtime = Atom.runtime(Layer.empty);
+    const command = createRuntimeCommand(runtime, {
+      label: "test.invalid-key",
+      concurrency: {
+        mode: "serial",
+        key: () => {
+          throw defect;
+        },
+      },
+      execute: () => Effect.void,
+    });
+    const registry = AtomRegistry.make();
+
+    const result = await command.run(registry, undefined);
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(Cause.hasDies(result.cause)).toBe(true);
+      expect(Cause.squash(result.cause)).toBe(defect);
+    }
+    registry.dispose();
+  });
+
+  it("correlates parallel invocation results", async () => {
+    const firstLatch = Latch.makeUnsafe();
+    const secondLatch = Latch.makeUnsafe();
+    const runtime = Atom.runtime(Layer.empty);
+    const command = createRuntimeCommand(runtime, {
+      label: "test.parallel",
+      execute: (id: "first" | "second") =>
+        (id === "first" ? firstLatch : secondLatch).await.pipe(Effect.as(id)),
+    });
+    const registry = AtomRegistry.make();
+
+    const first = command.run(registry, "first");
+    const second = command.run(registry, "second");
+    secondLatch.openUnsafe();
+    firstLatch.openUnsafe();
+
+    expect(await first).toEqual(AsyncResult.success("first"));
+    expect(await second).toEqual(AsyncResult.success("second"));
+    registry.dispose();
+  });
+
+  it("serializes commands that share a scheduler and lane", async () => {
+    const firstLatch = Latch.makeUnsafe();
+    const events: string[] = [];
+    const runtime = Atom.runtime(Layer.empty);
+    const scheduler = createAtomCommandScheduler();
+    const concurrency = { mode: "serial" as const, key: () => "shared" };
+    const firstCommand = createRuntimeCommand(runtime, {
+      label: "test.first",
+      scheduler,
+      concurrency,
+      execute: () =>
+        Effect.sync(() => events.push("first:start")).pipe(
+          Effect.andThen(firstLatch.await),
+          Effect.tap(() => Effect.sync(() => events.push("first:end"))),
+        ),
+    });
+    const secondCommand = createRuntimeCommand(runtime, {
+      label: "test.second",
+      scheduler,
+      concurrency,
+      execute: () => Effect.sync(() => events.push("second:start")),
+    });
+    const registry = AtomRegistry.make();
+
+    const first = firstCommand.run(registry, undefined);
+    const second = secondCommand.run(registry, undefined);
+    await Promise.resolve();
+    expect(events).toEqual(["first:start"]);
+
+    firstLatch.openUnsafe();
+    await Promise.all([first, second]);
+    expect(events).toEqual(["first:start", "first:end", "second:start"]);
+    registry.dispose();
+  });
+
+  it("deduplicates single-flight commands by key", async () => {
+    const latch = Latch.makeUnsafe();
+    let executions = 0;
+    const runtime = Atom.runtime(Layer.empty);
+    const command = createRuntimeCommand(runtime, {
+      label: "test.single-flight",
+      concurrency: { mode: "singleFlight", key: (key: string) => key },
+      execute: () =>
+        Effect.sync(() => executions++).pipe(Effect.andThen(latch.await), Effect.as("done")),
+    });
+    const registry = AtomRegistry.make();
+
+    const first = command.run(registry, "same");
+    const second = command.run(registry, "same");
+    latch.openUnsafe();
+
+    expect(await first).toEqual(AsyncResult.success("done"));
+    expect(await second).toEqual(AsyncResult.success("done"));
+    expect(executions).toBe(1);
+    registry.dispose();
+  });
+
+  it("coalesces pending latest-value commands without interrupting the active call", async () => {
+    const firstLatch = Latch.makeUnsafe();
+    const executed: number[] = [];
+    const runtime = Atom.runtime(Layer.empty);
+    const command = createRuntimeCommand(runtime, {
+      label: "test.latest",
+      concurrency: { mode: "latest", key: () => "shared" },
+      execute: (value: number) =>
+        Effect.sync(() => executed.push(value)).pipe(
+          Effect.andThen(value === 1 ? firstLatch.await : Effect.void),
+          Effect.as(value),
+        ),
+    });
+    const registry = AtomRegistry.make();
+
+    const first = command.run(registry, 1);
+    await Promise.resolve();
+    const second = command.run(registry, 2);
+    const third = command.run(registry, 3);
+    firstLatch.openUnsafe();
+
+    expect(await first).toEqual(AsyncResult.success(1));
+    expect(await second).toEqual(AsyncResult.success(3));
+    expect(await third).toEqual(AsyncResult.success(3));
+    expect(executed).toEqual([1, 3]);
+    registry.dispose();
+  });
 });

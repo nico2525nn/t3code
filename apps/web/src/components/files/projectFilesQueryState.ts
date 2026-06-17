@@ -7,21 +7,15 @@ import type {
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
+import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 
 const EMPTY_PROJECT_FILE_PATH = "";
-interface OptimisticProjectFile {
-  readonly data: ProjectReadFileResult;
-  readonly confirmed: boolean;
-}
-
-const optimisticProjectFiles = new Map<string, OptimisticProjectFile>();
-
-function fileKey(environmentId: EnvironmentId, cwd: string, relativePath: string): string {
-  return [environmentId, cwd, relativePath].map(encodeURIComponent).join("|");
+function optimisticFileAtom(environmentId: EnvironmentId, cwd: string, relativePath: string) {
+  return projectEnvironment.optimisticFile({ environmentId, cwd, relativePath });
 }
 
 interface ProjectQueryState<A> {
@@ -52,9 +46,8 @@ export function setProjectFileQueryData(
   relativePath: string,
   contents: string,
 ): void {
-  const key = fileKey(environmentId, cwd, relativePath);
-  optimisticProjectFiles.set(key, {
-    confirmed: false,
+  appAtomRegistry.set(optimisticFileAtom(environmentId, cwd, relativePath), {
+    confirmedAgainst: undefined,
     data: {
       relativePath,
       contents,
@@ -69,7 +62,7 @@ export function getOptimisticProjectFileQueryData(
   cwd: string,
   relativePath: string,
 ): ProjectReadFileResult | null {
-  return optimisticProjectFiles.get(fileKey(environmentId, cwd, relativePath))?.data ?? null;
+  return appAtomRegistry.get(optimisticFileAtom(environmentId, cwd, relativePath))?.data ?? null;
 }
 
 export function confirmProjectFileQueryData(
@@ -78,12 +71,25 @@ export function confirmProjectFileQueryData(
   relativePath: string,
   contents: string,
 ): boolean {
-  const key = fileKey(environmentId, cwd, relativePath);
-  const optimisticFile = optimisticProjectFiles.get(key);
+  const atom = optimisticFileAtom(environmentId, cwd, relativePath);
+  const optimisticFile = appAtomRegistry.get(atom);
   if (optimisticFile?.data.contents !== contents) return false;
 
-  optimisticProjectFiles.set(key, { ...optimisticFile, confirmed: true });
-  appAtomRegistry.refresh(getProjectFileQueryAtom(environmentId, cwd, relativePath));
+  const queryAtom = getProjectFileQueryAtom(environmentId, cwd, relativePath);
+  const confirmed = {
+    ...optimisticFile,
+    confirmedAgainst: appAtomRegistry.get(queryAtom),
+  };
+  appAtomRegistry.set(atom, confirmed);
+  appAtomRegistry.refresh(queryAtom);
+  void executeAtomQuery(appAtomRegistry, queryAtom, {
+    reportDefect: false,
+    reportFailure: false,
+  }).then((result) => {
+    if (result._tag === "Success" && appAtomRegistry.get(atom) === confirmed) {
+      appAtomRegistry.set(atom, null);
+    }
+  });
   return true;
 }
 
@@ -94,11 +100,15 @@ export function resolveProjectFileQueryData(
   data: ProjectReadFileResult | null,
 ): ProjectReadFileResult | null {
   if (relativePath === null) return data;
-  return optimisticProjectFiles.get(fileKey(environmentId, cwd, relativePath))?.data ?? data;
+  return appAtomRegistry.get(optimisticFileAtom(environmentId, cwd, relativePath))?.data ?? data;
 }
 
-export function __resetProjectFileQueryDataForTests(): void {
-  optimisticProjectFiles.clear();
+export function clearProjectFileQueryData(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+): void {
+  appAtomRegistry.set(optimisticFileAtom(environmentId, cwd, relativePath), null);
 }
 
 function errorMessage<A>(result: AsyncResult.AsyncResult<A, unknown>): string | null {
@@ -133,22 +143,10 @@ export function useProjectFileQuery(
   const refreshAtom = useAtomRefresh(atom);
   const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
   const data = Option.getOrNull(AsyncResult.value(result));
-  const optimisticFile =
-    relativePath === null
-      ? undefined
-      : optimisticProjectFiles.get(fileKey(environmentId, cwd, relativePath));
-
-  useEffect(() => {
-    if (
-      relativePath === null ||
-      optimisticFile === undefined ||
-      !optimisticFile.confirmed ||
-      data?.contents !== optimisticFile.data.contents
-    ) {
-      return;
-    }
-    optimisticProjectFiles.delete(fileKey(environmentId, cwd, relativePath));
-  }, [cwd, data?.contents, environmentId, optimisticFile, relativePath]);
+  const optimisticResult = useAtomValue(
+    optimisticFileAtom(environmentId, cwd, relativePath ?? EMPTY_PROJECT_FILE_PATH),
+  );
+  const optimisticFile = relativePath === null ? null : optimisticResult;
 
   return {
     data: optimisticFile?.data ?? data,
