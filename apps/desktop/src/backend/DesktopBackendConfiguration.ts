@@ -168,6 +168,7 @@ const resolveBackendStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         tailscaleServeEnabled: backendExposure.tailscaleServeEnabled,
         tailscaleServePort: backendExposure.tailscaleServePort,
         desktopTelemetryFd: 4,
+        desktopTelemetryControlFd: 5,
         ...Option.match(input.resourceMonitorPath, {
           onNone: () => ({}),
           onSome: (resourceMonitorPath) => ({ resourceMonitorPath }),
