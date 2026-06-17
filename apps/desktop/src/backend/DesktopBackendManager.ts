@@ -38,6 +38,7 @@ const DEFAULT_BACKEND_READINESS_TIMEOUT = Duration.minutes(1);
 const DEFAULT_BACKEND_READINESS_INTERVAL = Duration.millis(100);
 const DEFAULT_BACKEND_READINESS_REQUEST_TIMEOUT = Duration.seconds(1);
 const DEFAULT_BACKEND_TERMINATE_GRACE = Duration.seconds(2);
+const DEFAULT_BACKEND_OUTPUT_DRAIN_TIMEOUT = Duration.millis(250);
 const BACKEND_READINESS_PATH = "/.well-known/t3/environment";
 
 type BackendProcessLayerServices = ChildProcessSpawner.ChildProcessSpawner | HttpClient.HttpClient;
@@ -401,6 +402,7 @@ export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
         }),
     ),
   );
+  const outputFibers: Array<Fiber.Fiber<void, never>> = [];
 
   yield* options.onStarted?.(handle.pid) ?? Effect.void;
   if (
@@ -438,20 +440,22 @@ export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
       pid: Number(handle.pid),
     };
     const onOutputFailure = options.onOutputFailure ?? (() => Effect.void);
-    yield* drainBackendOutput(
-      outputContext,
-      "stdout",
-      handle.stdout,
-      onOutput,
-      onOutputFailure,
-    ).pipe(Effect.forkScoped);
-    yield* drainBackendOutput(
-      outputContext,
-      "stderr",
-      handle.stderr,
-      onOutput,
-      onOutputFailure,
-    ).pipe(Effect.forkScoped);
+    outputFibers.push(
+      yield* drainBackendOutput(
+        outputContext,
+        "stdout",
+        handle.stdout,
+        onOutput,
+        onOutputFailure,
+      ).pipe(Effect.forkScoped),
+      yield* drainBackendOutput(
+        outputContext,
+        "stderr",
+        handle.stderr,
+        onOutput,
+        onOutputFailure,
+      ).pipe(Effect.forkScoped),
+    );
   }
   yield* waitForHttpReady({
     executablePath: options.executablePath,
@@ -467,7 +471,7 @@ export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
     Effect.forkScoped,
   );
 
-  const exitCode = yield* handle.exitCode.pipe(
+  const exit = yield* handle.exitCode.pipe(
     Effect.mapError(
       (cause) =>
         new BackendProcessExitStatusError({
@@ -479,7 +483,16 @@ export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
           cause,
         }),
     ),
+    Effect.exit,
   );
+  yield* Effect.forEach(outputFibers, Fiber.await, {
+    concurrency: "unbounded",
+    discard: true,
+  }).pipe(Effect.timeout(DEFAULT_BACKEND_OUTPUT_DRAIN_TIMEOUT), Effect.ignore);
+  if (Exit.isFailure(exit)) {
+    return yield* Effect.failCause(exit.cause);
+  }
+  const exitCode = exit.value;
   return {
     code: Option.some(exitCode),
     reason: `code=${exitCode}`,
@@ -629,10 +642,13 @@ export const make = Effect.gen(function* () {
 
               if (isCurrentRun) {
                 if (Option.isSome(pid)) {
-                  yield* backendOutputLog.writeSessionBoundary({
-                    phase: "END",
-                    details: `pid=${pid.value} ${reason}`,
-                  });
+                  if (nextState.desiredRunning) {
+                    yield* backendOutputLog.persistFailure({
+                      details: `pid=${pid.value} ${reason}`,
+                    });
+                  } else {
+                    yield* backendOutputLog.discardSession;
+                  }
                 }
                 yield* Ref.set(desktopState.backendReady, false);
               }
@@ -653,8 +669,7 @@ export const make = Effect.gen(function* () {
               ...run,
               pid: Option.some(pid),
             }));
-            yield* backendOutputLog.writeSessionBoundary({
-              phase: "START",
+            yield* backendOutputLog.beginSession({
               details: `pid=${pid} port=${config.value.bootstrap.port} cwd=${config.value.cwd}`,
             });
           }),
@@ -687,10 +702,16 @@ export const make = Effect.gen(function* () {
               ),
             );
           }),
-          onReadinessFailure: (error) =>
-            logBackendManagerWarning("backend readiness check failed during bootstrap", {
-              error,
-            }),
+          onReadinessFailure: Effect.fn("desktop.backendManager.onReadinessFailure")(
+            function* (error) {
+              yield* logBackendManagerWarning("backend readiness check failed during bootstrap", {
+                error,
+              });
+              yield* backendOutputLog.persistFailure({
+                details: error.message,
+              });
+            },
+          ),
           onOutput: (streamName, chunk) => backendOutputLog.writeOutputChunk(streamName, chunk),
           onOutputFailure: (error) => logBackendManagerError(error.message, { error }),
         }).pipe(
@@ -811,7 +832,7 @@ export const make = Effect.gen(function* () {
     });
     yield* Option.match(active, {
       onNone: () => Effect.void,
-      onSome: (run) => closeRun(run, options),
+      onSome: (run) => closeRun(run, options).pipe(Effect.andThen(backendOutputLog.discardSession)),
     });
   });
 

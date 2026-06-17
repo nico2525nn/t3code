@@ -12,7 +12,7 @@ import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
 import * as DesktopBackendOutputLogModule from "./DesktopBackendOutputLog.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
-const DESKTOP_TRACE_BATCH_WINDOW_MS = 200;
+const DESKTOP_TRACE_BATCH_WINDOW_MS = 1_000;
 
 export { DesktopBackendOutputLog } from "./DesktopBackendOutputLog.ts";
 

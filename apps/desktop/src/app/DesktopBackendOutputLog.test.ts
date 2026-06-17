@@ -60,7 +60,7 @@ describe("DesktopBackendOutputLog", () => {
     return withOutputLog(
       Effect.gen(function* () {
         const outputLog = yield* DesktopBackendOutputLog.DesktopBackendOutputLog;
-        yield* outputLog.writeSessionBoundary({ phase: "START", details: "test" });
+        yield* outputLog.beginSession({ details: "test" });
 
         const error = loggedError(messages);
         assert.instanceOf(error, DesktopBackendOutputLog.DesktopBackendOutputLogSetupError);
@@ -102,7 +102,8 @@ describe("DesktopBackendOutputLog", () => {
     return withOutputLog(
       Effect.gen(function* () {
         const outputLog = yield* DesktopBackendOutputLog.DesktopBackendOutputLog;
-        yield* outputLog.writeSessionBoundary({ phase: "START", details: "test" });
+        yield* outputLog.beginSession({ details: "test" });
+        yield* outputLog.persistFailure({ details: "failed" });
 
         const error = loggedError(messages);
         assert.instanceOf(error, DesktopBackendOutputLog.DesktopBackendOutputLogWriteError);
