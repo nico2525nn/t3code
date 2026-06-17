@@ -1,10 +1,12 @@
 import * as NodeOS from "node:os";
 
+import type { SDKModel } from "@cursor/sdk";
+import { describe, expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
-import { describe, expect, it } from "vite-plus/test";
 import type * as EffectAcpSchema from "effect-acp/schema";
 import type { CursorSettings } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
@@ -12,6 +14,8 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import {
   buildCursorProviderSnapshot,
   buildCursorCapabilitiesFromConfigOptions,
+  buildCursorCapabilitiesFromSdkModel,
+  buildCursorDiscoveredModelsFromSdk,
   checkCursorProviderStatus,
   discoverCursorModelsViaAcp,
   getCursorFallbackModels,
@@ -22,6 +26,7 @@ import {
   resolveCursorAcpBaseModelId,
   resolveCursorAcpConfigUpdates,
 } from "./CursorProvider.ts";
+import { CursorSdkCatalogError, makeCursorSdkCatalogTestLayer } from "./CursorSdkCatalog.ts";
 
 const runNode = <A, E>(
   effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>,
@@ -294,6 +299,51 @@ const baseCursorSettings: CursorSettings = {
   customModels: [],
 };
 
+const sdkParameterizedModel = {
+  id: "claude-opus-4-8",
+  displayName: "Opus 4.8",
+  parameters: [
+    {
+      id: "thinking",
+      displayName: "Thinking",
+      values: [{ value: "false" }, { value: "true" }],
+    },
+    {
+      id: "context",
+      displayName: "Context",
+      values: [
+        { value: "300k", displayName: "300K" },
+        { value: "1m", displayName: "1M" },
+      ],
+    },
+    {
+      id: "effort",
+      displayName: "Effort",
+      values: [
+        { value: "low", displayName: "Low" },
+        { value: "high", displayName: "High" },
+      ],
+    },
+    {
+      id: "fast",
+      displayName: "Fast",
+      values: [{ value: "false" }, { value: "true", displayName: "Fast" }],
+    },
+  ],
+  variants: [
+    {
+      displayName: "Opus 4.8",
+      isDefault: true,
+      params: [
+        { id: "thinking", value: "true" },
+        { id: "context", value: "1m" },
+        { id: "effort", value: "high" },
+        { id: "fast", value: "false" },
+      ],
+    },
+  ],
+} satisfies SDKModel;
+
 describe("getCursorFallbackModels", () => {
   it("does not publish any built-in cursor models before ACP discovery", () => {
     expect(
@@ -410,7 +460,117 @@ describe("buildCursorCapabilitiesFromConfigOptions", () => {
   });
 });
 
+describe("Cursor SDK model discovery", () => {
+  it("maps native SDK parameter ids and default variant values to model capabilities", () => {
+    expect(buildCursorCapabilitiesFromSdkModel(sdkParameterizedModel)).toEqual(
+      createModelCapabilities({
+        optionDescriptors: [
+          selectDescriptor("effort", "Effort", [
+            { id: "low", label: "Low" },
+            { id: "high", label: "High", isDefault: true },
+          ]),
+          selectDescriptor("contextWindow", "Context", [
+            { id: "300k", label: "300K" },
+            { id: "1m", label: "1M", isDefault: true },
+          ]),
+          booleanDescriptor("fastMode", "Fast", false),
+          booleanDescriptor("thinking", "Thinking", true),
+        ],
+      }),
+    );
+  });
+
+  it("filters invalid and duplicate SDK model entries", () => {
+    expect(
+      buildCursorDiscoveredModelsFromSdk([
+        sdkParameterizedModel,
+        { ...sdkParameterizedModel, displayName: "Duplicate" },
+        { id: "", displayName: "Invalid" },
+      ]),
+    ).toEqual([
+      {
+        slug: "claude-opus-4-8",
+        name: "Opus 4.8",
+        isCustom: false,
+        capabilities: buildCursorCapabilitiesFromSdkModel(sdkParameterizedModel),
+      },
+    ]);
+  });
+});
+
 describe("checkCursorProviderStatus", () => {
+  it("uses the SDK catalog when CURSOR_API_KEY is configured", async () => {
+    const provider = await Effect.runPromise(
+      checkCursorProviderStatus(
+        {
+          ...baseCursorSettings,
+          binaryPath: "cursor-cli-must-not-be-invoked",
+          customModels: ["internal/cursor-model"],
+        },
+        { CURSOR_API_KEY: "test-cursor-key" },
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            makeCursorSdkCatalogTestLayer((apiKey) => {
+              expect(apiKey).toBe("test-cursor-key");
+              return Effect.succeed({
+                user: {
+                  apiKeyName: "test-key",
+                  userEmail: "cursor@example.com",
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                },
+                models: [sdkParameterizedModel],
+              });
+            }),
+            NodeServices.layer,
+          ),
+        ),
+      ),
+    );
+
+    expect(provider).toMatchObject({
+      status: "ready",
+      auth: {
+        status: "authenticated",
+        type: "api-key",
+        label: "Cursor API key (test-key)",
+        email: "cursor@example.com",
+      },
+      models: [
+        { slug: "claude-opus-4-8", isCustom: false },
+        { slug: "internal/cursor-model", isCustom: true },
+      ],
+    });
+  });
+
+  it("surfaces SDK authentication failures without invoking the CLI", async () => {
+    const provider = await Effect.runPromise(
+      checkCursorProviderStatus(baseCursorSettings, {
+        CURSOR_API_KEY: "invalid-test-key",
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            makeCursorSdkCatalogTestLayer(() =>
+              Effect.fail(
+                new CursorSdkCatalogError({
+                  authenticationFailure: true,
+                  cause: new Error("unauthorized"),
+                }),
+              ),
+            ),
+            NodeServices.layer,
+          ),
+        ),
+      ),
+    );
+
+    expect(provider).toMatchObject({
+      status: "error",
+      auth: { status: "unauthenticated" },
+      message: "Cursor SDK authentication failed. Check CURSOR_API_KEY.",
+    });
+  });
+
   it("passes the injected environment to ACP model discovery", async () => {
     const { requestLogPath, wrapperPath } = await runNode(makeProviderStatusEnvFixture());
 
@@ -424,9 +584,19 @@ describe("checkCursorProviderStatus", () => {
         },
         {
           ...process.env,
+          CURSOR_API_KEY: "",
           T3_ACP_REQUEST_LOG_PATH: requestLogPath,
         },
-      ).pipe(Effect.provide(NodeServices.layer)),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            makeCursorSdkCatalogTestLayer(() =>
+              Effect.die("SDK catalog must not be used without CURSOR_API_KEY"),
+            ),
+            NodeServices.layer,
+          ),
+        ),
+      ),
     );
 
     expect(provider.models.map((model) => model.slug)).toEqual([
@@ -440,43 +610,40 @@ describe("checkCursorProviderStatus", () => {
 });
 
 describe("discoverCursorModelsViaAcp", () => {
-  it("keeps the ACP probe runtime alive long enough to discover models", async () => {
-    const wrapperPath = await runNode(makeMockAgentWrapper());
-
-    const models = await Effect.runPromise(
-      discoverCursorModelsViaAcp({
+  it.effect("keeps the ACP probe runtime alive long enough to discover models", () =>
+    Effect.gen(function* () {
+      const wrapperPath = yield* makeMockAgentWrapper();
+      const models = yield* discoverCursorModelsViaAcp({
         enabled: true,
         binaryPath: wrapperPath,
         apiEndpoint: "",
         customModels: [],
-      }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
-    );
+      });
 
-    expect(models.map((model) => model.slug)).toEqual([
-      "default",
-      "composer-2",
-      "gpt-5.4",
-      "claude-opus-4-6",
-    ]);
-  });
+      expect(models.map((model) => model.slug)).toEqual([
+        "default",
+        "composer-2",
+        "gpt-5.4",
+        "claude-opus-4-6",
+      ]);
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
 
-  it("closes the ACP probe runtime after discovery completes", async () => {
-    const { exitLogPath, wrapperPath } = await runNode(
-      makeExitLogFixture("cursor-provider-exit-log-"),
-    );
+  it.effect("closes the ACP probe runtime after discovery completes", () =>
+    Effect.gen(function* () {
+      const { exitLogPath, wrapperPath } = yield* makeExitLogFixture("cursor-provider-exit-log-");
 
-    await Effect.runPromise(
-      discoverCursorModelsViaAcp({
+      yield* discoverCursorModelsViaAcp({
         enabled: true,
         binaryPath: wrapperPath,
         apiEndpoint: "",
         customModels: [],
-      }).pipe(Effect.provide(NodeServices.layer)),
-    );
+      });
 
-    const exitLog = await runNode(waitForFileContent(exitLogPath));
-    expect(exitLog).toContain("SIGTERM");
-  });
+      const exitLog = yield* waitForFileContent(exitLogPath);
+      expect(exitLog).toContain("SIGTERM");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
 });
 
 describe("parseCursorAboutOutput", () => {

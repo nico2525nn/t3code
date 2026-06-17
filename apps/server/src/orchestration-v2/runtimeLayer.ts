@@ -2,6 +2,7 @@ import * as Layer from "effect/Layer";
 
 import { claudeAgentSdkQueryRunnerLiveLayer } from "./Adapters/ClaudeAdapterV2.ts";
 import { codexAppServerClientFactoryFromSettingsLayer } from "./Adapters/CodexAdapterV2.ts";
+import { cursorAgentSdkRunnerLiveLayer } from "./Adapters/CursorAgentSdk.ts";
 import { BUILT_IN_PROVIDER_ADAPTER_DRIVERS_V2 } from "./builtInProviderAdapterDrivers.ts";
 import { layer as checkpointServiceLayer } from "./CheckpointService.ts";
 import { layer as commandPolicyLayer } from "./CommandPolicy.ts";
@@ -38,6 +39,7 @@ const providerAdapterRegistryProvided = providerAdapterRegistryLayerFromSettings
 }).pipe(
   Layer.provide(codexAppServerClientFactoryFromSettingsLayer),
   Layer.provide(claudeAgentSdkQueryRunnerLiveLayer),
+  Layer.provide(cursorAgentSdkRunnerLiveLayer),
   Layer.provide(idAllocatorLayer),
 );
 
