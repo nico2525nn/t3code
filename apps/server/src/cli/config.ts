@@ -290,6 +290,8 @@ export const resolveServerConfig = (
       () => mode === "desktop",
     );
     const desktopBootstrapToken = bootstrap?.desktopBootstrapToken;
+    const desktopTelemetryFd = bootstrap?.desktopTelemetryFd;
+    const resourceMonitorPath = bootstrap?.resourceMonitorPath;
     const autoBootstrapProjectFromCwd = Option.getOrElse(
       resolveOptionPrecedence(
         Option.fromUndefinedOr(options?.forceAutoBootstrapProjectFromCwd),
@@ -362,6 +364,8 @@ export const resolveServerConfig = (
       noBrowser,
       startupPresentation,
       desktopBootstrapToken,
+      desktopTelemetryFd,
+      resourceMonitorPath,
       autoBootstrapProjectFromCwd,
       logWebSocketEvents,
       tailscaleServeEnabled,

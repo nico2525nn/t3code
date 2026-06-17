@@ -83,6 +83,11 @@ import * as CloudCliState from "./cloud/CliState.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
+import * as DesktopTelemetryReceiver from "./resourceTelemetry/DesktopTelemetryReceiver.ts";
+import * as NativeTelemetryClient from "./resourceTelemetry/NativeTelemetryClient.ts";
+import * as ResourceAttribution from "./resourceTelemetry/ResourceAttribution.ts";
+import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinary.ts";
+import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
   clearPersistedServerRuntimeState,
@@ -99,6 +104,10 @@ import { disableTailscaleServe, ensureTailscaleServe } from "@t3tools/tailscale"
 // already closes the websocket gracefully. Do not add an artificial drain before
 // those finalizers get a chance to run.
 const HTTP_PREEMPTIVE_SHUTDOWN_GRACE_MS = 0;
+const ResourceAttributionLayerLive = ResourceAttribution.layer;
+const ApplicationObservabilityLive = ObservabilityLive.pipe(
+  Layer.provideMerge(ResourceAttributionLayerLive),
+);
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -116,9 +125,28 @@ const ServerSettingsLayerLive = ServerSettings.layer.pipe(
   Layer.provide(ServerSecretStore.layer),
 );
 
+const NativeTelemetryLayerLive = NativeTelemetryClient.layer.pipe(
+  Layer.provide(ResourceMonitorBinary.layer),
+);
+
+const ResourceTelemetryLayerLive = ResourceTelemetry.layer.pipe(
+  Layer.provideMerge(NativeTelemetryLayerLive),
+  Layer.provideMerge(DesktopTelemetryReceiver.layer),
+);
+
+const HostPowerMonitorLayerLive = HostPowerMonitor.layer.pipe(
+  Layer.provide(ResourceTelemetryLayerLive),
+);
+
 const BackgroundLayerLive = BackgroundPolicy.layer.pipe(
-  Layer.provide(HostPowerMonitor.layer),
+  Layer.provide(HostPowerMonitorLayerLive),
   Layer.provideMerge(ServerSettingsLayerLive),
+);
+
+const ResourceDiagnosticsLayerLive = Layer.mergeAll(
+  ResourceTelemetryLayerLive,
+  ProcessDiagnostics.layer.pipe(Layer.provide(ResourceTelemetryLayerLive)),
+  ProcessResourceMonitor.layer.pipe(Layer.provide(ResourceTelemetryLayerLive)),
 );
 
 const RelayClientLive = Layer.unwrap(
@@ -341,8 +369,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
 const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   // Misc.
   Layer.provideMerge(BackgroundLayerLive),
-  Layer.provideMerge(ProcessDiagnostics.layer),
-  Layer.provideMerge(ProcessResourceMonitor.layer),
+  Layer.provideMerge(ResourceDiagnosticsLayerLive),
   Layer.provideMerge(TraceDiagnostics.layer),
   Layer.provideMerge(AnalyticsService.layer),
   Layer.provideMerge(ExternalLauncher.layer),
@@ -492,7 +519,7 @@ export const makeServerLayer = Layer.unwrap(
       Layer.provideMerge(RuntimeServicesLive),
       Layer.provideMerge(serverRelayBrokerTracingLayer),
       Layer.provideMerge(HttpServerLive),
-      Layer.provide(ObservabilityLive),
+      Layer.provide(ApplicationObservabilityLive),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provideMerge(VcsProcess.layer),
       Layer.provideMerge(PlatformServicesLive),

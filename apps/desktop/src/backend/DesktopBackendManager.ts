@@ -26,6 +26,7 @@ import {
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopState from "../app/DesktopState.ts";
+import * as DesktopTelemetryPublisher from "../telemetry/DesktopTelemetryPublisher.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 
 const INITIAL_RESTART_DELAY = Duration.millis(500);
@@ -172,6 +173,7 @@ export const BackendProcessError = Schema.Union([
 export type BackendProcessError = typeof BackendProcessError.Type;
 
 interface RunBackendProcessOptions extends DesktopBackendStartConfig {
+  readonly desktopTelemetryStream: Stream.Stream<Uint8Array>;
   readonly readinessTimeout?: Duration.Duration;
   readonly onStarted?: (pid: number) => Effect.Effect<void>;
   readonly onReady?: () => Effect.Effect<void>;
@@ -364,6 +366,10 @@ export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
           type: "input",
           stream: Stream.encodeText(Stream.make(`${bootstrapJson}\n`)),
         },
+        fd4: {
+          type: "input",
+          stream: options.desktopTelemetryStream,
+        },
       },
     },
   );
@@ -445,6 +451,7 @@ export const make = Effect.gen(function* () {
   const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
   const backendOutputLog = yield* DesktopObservability.DesktopBackendOutputLog;
   const desktopState = yield* DesktopState.DesktopState;
+  const desktopTelemetryPublisher = yield* DesktopTelemetryPublisher.DesktopTelemetryPublisher;
   const desktopWindow = yield* DesktopWindow.DesktopWindow;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const httpClient = yield* HttpClient.HttpClient;
@@ -598,6 +605,7 @@ export const make = Effect.gen(function* () {
 
         const program = runBackendProcess({
           ...config.value,
+          desktopTelemetryStream: desktopTelemetryPublisher.encoded,
           onStarted: Effect.fn("desktop.backendManager.onStarted")(function* (pid) {
             yield* updateActiveRun(runId, (run) => ({
               ...run,

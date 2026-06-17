@@ -135,6 +135,12 @@ import {
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server.ts";
+import {
+  ResourceTelemetryHistory,
+  ResourceTelemetryHistoryInput,
+  ResourceTelemetryRetryResult,
+  ResourceTelemetrySnapshot,
+} from "./resourceTelemetry.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 import {
   SourceControlCloneRepositoryInput,
@@ -216,6 +222,9 @@ export const WS_METHODS = {
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
   serverGetProcessResourceHistory: "server.getProcessResourceHistory",
+  serverGetResourceTelemetry: "server.getResourceTelemetry",
+  serverGetResourceTelemetryHistory: "server.getResourceTelemetryHistory",
+  serverRetryResourceTelemetry: "server.retryResourceTelemetry",
   serverSignalProcess: "server.signalProcess",
   serverReportClientActivity: "server.reportClientActivity",
   serverReportHostPowerState: "server.reportHostPowerState",
@@ -240,6 +249,7 @@ export const WS_METHODS = {
   subscribeServerLifecycle: "subscribeServerLifecycle",
   subscribeAuthAccess: "subscribeAuthAccess",
   subscribeBackgroundPolicy: "subscribeBackgroundPolicy",
+  subscribeResourceTelemetry: "subscribeResourceTelemetry",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -318,6 +328,27 @@ export const WsServerGetProcessResourceHistoryRpc = Rpc.make(
     error: EnvironmentAuthorizationError,
   },
 );
+
+export const WsServerGetResourceTelemetryRpc = Rpc.make(WS_METHODS.serverGetResourceTelemetry, {
+  payload: Schema.Struct({}),
+  success: ResourceTelemetrySnapshot,
+  error: EnvironmentAuthorizationError,
+});
+
+export const WsServerGetResourceTelemetryHistoryRpc = Rpc.make(
+  WS_METHODS.serverGetResourceTelemetryHistory,
+  {
+    payload: ResourceTelemetryHistoryInput,
+    success: ResourceTelemetryHistory,
+    error: EnvironmentAuthorizationError,
+  },
+);
+
+export const WsServerRetryResourceTelemetryRpc = Rpc.make(WS_METHODS.serverRetryResourceTelemetry, {
+  payload: Schema.Struct({}),
+  success: ResourceTelemetryRetryResult,
+  error: EnvironmentAuthorizationError,
+});
 
 export const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess, {
   payload: ServerSignalProcessInput,
@@ -711,6 +742,13 @@ export const WsSubscribeBackgroundPolicyRpc = Rpc.make(WS_METHODS.subscribeBackg
   stream: true,
 });
 
+export const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTelemetry, {
+  payload: Schema.Struct({}),
+  success: ResourceTelemetrySnapshot,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -723,6 +761,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetTraceDiagnosticsRpc,
   WsServerGetProcessDiagnosticsRpc,
   WsServerGetProcessResourceHistoryRpc,
+  WsServerGetResourceTelemetryRpc,
+  WsServerGetResourceTelemetryHistoryRpc,
+  WsServerRetryResourceTelemetryRpc,
   WsServerSignalProcessRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
@@ -777,6 +818,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerLifecycleRpc,
   WsSubscribeAuthAccessRpc,
   WsSubscribeBackgroundPolicyRpc,
+  WsSubscribeResourceTelemetryRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
