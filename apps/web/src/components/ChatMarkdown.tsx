@@ -678,6 +678,7 @@ interface MarkdownFileLinkProps {
   iconPath: string;
   displayPath: string;
   workspaceRelativePath: string | null;
+  line?: number | undefined;
   label: string;
   copyMarkdown: string;
   theme: "light" | "dark";
@@ -956,6 +957,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   iconPath,
   displayPath,
   workspaceRelativePath,
+  line,
   label,
   copyMarkdown,
   theme,
@@ -981,8 +983,8 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       handleOpenInEditor();
       return;
     }
-    useRightPanelStore.getState().openFile(threadRef, workspaceRelativePath);
-  }, [handleOpenInEditor, threadRef, workspaceRelativePath]);
+    useRightPanelStore.getState().openFile(threadRef, workspaceRelativePath, line);
+  }, [handleOpenInEditor, line, threadRef, workspaceRelativePath]);
 
   const handleOpenInBrowser = useCallback(() => {
     void onOpenInBrowser?.().catch((error) => {
@@ -1112,6 +1114,7 @@ function areMarkdownFileLinkPropsEqual(
     previous.iconPath === next.iconPath &&
     previous.displayPath === next.displayPath &&
     previous.workspaceRelativePath === next.workspaceRelativePath &&
+    previous.line === next.line &&
     previous.label === next.label &&
     previous.copyMarkdown === next.copyMarkdown &&
     previous.theme === next.theme &&
@@ -1330,6 +1333,7 @@ function ChatMarkdown({
             iconPath={fileLinkMeta.filePath}
             displayPath={fileLinkMeta.displayPath}
             workspaceRelativePath={fileLinkMeta.workspaceRelativePath}
+            line={fileLinkMeta.line}
             label={labelParts.join(" · ")}
             copyMarkdown={`[${fileLinkMeta.basename}](${normalizedHref})`}
             theme={resolvedTheme}

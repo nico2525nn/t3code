@@ -1,6 +1,6 @@
 import { memo, useState, useCallback } from "react";
 import { useAtomSet } from "@effect/atom-react";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -12,7 +12,6 @@ import {
   ChevronRightIcon,
   EllipsisIcon,
   LoaderIcon,
-  PanelRightCloseIcon,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { ActivePlanState } from "../session-logic";
@@ -57,11 +56,11 @@ interface PlanSidebarProps {
   activeProposedPlan: LatestProposedPlanState | null;
   label?: string;
   environmentId: EnvironmentId;
+  threadRef?: ScopedThreadRef | undefined;
   markdownCwd: string | undefined;
   workspaceRoot: string | undefined;
   timestampFormat: TimestampFormat;
-  mode?: "sheet" | "sidebar";
-  onClose: () => void;
+  mode?: "sheet" | "sidebar" | "embedded";
 }
 
 const PlanSidebar = memo(function PlanSidebar({
@@ -69,11 +68,11 @@ const PlanSidebar = memo(function PlanSidebar({
   activeProposedPlan,
   label = "Plan",
   environmentId,
+  threadRef,
   markdownCwd,
   workspaceRoot,
   timestampFormat,
   mode = "sidebar",
-  onClose,
 }: PlanSidebarProps) {
   const [proposedPlanExpanded, setProposedPlanExpanded] = useState(false);
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
@@ -183,15 +182,6 @@ const PlanSidebar = memo(function PlanSidebar({
               </MenuPopup>
             </Menu>
           ) : null}
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            onClick={onClose}
-            aria-label={`Close ${label.toLowerCase()} sidebar`}
-            className="text-muted-foreground/50 hover:text-foreground/70"
-          >
-            <PanelRightCloseIcon className="size-3.5" />
-          </Button>
         </div>
       </div>
 
@@ -260,6 +250,7 @@ const PlanSidebar = memo(function PlanSidebar({
                   <ChatMarkdown
                     text={displayedPlanMarkdown ?? ""}
                     cwd={markdownCwd}
+                    threadRef={threadRef}
                     isStreaming={false}
                   />
                 </div>

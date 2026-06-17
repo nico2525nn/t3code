@@ -2373,16 +2373,19 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Close plan sidebar"]'),
+        () =>
+          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+            (element) => element.textContent?.trim() === "Ship plan mode follow-up",
+          ) ?? null,
         "Unable to find persisted plan surface content.",
       );
       for (const viewport of [WIDE_FOOTER_VIEWPORT, COMPACT_FOOTER_VIEWPORT]) {
         await mounted.setViewport(viewport);
         await vi.waitFor(() => {
-          expect(
-            document.querySelectorAll<HTMLButtonElement>('button[aria-label="Close plan sidebar"]'),
-          ).toHaveLength(1);
           expect(document.body.textContent).toContain("Ship plan mode follow-up");
+          expect(
+            document.querySelector<HTMLElement>("[data-right-panel-tabbar]")?.textContent,
+          ).toContain("Plan");
         });
         expect(
           selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
