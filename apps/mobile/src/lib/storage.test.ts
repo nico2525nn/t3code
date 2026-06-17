@@ -1,9 +1,6 @@
 import { assert } from "@effect/vitest";
 import * as Schema from "effect/Schema";
-import {
-  EnvironmentId,
-  type OrchestrationShellSnapshot,
-} from "@t3tools/contracts";
+import { EnvironmentId, type OrchestrationShellSnapshot } from "@t3tools/contracts";
 import { beforeEach, describe, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => {
