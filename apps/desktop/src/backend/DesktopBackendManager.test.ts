@@ -1,6 +1,7 @@
 import {
   DesktopBackendBootstrap,
   type DesktopBackendBootstrap as DesktopBackendBootstrapValue,
+  DesktopTelemetryControlMessage,
 } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -29,6 +30,9 @@ import * as DesktopWindow from "../window/DesktopWindow.ts";
 const decodeDesktopBackendBootstrap = Schema.decodeEffect(
   Schema.fromJsonString(DesktopBackendBootstrap),
 );
+const encodeDesktopTelemetryControl = Schema.encodeSync(
+  Schema.fromJsonString(DesktopTelemetryControlMessage),
+);
 
 const baseConfig: DesktopBackendManager.DesktopBackendStartConfig = {
   executablePath: "/electron",
@@ -44,6 +48,8 @@ const baseConfig: DesktopBackendManager.DesktopBackendStartConfig = {
     desktopBootstrapToken: "token",
     tailscaleServeEnabled: false,
     tailscaleServePort: 443,
+    desktopTelemetryFd: 4,
+    desktopTelemetryControlFd: 5,
   },
   httpBaseUrl: new URL("http://127.0.0.1:3773"),
   captureOutput: true,
@@ -60,6 +66,7 @@ function makeProcess(options?: {
   readonly stderr?: Stream.Stream<Uint8Array>;
   readonly exitCode?: Effect.Effect<ChildProcessSpawner.ExitCode>;
   readonly kill?: ChildProcessSpawner.ChildProcessHandle["kill"];
+  readonly getOutputFd?: ChildProcessSpawner.ChildProcessHandle["getOutputFd"];
 }): ChildProcessSpawner.ChildProcessHandle {
   return ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(123),
@@ -71,7 +78,7 @@ function makeProcess(options?: {
     kill: options?.kill ?? (() => Effect.void),
     stdin: Sink.drain,
     getInputFd: () => Sink.drain,
-    getOutputFd: () => Stream.empty,
+    getOutputFd: options?.getOutputFd ?? (() => Stream.empty),
     unref: Effect.succeed(Effect.void),
   });
 }
@@ -108,6 +115,7 @@ function makeManagerLayer(input: {
   readonly backendOutputLog?: Partial<DesktopObservability.DesktopBackendOutputLogShape>;
   readonly desktopState?: DesktopState.DesktopStateShape;
   readonly desktopWindow?: Partial<DesktopWindow.DesktopWindowShape>;
+  readonly desktopTelemetryPublisher?: Partial<DesktopTelemetryPublisher.DesktopTelemetryPublisherShape>;
   readonly config?: DesktopBackendManager.DesktopBackendStartConfig;
 }) {
   return DesktopBackendManager.layer.pipe(
@@ -125,6 +133,8 @@ function makeManagerLayer(input: {
           latest: Effect.succeed(Option.none()),
           changes: Stream.empty,
           encoded: Stream.empty,
+          handleControl: () => Effect.void,
+          ...input.desktopTelemetryPublisher,
         }),
         input.desktopState
           ? Layer.succeed(DesktopState.DesktopState, input.desktopState)
@@ -214,12 +224,50 @@ describe("DesktopBackendManager", () => {
         assert.equal(spawnedCommand.options.stderr, "pipe");
         assert.equal(spawnedCommand.options.killSignal, "SIGTERM");
         assert.isDefined(spawnedCommand.options.forceKillAfter);
+        assert.equal(spawnedCommand.options.additionalFds?.fd4?.type, "input");
+        assert.equal(spawnedCommand.options.additionalFds?.fd5?.type, "output");
         assert.equal(
           Duration.toMillis(Duration.fromInputUnsafe(spawnedCommand.options.forceKillAfter)),
           2_000,
         );
 
         assert.deepEqual(yield* decodeBootstrap(bootstrapJson), configWithObservability);
+      }).pipe(Effect.provide(managerLayer));
+    }),
+  );
+
+  it.effect("routes desktop telemetry control messages from fd5 to the publisher", () =>
+    Effect.gen(function* () {
+      const handled = yield* Deferred.make<boolean>();
+      const controlMessage = encodeDesktopTelemetryControl({
+        version: 1,
+        type: "setDiagnosticsDemand",
+        enabled: true,
+      });
+      const spawnerLayer = Layer.succeed(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.make(() =>
+          Effect.succeed(
+            makeProcess({
+              getOutputFd: (fd) =>
+                fd === 5 ? Stream.encodeText(Stream.make(`${controlMessage}\n`)) : Stream.empty,
+              exitCode: Deferred.await(handled).pipe(Effect.as(ChildProcessSpawner.ExitCode(0))),
+            }),
+          ),
+        ),
+      );
+      const managerLayer = makeManagerLayer({
+        spawnerLayer,
+        desktopTelemetryPublisher: {
+          handleControl: (message) =>
+            Deferred.succeed(handled, message.enabled).pipe(Effect.asVoid),
+        },
+      });
+
+      yield* Effect.gen(function* () {
+        const manager = yield* DesktopBackendManager.DesktopBackendManager;
+        yield* manager.start;
+        assert.isTrue(yield* Deferred.await(handled));
       }).pipe(Effect.provide(managerLayer));
     }),
   );
