@@ -84,7 +84,7 @@ const mobileEndorsementRows = [
   <section id="endorsements" class="sec-endorsements" aria-labelledby="endorsements-title">
     <div class="container">
       <div class="endorsements-head">
-        <h2 id="endorsements-title">Developers love T3 Code</h2>
+        <h2 id="endorsements-title">Loved by <span class="endorsements-count">{MARKETING_STATS.users}</span> developers</h2>
         <p>Real reactions from people building with T3 Code today.</p>
       </div>
     </div>
@@ -810,6 +810,11 @@ const mobileEndorsementRows = [
     letter-spacing: -0.035em;
     line-height: 1.05;
     margin-bottom: 18px;
+  }
+
+  .endorsements-count {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
 
   .endorsements-head p {
