@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { it, describe, expect } from "@effect/vitest";
+import { assert, it, describe } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -17,6 +17,8 @@ const ProjectLayer = WorkspaceFileSystemLive.pipe(
   Layer.provide(WorkspacePathsLive),
   Layer.provide(WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePathsLive))),
 );
+
+const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
 
 const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(ProjectLayer),
@@ -52,6 +54,20 @@ const writeTextFile = Effect.fn("writeTextFile")(function* (
   yield* fileSystem.writeFileString(absolutePath, contents).pipe(Effect.orDie);
 });
 
+const writeBinaryFile = Effect.fn("writeBinaryFile")(function* (
+  cwd: string,
+  relativePath: string,
+  contents: Uint8Array,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const absolutePath = path.join(cwd, relativePath);
+  yield* fileSystem
+    .makeDirectory(path.dirname(absolutePath), { recursive: true })
+    .pipe(Effect.orDie);
+  yield* fileSystem.writeFile(absolutePath, contents).pipe(Effect.orDie);
+});
+
 it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (it) => {
   describe("readFile", () => {
     it.effect("reads UTF-8 files relative to the workspace root", () =>
@@ -65,7 +81,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           relativePath: "src/index.ts",
         });
 
-        expect(result).toEqual({
+        assert.deepStrictEqual(result, {
           relativePath: "src/index.ts",
           contents: "export const answer = 42;\n",
           byteLength: 26,
@@ -83,7 +99,8 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           .readFile({ cwd, relativePath: "../escape.md" })
           .pipe(Effect.flip);
 
-        expect(error.message).toContain(
+        assert.include(
+          error.message,
           "Workspace file path must be relative to the project root: ../escape.md",
         );
       }),
@@ -106,7 +123,56 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           .readFile({ cwd, relativePath: "linked-secret.txt" })
           .pipe(Effect.flip);
 
-        expect(error.message).toContain("resolves outside the project root");
+        assert.include(error.message, "resolves outside the project root");
+      }),
+    );
+
+    it.effect("truncates files larger than the preview byte limit", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        const contents = `${"a".repeat(PROJECT_READ_FILE_MAX_BYTES)}tail`;
+        yield* writeTextFile(cwd, "large.txt", contents);
+
+        const result = yield* workspaceFileSystem.readFile({
+          cwd,
+          relativePath: "large.txt",
+        });
+
+        assert.equal(result.contents.length, PROJECT_READ_FILE_MAX_BYTES);
+        assert.equal(result.contents, "a".repeat(PROJECT_READ_FILE_MAX_BYTES));
+        assert.equal(result.byteLength, PROJECT_READ_FILE_MAX_BYTES + 4);
+        assert.isTrue(result.truncated);
+      }),
+    );
+
+    it.effect("rejects binary files", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        yield* writeBinaryFile(cwd, "binary.bin", new Uint8Array([65, 0, 66]));
+
+        const error = yield* workspaceFileSystem
+          .readFile({ cwd, relativePath: "binary.bin" })
+          .pipe(Effect.flip);
+
+        assert.include(error.message, "Binary files cannot be previewed as text.");
+      }),
+    );
+
+    it.effect("rejects directories", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* fileSystem.makeDirectory(path.join(cwd, "src"), { recursive: true });
+
+        const error = yield* workspaceFileSystem
+          .readFile({ cwd, relativePath: "src" })
+          .pipe(Effect.flip);
+
+        assert.include(error.message, "Workspace path is not a file.");
       }),
     );
   });
@@ -127,8 +193,8 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           .readFileString(path.join(cwd, "plans/effect-rpc.md"))
           .pipe(Effect.orDie);
 
-        expect(result).toEqual({ relativePath: "plans/effect-rpc.md" });
-        expect(saved).toBe("# Plan\n");
+        assert.deepStrictEqual(result, { relativePath: "plans/effect-rpc.md" });
+        assert.equal(saved, "# Plan\n");
       }),
     );
 
@@ -140,9 +206,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         yield* writeTextFile(cwd, "src/existing.ts", "export {};\n");
 
         const beforeWrite = yield* workspaceEntries.list({ cwd });
-        expect(beforeWrite.entries.some((entry) => entry.path === "plans/effect-rpc.md")).toBe(
-          false,
-        );
+        assert.isFalse(beforeWrite.entries.some((entry) => entry.path === "plans/effect-rpc.md"));
 
         yield* workspaceFileSystem.writeFile({
           cwd,
@@ -151,10 +215,10 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         });
 
         const afterWrite = yield* workspaceEntries.list({ cwd });
-        expect(afterWrite.entries).toEqual(
-          expect.arrayContaining([expect.objectContaining({ path: "plans/effect-rpc.md" })]),
+        assert.isTrue(
+          afterWrite.entries.some((entry) => entry.path === "plans/effect-rpc.md"),
         );
-        expect(afterWrite.truncated).toBe(false);
+        assert.isFalse(afterWrite.truncated);
       }),
     );
 
@@ -173,7 +237,8 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           })
           .pipe(Effect.flip);
 
-        expect(error.message).toContain(
+        assert.include(
+          error.message,
           "Workspace file path must be relative to the project root: ../escape.md",
         );
 
@@ -181,7 +246,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         const escapedStat = yield* fileSystem
           .stat(escapedPath)
           .pipe(Effect.orElseSucceed(() => null));
-        expect(escapedStat).toBeNull();
+        assert.isNull(escapedStat);
       }),
     );
   });

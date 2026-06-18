@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
@@ -15,16 +16,10 @@ const ProjectVcsConfig = Schema.Struct({
   ),
   vcsKind: Schema.optional(VcsDriverKind),
 });
-const isProjectVcsConfig = Schema.is(ProjectVcsConfig);
-
-interface ProjectVcsConfigFile {
-  readonly vcs?:
-    | {
-        readonly kind?: VcsDriverKindType | undefined;
-      }
-    | undefined;
-  readonly vcsKind?: VcsDriverKindType | undefined;
-}
+const decodeProjectVcsConfigJson = Schema.decodeUnknownOption(
+  Schema.fromJsonString(ProjectVcsConfig),
+);
+type ProjectVcsConfigFile = typeof ProjectVcsConfig.Type;
 
 export interface VcsProjectConfigResolveInput {
   readonly cwd: string;
@@ -43,15 +38,6 @@ export class VcsProjectConfig extends Context.Service<VcsProjectConfig, VcsProje
 
 function configuredKind(config: ProjectVcsConfigFile): VcsDriverKindType | "auto" {
   return config.vcs?.kind ?? config.vcsKind ?? "auto";
-}
-
-function parseConfig(raw: string): ProjectVcsConfigFile | null {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return isProjectVcsConfig(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 export const make = Effect.fn("makeVcsProjectConfig")(function* () {
@@ -89,15 +75,15 @@ export const make = Effect.fn("makeVcsProjectConfig")(function* () {
       return "auto" as const;
     }
 
-    const parsed = parseConfig(raw);
-    if (parsed === null) {
+    const parsed = decodeProjectVcsConfigJson(raw);
+    if (Option.isNone(parsed)) {
       yield* Effect.logWarning("invalid VCS project config", {
         configPath,
       });
       return "auto" as const;
     }
 
-    return configuredKind(parsed);
+    return configuredKind(parsed.value);
   });
 
   const resolveKind: VcsProjectConfigShape["resolveKind"] = Effect.fn(
