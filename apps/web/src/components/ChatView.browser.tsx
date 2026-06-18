@@ -282,12 +282,13 @@ function createSnapshotForTargetUser(options: {
   targetMessageId: MessageId;
   targetText: string;
   targetAttachmentCount?: number;
+  targetIndex?: number;
   sessionStatus?: OrchestrationSessionStatus;
 }): OrchestrationReadModel {
   const messages: Array<OrchestrationReadModel["threads"][number]["messages"][number]> = [];
 
   for (let index = 0; index < 22; index += 1) {
-    const isTarget = index === 3;
+    const isTarget = index === (options.targetIndex ?? 3);
     const userId = `msg-user-${index}` as MessageId;
     const assistantId = `msg-assistant-${index}` as MessageId;
     const attachments =
@@ -298,7 +299,6 @@ function createSnapshotForTargetUser(options: {
             name: `attachment-${attachmentIndex + 1}.png`,
             mimeType: "image/png",
             sizeBytes: 128,
-            previewUrl: `/attachments/attachment-${attachmentIndex + 1}`,
           }))
         : undefined;
 
@@ -1069,6 +1069,17 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
       truncated: false,
     };
   }
+  if (tag === WS_METHODS.assetsCreateUrl) {
+    const resource = body.resource as { _tag?: string; attachmentId?: string };
+    const fileName =
+      resource._tag === "attachment" && resource.attachmentId
+        ? `${resource.attachmentId}.svg`
+        : "favicon.svg";
+    return {
+      relativeUrl: `/api/assets/test-token/${fileName}`,
+      expiresAt: Date.now() + 60_000,
+    };
+  }
   if (tag === WS_METHODS.shellOpenInEditor) {
     return null;
   }
@@ -1116,7 +1127,7 @@ const worker = setupWorker(
     });
   }),
   ...createAuthenticatedSessionHandlers(() => fixture.serverConfig.auth),
-  http.get("*/attachments/:attachmentId", () =>
+  http.get("*/api/assets/test-token/:fileName", () =>
     HttpResponse.text(ATTACHMENT_SVG, {
       headers: {
         "Content-Type": "image/svg+xml",
@@ -1763,6 +1774,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useTerminalUiStateStore.persist.clearStorage();
     useTerminalUiStateStore.setState({
       terminalUiStateByThreadKey: {},
+      suppressedTerminalIdsByThreadKey: {},
     });
     useRightPanelStore.persist.clearStorage();
     useRightPanelStore.setState({ byThreadKey: {} });
@@ -1793,6 +1805,43 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
 
       expect(findButtonByText("Local checkout")).toBeNull();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("loads historical message images through signed asset URLs", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-signed-attachment" as MessageId,
+        targetText: "signed attachment",
+        targetAttachmentCount: 2,
+        targetIndex: 21,
+      }),
+    });
+
+    try {
+      const firstImage = await waitForElement(
+        () => document.querySelector<HTMLImageElement>('img[alt="attachment-1.png"]'),
+        "Unable to find signed attachment image.",
+      );
+      const secondImage = await waitForElement(
+        () => document.querySelector<HTMLImageElement>('img[alt="attachment-2.png"]'),
+        "Unable to find second signed attachment image.",
+      );
+
+      expect(firstImage.src).toContain("/api/assets/test-token/attachment-1.svg");
+      expect(secondImage.src).toContain("/api/assets/test-token/attachment-2.svg");
+      expect(firstImage.src).not.toBe(secondImage.src);
+      await vi.waitFor(() => {
+        const attachmentRequests = wsRequests.filter(
+          (request) =>
+            request._tag === WS_METHODS.assetsCreateUrl &&
+            (request.resource as { _tag?: string })._tag === "attachment",
+        );
+        expect(attachmentRequests).toHaveLength(2);
+      });
     } finally {
       await mounted.cleanup();
     }
@@ -2041,6 +2090,281 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("recreates the final terminal when reopening the drawer after closing it", async () => {
+    useTerminalUiStateStore.setState({
+      terminalUiStateByThreadKey: {
+        [THREAD_KEY]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: [DEFAULT_TERMINAL_ID],
+          activeTerminalId: DEFAULT_TERMINAL_ID,
+          terminalGroups: [
+            { id: `group-${DEFAULT_TERMINAL_ID}`, terminalIds: [DEFAULT_TERMINAL_ID] },
+          ],
+          activeTerminalGroupId: `group-${DEFAULT_TERMINAL_ID}`,
+        },
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-reopen-terminal-drawer" as MessageId,
+        targetText: "reopen terminal drawer",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "terminal.toggle",
+              shortcut: {
+                key: "j",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false,
+                modKey: true,
+              },
+            },
+            {
+              command: "terminal.close",
+              shortcut: {
+                key: "w",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false,
+                modKey: true,
+              },
+              whenAst: { type: "identifier", name: "terminalFocus" },
+            },
+          ],
+        };
+        nextFixture.terminalMetadataEvents = [
+          {
+            type: "upsert",
+            terminal: {
+              threadId: THREAD_ID,
+              terminalId: DEFAULT_TERMINAL_ID,
+              cwd: "/repo/project",
+              worktreePath: null,
+              status: "running",
+              pid: 123,
+              exitCode: null,
+              exitSignal: null,
+              hasRunningSubprocess: false,
+              label: "Terminal 1",
+              updatedAt: NOW_ISO,
+            },
+          },
+        ];
+      },
+    });
+
+    try {
+      await waitForServerConfigToApply();
+      const terminalInput = await waitForElement(
+        () =>
+          document.querySelector<HTMLTextAreaElement>(
+            '[data-terminal-owner="drawer"] .xterm-helper-textarea',
+          ),
+        "Unable to find terminal drawer input.",
+      );
+      const useMetaForMod = isMacPlatform(navigator.platform);
+      terminalInput.focus();
+      terminalInput.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "w",
+          code: "KeyW",
+          metaKey: useMetaForMod,
+          ctrlKey: !useMetaForMod,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(
+          wsRequests.some(
+            (request) =>
+              request._tag === WS_METHODS.terminalClose &&
+              request.terminalId === DEFAULT_TERMINAL_ID,
+          ),
+        ).toBe(true);
+        expect(wsRequests.some((request) => request._tag === WS_METHODS.terminalClear)).toBe(false);
+        expect(
+          selectThreadTerminalUiState(
+            useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+            THREAD_REF,
+          ).terminalOpen,
+        ).toBe(false);
+      });
+
+      rpcHarness.emitStreamValue(WS_METHODS.subscribeTerminalMetadata, {
+        type: "remove",
+        threadId: THREAD_ID,
+        terminalId: DEFAULT_TERMINAL_ID,
+      });
+      await waitForLayout();
+
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "j",
+          code: "KeyJ",
+          metaKey: useMetaForMod,
+          ctrlKey: !useMetaForMod,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        const terminalState = selectThreadTerminalUiState(
+          useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+          THREAD_REF,
+        );
+        expect(terminalState.terminalOpen).toBe(true);
+        expect(terminalState.terminalIds).toEqual([DEFAULT_TERMINAL_ID]);
+
+        const closeRequestIndex = wsRequests.findIndex(
+          (request) => request._tag === WS_METHODS.terminalClose,
+        );
+        const reopenRequestIndex = wsRequests.findIndex(
+          (request) =>
+            request._tag === WS_METHODS.terminalOpen && request.terminalId === DEFAULT_TERMINAL_ID,
+        );
+        expect(reopenRequestIndex).toBeGreaterThan(closeRequestIndex);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("does not remount a closed terminal while server metadata is stale", async () => {
+    useTerminalUiStateStore.setState({
+      terminalUiStateByThreadKey: {
+        [THREAD_KEY]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: ["term-2"],
+          activeTerminalId: "term-2",
+          terminalGroups: [{ id: "group-term-2", terminalIds: ["term-2"] }],
+          activeTerminalGroupId: "group-term-2",
+        },
+      },
+    });
+    useRightPanelStore.setState({
+      byThreadKey: {
+        [THREAD_KEY]: {
+          isOpen: true,
+          activeSurfaceId: "terminal:term-1",
+          surfaces: [
+            {
+              id: "terminal:term-1",
+              kind: "terminal",
+              resourceId: "term-1",
+              terminalIds: ["term-1"],
+              activeTerminalId: "term-1",
+            },
+          ],
+        },
+      },
+    });
+
+    const terminalSummary = (terminalId: string, pid: number) => ({
+      threadId: THREAD_ID,
+      terminalId,
+      cwd: "/repo/project",
+      worktreePath: null,
+      status: "running" as const,
+      pid,
+      exitCode: null,
+      exitSignal: null,
+      hasRunningSubprocess: false,
+      label: terminalId === "term-1" ? "Terminal One" : "Terminal Two",
+      updatedAt: isoAt(pid),
+    });
+
+    const mounted = await mountChatView({
+      viewport: WIDE_FOOTER_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-close-terminal" as MessageId,
+        targetText: "close terminal",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "terminal.close",
+              shortcut: {
+                key: "w",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false,
+                modKey: true,
+              },
+              whenAst: { type: "identifier", name: "terminalFocus" },
+            },
+          ],
+        };
+        nextFixture.terminalMetadataEvents = [
+          { type: "upsert", terminal: terminalSummary("term-1", 101) },
+          { type: "upsert", terminal: terminalSummary("term-2", 102) },
+        ];
+      },
+    });
+
+    try {
+      const terminalInput = await waitForElement(
+        () =>
+          document.querySelector<HTMLTextAreaElement>(
+            '[data-terminal-owner="right-panel"] .xterm-helper-textarea',
+          ),
+        "Unable to find right-panel terminal input.",
+      );
+      terminalInput.focus();
+      terminalInput.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "w",
+          code: "KeyW",
+          metaKey: isMacPlatform(navigator.platform),
+          ctrlKey: !isMacPlatform(navigator.platform),
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(
+          wsRequests.some(
+            (request) =>
+              request._tag === WS_METHODS.terminalClose && request.terminalId === "term-1",
+          ),
+        ).toBe(true);
+      });
+
+      rpcHarness.emitStreamValue(WS_METHODS.subscribeTerminalMetadata, {
+        type: "upsert",
+        terminal: terminalSummary("term-1", 103),
+      });
+
+      await vi.waitFor(() => {
+        expect(
+          selectThreadTerminalUiState(
+            useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+            THREAD_REF,
+          ).terminalIds,
+        ).toEqual(["term-2"]);
+        expect(document.querySelectorAll(".xterm-helper-textarea")).toHaveLength(1);
+      });
     } finally {
       await mounted.cleanup();
     }
@@ -2770,7 +3094,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           const openRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.terminalOpen,
+            (request) =>
+              request._tag === WS_METHODS.terminalOpen &&
+              request.threadId === THREAD_ID &&
+              request.cwd === "/repo/project",
           );
           expect(openRequest).toMatchObject({
             _tag: WS_METHODS.terminalOpen,
@@ -2848,18 +3175,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          const openRequest = wsRequests.find(
+          const openRequests = wsRequests.filter(
             (request) => request._tag === WS_METHODS.terminalOpen,
           );
-          expect(openRequest).toMatchObject({
-            _tag: WS_METHODS.terminalOpen,
-            threadId: THREAD_ID,
-            cwd: "/repo/worktrees/feature-draft",
-            env: {
-              T3CODE_PROJECT_ROOT: "/repo/project",
-              T3CODE_WORKTREE_PATH: "/repo/worktrees/feature-draft",
-            },
-          });
+          expect(openRequests).toContainEqual(
+            expect.objectContaining({
+              _tag: WS_METHODS.terminalOpen,
+              threadId: THREAD_ID,
+              cwd: "/repo/worktrees/feature-draft",
+              env: {
+                T3CODE_PROJECT_ROOT: "/repo/project",
+                T3CODE_WORKTREE_PATH: "/repo/worktrees/feature-draft",
+              },
+            }),
+          );
         },
         { timeout: 8_000, interval: 16 },
       );

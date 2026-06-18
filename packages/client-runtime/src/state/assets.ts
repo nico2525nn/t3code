@@ -1,4 +1,4 @@
-import { WS_METHODS } from "@t3tools/contracts";
+import { EnvironmentId, type AssetResource, WS_METHODS } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
@@ -19,13 +19,36 @@ export function resolveAssetUrl(httpBaseUrl: string, relativeUrl: string): strin
 export function createAssetEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {
+  const createUrl = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:assets:create-url",
+    tag: WS_METHODS.assetsCreateUrl,
+    staleTimeMs: ASSET_URL_STALE_TIME_MS,
+    idleTtlMs: ASSET_URL_IDLE_TTL_MS,
+    refreshIntervalMs: ASSET_URL_REFRESH_INTERVAL_MS,
+  });
+  const createUrlsFamily = Atom.family((key: string) => {
+    const [rawEnvironmentId, resources] = JSON.parse(key) as [string, ReadonlyArray<AssetResource>];
+    const environmentId = EnvironmentId.make(rawEnvironmentId);
+    return Atom.make((get) =>
+      resources.map((resource) =>
+        get(
+          createUrl({
+            environmentId,
+            input: { resource },
+          }),
+        ),
+      ),
+    ).pipe(
+      Atom.setIdleTTL(ASSET_URL_IDLE_TTL_MS),
+      Atom.withLabel(`environment-data:assets:create-urls:${key}`),
+    );
+  });
+
   return {
-    createUrl: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:assets:create-url",
-      tag: WS_METHODS.assetsCreateUrl,
-      staleTimeMs: ASSET_URL_STALE_TIME_MS,
-      idleTtlMs: ASSET_URL_IDLE_TTL_MS,
-      refreshIntervalMs: ASSET_URL_REFRESH_INTERVAL_MS,
-    }),
+    createUrl,
+    createUrls: (target: {
+      readonly environmentId: EnvironmentId;
+      readonly resources: ReadonlyArray<AssetResource>;
+    }) => createUrlsFamily(JSON.stringify([target.environmentId, target.resources])),
   };
 }

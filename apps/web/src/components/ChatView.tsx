@@ -176,11 +176,7 @@ import {
 import { terminalEnvironment } from "../state/terminal";
 import { threadEnvironment } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
-import {
-  useEnvironmentHttpBaseUrl,
-  useEnvironments,
-  usePrimaryEnvironment,
-} from "../state/environments";
+import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
   useProject,
   useProjects,
@@ -235,6 +231,7 @@ import {
   isVersionMismatchDismissed,
   resolveServerConfigVersionMismatch,
 } from "../versionSkew";
+import { useAssetUrls } from "../assets/assetUrls";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -480,7 +477,6 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
 }: PersistentThreadTerminalDrawerProps) {
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
-  const clearTerminal = useAtomCommand(terminalEnvironment.clear, "terminal clear");
   const closeTerminalMutation = useAtomCommand(terminalEnvironment.close, "terminal close");
   const serverThread = useThreadDetail(threadRef);
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
@@ -721,7 +717,6 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
 
   const closeTerminal = useCallback(
     (terminalId: string) => {
-      const isFinalTerminal = terminalUiState.terminalIds.length <= 1;
       const fallbackExitWrite = () =>
         writeTerminal({
           environmentId: threadRef.environmentId,
@@ -729,12 +724,6 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
         });
 
       void (async () => {
-        if (isFinalTerminal) {
-          await clearTerminal({
-            environmentId: threadRef.environmentId,
-            input: { threadId, terminalId },
-          });
-        }
         const closeResult = await closeTerminalMutation({
           environmentId: threadRef.environmentId,
           input: {
@@ -754,10 +743,8 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     [
       bumpFocusRequestId,
       storeCloseTerminal,
-      terminalUiState.terminalIds,
       threadId,
       threadRef,
-      clearTerminal,
       closeTerminalMutation,
       writeTerminal,
     ],
@@ -1001,7 +988,6 @@ function ChatViewContent(props: ChatViewProps) {
   });
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
-  const clearTerminal = useAtomCommand(terminalEnvironment.clear, "terminal clear");
   const closeTerminalMutation = useAtomCommand(terminalEnvironment.close, "terminal close");
   const createThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
   const deleteThread = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
@@ -1031,7 +1017,6 @@ function ChatViewContent(props: ChatViewProps) {
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
-  const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
   const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, { reportFailure: false });
   const environmentById = useMemo(
     () => new Map(environments.map((environment) => [environment.environmentId, environment])),
@@ -1266,7 +1251,6 @@ function ChatViewContent(props: ChatViewProps) {
     }
     return labels;
   }, [activeThreadKnownSessions]);
-  const reconcileTerminalIds = useTerminalUiStateStore((state) => state.reconcileTerminalIds);
   const activeThreadRef = useMemo(
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
     [activeThread],
@@ -1295,10 +1279,6 @@ function ChatViewContent(props: ChatViewProps) {
       ),
     [rightPanelState.surfaces],
   );
-  const drawerServerOrderedTerminalIds = useMemo(
-    () => activeServerOrderedTerminalIds.filter((terminalId) => !panelTerminalIds.has(terminalId)),
-    [activeServerOrderedTerminalIds, panelTerminalIds],
-  );
   const previewPanelOpen = activeRightPanelKind === "preview" && isPreviewSupportedInRuntime();
   const rightPanelOpen = rightPanelState.isOpen;
   const canMaximizeRightPanel = rightPanelOpen && !shouldUsePlanSidebarSheet;
@@ -1313,28 +1293,6 @@ function ChatViewContent(props: ChatViewProps) {
       .reconcileBrowserSurfaces(activeThreadRef, Object.keys(activePreviewState.sessions));
   }, [activePreviewState.sessions, activeThreadRef]);
 
-  useEffect(() => {
-    if (!activeThreadRef) {
-      return;
-    }
-    if (terminalIdListsEqual(drawerServerOrderedTerminalIds, terminalUiState.terminalIds)) {
-      return;
-    }
-    if (
-      serverTerminalIdsStrictSubsetOfClient(
-        drawerServerOrderedTerminalIds,
-        terminalUiState.terminalIds,
-      )
-    ) {
-      return;
-    }
-    reconcileTerminalIds(activeThreadRef, drawerServerOrderedTerminalIds);
-  }, [
-    activeThreadRef,
-    drawerServerOrderedTerminalIds,
-    reconcileTerminalIds,
-    terminalUiState.terminalIds,
-  ]);
   const planSidebarOpen = activeRightPanelKind === "plan";
 
   useEffect(() => {
@@ -1880,26 +1838,49 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, []);
   const serverMessages = activeThread?.messages;
-  const displayServerMessages = useMemo<ReadonlyArray<ChatMessage>>(() => {
-    if (environmentHttpBaseUrl === null || !serverMessages) {
-      return serverMessages ?? [];
+  const serverAttachmentIds = useMemo(() => {
+    const attachmentIds = new Set<string>();
+    for (const message of serverMessages ?? []) {
+      for (const attachment of message.attachments ?? []) {
+        attachmentIds.add(attachment.id);
+      }
     }
+    return [...attachmentIds];
+  }, [serverMessages]);
+  const serverAttachmentResources = useMemo(
+    () =>
+      serverAttachmentIds.map((attachmentId) => ({
+        _tag: "attachment" as const,
+        attachmentId,
+      })),
+    [serverAttachmentIds],
+  );
+  const serverAttachmentUrls = useAssetUrls(environmentId, serverAttachmentResources);
+  const serverAttachmentUrlById = useMemo(
+    () =>
+      new Map(
+        serverAttachmentIds.flatMap((attachmentId, index) => {
+          const url = serverAttachmentUrls[index];
+          return url ? [[attachmentId, url] as const] : [];
+        }),
+      ),
+    [serverAttachmentIds, serverAttachmentUrls],
+  );
+  const displayServerMessages = useMemo<ReadonlyArray<ChatMessage>>(() => {
+    if (!serverMessages) return [];
     return serverMessages.map((message) => {
       if (!message.attachments || message.attachments.length === 0) {
         return message;
       }
       return {
         ...message,
-        attachments: message.attachments.map((attachment) => ({
-          ...attachment,
-          previewUrl: new URL(
-            `/attachments/${encodeURIComponent(attachment.id)}`,
-            environmentHttpBaseUrl,
-          ).toString(),
-        })),
+        attachments: message.attachments.map((attachment) => {
+          const previewUrl = serverAttachmentUrlById.get(attachment.id);
+          return previewUrl ? { ...attachment, previewUrl } : attachment;
+        }),
       };
     });
-  }, [environmentHttpBaseUrl, serverMessages]);
+  }, [serverAttachmentUrlById, serverMessages]);
   useEffect(() => {
     if (typeof Image === "undefined" || displayServerMessages.length === 0) {
       return;
@@ -2281,17 +2262,40 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef) return;
     const nextOpen = !terminalUiState.terminalOpen;
     if (nextOpen && terminalUiState.terminalIds.length === 0) {
-      storeEnsureTerminal(
-        activeThreadRef,
-        nextTerminalId([...activeKnownTerminalIds, ...panelTerminalIds]),
-        { open: true },
-      );
+      if (!activeThreadId || !activeProject) {
+        return;
+      }
+      const cwdForOpen = gitCwd ?? activeProject.workspaceRoot;
+      if (!cwdForOpen) {
+        return;
+      }
+      const terminalId = nextTerminalId([...activeKnownTerminalIds, ...panelTerminalIds]);
+      storeEnsureTerminal(activeThreadRef, terminalId, { open: true });
+      void openTerminal({
+        environmentId,
+        input: {
+          threadId: activeThreadId,
+          terminalId,
+          cwd: cwdForOpen,
+          ...(activeThreadWorktreePath != null ? { worktreePath: activeThreadWorktreePath } : {}),
+          env: projectScriptRuntimeEnv({
+            project: { cwd: activeProject.workspaceRoot },
+            worktreePath: activeThreadWorktreePath,
+          }),
+        },
+      });
       return;
     }
     setTerminalOpen(nextOpen);
   }, [
     activeKnownTerminalIds,
+    activeProject,
+    activeThreadId,
     activeThreadRef,
+    activeThreadWorktreePath,
+    environmentId,
+    gitCwd,
+    openTerminal,
     panelTerminalIds,
     setTerminalOpen,
     storeEnsureTerminal,
@@ -2380,19 +2384,12 @@ function ChatViewContent(props: ChatViewProps) {
   const closeTerminal = useCallback(
     (terminalId: string) => {
       if (!activeThreadId || !activeThreadRef) return;
-      const isFinalTerminal = activeKnownTerminalIds.length <= 1;
       const fallbackExitWrite = () =>
         writeTerminal({
           environmentId,
           input: { threadId: activeThreadId, terminalId, data: "exit\n" },
         });
       void (async () => {
-        if (isFinalTerminal) {
-          await clearTerminal({
-            environmentId,
-            input: { threadId: activeThreadId, terminalId },
-          });
-        }
         const closeResult = await closeTerminalMutation({
           environmentId,
           input: {
@@ -2411,8 +2408,6 @@ function ChatViewContent(props: ChatViewProps) {
     [
       activeThreadId,
       activeThreadRef,
-      activeKnownTerminalIds,
-      clearTerminal,
       closeTerminalMutation,
       environmentId,
       storeCloseTerminal,
@@ -2921,12 +2916,13 @@ function ChatViewContent(props: ChatViewProps) {
         environmentId: activeThreadRef.environmentId,
         input: { threadId: activeThreadRef.threadId, terminalId, deleteHistory: true },
       });
+      storeCloseTerminal(activeThreadRef, terminalId);
       useRightPanelStore
         .getState()
         .closeTerminal(activeThreadRef, activeRightPanelSurface.id, terminalId);
       setTerminalFocusRequestId((value) => value + 1);
     },
-    [activeRightPanelSurface, activeThreadRef, closeTerminalMutation],
+    [activeRightPanelSurface, activeThreadRef, closeTerminalMutation, storeCloseTerminal],
   );
   const activateRightPanelSurface = useCallback(
     (surface: RightPanelSurface) => {
@@ -3006,6 +3002,7 @@ function ChatViewContent(props: ChatViewProps) {
         }
         if (surface.kind === "terminal") {
           for (const terminalId of surface.terminalIds) {
+            storeCloseTerminal(activeThreadRef, terminalId);
             void closeTerminalMutation({
               environmentId: activeThreadRef.environmentId,
               input: { threadId: activeThreadRef.threadId, terminalId, deleteHistory: true },
@@ -3030,6 +3027,7 @@ function ChatViewContent(props: ChatViewProps) {
       dismissPlanSidebarForCurrentTurn,
       environmentId,
       navigate,
+      storeCloseTerminal,
       threadId,
     ],
   );
