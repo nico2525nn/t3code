@@ -37,14 +37,7 @@ const mobileEndorsementRows = [
 
     <div class="container hero-inner">
       <div class="hero-proof" aria-label="T3 Code community">
-        <span><strong>{MARKETING_STATS.users}</strong> users</span>
-        <span class="hero-proof-divider" aria-hidden="true"></span>
-        <a href={GITHUB_REPOSITORY_URL} target="_blank" rel="noopener noreferrer">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 2.3l2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 17.12l-5.8 3.05 1.11-6.47-4.7-4.58 6.49-.94L12 2.3z"/>
-          </svg>
-          <strong>{MARKETING_STATS.githubStars}</strong> GitHub stars
-        </a>
+        <span><strong>{MARKETING_STATS.users}</strong> developers shipping with T3 Code</span>
       </div>
 
       <h1 class="hero-title display">
@@ -541,27 +534,6 @@ const mobileEndorsementRows = [
   .hero-proof strong {
     color: var(--fg);
     font-weight: 500;
-  }
-
-  .hero-proof a {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    transition: color 0.18s ease;
-  }
-
-  .hero-proof a:hover {
-    color: var(--fg);
-  }
-
-  .hero-proof a svg {
-    color: var(--warn);
-  }
-
-  .hero-proof-divider {
-    width: 1px;
-    height: 12px;
-    background: var(--border-strong);
   }
 
   .hero-title {
