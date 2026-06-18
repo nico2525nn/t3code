@@ -215,9 +215,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         });
 
         const afterWrite = yield* workspaceEntries.list({ cwd });
-        assert.isTrue(
-          afterWrite.entries.some((entry) => entry.path === "plans/effect-rpc.md"),
-        );
+        assert.isTrue(afterWrite.entries.some((entry) => entry.path === "plans/effect-rpc.md"));
         assert.isFalse(afterWrite.truncated);
       }),
     );
