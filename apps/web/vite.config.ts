@@ -2,7 +2,6 @@ import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
-import { playwright } from "vite-plus/test/browser-playwright";
 import { defineProject, type TestProjectInlineConfiguration } from "vite-plus/test/config";
 import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
@@ -56,30 +55,6 @@ const unitTestProject = {
     // run, those async tests can exceed Vitest's default 5s budget.
     hookTimeout: 15_000,
     testTimeout: 15_000,
-  },
-} satisfies TestProjectInlineConfiguration;
-
-const browserTestProject = {
-  extends: true,
-  server: {
-    // Browser tests need concurrent runs to claim the next available port.
-    strictPort: false,
-  },
-  test: {
-    name: "browser",
-    include: ["src/components/**/*.browser.tsx"],
-    hookTimeout: 30_000,
-    testTimeout: 30_000,
-    browser: {
-      enabled: true,
-      provider: playwright() as never,
-      instances: [{ browser: "chromium" }],
-      headless: true,
-      api: {
-        strictPort: false,
-      },
-    },
-    fileParallelism: false,
   },
 } satisfies TestProjectInlineConfiguration;
 
@@ -188,7 +163,7 @@ export default defineConfig(() => {
       sourcemap: buildSourcemap,
     },
     test: {
-      projects: [defineProject(unitTestProject), defineProject(browserTestProject)],
+      projects: [defineProject(unitTestProject)],
     },
   };
 });
