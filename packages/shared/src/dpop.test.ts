@@ -164,10 +164,7 @@ describe("verifyDpopProof", () => {
       "https://example.com/v1/environments/env/connect?foo=bar#frag",
     );
     assert.isTrue(Option.isSome(normalized));
-    assert.equal(
-      Option.getOrThrow(normalized),
-      "https://example.com/v1/environments/env/connect",
-    );
+    assert.equal(Option.getOrThrow(normalized), "https://example.com/v1/environments/env/connect");
     assert.equal(
       normalizeDpopHtu("https://example.com/v1/environments/env/connect?foo=bar#frag"),
       "https://example.com/v1/environments/env/connect",
