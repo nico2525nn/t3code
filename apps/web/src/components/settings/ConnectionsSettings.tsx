@@ -113,6 +113,7 @@ import {
   type ServerClientSessionRecord,
   type ServerPairingLinkRecord,
 } from "~/environments/primary";
+import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { useUiStateStore } from "~/uiStateStore";
 import { resolveServerConfigVersionMismatch } from "~/versionSkew";
 import { usePrimaryCloudLinkState } from "~/cloud/primaryCloudLinkState";
@@ -1447,9 +1448,7 @@ function SavedBackendListRow({
   // environment whose connection id is prefixed "local:"), not a remote
   // environment you connect to or remove here — its lifecycle is driven by the
   // WSL on/off + distro picker on this page.
-  const isWslEnvironment =
-    environment.entry.target._tag === "BearerConnectionTarget" &&
-    environment.entry.target.connectionId.startsWith("local:");
+  const isWslEnvironment = isDesktopLocalConnectionTarget(environment.entry.target);
 
   return (
     <div className={ITEM_ROW_CLASSNAME}>
@@ -2809,10 +2808,8 @@ export function ConnectionsSettings() {
   // If WSL never connected (fresh install, toggled on then immediately off,
   // etc.) there's no local environment, so we skip the confirmation dialog.
   const hasWslRegistrationToLose = useMemo(() => {
-    return environments.some(
-      (environment) =>
-        environment.entry.target._tag === "BearerConnectionTarget" &&
-        environment.entry.target.connectionId.startsWith("local:"),
+    return environments.some((environment) =>
+      isDesktopLocalConnectionTarget(environment.entry.target),
     );
   }, [environments]);
 

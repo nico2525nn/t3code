@@ -69,7 +69,8 @@ import {
   type SidebarThreadPreviewCount,
   type SidebarThreadSortOrder,
 } from "@t3tools/contracts/settings";
-import type { DesktopEnvironmentBootstrap } from "@t3tools/contracts";
+import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
+import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -402,8 +403,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   // suppress the cloud icon (the project header already shows a container icon
   // for desktop-local projects, see sidebarProjectGrouping).
   const isDesktopLocalThread =
-    environment?.entry.target._tag === "BearerConnectionTarget" &&
-    environment.entry.target.connectionId.startsWith("local:");
+    environment !== null && isDesktopLocalConnectionTarget(environment.entry.target);
   const threadEnvironmentLabel = isRemoteThread
     ? (remoteEnvLabel ?? (isDesktopLocalThread ? "Local" : "Remote"))
     : null;
@@ -2487,49 +2487,21 @@ const SidebarProjectListRow = memo(function SidebarProjectListRow(props: Sidebar
   );
 });
 
-const PRIMARY_BOOTSTRAP_ID = "primary";
-
-function readDesktopSecondaryBootstraps(): ReadonlyArray<DesktopEnvironmentBootstrap> {
-  const bridge = window.desktopBridge;
-  if (bridge === undefined) {
-    return [];
-  }
-  try {
-    return bridge
-      .getLocalEnvironmentBootstraps()
-      .filter((entry) => entry.id !== PRIMARY_BOOTSTRAP_ID);
-  } catch {
-    return [];
-  }
-}
-
 function LocalSecondaryStatus() {
   const { environments } = useEnvironments();
   // The desktop reports which local secondary backends (e.g. the WSL backend)
-  // exist; we poll because the bridge has no change event. A backend that is
-  // still cold-booting has no httpBaseUrl yet and isn't in the catalog, so we
+  // exist; the hook polls because the bridge has no change event. A backend that
+  // is still cold-booting has no httpBaseUrl yet and isn't in the catalog, so we
   // surface "Connecting" straight from the bootstrap list and clear it once the
   // matching environment reports a connected phase.
-  const [secondaries, setSecondaries] = useState<ReadonlyArray<DesktopEnvironmentBootstrap>>(
-    readDesktopSecondaryBootstraps,
-  );
-  useEffect(() => {
-    const read = () => setSecondaries(readDesktopSecondaryBootstraps());
-    read();
-    const interval = setInterval(read, 2000);
-    return () => clearInterval(interval);
-  }, []);
+  const secondaries = useDesktopLocalBootstraps();
 
   // Connected desktop-local environments keyed by their backend URL so we can
   // match a bootstrap (which only knows the URL) to its connection phase.
   const localEnvByUrl = useMemo(() => {
     const map = new Map<string, { phase: string; error: string | null }>();
     for (const environment of environments) {
-      if (
-        environment.entry.target._tag === "BearerConnectionTarget" &&
-        environment.entry.target.connectionId.startsWith("local:") &&
-        environment.displayUrl !== null
-      ) {
+      if (isDesktopLocalConnectionTarget(environment.entry.target) && environment.displayUrl !== null) {
         map.set(environment.displayUrl, {
           phase: environment.connection.phase,
           error: environment.connection.error,
@@ -3192,11 +3164,7 @@ export default function Sidebar() {
     () =>
       new Set(
         environments
-          .filter(
-            (environment) =>
-              environment.entry.target._tag === "BearerConnectionTarget" &&
-              environment.entry.target.connectionId.startsWith("local:"),
-          )
+          .filter((environment) => isDesktopLocalConnectionTarget(environment.entry.target))
           .map((environment) => environment.environmentId),
       ),
     [environments],

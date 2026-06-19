@@ -3,6 +3,7 @@ import { DownloadIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useEnvironments } from "~/state/environments";
+import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { useDismissedProviderUpdateNotificationKeys } from "../providerUpdateDismissal";
 import { ProviderUpdateEnvironmentRows } from "./ProviderUpdateEnvironmentRows";
 import { useLocalEnvironmentUpdateGroups } from "./ProviderUpdateLaunchNotification.environments";
@@ -26,10 +27,8 @@ function useHasLocalSecondaryEnvironment(): boolean {
   const { environments } = useEnvironments();
   return useMemo(
     () =>
-      environments.some(
-        (environment) =>
-          environment.entry.target._tag === "BearerConnectionTarget" &&
-          environment.entry.target.connectionId.startsWith("local:"),
+      environments.some((environment) =>
+        isDesktopLocalConnectionTarget(environment.entry.target),
       ),
     [environments],
   );

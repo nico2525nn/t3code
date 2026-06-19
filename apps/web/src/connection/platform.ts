@@ -46,6 +46,7 @@ import { clearComposerDraftsEnvironment } from "../composerDraftStore";
 import { isHostedStaticApp } from "../hostedPairing";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { acknowledgeRpcRequest, trackRpcRequestSent } from "../rpc/requestLatencyState";
+import { desktopLocalConnectionId, readDesktopSecondaryBootstraps } from "./desktopLocal";
 import { connectionStorageLayer } from "./storage";
 
 let nextObservedRpcRequestId = 0;
@@ -320,17 +321,21 @@ const loadSecondaryConnectionRegistration = Effect.fn(
     scopes: AuthStandardClientScopes,
     clientMetadata: clientMetadata(),
   }).pipe(Effect.mapError(mapRemoteEnvironmentError));
-  const connectionId = `local:${descriptor.environmentId}`;
+  const connectionId = desktopLocalConnectionId(descriptor.environmentId);
+  // Prefer the desktop's bootstrap label (it identifies the backend and distro,
+  // e.g. "WSL: Ubuntu") over the generic descriptor label, so consumers can show
+  // a meaningful name without recovering it from the bootstrap list later.
+  const label = entry.label || descriptor.label;
   return new BearerConnectionRegistration({
     target: new BearerConnectionTarget({
       environmentId: descriptor.environmentId,
-      label: descriptor.label,
+      label,
       connectionId,
     }),
     profile: new BearerConnectionProfile({
       connectionId,
       environmentId: descriptor.environmentId,
-      label: descriptor.label,
+      label,
       httpBaseUrl,
       wsBaseUrl,
     }),
@@ -346,20 +351,6 @@ const PLATFORM_POLL_INTERVAL = "3 seconds";
 interface CachedPlatformRegistration {
   readonly signature: string;
   readonly registration: PlatformConnectionRegistration;
-}
-
-function desktopSecondaryBootstraps(): ReadonlyArray<DesktopEnvironmentBootstrap> {
-  const bridge = window.desktopBridge;
-  if (bridge === undefined) {
-    return [];
-  }
-  try {
-    return bridge
-      .getLocalEnvironmentBootstraps()
-      .filter((entry) => entry.id !== PRIMARY_LOCAL_ENVIRONMENT_ID);
-  } catch {
-    return [];
-  }
 }
 
 const platformConnectionSourceLayer = Layer.effect(
@@ -404,7 +395,7 @@ const platformConnectionSourceLayer = Layer.effect(
         }
       }
 
-      for (const bootstrap of desktopSecondaryBootstraps()) {
+      for (const bootstrap of readDesktopSecondaryBootstraps()) {
         const signature = `${bootstrap.httpBaseUrl}|${bootstrap.wsBaseUrl}|${bootstrap.bootstrapToken ?? ""}`;
         const cached = previous.get(bootstrap.id);
         if (cached !== undefined && cached.signature === signature) {
