@@ -12,6 +12,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
+import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironmentAuth.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
@@ -100,6 +101,16 @@ function extractWslDistroFromEnvironmentId(envId: string): string | null {
   const suffix = envId.slice(DesktopWslBackend.WSL_INSTANCE_ID_PREFIX.length);
   return suffix === "default" || suffix.length === 0 ? null : suffix;
 }
+
+export const getLocalEnvironmentBearerToken = makeIpcMethod({
+  channel: IpcChannels.GET_LOCAL_ENVIRONMENT_BEARER_TOKEN_CHANNEL,
+  payload: Schema.Void,
+  result: Schema.String,
+  handler: Effect.fn("desktop.ipc.window.getLocalEnvironmentBearerToken")(function* () {
+    const localAuth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth;
+    return yield* localAuth.getBearerToken;
+  }),
+});
 
 export const pickFolder = makeIpcMethod({
   channel: IpcChannels.PICK_FOLDER_CHANNEL,

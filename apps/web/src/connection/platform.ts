@@ -3,6 +3,7 @@ import {
   CloudSession,
   EnvironmentOwnedDataCleanup,
   PlatformConnectionSource,
+  PrimaryEnvironmentAuth,
   RelayDeviceIdentity,
   SshEnvironmentGateway,
 } from "@t3tools/client-runtime/platform";
@@ -38,9 +39,10 @@ import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
-import { FetchHttpClient, HttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/unstable/http";
 
-import { primaryEnvironmentRequestInit } from "../environments/primary/requestInit";
+import { readDesktopPrimaryBearerToken } from "../environments/primary/desktopAuth";
+import { primaryEnvironmentHttpLayer } from "../environments/primary/httpLayer";
 import { readPrimaryEnvironmentTarget } from "../environments/primary/target";
 import { clearComposerDraftsEnvironment } from "../composerDraftStore";
 import { isHostedStaticApp } from "../hostedPairing";
@@ -202,6 +204,16 @@ const capabilitiesLayer = Layer.effectContext(
     const identity = RelayDeviceIdentity.of({
       deviceId: Effect.succeed(Option.none()),
     });
+    const primaryAuth = PrimaryEnvironmentAuth.of({
+      bearerToken: Effect.tryPromise({
+        try: readDesktopPrimaryBearerToken,
+        catch: (cause) =>
+          new ConnectionTransientError({
+            reason: "remote-unavailable",
+            message: `Could not load the desktop primary credential: ${String(cause)}`,
+          }),
+      }).pipe(Effect.map(Option.fromNullishOr)),
+    });
     const ssh = SshEnvironmentGateway.of({
       provision: Effect.fn("web.connectionPlatform.ssh.provision")(function* (target) {
         const bridge = window.desktopBridge;
@@ -261,6 +273,7 @@ const capabilitiesLayer = Layer.effectContext(
     });
 
     return Context.make(CloudSession, cloudSession).pipe(
+      Context.add(PrimaryEnvironmentAuth, primaryAuth),
       Context.add(RelayDeviceIdentity, identity),
       Context.add(ClientPresentation, presentation),
       Context.add(SshEnvironmentGateway, ssh),
@@ -280,10 +293,7 @@ const loadPrimaryConnectionRegistration = Effect.fn(
   }
   const descriptor = yield* fetchRemoteEnvironmentDescriptor({
     httpBaseUrl: resolved.target.httpBaseUrl,
-  }).pipe(
-    Effect.provideService(FetchHttpClient.RequestInit, primaryEnvironmentRequestInit),
-    Effect.mapError(mapRemoteEnvironmentError),
-  );
+  }).pipe(Effect.provide(primaryEnvironmentHttpLayer), Effect.mapError(mapRemoteEnvironmentError));
   return new PrimaryConnectionRegistration({
     target: new PrimaryConnectionTarget({
       environmentId: descriptor.environmentId,
@@ -361,7 +371,6 @@ const platformConnectionSourceLayer = Layer.effect(
         registrations: Stream.empty,
       });
     }
-    const httpClient = yield* HttpClient.HttpClient;
     const cacheRef = yield* Ref.make(new Map<string, CachedPlatformRegistration>());
 
     // Resolve the full set of platform-managed environments the host currently
@@ -421,7 +430,7 @@ const platformConnectionSourceLayer = Layer.effect(
 
       yield* Ref.set(cacheRef, next);
       return registrations as ReadonlyArray<PlatformConnectionRegistration>;
-    }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient));
+    }).pipe(Effect.provide(FetchHttpClient.layer));
 
     return PlatformConnectionSource.of({
       registrations: Stream.tick(PLATFORM_POLL_INTERVAL).pipe(
