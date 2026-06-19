@@ -82,6 +82,7 @@ function isHostConstrained(
   settings: ResolvedBackgroundActivitySettings,
 ): boolean {
   if (hostPower.stale) return false;
+  if (hostPower.suspended) return true;
   if (
     (settings.pauseWhenHostLocked && hostPower.locked === "true") ||
     hasThermalPressure(hostPower)

@@ -541,9 +541,6 @@ const makeDesktopBackendManager = Effect.fn("makeDesktopBackendManager")(functio
               yield* logBackendManagerWarning("backend readiness check failed during bootstrap", {
                 error: error.message,
               });
-              yield* backendOutputLog.persistFailure({
-                details: error.message,
-              });
             },
           ),
           onOutput: (streamName, chunk) => backendOutputLog.writeOutputChunk(streamName, chunk),
