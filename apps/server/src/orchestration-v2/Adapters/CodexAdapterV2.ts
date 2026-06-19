@@ -1432,6 +1432,8 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                   ordinal: index + 1,
                 }),
                 now,
+                createdBy: "agent",
+                creationSource: "provider",
               });
               const promptNativeItemId = `${nativeItemId}:prompt`;
               const promptArtifacts = makeSubagentConversationArtifacts({
@@ -1670,6 +1672,8 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               completedAt,
             };
             const message: OrchestrationV2ConversationMessage = {
+              createdBy: "agent",
+              creationSource: "provider",
               id: messageId,
               threadId: context.projectionThreadId,
               runId: context.projectionRunId,

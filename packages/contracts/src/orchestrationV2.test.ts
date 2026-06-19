@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 
@@ -90,6 +90,8 @@ describe("orchestration V2 contracts", () => {
   it("decodes command and domain event shapes for command-to-projection tests", () => {
     const command = decodeOrchestrationV2Command({
       type: "message.dispatch",
+      createdBy: "user",
+      creationSource: "web",
       commandId: "command-1",
       threadId: "thread-1",
       messageId: "message-1",
@@ -133,6 +135,8 @@ describe("orchestration V2 contracts", () => {
   it("decodes app-owned delegated task commands", () => {
     const command = decodeOrchestrationV2Command({
       type: "delegated_task.request",
+      createdBy: "user",
+      creationSource: "web",
       commandId: "command-delegate-1",
       parentThreadId: "thread-parent-1",
       parentRunId: "run-parent-1",
@@ -296,6 +300,8 @@ describe("orchestration V2 contracts", () => {
   it("decodes thread projections with an ordered turn item rendering stream", () => {
     const projection = Schema.decodeUnknownSync(OrchestrationV2ThreadProjection)({
       thread: {
+        createdBy: "user",
+        creationSource: "web",
         id: "thread-1",
         projectId: "project-1",
         title: "Thread",

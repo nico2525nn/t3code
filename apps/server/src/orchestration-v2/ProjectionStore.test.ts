@@ -48,6 +48,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         threadId,
         occurredAt: now,
         payload: {
+          createdBy: "user",
+          creationSource: "web",
           id: threadId,
           projectId,
           title: "Projection shell",
@@ -167,6 +169,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         threadId,
         occurredAt: now,
         payload: {
+          createdBy: "user",
+          creationSource: "web",
           id: threadId,
           projectId,
           title: "Projection rollback prune",
@@ -341,6 +345,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         provider: "codex",
         occurredAt: now,
         payload: {
+          createdBy: "user",
+          creationSource: "web",
           id: userMessageId,
           threadId,
           runId,
@@ -362,6 +368,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         provider: "codex",
         occurredAt: now,
         payload: {
+          createdBy: "agent",
+          creationSource: "provider",
           id: assistantMessageId,
           threadId,
           runId,
@@ -383,6 +391,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         provider: "codex",
         occurredAt: now,
         payload: {
+          createdBy: "user",
+          creationSource: "web",
           id: userTurnItemId,
           threadId,
           runId,
@@ -530,6 +540,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         threadId: sourceThreadId,
         occurredAt: now,
         payload: {
+          createdBy: "user",
+          creationSource: "web",
           id: sourceThreadId,
           projectId,
           title: "Projection fork source rollback source",
@@ -558,6 +570,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         threadId: targetThreadId,
         occurredAt: now,
         payload: {
+          createdBy: "user",
+          creationSource: "web",
           id: targetThreadId,
           projectId,
           title: "Projection fork source rollback target",
@@ -626,6 +640,8 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
           provider: "codex",
           occurredAt: now,
           payload: {
+            createdBy: "user",
+            creationSource: "web",
             id: TurnItemId.make(`turn-item:projection-fork-source-rollback:user:${ordinal}`),
             threadId: sourceThreadId,
             runId,

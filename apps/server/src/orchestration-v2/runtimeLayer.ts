@@ -20,6 +20,7 @@ import { layer as providerEventIngestorLayer } from "./ProviderEventIngestor.ts"
 import { layer as providerSessionManagerLayer } from "./ProviderSessionManager.ts";
 import { layer as runExecutionServiceLayer } from "./RunExecutionService.ts";
 import { layer as runtimePolicyLayer } from "./RuntimePolicy.ts";
+import { layer as threadManagementServiceLayer } from "./ThreadManagementService.ts";
 
 const storesLayer = Layer.merge(eventStoreLayer, projectionStoreLayer);
 
@@ -69,7 +70,7 @@ const runExecutionServiceProvided = runExecutionServiceLayer.pipe(
   ),
 );
 
-export const OrchestrationV2LayerLive = orchestratorLayer.pipe(
+const orchestratorProvided = orchestratorLayer.pipe(
   Layer.provide(
     Layer.mergeAll(
       checkpointServiceProvided,
@@ -85,4 +86,9 @@ export const OrchestrationV2LayerLive = orchestratorLayer.pipe(
       runExecutionServiceProvided,
     ),
   ),
+);
+
+export const OrchestrationV2LayerLive = Layer.merge(
+  orchestratorProvided,
+  threadManagementServiceLayer.pipe(Layer.provide(orchestratorProvided)),
 );

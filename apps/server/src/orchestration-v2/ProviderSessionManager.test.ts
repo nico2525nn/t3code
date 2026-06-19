@@ -113,6 +113,8 @@ function makeThreadCreatedEvent(input: {
       nativeThreadId: "native-thread",
     });
     const thread: OrchestrationV2AppThread = {
+      createdBy: "user",
+      creationSource: "web",
       id: input.threadId,
       projectId,
       title: "Provider session manager",
@@ -611,6 +613,8 @@ it.effect(
           rootNodeId,
           providerThread,
           message: {
+            createdBy: "user",
+            creationSource: "web",
             messageId: yield* idAllocator.allocate.message({ threadId, ordinal: 1 }),
             text: "hello",
             attachments: [],
@@ -897,6 +901,8 @@ it.effect(
           rootNodeId: idAllocator.derive.rootNode({ runId: firstRunId }),
           providerThread: firstProviderThread,
           message: {
+            createdBy: "user",
+            creationSource: "web",
             messageId: yield* idAllocator.allocate.message({ threadId: firstThreadId, ordinal: 1 }),
             text: "first",
             attachments: [],
@@ -914,6 +920,8 @@ it.effect(
           rootNodeId: idAllocator.derive.rootNode({ runId: secondRunId }),
           providerThread: secondProviderThread,
           message: {
+            createdBy: "user",
+            creationSource: "web",
             messageId: yield* idAllocator.allocate.message({
               threadId: secondThreadId,
               ordinal: 1,
