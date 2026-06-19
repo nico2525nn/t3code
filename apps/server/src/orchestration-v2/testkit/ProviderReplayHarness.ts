@@ -41,7 +41,7 @@ import {
   type OrchestratorV2ScenarioResult,
 } from "./OrchestratorScenario.ts";
 
-function makeReplayServerConfig(
+export function makeReplayServerConfig(
   scenario: string,
 ): Effect.Effect<
   ServerConfigShape,

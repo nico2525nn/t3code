@@ -1233,6 +1233,35 @@ describe("GeneralSettingsPanel observability", () => {
     await expect.element(page.getByPlaceholder("Optional")).toBeInTheDocument();
   });
 
+  it("renders configured ACP Registry instances without a blank default card", async () => {
+    const instanceId = ProviderInstanceId.make("acpRegistry_devin");
+    setServerConfigSnapshot({
+      ...createBaseServerConfig(),
+      settings: {
+        ...DEFAULT_SERVER_SETTINGS,
+        providerInstances: {
+          [instanceId]: {
+            driver: ProviderDriverKind.make("acpRegistry"),
+            displayName: "Devin ACP",
+            config: { agentId: "devin" },
+          },
+        },
+      },
+    });
+
+    mounted = await render(
+      <AppAtomRegistryProvider>
+        <ProviderSettingsPanel />
+      </AppAtomRegistryProvider>,
+    );
+
+    await expect
+      .element(page.getByLabelText("Toggle ACP Registry details"))
+      .not.toBeInTheDocument();
+    await page.getByLabelText("Toggle Devin ACP details").click();
+    await expect.element(page.getByText("Registry agent ID")).toBeInTheDocument();
+  });
+
   it("runs one-click provider updates from the provider card", async () => {
     const updateProvider = vi.fn<LocalApi["server"]["updateProvider"]>().mockResolvedValue({
       providers: [createOutdatedProvider("codex")],
