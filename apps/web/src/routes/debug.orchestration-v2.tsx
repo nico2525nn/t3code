@@ -1,3 +1,5 @@
+import { useAtomValue } from "@effect/atom-react";
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   ProviderDriverKind,
   ProviderInstanceId,
@@ -5,6 +7,7 @@ import {
   type CheckpointScopeId,
   type ModelSelection,
   type OrchestrationV2Checkpoint,
+  type OrchestrationV2Command,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2PlanStep,
   type OrchestrationV2Run,
@@ -28,7 +31,6 @@ import type { CSSProperties, DragEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ProviderModelPicker } from "../components/chat/ProviderModelPicker";
-import { getPrimaryEnvironmentConnection } from "../environments/runtime";
 import { useSettings } from "../hooks/useSettings";
 import {
   removeAndRenumberTimelineItem,
@@ -42,7 +44,12 @@ import {
   deriveProviderInstanceEntries,
   sortProviderInstanceEntries,
 } from "../providerInstances";
-import { useServerKeybindings, useServerProviders } from "../rpc/serverState";
+import { usePrimaryEnvironmentId } from "../state/environments";
+import { orchestrationEnvironment } from "../state/orchestration";
+import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
+import { useAtomCommand } from "../state/use-atom-command";
+import { useAtomQueryRunner } from "../state/use-atom-query-runner";
+import { useEnvironmentQuery } from "../state/query";
 
 export const Route = createFileRoute("/debug/orchestration-v2")({
   component: OrchestrationV2DebugRoute,
@@ -1616,12 +1623,29 @@ function OrchestrationV2DebugRoute() {
   const [isBusy, setIsBusy] = useState(false);
   const [visiblePanels, setVisiblePanels] =
     useState<ReadonlyArray<PanelKey>>(DEFAULT_VISIBLE_PANELS);
-  const unsubscribeRef = useRef<(() => void) | null>(null);
-  const shellUnsubscribeRef = useRef<(() => void) | null>(null);
 
-  const serverProviders = useServerProviders();
+  const environmentId = usePrimaryEnvironmentId();
+  const serverProviders = useAtomValue(primaryServerProvidersAtom);
   const settings = useSettings();
-  const keybindings = useServerKeybindings();
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const dispatchCommandMutation = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand, {
+    reportFailure: false,
+  });
+  const getThreadProjectionQuery = useAtomQueryRunner(
+    orchestrationEnvironment.v2.threadProjection,
+    { reportFailure: false },
+  );
+  const shellSubscription = useEnvironmentQuery(
+    environmentId === null ? null : orchestrationEnvironment.v2.shell({ environmentId, input: {} }),
+  );
+  const threadSubscription = useEnvironmentQuery(
+    environmentId === null || threadId === null
+      ? null
+      : orchestrationEnvironment.v2.thread({
+          environmentId,
+          input: { threadId },
+        }),
+  );
   const providerSnapshots = useMemo(
     () =>
       deriveOrchestrationV2DebugProviderSnapshots({
@@ -1680,7 +1704,19 @@ function OrchestrationV2DebugRoute() {
     setVisiblePanels((prev) => prev.filter((k) => k !== key));
   }, []);
 
-  const api = useMemo(() => getPrimaryEnvironmentConnection().client.orchestrationV2, []);
+  const dispatchCommand = useCallback(
+    async (command: OrchestrationV2Command) => {
+      if (environmentId === null) {
+        throw new Error("The primary environment is unavailable.");
+      }
+      const result = await dispatchCommandMutation({ environmentId, input: command });
+      if (result._tag === "Failure") {
+        throw squashAtomCommandFailure(result);
+      }
+      return result.value;
+    },
+    [dispatchCommandMutation, environmentId],
+  );
   const projectionTimeline = useMemo(() => buildProjectionTimeline(projection), [projection]);
   const streamTimeline = useMemo(() => buildStreamTimeline(logEntries), [logEntries]);
   const itemTimeline = useMemo(
@@ -1716,39 +1752,64 @@ function OrchestrationV2DebugRoute() {
     });
   }, []);
 
-  const clearSubscription = useCallback(() => {
-    unsubscribeRef.current?.();
-    unsubscribeRef.current = null;
-  }, []);
+  useEffect(() => {
+    const item = shellSubscription.data;
+    if (item === null) return;
+    if (item.kind === "snapshot") {
+      setShellThreadsById(new Map(item.snapshot.threads.map((thread) => [thread.id, thread])));
+      return;
+    }
 
-  useEffect(() => clearSubscription, [clearSubscription]);
+    setShellThreadsById((current) => {
+      const next = new Map(current);
+      next.set(item.thread.id, item.thread);
+      return next;
+    });
+  }, [shellSubscription.data]);
 
   useEffect(() => {
-    shellUnsubscribeRef.current = api.subscribeShell((item) => {
-      if (item.kind === "snapshot") {
-        setShellThreadsById(new Map(item.snapshot.threads.map((thread) => [thread.id, thread])));
-        return;
+    const item = threadSubscription.data;
+    if (item === null) return;
+    appendLog({ type: "stream", value: item });
+    if (item.kind === "snapshot") {
+      setProjectionError(null);
+      setProjection(item.projection);
+      cacheProjection(item.projection);
+      return;
+    }
+
+    setProjection((current) => {
+      const nextProjection = applyStreamEventToProjection(current, item.event);
+      if (nextProjection !== null) {
+        setProjectionError(null);
+        cacheProjection(nextProjection);
       }
-
-      setShellThreadsById((current) => {
-        const next = new Map(current);
-        next.set(item.thread.id, item.thread);
-        return next;
-      });
+      return nextProjection;
     });
+  }, [appendLog, cacheProjection, threadSubscription.data]);
 
-    return () => {
-      shellUnsubscribeRef.current?.();
-      shellUnsubscribeRef.current = null;
-    };
-  }, [api]);
+  useEffect(() => {
+    const message = threadSubscription.error;
+    if (message === null) return;
+    setProjection(null);
+    setProjectionError(message);
+    appendLog({ type: "error", message });
+  }, [appendLog, threadSubscription.error]);
 
   const refreshProjection = useCallback(
     async (nextThreadId: ThreadId) => {
       try {
-        const nextProjection = await api.getThreadProjection({
-          threadId: nextThreadId,
+        if (environmentId === null) {
+          throw new Error("The primary environment is unavailable.");
+        }
+        const result = await getThreadProjectionQuery({
+          environmentId,
+          input: { threadId: nextThreadId },
         });
+        if (result._tag === "Failure") {
+          throw squashAtomCommandFailure(result);
+        }
+        const nextProjection = result.value;
         setProjectionError(null);
         setProjection(nextProjection);
         cacheProjection(nextProjection);
@@ -1761,68 +1822,24 @@ function OrchestrationV2DebugRoute() {
         return null;
       }
     },
-    [api, appendLog, cacheProjection],
-  );
-
-  const subscribeToThread = useCallback(
-    (nextThreadId: ThreadId) => {
-      clearSubscription();
-      setLogEntries([]);
-      unsubscribeRef.current = api.subscribeThread(
-        { threadId: nextThreadId },
-        (item) => {
-          appendLog({ type: "stream", value: item });
-          if (item.kind === "snapshot") {
-            setProjectionError(null);
-            setProjection(item.projection);
-            cacheProjection(item.projection);
-            return;
-          }
-          if (item.kind === "event") {
-            setProjection((current) => {
-              const nextProjection = applyStreamEventToProjection(current, item.event);
-              if (nextProjection !== null) {
-                setProjectionError(null);
-                cacheProjection(nextProjection);
-              }
-              return nextProjection;
-            });
-          }
-        },
-        {
-          onResubscribe: () => {
-            appendLog({
-              type: "command",
-              label: "subscription.resubscribe",
-              value: { threadId: nextThreadId },
-            });
-          },
-          onError: (message) => {
-            setProjection(null);
-            setProjectionError(message);
-            appendLog({ type: "error", message });
-          },
-        },
-      );
-    },
-    [api, appendLog, cacheProjection, clearSubscription],
+    [appendLog, cacheProjection, environmentId, getThreadProjectionQuery],
   );
 
   const openThread = useCallback(
     async (nextThreadId: ThreadId) => {
+      setLogEntries([]);
       setThreadId(nextThreadId);
-      subscribeToThread(nextThreadId);
       const nextProjection = await refreshProjection(nextThreadId);
       if (nextProjection !== null) {
         setModelSelection(nextProjection.thread.modelSelection);
       }
     },
-    [refreshProjection, subscribeToThread],
+    [refreshProjection],
   );
 
   const createDebugThread = useCallback(async () => {
     const nextThreadId = newThreadId();
-    const result = await api.dispatchCommand({
+    const result = await dispatchCommand({
       type: "thread.create",
       commandId: newCommandId(),
       threadId: nextThreadId,
@@ -1835,12 +1852,12 @@ function OrchestrationV2DebugRoute() {
       worktreePath: null,
     });
 
+    setLogEntries([]);
     setThreadId(nextThreadId);
-    subscribeToThread(nextThreadId);
     appendLog({ type: "command", label: "thread.create", value: result });
     await refreshProjection(nextThreadId);
     return nextThreadId;
-  }, [api, appendLog, modelSelection, refreshProjection, subscribeToThread]);
+  }, [appendLog, dispatchCommand, modelSelection, refreshProjection]);
 
   const ensureThread = useCallback(async () => {
     if (threadId !== null) {
@@ -1876,7 +1893,7 @@ function OrchestrationV2DebugRoute() {
       try {
         const activeThreadId = await ensureThread();
         const targetRunId = activeTurn?.targetRunId;
-        const result = await api.dispatchCommand({
+        const result = await dispatchCommand({
           type: "message.dispatch",
           commandId: newCommandId(),
           threadId: activeThreadId,
@@ -1908,8 +1925,8 @@ function OrchestrationV2DebugRoute() {
     },
     [
       activeTurn?.targetRunId,
-      api,
       appendLog,
+      dispatchCommand,
       ensureThread,
       isBusy,
       modelSelection,
@@ -1923,7 +1940,7 @@ function OrchestrationV2DebugRoute() {
       if (threadId === null || activeTurn === null || isBusy) return;
       setIsBusy(true);
       try {
-        const result = await api.dispatchCommand({
+        const result = await dispatchCommand({
           type: "queued-message.promote-to-steer",
           commandId: newCommandId(),
           threadId,
@@ -1945,14 +1962,14 @@ function OrchestrationV2DebugRoute() {
         setIsBusy(false);
       }
     },
-    [activeTurn, api, appendLog, isBusy, refreshProjection, threadId],
+    [activeTurn, appendLog, dispatchCommand, isBusy, refreshProjection, threadId],
   );
 
   const interruptActiveRun = useCallback(async () => {
     if (threadId === null || activeTurn === null || isBusy) return;
     setIsBusy(true);
     try {
-      const result = await api.dispatchCommand({
+      const result = await dispatchCommand({
         type: "run.interrupt",
         commandId: newCommandId(),
         threadId,
@@ -1968,14 +1985,14 @@ function OrchestrationV2DebugRoute() {
     } finally {
       setIsBusy(false);
     }
-  }, [activeTurn, api, appendLog, isBusy, refreshProjection, threadId]);
+  }, [activeTurn, appendLog, dispatchCommand, isBusy, refreshProjection, threadId]);
 
   const reorderQueuedRun = useCallback(
     async (runId: RunId, beforeRunId: RunId | null) => {
       if (threadId === null || isBusy) return;
       setIsBusy(true);
       try {
-        const result = await api.dispatchCommand({
+        const result = await dispatchCommand({
           type: "queued-run.reorder",
           commandId: newCommandId(),
           threadId,
@@ -1997,7 +2014,7 @@ function OrchestrationV2DebugRoute() {
         setIsBusy(false);
       }
     },
-    [api, appendLog, isBusy, refreshProjection, threadId],
+    [appendLog, dispatchCommand, isBusy, refreshProjection, threadId],
   );
 
   const forkFromRun = useCallback(
@@ -2008,7 +2025,7 @@ function OrchestrationV2DebugRoute() {
       setIsBusy(true);
       try {
         const targetThreadId = newThreadId();
-        const result = await api.dispatchCommand({
+        const result = await dispatchCommand({
           type: "thread.fork",
           commandId: newCommandId(),
           sourceThreadId: input.threadId,
@@ -2027,7 +2044,7 @@ function OrchestrationV2DebugRoute() {
         setIsBusy(false);
       }
     },
-    [api, appendLog, isBusy, openThread, projectionByThread],
+    [appendLog, dispatchCommand, isBusy, openThread, projectionByThread],
   );
 
   const mergeBackToSource = useCallback(async () => {
@@ -2037,7 +2054,7 @@ function OrchestrationV2DebugRoute() {
 
     setIsBusy(true);
     try {
-      const result = await api.dispatchCommand({
+      const result = await dispatchCommand({
         type: "thread.merge_back",
         commandId: newCommandId(),
         sourceThreadId: mergeBackCandidate.sourceThreadId,
@@ -2057,14 +2074,14 @@ function OrchestrationV2DebugRoute() {
     } finally {
       setIsBusy(false);
     }
-  }, [api, appendLog, isBusy, mergeBackCandidate, openThread]);
+  }, [appendLog, dispatchCommand, isBusy, mergeBackCandidate, openThread]);
 
   const rollbackToCheckpoint = useCallback(
     async (input: { readonly checkpointId: CheckpointId; readonly scopeId: CheckpointScopeId }) => {
       if (threadId === null || isBusy) return;
       setIsBusy(true);
       try {
-        const result = await api.dispatchCommand({
+        const result = await dispatchCommand({
           type: "checkpoint.rollback",
           commandId: newCommandId(),
           threadId,
@@ -2086,17 +2103,16 @@ function OrchestrationV2DebugRoute() {
         setIsBusy(false);
       }
     },
-    [api, appendLog, isBusy, refreshProjection, threadId],
+    [appendLog, dispatchCommand, isBusy, refreshProjection, threadId],
   );
 
   const reset = useCallback(() => {
-    clearSubscription();
     setThreadId(null);
     setProjection(null);
     setProjectionError(null);
     setLogEntries([]);
     setProjectionByThread(new Map());
-  }, [clearSubscription]);
+  }, []);
 
   const renderPanel = (panelKey: PanelKey): ReactNode => {
     const onClose = () => {
