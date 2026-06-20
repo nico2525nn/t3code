@@ -98,8 +98,6 @@ describe("SSH environment IPC", () => {
     const structured = new SshCommandSpawnError({
       command: "ssh",
       argumentCount: 0,
-      exitCode: null,
-      stderrBytes: 0,
       target: "devbox",
       cause,
     });
