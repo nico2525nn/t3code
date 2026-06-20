@@ -1298,7 +1298,19 @@ export const make = Effect.gen(function* () {
       phase: "pr",
       label: `Generating ${terms.shortLabel} content...`,
     });
-    const rangeContext = yield* gitCore.readRangeContext(cwd, baseBranch);
+    const rangeBaseRef = yield* gitCore.resolvePrimaryRemoteName(cwd).pipe(
+      Effect.map((remote) =>
+        baseBranch.startsWith(`${remote}/`) ? baseBranch : `${remote}/${baseBranch}`,
+      ),
+      Effect.orElseSucceed(() => baseBranch),
+    );
+    const rangeContext = yield* (
+      rangeBaseRef === baseBranch
+        ? gitCore.readRangeContext(cwd, rangeBaseRef)
+        : gitCore.readRangeContext(cwd, rangeBaseRef).pipe(
+            Effect.catch(() => gitCore.readRangeContext(cwd, baseBranch)),
+          )
+    );
 
     const generated = yield* textGeneration.generatePrContent({
       cwd,
