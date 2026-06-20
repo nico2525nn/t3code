@@ -1179,17 +1179,31 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       return;
     }
 
-    const frame = window.requestAnimationFrame(() => {
+    const revealId = projectRevealRequestId;
+    let cancelled = false;
+    let frameId: number;
+    let attempts = 0;
+    const maxAttempts = 20;
+
+    function tryScroll() {
+      if (cancelled) return;
       const projectHeader = projectHeaderRef.current;
-      if (!projectHeader) {
+      if (projectHeader) {
+        scrollSidebarProjectIntoView(projectHeader);
+        completeProjectReveal(revealId);
         return;
       }
-      scrollSidebarProjectIntoView(projectHeader);
-      completeProjectReveal(projectRevealRequestId);
-    });
+      attempts++;
+      if (attempts < maxAttempts) {
+        frameId = window.requestAnimationFrame(tryScroll);
+      }
+    }
+
+    frameId = window.requestAnimationFrame(tryScroll);
 
     return () => {
-      window.cancelAnimationFrame(frame);
+      cancelled = true;
+      window.cancelAnimationFrame(frameId);
     };
   }, [completeProjectReveal, projectRevealRequestId]);
   const sidebarThreads = useThreadShellsForProjectRefs(project.memberProjectRefs);

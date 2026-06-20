@@ -376,18 +376,18 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const nextSidebarProjectRevealRequestIdRef = useRef(0);
   const [sidebarProjectRevealRequest, setSidebarProjectRevealRequest] =
     useState<SidebarProjectRevealRequest | null>(null);
-  function requestSidebarProjectReveal(projectRef: ScopedProjectRef): void {
+  const requestSidebarProjectReveal = useCallback((projectRef: ScopedProjectRef): void => {
     nextSidebarProjectRevealRequestIdRef.current += 1;
     setSidebarProjectRevealRequest({
       requestId: nextSidebarProjectRevealRequestIdRef.current,
       projectRef,
     });
-  }
-  function completeSidebarProjectReveal(requestId: number): void {
+  }, []);
+  const completeSidebarProjectReveal = useCallback((requestId: number): void => {
     setSidebarProjectRevealRequest((current) =>
       current?.requestId === requestId ? null : current,
     );
-  }
+  }, []);
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
