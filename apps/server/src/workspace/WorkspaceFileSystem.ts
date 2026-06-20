@@ -1,4 +1,3 @@
-// @effect-diagnostics nodeBuiltinImport:off
 /**
  * WorkspaceFileSystem - Effect service contract for workspace file mutations.
  *
@@ -7,8 +6,6 @@
  *
  * @module WorkspaceFileSystem
  */
-import * as NodeFSP from "node:fs/promises";
-
 import type {
   ProjectReadFileInput,
   ProjectReadFileResult,
@@ -86,11 +83,11 @@ export const make = Effect.gen(function* () {
       relativePath: input.relativePath,
     });
 
-    return yield* Effect.tryPromise({
-      try: async () => {
-        const [realWorkspaceRoot, realTargetPath] = await Promise.all([
-          NodeFSP.realpath(input.cwd),
-          NodeFSP.realpath(target.absolutePath),
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        const [realWorkspaceRoot, realTargetPath] = yield* Effect.all([
+          fileSystem.realPath(input.cwd),
+          fileSystem.realPath(target.absolutePath),
         ]);
         const relativeRealPath = path.relative(realWorkspaceRoot, realTargetPath);
         if (
@@ -98,41 +95,43 @@ export const make = Effect.gen(function* () {
           relativeRealPath === ".." ||
           path.isAbsolute(relativeRealPath)
         ) {
-          throw new Error("Workspace file path resolves outside the project root.");
+          return yield* Effect.fail(
+            new Error("Workspace file path resolves outside the project root."),
+          );
         }
 
-        const handle = await NodeFSP.open(realTargetPath, "r");
-        try {
-          const stat = await handle.stat();
-          if (!stat.isFile()) {
-            throw new Error("Workspace path is not a file.");
-          }
-          const bytesToRead = Math.min(stat.size, PROJECT_READ_FILE_MAX_BYTES);
-          const buffer = Buffer.alloc(bytesToRead);
-          const { bytesRead } = await handle.read(buffer, 0, bytesToRead, 0);
-          const fileBytes = buffer.subarray(0, bytesRead);
-          if (fileBytes.includes(0)) {
-            throw new Error("Binary files cannot be previewed as text.");
-          }
-          const contents = new TextDecoder("utf-8").decode(fileBytes);
-          return {
-            relativePath: target.relativePath,
-            contents,
-            byteLength: stat.size,
-            truncated: stat.size > PROJECT_READ_FILE_MAX_BYTES,
-          };
-        } finally {
-          await handle.close();
+        const handle = yield* fileSystem.open(realTargetPath, { flag: "r" });
+        const stat = yield* handle.stat;
+        if (stat.type !== "File") {
+          return yield* Effect.fail(new Error("Workspace path is not a file."));
         }
-      },
-      catch: (cause) =>
-        new WorkspaceFileSystemError({
-          cwd: input.cwd,
-          relativePath: input.relativePath,
-          operation: "workspaceFileSystem.readFile",
-          cause,
-        }),
-    });
+        const byteLength = Number(stat.size);
+        const bytesToRead = Math.min(byteLength, PROJECT_READ_FILE_MAX_BYTES);
+        const buffer = new Uint8Array(bytesToRead);
+        const bytesRead = yield* handle.read(buffer);
+        const fileBytes = buffer.subarray(0, Number(bytesRead));
+        if (fileBytes.includes(0)) {
+          return yield* Effect.fail(new Error("Binary files cannot be previewed as text."));
+        }
+        const contents = new TextDecoder("utf-8").decode(fileBytes);
+        return {
+          relativePath: target.relativePath,
+          contents,
+          byteLength,
+          truncated: stat.size > BigInt(PROJECT_READ_FILE_MAX_BYTES),
+        };
+      }),
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new WorkspaceFileSystemError({
+            cwd: input.cwd,
+            relativePath: input.relativePath,
+            operation: "workspaceFileSystem.readFile",
+            cause,
+          }),
+      ),
+    );
   });
 
   const writeFile: WorkspaceFileSystem["Service"]["writeFile"] = Effect.fn(
