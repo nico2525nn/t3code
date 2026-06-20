@@ -178,7 +178,11 @@ import {
   useSidebar,
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import { useOpenAddProjectCommandPalette } from "../commandPaletteContext";
+import {
+  useCompleteSidebarProjectReveal,
+  useOpenAddProjectCommandPalette,
+  useSidebarProjectRevealRequest,
+} from "../commandPaletteContext";
 import {
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentThreadId,
@@ -217,6 +221,10 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { SidebarProviderUpdatePill } from "./sidebar/SidebarProviderUpdatePill";
+import {
+  resolveSidebarProjectRevealKey,
+  scrollSidebarProjectIntoView,
+} from "../sidebarProjectReveal";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
@@ -1065,6 +1073,8 @@ interface SidebarProjectItemProps {
   suppressProjectClickForContextMenuRef: React.RefObject<boolean>;
   isManualProjectSorting: boolean;
   dragHandleProps: SortableProjectHandleProps | null;
+  projectRevealRequestId: number | null;
+  completeProjectReveal: (requestId: number) => void;
 }
 
 const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjectItemProps) {
@@ -1085,7 +1095,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     suppressProjectClickForContextMenuRef,
     isManualProjectSorting,
     dragHandleProps,
+    projectRevealRequestId,
+    completeProjectReveal,
   } = props;
+  const projectHeaderRef = useRef<HTMLDivElement | null>(null);
   const threadSortOrder = useClientSettings<SidebarThreadSortOrder>(
     (settings) => settings.sidebarThreadSortOrder,
   );
@@ -1160,6 +1173,47 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     },
   });
   const openPrLink = useOpenPrLink();
+
+  useEffect(() => {
+    if (projectRevealRequestId === null) {
+      return;
+    }
+
+    const requestId = projectRevealRequestId;
+    let cancelled = false;
+    let frame: number | null = null;
+    let attempts = 0;
+
+    const tryReveal = () => {
+      if (cancelled) {
+        return;
+      }
+
+      const projectHeader = projectHeaderRef.current;
+      if (projectHeader) {
+        scrollSidebarProjectIntoView(projectHeader);
+        completeProjectReveal(requestId);
+        return;
+      }
+
+      attempts += 1;
+      if (attempts >= 20) {
+        completeProjectReveal(requestId);
+        return;
+      }
+
+      frame = window.requestAnimationFrame(tryReveal);
+    };
+
+    frame = window.requestAnimationFrame(tryReveal);
+
+    return () => {
+      cancelled = true;
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [completeProjectReveal, projectRevealRequestId]);
   const sidebarThreads = useThreadShellsForProjectRefs(project.memberProjectRefs);
   const sidebarThreadByKey = useMemo(
     () =>
@@ -2186,7 +2240,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
   return (
     <>
-      <div className="group/project-header relative">
+      <div ref={projectHeaderRef} className="group/project-header relative">
         <SidebarMenuButton
           ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
           size="sm"
@@ -2773,6 +2827,8 @@ interface SidebarProjectsContentProps {
   suppressProjectClickForContextMenuRef: React.RefObject<boolean>;
   attachProjectListAutoAnimateRef: (node: HTMLElement | null) => void;
   projectsLength: number;
+  projectRevealTarget: { readonly projectKey: string; readonly requestId: number } | null;
+  completeProjectReveal: (requestId: number) => void;
 }
 
 const SidebarProjectsContent = memo(function SidebarProjectsContent(
@@ -2814,6 +2870,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     suppressProjectClickForContextMenuRef,
     attachProjectListAutoAnimateRef,
     projectsLength,
+    projectRevealTarget,
+    completeProjectReveal,
   } = props;
 
   const handleProjectSortOrderChange = useCallback(
@@ -2962,6 +3020,12 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                         }
                         isManualProjectSorting={isManualProjectSorting}
                         dragHandleProps={dragHandleProps}
+                        projectRevealRequestId={
+                          projectRevealTarget?.projectKey === project.projectKey
+                            ? projectRevealTarget.requestId
+                            : null
+                        }
+                        completeProjectReveal={completeProjectReveal}
                       />
                     )}
                   </SortableProjectItem>
@@ -2992,6 +3056,12 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
                 isManualProjectSorting={isManualProjectSorting}
                 dragHandleProps={null}
+                projectRevealRequestId={
+                  projectRevealTarget?.projectKey === project.projectKey
+                    ? projectRevealTarget.requestId
+                    : null
+                }
+                completeProjectReveal={completeProjectReveal}
               />
             ))}
           </SidebarMenu>
@@ -3037,6 +3107,8 @@ export default function Sidebar() {
   );
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const openAddProjectCommandPalette = useOpenAddProjectCommandPalette();
+  const sidebarProjectRevealRequest = useSidebarProjectRevealRequest();
+  const completeSidebarProjectReveal = useCompleteSidebarProjectReveal();
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
     ReadonlySet<string>
   >(() => new Set());
@@ -3103,6 +3175,17 @@ export default function Sidebar() {
     () => new Map(sidebarProjects.map((project) => [project.projectKey, project] as const)),
     [sidebarProjects],
   );
+  const projectRevealKey = sidebarProjectRevealRequest
+    ? resolveSidebarProjectRevealKey({
+        projectRef: sidebarProjectRevealRequest.projectRef,
+        physicalProjectKeyByScopedRef: projectPhysicalKeyByScopedRef,
+        physicalToLogicalKey,
+      })
+    : null;
+  const projectRevealTarget =
+    projectRevealKey && sidebarProjectRevealRequest
+      ? { projectKey: projectRevealKey, requestId: sidebarProjectRevealRequest.requestId }
+      : null;
   const sidebarThreadByKey = useMemo(
     () =>
       new Map(
@@ -3629,6 +3712,8 @@ export default function Sidebar() {
             suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
             attachProjectListAutoAnimateRef={attachProjectListAutoAnimateRef}
             projectsLength={projects.length}
+            projectRevealTarget={projectRevealTarget}
+            completeProjectReveal={completeSidebarProjectReveal}
           />
 
           <SidebarSeparator />
