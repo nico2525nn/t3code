@@ -12,6 +12,7 @@ import {
   type FilesystemBrowseResult,
   type ProjectId,
   ProviderInstanceId,
+  type ScopedProjectRef,
   type SourceControlDiscoveryResult,
   type SourceControlProviderKind,
   type SourceControlRepositoryInfo,
@@ -43,7 +44,10 @@ import {
   type ReactNode,
 } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import { OpenAddProjectCommandPaletteProvider } from "../commandPaletteContext";
+import {
+  OpenAddProjectCommandPaletteProvider,
+  useRequestSidebarProjectReveal,
+} from "../commandPaletteContext";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useSettings } from "../hooks/useSettings";
 import { readLocalApi } from "../localApi";
@@ -116,6 +120,7 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
+import type { SidebarProjectRevealRequest } from "../sidebarProjectReveal";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -368,6 +373,21 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const clearOpenIntent = useCallback(() => dispatch({ _tag: "ClearOpenIntent" }), []);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const composerHandleRef = useRef<ChatComposerHandle | null>(null);
+  const nextSidebarProjectRevealRequestIdRef = useRef(0);
+  const [sidebarProjectRevealRequest, setSidebarProjectRevealRequest] =
+    useState<SidebarProjectRevealRequest | null>(null);
+  function requestSidebarProjectReveal(projectRef: ScopedProjectRef): void {
+    nextSidebarProjectRevealRequestIdRef.current += 1;
+    setSidebarProjectRevealRequest({
+      requestId: nextSidebarProjectRevealRequestIdRef.current,
+      projectRef,
+    });
+  }
+  function completeSidebarProjectReveal(requestId: number): void {
+    setSidebarProjectRevealRequest((current) =>
+      current?.requestId === requestId ? null : current,
+    );
+  }
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
@@ -400,7 +420,12 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   }, [keybindings, terminalOpen, toggleOpen]);
 
   return (
-    <OpenAddProjectCommandPaletteProvider openAddProject={openAddProject}>
+    <OpenAddProjectCommandPaletteProvider
+      openAddProject={openAddProject}
+      sidebarProjectRevealRequest={sidebarProjectRevealRequest}
+      requestSidebarProjectReveal={requestSidebarProjectReveal}
+      completeSidebarProjectReveal={completeSidebarProjectReveal}
+    >
       <ComposerHandleContext value={composerHandleRef}>
         <CommandDialog open={state.open} onOpenChange={setOpen}>
           {children}
@@ -441,6 +466,7 @@ function OpenCommandPaletteDialog(props: {
   readonly clearOpenIntent: () => void;
 }) {
   const navigate = useNavigate();
+  const requestSidebarProjectReveal = useRequestSidebarProjectReveal();
   const { clearOpenIntent, openIntent, setOpen } = props;
   const composerHandleRef = useComposerHandleContext();
   const [query, setQuery] = useState("");
@@ -586,6 +612,7 @@ function OpenCommandPaletteDialog(props: {
 
   const openProjectFromSearch = useMemo(
     () => async (project: (typeof projects)[number]) => {
+      requestSidebarProjectReveal(scopeProjectRef(project.environmentId, project.id));
       const latestThread = getLatestThreadForProject(
         threads.filter((thread) => thread.environmentId === project.environmentId),
         project.id,
@@ -608,6 +635,7 @@ function OpenCommandPaletteDialog(props: {
     [
       handleNewThread,
       navigate,
+      requestSidebarProjectReveal,
       settings.defaultThreadEnvMode,
       settings.sidebarThreadSortOrder,
       threads,
@@ -645,6 +673,7 @@ function OpenCommandPaletteDialog(props: {
           />
         ),
         runProject: async (project) => {
+          requestSidebarProjectReveal(scopeProjectRef(project.environmentId, project.id));
           await startNewThreadInProjectFromContext(
             {
               activeDraftThread,
@@ -663,6 +692,7 @@ function OpenCommandPaletteDialog(props: {
       defaultProjectRef,
       handleNewThread,
       projects,
+      requestSidebarProjectReveal,
       settings.defaultThreadEnvMode,
     ],
   );
@@ -1069,6 +1099,7 @@ function OpenCommandPaletteDialog(props: {
         cwd,
       );
       if (existing) {
+        requestSidebarProjectReveal(scopeProjectRef(existing.environmentId, existing.id));
         const latestThread = getLatestThreadForProject(
           threads.filter((thread) => thread.environmentId === existing.environmentId),
           existing.id,
@@ -1131,6 +1162,7 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
 
+      requestSidebarProjectReveal(scopeProjectRef(browseEnvironmentId, projectId));
       const navigationResult = await settlePromise(() =>
         handleNewThread(scopeProjectRef(browseEnvironmentId, projectId), {
           envMode: settings.defaultThreadEnvMode,
@@ -1157,6 +1189,7 @@ function OpenCommandPaletteDialog(props: {
       createProject,
       navigate,
       projects,
+      requestSidebarProjectReveal,
       setOpen,
       settings.defaultThreadEnvMode,
       settings.sidebarThreadSortOrder,
