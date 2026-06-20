@@ -5,6 +5,7 @@ import {
 } from "@t3tools/contracts";
 import {
   SshCommandSpawnError,
+  SshCommandTimeoutError,
   SshHttpBridgeError,
   SshPasswordPromptError,
 } from "@t3tools/ssh/errors";
@@ -22,7 +23,7 @@ import {
   DesktopSshEnvironmentRequestError,
   ensureSshEnvironment,
   fetchSshEnvironmentDescriptor,
-  toDesktopSshOperationPresentationError,
+  toDesktopSshIpcPresentationError,
 } from "./sshEnvironment.ts";
 import * as DesktopSshEnvironment from "../../ssh/DesktopSshEnvironment.ts";
 import * as DesktopSshPasswordPrompts from "../../ssh/DesktopSshPasswordPrompts.ts";
@@ -102,10 +103,21 @@ describe("SSH environment IPC", () => {
       cause,
     });
 
-    const presentation = toDesktopSshOperationPresentationError(structured);
+    const presentation = toDesktopSshIpcPresentationError(structured);
     assert.equal(structured.message, "Failed to spawn SSH command for devbox.");
     assert.equal(presentation.message, cause.message);
     assert.strictEqual(presentation.cause, structured);
+  });
+
+  it("passes structural SSH errors without process causes through the IPC boundary", () => {
+    const structured = new SshCommandTimeoutError({
+      command: "ssh",
+      argumentCount: 0,
+      target: "devbox",
+      timeoutMs: 30_000,
+    });
+
+    assert.strictEqual(toDesktopSshIpcPresentationError(structured), structured);
   });
 
   it.effect("fetches and decodes the remote environment descriptor", () => {

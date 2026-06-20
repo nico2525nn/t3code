@@ -73,7 +73,10 @@ const isSshCausePresentationError = Schema.is(
   ]),
 );
 
-export function toDesktopSshOperationPresentationError(
+// Electron only forwards the message from a rejected ipcRenderer.invoke promise. Keep the typed,
+// structural SSH error intact as the cause for main-process diagnostics while preserving the
+// actionable process message that the renderer historically presented to the user.
+export function toDesktopSshIpcPresentationError(
   error: DesktopSshEnvironment.DesktopSshEnvironmentOperationError,
 ): DesktopSshEnvironment.DesktopSshEnvironmentOperationError | Error {
   if (isSshCausePresentationError(error) && error.cause instanceof Error) {
@@ -169,7 +172,7 @@ export const ensureSshEnvironment = DesktopIpc.makeIpcMethod({
               )
             : Effect.fail(error),
       }),
-      Effect.mapError(toDesktopSshOperationPresentationError),
+      Effect.mapError(toDesktopSshIpcPresentationError),
     );
   }),
 });
@@ -182,7 +185,7 @@ export const disconnectSshEnvironment = DesktopIpc.makeIpcMethod({
     const sshEnvironment = yield* DesktopSshEnvironment.DesktopSshEnvironment;
     yield* sshEnvironment
       .disconnectEnvironment(target)
-      .pipe(Effect.mapError(toDesktopSshOperationPresentationError));
+      .pipe(Effect.mapError(toDesktopSshIpcPresentationError));
   }),
 });
 
