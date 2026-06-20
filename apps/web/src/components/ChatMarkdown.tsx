@@ -79,7 +79,8 @@ import {
   isWorkspacePreviewFile,
   openFileInPreview,
   openUrlInPreview,
-  BrowserPreviewUnavailableError,
+  BrowserPreviewEnvironmentDisconnectedError,
+  BrowserPreviewThreadContextUnavailableError,
 } from "../browser/openFileInPreview";
 
 class CodeHighlightErrorBoundary extends React.Component<
@@ -1292,12 +1293,8 @@ function ChatMarkdown({
     (url: string) => {
       if (!threadRef) {
         return Promise.resolve(
-          AsyncResult.failure<void, BrowserPreviewUnavailableError>(
-            Cause.fail(
-              new BrowserPreviewUnavailableError({
-                message: "Thread context is unavailable.",
-              }),
-            ),
+          AsyncResult.failure<void, BrowserPreviewThreadContextUnavailableError>(
+            Cause.fail(new BrowserPreviewThreadContextUnavailableError()),
           ),
         );
       }
@@ -1307,12 +1304,20 @@ function ChatMarkdown({
   );
   const openMarkdownFileInPreview = useCallback(
     (path: string) => {
-      if (!threadRef || preparedConnection._tag === "None") {
+      if (!threadRef) {
         return Promise.resolve(
-          AsyncResult.failure<void, BrowserPreviewUnavailableError>(
+          AsyncResult.failure<void, BrowserPreviewThreadContextUnavailableError>(
+            Cause.fail(new BrowserPreviewThreadContextUnavailableError()),
+          ),
+        );
+      }
+      if (preparedConnection._tag === "None") {
+        return Promise.resolve(
+          AsyncResult.failure<void, BrowserPreviewEnvironmentDisconnectedError>(
             Cause.fail(
-              new BrowserPreviewUnavailableError({
-                message: "Environment is not connected.",
+              new BrowserPreviewEnvironmentDisconnectedError({
+                environmentId: threadRef.environmentId,
+                threadId: threadRef.threadId,
               }),
             ),
           ),
