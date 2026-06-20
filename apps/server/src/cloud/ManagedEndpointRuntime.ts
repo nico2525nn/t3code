@@ -88,13 +88,19 @@ function logManagedEndpointCause(
   attributes: Readonly<Record<string, unknown>>,
 ) {
   const interruptionReasons = cause.reasons.filter(Cause.isInterruptReason);
-  if (interruptionReasons.length > 0) {
+  if (interruptionReasons.length > 0 && interruptionReasons.length === cause.reasons.length) {
     return Effect.failCause(Cause.fromReasons<never>(interruptionReasons));
   }
-  return Effect.logWarning(message, {
+  const log = Effect.logWarning(message, {
     ...attributes,
     ...managedEndpointCauseDiagnostics(cause),
   });
+  if (interruptionReasons.length > 0) {
+    return log.pipe(
+      Effect.andThen(Effect.failCause(Cause.fromReasons<never>(interruptionReasons))),
+    );
+  }
+  return log;
 }
 
 function platformErrorDiagnostics(error: PlatformError.PlatformError) {
