@@ -74,18 +74,6 @@ const ProviderRollbackConversationInput = Schema.Struct({
   numTurns: NonNegativeInt,
 });
 
-function toValidationError(
-  operation: string,
-  issue: string,
-  cause?: unknown,
-): ProviderValidationError {
-  return new ProviderValidationError({
-    operation,
-    issue,
-    ...(cause !== undefined ? { cause } : {}),
-  });
-}
-
 const decodeInputOrValidationError = <S extends Schema.Top>(input: {
   readonly operation: string;
   readonly schema: S;
@@ -248,12 +236,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     payload.providerInstanceId !== undefined
       ? Effect.succeed(payload.providerInstanceId)
       : Effect.fail(
-          toValidationError(
+          new ProviderValidationError({
             operation,
-            payload.provider
+            issue: payload.provider
               ? `Provider instance id is required for provider '${payload.provider}'.`
               : "Provider instance id is required.",
-          ),
+          }),
         );
 
   const upsertSessionBinding = (
@@ -388,10 +376,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }
 
       if (!hasResumeCursor) {
-        return yield* toValidationError(
-          input.operation,
-          `Cannot recover thread '${input.binding.threadId}' because no provider resume state is persisted.`,
-        );
+        return yield* new ProviderValidationError({
+          operation: input.operation,
+          issue: `Cannot recover thread '${input.binding.threadId}' because no provider resume state is persisted.`,
+        });
       }
 
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
@@ -411,10 +399,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         .pipe(Effect.onError(() => clearMcpSession(input.binding.threadId)));
       if (resumed.provider !== adapter.provider) {
         yield* clearMcpSession(input.binding.threadId);
-        return yield* toValidationError(
-          input.operation,
-          `Adapter/provider mismatch while recovering thread '${input.binding.threadId}'. Expected '${adapter.provider}', received '${resumed.provider}'.`,
-        );
+        return yield* new ProviderValidationError({
+          operation: input.operation,
+          issue: `Adapter/provider mismatch while recovering thread '${input.binding.threadId}'. Expected '${adapter.provider}', received '${resumed.provider}'.`,
+        });
       }
 
       yield* upsertSessionBinding(
@@ -445,10 +433,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     const bindingOption = yield* directory.getBinding(input.threadId);
     const binding = Option.getOrUndefined(bindingOption);
     if (!binding) {
-      return yield* toValidationError(
-        input.operation,
-        `Cannot route thread '${input.threadId}' because no persisted provider binding exists.`,
-      );
+      return yield* new ProviderValidationError({
+        operation: input.operation,
+        issue: `Cannot route thread '${input.threadId}' because no persisted provider binding exists.`,
+      });
     }
     const instanceId = yield* requireBindingInstanceId(input.operation, binding);
     const adapter = yield* registry.getByInstance(instanceId);
@@ -543,10 +531,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         const resolvedProvider = instanceInfo.driverKind;
         metricProvider = resolvedProvider;
         if (parsed.provider !== undefined && parsed.provider !== resolvedProvider) {
-          return yield* toValidationError(
-            "ProviderService.startSession",
-            `Provider instance '${resolvedInstanceId}' belongs to driver '${resolvedProvider}', not '${parsed.provider}'.`,
-          );
+          return yield* new ProviderValidationError({
+            operation: "ProviderService.startSession",
+            issue: `Provider instance '${resolvedInstanceId}' belongs to driver '${resolvedProvider}', not '${parsed.provider}'.`,
+          });
         }
         const input = {
           ...parsed,
@@ -554,10 +542,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           provider: resolvedProvider,
         };
         if (!instanceInfo.enabled) {
-          return yield* toValidationError(
-            "ProviderService.startSession",
-            `Provider instance '${resolvedInstanceId}' is disabled in T3 Code settings.`,
-          );
+          return yield* new ProviderValidationError({
+            operation: "ProviderService.startSession",
+            issue: `Provider instance '${resolvedInstanceId}' is disabled in T3 Code settings.`,
+          });
         }
         const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
         const effectiveResumeCursor =
@@ -602,10 +590,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
         if (session.provider !== adapter.provider) {
           yield* clearMcpSession(threadId);
-          return yield* toValidationError(
-            "ProviderService.startSession",
-            `Adapter/provider mismatch: requested '${adapter.provider}', received '${session.provider}'.`,
-          );
+          return yield* new ProviderValidationError({
+            operation: "ProviderService.startSession",
+            issue: `Adapter/provider mismatch: requested '${adapter.provider}', received '${session.provider}'.`,
+          });
         }
         const sessionWithInstance = {
           ...session,
@@ -654,10 +642,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       attachments: parsed.attachments ?? [],
     };
     if (!input.input && input.attachments.length === 0) {
-      return yield* toValidationError(
-        "ProviderService.sendTurn",
-        "Either input text or at least one attachment is required",
-      );
+      return yield* new ProviderValidationError({
+        operation: "ProviderService.sendTurn",
+        issue: "Either input text or at least one attachment is required",
+      });
     }
     yield* Effect.annotateCurrentSpan({
       "provider.operation": "send-turn",

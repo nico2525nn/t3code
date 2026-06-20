@@ -15,15 +15,6 @@ import {
 } from "../Services/ProviderSessionDirectory.ts";
 const decodeProviderDriverKindValue = Schema.decodeUnknownEffect(ProviderDriverKind);
 
-function toPersistenceError(operation: string) {
-  return (cause: unknown) =>
-    new ProviderSessionDirectoryPersistenceError({
-      operation,
-      detail: `Failed to execute ${operation}.`,
-      cause,
-    });
-}
-
 function decodeProviderDriverKind(
   providerName: string,
   operation: string,
@@ -88,7 +79,14 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
 
   const getBinding = (threadId: ThreadId) =>
     repository.getByThreadId({ threadId }).pipe(
-      Effect.mapError(toPersistenceError("ProviderSessionDirectory.getBinding:getByThreadId")),
+      Effect.mapError(
+        (cause) =>
+          new ProviderSessionDirectoryPersistenceError({
+            operation: "ProviderSessionDirectory.getBinding:getByThreadId",
+            detail: "Failed to execute ProviderSessionDirectory.getBinding:getByThreadId.",
+            cause,
+          }),
+      ),
       Effect.flatMap((runtime) =>
         Option.match(runtime, {
           onNone: () => Effect.succeed(Option.none<ProviderRuntimeBinding>()),
@@ -101,9 +99,16 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
     );
 
   const upsert: ProviderSessionDirectoryShape["upsert"] = Effect.fn(function* (binding) {
-    const existing = yield* repository
-      .getByThreadId({ threadId: binding.threadId })
-      .pipe(Effect.mapError(toPersistenceError("ProviderSessionDirectory.upsert:getByThreadId")));
+    const existing = yield* repository.getByThreadId({ threadId: binding.threadId }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProviderSessionDirectoryPersistenceError({
+            operation: "ProviderSessionDirectory.upsert:getByThreadId",
+            detail: "Failed to execute ProviderSessionDirectory.upsert:getByThreadId.",
+            cause,
+          }),
+      ),
+    );
 
     const existingRuntime = Option.getOrUndefined(existing);
     const resolvedThreadId = binding.threadId ?? existingRuntime?.threadId;
@@ -145,7 +150,16 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
           binding.runtimePayload,
         ),
       })
-      .pipe(Effect.mapError(toPersistenceError("ProviderSessionDirectory.upsert:upsert")));
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderSessionDirectoryPersistenceError({
+              operation: "ProviderSessionDirectory.upsert:upsert",
+              detail: "Failed to execute ProviderSessionDirectory.upsert:upsert.",
+              cause,
+            }),
+        ),
+      );
   });
 
   const getProvider: ProviderSessionDirectoryShape["getProvider"] = (threadId) =>
@@ -166,13 +180,27 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
 
   const listThreadIds: ProviderSessionDirectoryShape["listThreadIds"] = () =>
     repository.list().pipe(
-      Effect.mapError(toPersistenceError("ProviderSessionDirectory.listThreadIds:list")),
+      Effect.mapError(
+        (cause) =>
+          new ProviderSessionDirectoryPersistenceError({
+            operation: "ProviderSessionDirectory.listThreadIds:list",
+            detail: "Failed to execute ProviderSessionDirectory.listThreadIds:list.",
+            cause,
+          }),
+      ),
       Effect.map((rows) => rows.map((row) => row.threadId)),
     );
 
   const listBindings: ProviderSessionDirectoryShape["listBindings"] = () =>
     repository.list().pipe(
-      Effect.mapError(toPersistenceError("ProviderSessionDirectory.listBindings:list")),
+      Effect.mapError(
+        (cause) =>
+          new ProviderSessionDirectoryPersistenceError({
+            operation: "ProviderSessionDirectory.listBindings:list",
+            detail: "Failed to execute ProviderSessionDirectory.listBindings:list.",
+            cause,
+          }),
+      ),
       Effect.flatMap((rows) =>
         Effect.forEach(
           rows,
@@ -195,7 +223,3 @@ export const ProviderSessionDirectoryLive = Layer.effect(
   ProviderSessionDirectory,
   makeProviderSessionDirectory,
 );
-
-export function makeProviderSessionDirectoryLive() {
-  return Layer.effect(ProviderSessionDirectory, makeProviderSessionDirectory);
-}
