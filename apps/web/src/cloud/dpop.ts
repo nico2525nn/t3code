@@ -4,7 +4,6 @@ import {
   DpopPublicJwk,
 } from "@t3tools/shared/dpop";
 import * as Crypto from "effect/Crypto";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -16,10 +15,31 @@ export interface BrowserDpopKey {
   readonly thumbprint: string;
 }
 
-export class BrowserDpopError extends Data.TaggedError("BrowserDpopError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+export class BrowserDpopError extends Schema.TaggedErrorClass<BrowserDpopError>()(
+  "BrowserDpopError",
+  {
+    operation: Schema.Literals([
+      "open-key-storage",
+      "read-key",
+      "write-key",
+      "generate-key",
+      "export-private-key",
+      "export-public-key",
+      "decode-public-key",
+      "import-private-key",
+      "normalize-proof-url",
+      "generate-proof-id",
+      "sign-proof",
+    ]),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Browser DPoP operation "${this.operation}" failed.`;
+  }
+}
+
+export const isBrowserDpopError = Schema.is(BrowserDpopError);
 
 const DPOP_DATABASE_NAME = "t3code:cloud-auth";
 const DPOP_DATABASE_VERSION = 1;
@@ -40,16 +60,17 @@ export const browserCryptoLayer = Layer.succeed(
   }),
 );
 
-function dpopError(message: string, cause?: unknown) {
-  return new BrowserDpopError({ message, ...(cause === undefined ? {} : { cause }) });
-}
-
 function openDpopDatabase(): Effect.Effect<IDBDatabase, BrowserDpopError> {
   return Effect.callback<IDBDatabase, BrowserDpopError>((resume) => {
     const request = indexedDB.open(DPOP_DATABASE_NAME, DPOP_DATABASE_VERSION);
     request.addEventListener("error", () =>
       resume(
-        Effect.fail(dpopError("Could not open DPoP key storage.", request.error ?? undefined)),
+        Effect.fail(
+          new BrowserDpopError({
+            operation: "open-key-storage",
+            ...(request.error === null ? {} : { cause: request.error }),
+          }),
+        ),
       ),
     );
     request.addEventListener("upgradeneeded", () => {
@@ -74,7 +95,14 @@ export function readStoredBrowserDpopKey(): Effect.Effect<BrowserDpopKey | null,
           .objectStore(DPOP_KEY_STORE_NAME)
           .get(DPOP_KEY_ID);
         request.addEventListener("error", () =>
-          resume(Effect.fail(dpopError("Could not read DPoP key.", request.error ?? undefined))),
+          resume(
+            Effect.fail(
+              new BrowserDpopError({
+                operation: "read-key",
+                ...(request.error === null ? {} : { cause: request.error }),
+              }),
+            ),
+          ),
         );
         request.addEventListener("success", () =>
           resume(Effect.succeed((request.result as BrowserDpopKey | undefined) ?? null)),
@@ -97,7 +125,12 @@ export function writeStoredBrowserDpopKey(
         const transaction = database.transaction(DPOP_KEY_STORE_NAME, "readwrite");
         transaction.addEventListener("error", () =>
           resume(
-            Effect.fail(dpopError("Could not write DPoP key.", transaction.error ?? undefined)),
+            Effect.fail(
+              new BrowserDpopError({
+                operation: "write-key",
+                ...(transaction.error === null ? {} : { cause: transaction.error }),
+              }),
+            ),
           ),
         );
         transaction.addEventListener("complete", () => resume(Effect.void));
@@ -114,26 +147,26 @@ export const generateBrowserDpopKey = Effect.gen(function* () {
         "sign",
         "verify",
       ]) as Promise<CryptoKeyPair>,
-    catch: (cause) => dpopError("Could not generate DPoP proof key.", cause),
+    catch: (cause) => new BrowserDpopError({ operation: "generate-key", cause }),
   });
   const privateJwk = yield* Effect.tryPromise({
     try: () => crypto.subtle.exportKey("jwk", generated.privateKey),
-    catch: (cause) => dpopError("Could not export DPoP private key.", cause),
+    catch: (cause) => new BrowserDpopError({ operation: "export-private-key", cause }),
   });
   const publicJwk = yield* Effect.tryPromise({
     try: () => crypto.subtle.exportKey("jwk", generated.publicKey),
-    catch: (cause) => dpopError("Could not export DPoP public key.", cause),
+    catch: (cause) => new BrowserDpopError({ operation: "export-public-key", cause }),
   }).pipe(
     Effect.flatMap((jwk) => decodeDpopPublicJwk(jwk)),
     Effect.mapError((cause) =>
-      cause instanceof BrowserDpopError
+      isBrowserDpopError(cause)
         ? cause
-        : dpopError("Generated DPoP public key is invalid.", cause),
+        : new BrowserDpopError({ operation: "decode-public-key", cause }),
     ),
   );
   const privateKey = yield* Effect.tryPromise({
     try: () => importJWK(privateJwk as JWK, "ES256", { extractable: false }) as Promise<CryptoKey>,
-    catch: (cause) => dpopError("Could not import DPoP private key.", cause),
+    catch: (cause) => new BrowserDpopError({ operation: "import-private-key", cause }),
   });
   return {
     privateKey,
@@ -155,13 +188,13 @@ export function createBrowserDpopProof(input: {
   return Effect.gen(function* () {
     const normalizedUrl = yield* Effect.try({
       try: () => new URL(input.url),
-      catch: (cause) => dpopError("Could not normalize DPoP proof URL.", cause),
+      catch: (cause) => new BrowserDpopError({ operation: "normalize-proof-url", cause }),
     });
     normalizedUrl.search = "";
     normalizedUrl.hash = "";
     const jti = yield* Crypto.Crypto.pipe(
       Effect.flatMap((crypto) => crypto.randomUUIDv4),
-      Effect.mapError((cause) => dpopError("Could not generate DPoP proof identifier.", cause)),
+      Effect.mapError((cause) => new BrowserDpopError({ operation: "generate-proof-id", cause })),
     );
     const proof = yield* Effect.tryPromise({
       try: () =>
@@ -178,7 +211,7 @@ export function createBrowserDpopProof(input: {
           })
           .setIssuedAt()
           .sign(input.proofKey.privateKey),
-      catch: (cause) => dpopError("Could not sign DPoP proof.", cause),
+      catch: (cause) => new BrowserDpopError({ operation: "sign-proof", cause }),
     });
     return { proof, thumbprint: input.proofKey.thumbprint };
   });

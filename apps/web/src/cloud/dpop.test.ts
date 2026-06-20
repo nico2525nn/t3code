@@ -4,9 +4,31 @@ import * as Effect from "effect/Effect";
 import { decodeJwt } from "jose";
 import { vi } from "vite-plus/test";
 
-import { browserCryptoLayer, createBrowserDpopProof, generateBrowserDpopKey } from "./dpop";
+import {
+  BrowserDpopError,
+  type BrowserDpopKey,
+  browserCryptoLayer,
+  createBrowserDpopProof,
+  generateBrowserDpopKey,
+} from "./dpop";
 
 describe("browser DPoP proofs", () => {
+  it.effect("reports URL normalization failures structurally with their cause", () =>
+    Effect.gen(function* () {
+      const error = yield* createBrowserDpopProof({
+        method: "POST",
+        url: "not a URL",
+        proofKey: {} as BrowserDpopKey,
+      }).pipe(Effect.provide(browserCryptoLayer), Effect.flip);
+
+      expect(error).toBeInstanceOf(BrowserDpopError);
+      expect(error).toMatchObject({
+        operation: "normalize-proof-url",
+        cause: expect.any(TypeError),
+      });
+    }),
+  );
+
   it.effect("signs relay resource proofs with an access-token hash", () =>
     Effect.gen(function* () {
       vi.stubGlobal("indexedDB", undefined);

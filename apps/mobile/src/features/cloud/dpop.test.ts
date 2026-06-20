@@ -95,7 +95,24 @@ describe("mobile DPoP", () => {
 
       const error = yield* loadOrCreateDpopProofKeyPair().pipe(Effect.flip);
 
-      expect(error.message).toBe("Stored DPoP proof key is invalid.");
+      expect(error).toMatchObject({
+        operation: "decode-key",
+        cause: expect.anything(),
+      });
+    }).pipe(Effect.provide(cryptoLayer)),
+  );
+
+  it.effect("reports invalid proof URLs as a structural operation failure", () =>
+    Effect.gen(function* () {
+      const proofKey = yield* generateDpopProofKeyPair();
+      const error = yield* createDpopProof({
+        method: "POST",
+        url: "not a URL",
+        proofKey,
+      }).pipe(Effect.flip);
+
+      expect(error).toMatchObject({ operation: "normalize-proof-url" });
+      expect(error.cause).toBeUndefined();
     }).pipe(Effect.provide(cryptoLayer)),
   );
 
