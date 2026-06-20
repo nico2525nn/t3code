@@ -56,7 +56,7 @@ type ClaudeAgentSdkReplayTranscript = typeof ClaudeAgentSdkReplayTranscript.Type
 export class ClaudeReplayTranscriptDecodeError extends Schema.TaggedErrorClass<ClaudeReplayTranscriptDecodeError>()(
   "ClaudeReplayTranscriptDecodeError",
   {
-    provider: Schema.optional(Schema.String),
+    driver: Schema.optional(Schema.String),
     protocol: Schema.optional(Schema.String),
     scenario: Schema.optional(Schema.String),
     cause: Schema.Defect(),
@@ -2367,7 +2367,7 @@ export const ClaudeOrchestratorReplayHarness: OrchestratorV2ProviderReplayHarnes
   ClaudeAgentSdkReplayTranscript,
   ClaudeOrchestratorReplayHarnessError
 > = {
-  provider: CLAUDE_PROVIDER,
+  driver: CLAUDE_PROVIDER,
   decodeTranscript: (transcript) =>
     Schema.decodeUnknownEffect(ClaudeAgentSdkReplayTranscript)(transcript).pipe(
       Effect.mapError(

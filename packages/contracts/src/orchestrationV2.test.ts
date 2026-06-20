@@ -109,7 +109,7 @@ describe("orchestration V2 contracts", () => {
         id: "run-1",
         threadId: "thread-1",
         ordinal: 1,
-        provider: "codex",
+        providerInstanceId: "codex",
         modelSelection: {
           instanceId: "codex",
           model: "gpt-5.4",
@@ -129,6 +129,9 @@ describe("orchestration V2 contracts", () => {
 
     expect(command.commandId).toBe(CommandId.make("command-1"));
     expect(event.id).toBe(EventId.make("event-1"));
+    if (event.type !== "run.created") {
+      throw new Error(`Expected run.created, received ${event.type}.`);
+    }
     expect(event.payload.id).toBe(RunId.make("run-1"));
   });
 
@@ -200,7 +203,7 @@ describe("orchestration V2 contracts", () => {
       nodeId: "node-file-change-1",
       providerThreadId: "provider-thread-1",
       providerTurnId: "provider-turn-1",
-      nativeItemRef: { provider: "codex", nativeId: "item-file-change-1", strength: "strong" },
+      nativeItemRef: { driver: "codex", nativeId: "item-file-change-1", strength: "strong" },
       parentItemId: null,
       ordinal: 3,
       status: "completed",
@@ -221,7 +224,7 @@ describe("orchestration V2 contracts", () => {
       nodeId: "node-dynamic-1",
       providerThreadId: "provider-thread-1",
       providerTurnId: "provider-turn-1",
-      nativeItemRef: { provider: "codex", nativeId: "item-dynamic-1", strength: "strong" },
+      nativeItemRef: { driver: "codex", nativeId: "item-dynamic-1", strength: "strong" },
       parentItemId: null,
       ordinal: 4,
       status: "completed",
@@ -251,11 +254,12 @@ describe("orchestration V2 contracts", () => {
       parentNodeId: "node-root-1",
       origin: "provider_native",
       createdBy: "agent",
-      provider: "codex",
+      driver: "codex",
+      providerInstanceId: "codex",
       providerThreadId: "provider-thread-subagent-1",
       childThreadId: null,
       nativeTaskRef: {
-        provider: "codex",
+        driver: "codex",
         nativeId: "native-task-1",
         strength: "strong",
       },
@@ -283,7 +287,8 @@ describe("orchestration V2 contracts", () => {
       title: subagent.title,
       subagentId: subagent.id,
       origin: subagent.origin,
-      provider: subagent.provider,
+      driver: subagent.driver,
+      providerInstanceId: subagent.providerInstanceId,
       childThreadId: subagent.childThreadId,
       prompt: subagent.prompt,
       result: subagent.result,
@@ -305,7 +310,7 @@ describe("orchestration V2 contracts", () => {
         id: "thread-1",
         projectId: "project-1",
         title: "Thread",
-        defaultProvider: "codex",
+        providerInstanceId: "codex",
         modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
         runtimeMode: "full-access",
         interactionMode: "default",
@@ -342,7 +347,7 @@ describe("orchestration V2 contracts", () => {
           nodeId: "node-command-1",
           providerThreadId: "provider-thread-1",
           providerTurnId: "provider-turn-1",
-          nativeItemRef: { provider: "codex", nativeId: "item-command-1", strength: "strong" },
+          nativeItemRef: { driver: "codex", nativeId: "item-command-1", strength: "strong" },
           parentItemId: null,
           ordinal: 1,
           status: "completed",
@@ -369,7 +374,7 @@ describe("orchestration V2 contracts", () => {
             nodeId: "node-command-1",
             providerThreadId: "provider-thread-1",
             providerTurnId: "provider-turn-1",
-            nativeItemRef: { provider: "codex", nativeId: "item-command-1", strength: "strong" },
+            nativeItemRef: { driver: "codex", nativeId: "item-command-1", strength: "strong" },
             parentItemId: null,
             ordinal: 1,
             status: "completed",
@@ -407,7 +412,7 @@ describe("orchestration V2 contracts", () => {
       ordinal: 5,
       status: "running",
       title: "Compacting context...",
-      provider: "codex",
+      driver: "codex",
       beforeTokenCount: 180000,
       startedAt: now,
       completedAt: null,
@@ -429,8 +434,8 @@ describe("orchestration V2 contracts", () => {
       contextHandoffId: "handoff-1",
       fromProviderThreadIds: ["provider-thread-codex-1"],
       toProviderThreadId: "provider-thread-claude-1",
-      fromProviders: ["codex"],
-      toProvider: "claudeAgent",
+      fromProviderInstanceIds: ["codex"],
+      toProviderInstanceId: "claudeAgent",
       strategy: "delta_since_target_last_seen",
       summary: "Codex completed the setup work.",
       startedAt: now,
@@ -463,7 +468,7 @@ describe("orchestration V2 contracts", () => {
     if (handoff.type !== "handoff") {
       throw new Error("expected handoff");
     }
-    expect(handoff.toProvider).toBe("claudeAgent");
+    expect(handoff.toProviderInstanceId).toBe("claudeAgent");
     expect(fork.type).toBe("fork");
   });
 

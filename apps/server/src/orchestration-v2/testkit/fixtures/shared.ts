@@ -14,7 +14,7 @@ import {
   type OrchestrationV2UserMessageInputIntent,
   ProviderInstanceId,
   type ProviderInteractionMode,
-  type ProviderKind,
+  type ProviderDriverKind,
   type ProviderReplayTranscript,
   type ProviderUserInputAnswers,
 } from "@t3tools/contracts";
@@ -197,7 +197,7 @@ export interface OrchestratorFixtureInput {
 }
 
 export interface ProviderOrchestratorReplayVariant {
-  readonly provider: ProviderKind;
+  readonly driver: ProviderDriverKind;
   readonly transcriptFile: URL;
   readonly modelSelection: ModelSelection;
   readonly runtimePolicyOverride?: RuntimePolicyV2Override;
@@ -356,6 +356,7 @@ export function dispatchMessageCommand(input: {
 export function materializeFixtureInput(input: {
   readonly scenario: string;
   readonly fixtureInput: OrchestratorFixtureInput;
+  readonly driver: ProviderDriverKind;
   readonly modelSelection: ModelSelection;
 }): Effect.Effect<MaterializedOrchestratorFixtureInput, IdAllocatorV2Error, IdAllocatorV2> {
   return Effect.gen(function* () {
@@ -484,7 +485,7 @@ export function materializeFixtureInput(input: {
               }),
               threadId: ids.threadId,
               requestId: yield* idAllocator.allocate.runtimeRequest({
-                provider: input.modelSelection.instanceId,
+                driver: input.driver,
                 nativeRequestId: `fixture-placeholder-${messageIndex}`,
               }),
               answers: step.answers,
@@ -510,7 +511,7 @@ export function materializeFixtureInput(input: {
               }),
               threadId: ids.threadId,
               requestId: yield* idAllocator.allocate.runtimeRequest({
-                provider: input.modelSelection.instanceId,
+                driver: input.driver,
                 nativeRequestId: `fixture-placeholder-${messageIndex}`,
               }),
               decision: step.decision ?? "accept",
@@ -680,7 +681,10 @@ export function assertBaseProjection(input: {
 }) {
   const projection = projectionFor(input.result, input.transcript.scenario);
 
-  assert.equal(projection.thread.defaultProvider, input.transcript.provider);
+  assert.equal(
+    projection.thread.providerInstanceId,
+    ProviderInstanceId.make(input.transcript.provider),
+  );
   assert.lengthOf(projection.runs, input.runCount);
   assert.isAtLeast(projection.providerThreads.length, 1);
   assert.isAtLeast(

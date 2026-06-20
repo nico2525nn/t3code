@@ -49,7 +49,6 @@ import {
   AssetAccessError,
   EnvironmentAuthorizationError,
   ThreadId,
-  type OrchestrationV2ThreadShell,
   type TerminalAttachStreamEvent,
   type TerminalError,
   type TerminalEvent,
@@ -72,6 +71,7 @@ import {
   ThreadManagementService,
   withCreationProvenance,
 } from "./orchestration-v2/ThreadManagementService.ts";
+import { shellStreamItemFromSnapshot } from "./orchestration-v2/ShellStream.ts";
 import { userFacingDispatchErrorMessage } from "./orchestration-v2/UserFacingErrors.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
@@ -819,7 +819,7 @@ const makeWsRpcLayer = (currentSession: AuthenticatedSession) =>
             "orchestration_v2.thread_id": input.threadId,
           });
 
-          const projection = yield* threadManagement.getThreadProjection(input.threadId).pipe(
+          const snapshot = yield* threadManagement.getThreadSnapshot(input.threadId).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationV2GetThreadProjectionError({
@@ -829,36 +829,28 @@ const makeWsRpcLayer = (currentSession: AuthenticatedSession) =>
                 }),
             ),
           );
-          const snapshotSequence = yield* threadManagement
-            .getThreadEventSequence(input.threadId)
+          const { projection, snapshotSequence } = snapshot;
+
+          const liveStream = threadManagement
+            .streamStoredEventsFrom({
+              threadId: input.threadId,
+              afterSequence: snapshotSequence,
+            })
             .pipe(
-              Effect.mapError(
+              Stream.map((stored) => ({
+                kind: "event" as const,
+                sequence: stored.sequence,
+                event: stored.event,
+              })),
+              Stream.mapError(
                 (cause) =>
                   new OrchestrationV2GetThreadProjectionError({
                     threadId: input.threadId,
-                    message: `Failed to load orchestration V2 sequence for thread ${input.threadId}`,
+                    message: `Failed while streaming orchestration V2 thread ${input.threadId}`,
                     cause,
                   }),
               ),
             );
-
-          const liveStream = threadManagement.streamStoredEvents.pipe(
-            Stream.filter((stored) => stored.event.threadId === input.threadId),
-            Stream.filter((stored) => stored.sequence > snapshotSequence),
-            Stream.map((stored) => ({
-              kind: "event" as const,
-              sequence: stored.sequence,
-              event: stored.event,
-            })),
-            Stream.mapError(
-              (cause) =>
-                new OrchestrationV2GetThreadProjectionError({
-                  threadId: input.threadId,
-                  message: `Failed while streaming orchestration V2 thread ${input.threadId}`,
-                  cause,
-                }),
-            ),
-          );
 
           return Stream.concat(
             Stream.make({
@@ -883,35 +875,31 @@ const makeWsRpcLayer = (currentSession: AuthenticatedSession) =>
             ),
           );
 
-          const liveStream = threadManagement.streamDomainEvents.pipe(
-            Stream.mapEffect((event) =>
-              threadManagement.getShellSnapshot().pipe(
-                Effect.map(
-                  (nextSnapshot) =>
-                    nextSnapshot.threads.find((thread) => thread.id === event.threadId) ?? null,
-                ),
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationV2GetShellSnapshotError({
-                      message: `Failed while streaming orchestration V2 shell thread ${event.threadId}`,
-                      cause,
-                    }),
+          const liveStream = threadManagement
+            .streamStoredEventsFrom({ afterSequence: snapshot.snapshotSequence })
+            .pipe(
+              Stream.mapEffect((stored) =>
+                threadManagement.getShellSnapshot().pipe(
+                  Effect.map((nextSnapshot) =>
+                    shellStreamItemFromSnapshot({ stored, snapshot: nextSnapshot }),
+                  ),
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationV2GetShellSnapshotError({
+                        message: `Failed while streaming orchestration V2 shell thread ${stored.event.threadId}`,
+                        cause,
+                      }),
+                  ),
                 ),
               ),
-            ),
-            Stream.filter((thread): thread is OrchestrationV2ThreadShell => thread !== null),
-            Stream.map((thread) => ({
-              kind: "thread.updated" as const,
-              thread,
-            })),
-            Stream.mapError(
-              (cause) =>
-                new OrchestrationV2GetShellSnapshotError({
-                  message: "Failed while streaming orchestration V2 shell",
-                  cause,
-                }),
-            ),
-          );
+              Stream.mapError(
+                (cause) =>
+                  new OrchestrationV2GetShellSnapshotError({
+                    message: "Failed while streaming orchestration V2 shell",
+                    cause,
+                  }),
+              ),
+            );
 
           return Stream.concat(
             Stream.make({

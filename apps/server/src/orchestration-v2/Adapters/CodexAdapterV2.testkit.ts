@@ -25,7 +25,7 @@ import {
 export class CodexReplayTranscriptDecodeError extends Schema.TaggedErrorClass<CodexReplayTranscriptDecodeError>()(
   "CodexReplayTranscriptDecodeError",
   {
-    provider: Schema.optional(Schema.String),
+    driver: Schema.optional(Schema.String),
     protocol: Schema.optional(Schema.String),
     scenario: Schema.optional(Schema.String),
     cause: Schema.Defect(),
@@ -149,7 +149,7 @@ export function makeCodexProviderAdapterRegistryReplayLayer(input: {
           Effect.mapError(
             (cause) =>
               new ProviderAdapterOpenSessionError({
-                provider: "codex",
+                driver: CODEX_DRIVER_KIND,
                 providerSessionId: openInput.providerSessionId,
                 cause,
               }),
@@ -189,7 +189,7 @@ export const CodexOrchestratorReplayHarness: OrchestratorV2ProviderReplayHarness
   CodexReplay.CodexAppServerReplayTranscript,
   CodexOrchestratorReplayHarnessError
 > = {
-  provider: "codex",
+  driver: CODEX_DRIVER_KIND,
   decodeTranscript: (transcript) =>
     Schema.decodeUnknownEffect(CodexReplay.CodexAppServerReplayTranscript)(transcript).pipe(
       Effect.mapError(

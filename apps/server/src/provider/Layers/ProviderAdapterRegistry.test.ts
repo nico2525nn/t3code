@@ -124,6 +124,7 @@ const makeFakeInstance = (
       streamChanges: Stream.empty,
     },
     adapter,
+    orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
     textGeneration: {} as unknown as TextGenerationShape,
   };
 };

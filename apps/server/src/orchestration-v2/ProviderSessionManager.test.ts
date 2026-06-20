@@ -8,6 +8,7 @@ import {
   type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
+  ProviderDriverKind,
   ProviderInstanceId,
   type ProviderSessionId,
   ThreadId,
@@ -75,6 +76,7 @@ const modelSelection = {
   instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5.4",
 } satisfies ModelSelection;
+const CODEX_DRIVER = ProviderDriverKind.make("codex");
 
 const runtimePolicy = {
   runtimeMode: "full-access",
@@ -88,7 +90,8 @@ function makeProviderSession(input: {
 }): OrchestrationV2ProviderSession {
   return {
     id: input.providerSessionId,
-    provider: "codex",
+    driver: CODEX_DRIVER,
+    providerInstanceId: modelSelection.instanceId,
     status: "ready",
     cwd: process.cwd(),
     model: "gpt-5.4",
@@ -109,7 +112,7 @@ function makeThreadCreatedEvent(input: {
       fixtureName: "provider-session-manager",
     });
     const providerThreadId = input.idAllocator.derive.providerThread({
-      provider: "codex",
+      driver: CODEX_DRIVER,
       nativeThreadId: "native-thread",
     });
     const thread: OrchestrationV2AppThread = {
@@ -118,7 +121,7 @@ function makeThreadCreatedEvent(input: {
       id: input.threadId,
       projectId,
       title: "Provider session manager",
-      defaultProvider: "codex",
+      providerInstanceId: modelSelection.instanceId,
       modelSelection,
       runtimeMode: "full-access",
       interactionMode: "default",
@@ -154,15 +157,16 @@ function makeProviderThread(input: {
 }): OrchestrationV2ProviderThread {
   return {
     id: input.idAllocator.derive.providerThread({
-      provider: "codex",
+      driver: CODEX_DRIVER,
       nativeThreadId: "native-thread",
     }),
-    provider: "codex",
+    driver: CODEX_DRIVER,
+    providerInstanceId: modelSelection.instanceId,
     providerSessionId: input.providerSessionId,
     appThreadId: input.threadId,
     ownerNodeId: null,
     nativeThreadRef: {
-      provider: "codex",
+      driver: CODEX_DRIVER,
       nativeId: "native-thread",
       strength: "strong",
     },
@@ -180,7 +184,7 @@ function makeProviderThread(input: {
 function unimplemented(detail: string) {
   return Effect.fail(
     new ProviderAdapterProtocolError({
-      provider: "codex",
+      driver: CODEX_DRIVER,
       detail,
     }),
   );
@@ -197,7 +201,7 @@ function makeProviderAdapter(
 ): ProviderAdapterV2Shape {
   return {
     instanceId: ProviderInstanceId.make("codex"),
-    provider: "codex",
+    driver: CODEX_DRIVER,
     getCapabilities: () => Effect.succeed(CodexCapabilities),
     openSession: (input) =>
       Effect.gen(function* () {
@@ -231,14 +235,14 @@ function makeProviderAdapter(
 
         return {
           instanceId: ProviderInstanceId.make("codex"),
-          provider: "codex",
+          driver: CODEX_DRIVER,
           providerSessionId: input.providerSessionId,
           providerSession: session,
           rawEvents: Stream.empty,
           events: options.failEventStream
             ? Stream.fail(
                 new ProviderAdapterEventStreamError({
-                  provider: "codex",
+                  driver: CODEX_DRIVER,
                   providerSessionId: input.providerSessionId,
                   cause: "process exited",
                 }),
@@ -309,7 +313,7 @@ function makePendingRuntimeRequestEvents(input: {
 }) {
   return Effect.gen(function* () {
     const requestId = yield* input.idAllocator.allocate.runtimeRequest({
-      provider: "codex",
+      driver: CODEX_DRIVER,
       nativeRequestId: "pending-approval",
     });
     const nodeId = input.idAllocator.derive.approvalNode({ requestId });
@@ -335,7 +339,7 @@ function makePendingRuntimeRequestEvents(input: {
       nodeId,
       providerTurnId: null,
       nativeRequestRef: {
-        provider: "codex" as const,
+        driver: CODEX_DRIVER,
         nativeId: "pending-approval",
         strength: "strong" as const,
       },
@@ -376,7 +380,7 @@ function makePendingRuntimeRequestEvents(input: {
         type: "node.updated" as const,
         threadId: input.threadId,
         nodeId,
-        provider: "codex" as const,
+        driver: CODEX_DRIVER,
         occurredAt: input.now,
         payload: node,
       },
@@ -388,7 +392,7 @@ function makePendingRuntimeRequestEvents(input: {
         type: "runtime-request.updated" as const,
         threadId: input.threadId,
         nodeId,
-        provider: "codex" as const,
+        driver: CODEX_DRIVER,
         occurredAt: input.now,
         payload: request,
       },
@@ -400,7 +404,7 @@ function makePendingRuntimeRequestEvents(input: {
         type: "turn-item.updated" as const,
         threadId: input.threadId,
         nodeId,
-        provider: "codex" as const,
+        driver: CODEX_DRIVER,
         occurredAt: input.now,
         payload: turnItem,
       },
@@ -418,7 +422,7 @@ it.effect("ProviderSessionManagerV2 releases live sessions when its layer shuts 
       const now = yield* DateTime.now;
       const threadId = ThreadId.make("thread-provider-session-manager-shutdown");
       const providerSessionId = yield* idAllocator.allocate.providerSession({
-        provider: "codex",
+        providerInstanceId: modelSelection.instanceId,
         threadId,
       });
 
@@ -466,7 +470,7 @@ it.effect(
         const now = yield* DateTime.now;
         const threadId = ThreadId.make("thread-provider-session-manager-mcp");
         const providerSessionId = yield* idAllocator.allocate.providerSession({
-          provider: "codex",
+          providerInstanceId: modelSelection.instanceId,
           threadId,
         });
 
@@ -525,7 +529,7 @@ it.effect("ProviderSessionManagerV2 releases idle sessions without sweeping all 
         projectId,
       });
       const providerSessionId = yield* idAllocator.allocate.providerSession({
-        provider: "codex",
+        providerInstanceId: modelSelection.instanceId,
         threadId,
       });
 
@@ -575,7 +579,7 @@ it.effect(
           projectId,
         });
         const providerSessionId = yield* idAllocator.allocate.providerSession({
-          provider: "codex",
+          providerInstanceId: modelSelection.instanceId,
           threadId,
         });
         const providerThread = makeProviderThread({
@@ -588,7 +592,7 @@ it.effect(
         const attemptId = idAllocator.derive.runAttempt({ runId, attemptOrdinal: 1 });
         const rootNodeId = idAllocator.derive.rootNode({ runId });
         const providerTurnId = idAllocator.derive.providerTurn({
-          provider: "codex",
+          driver: CODEX_DRIVER,
           nativeTurnId: "native-turn",
         });
 
@@ -631,7 +635,7 @@ it.effect(
         assert.isDefined(queue);
         yield* Queue.offer(queue!, {
           type: "turn.terminal",
-          provider: "codex",
+          driver: CODEX_DRIVER,
           providerTurnId,
           status: "completed",
         });
@@ -666,7 +670,7 @@ it.effect("ProviderSessionManagerV2 uses the same release path for runtime failu
         projectId,
       });
       const providerSessionId = yield* idAllocator.allocate.providerSession({
-        provider: "codex",
+        providerInstanceId: modelSelection.instanceId,
         threadId,
       });
 
@@ -716,7 +720,7 @@ it.effect("ProviderSessionManagerV2 releases sessions when provider event stream
         projectId,
       });
       const providerSessionId = yield* idAllocator.allocate.providerSession({
-        provider: "codex",
+        providerInstanceId: modelSelection.instanceId,
         threadId,
       });
 
@@ -770,7 +774,7 @@ it.effect("ProviderSessionManagerV2 marks pending runtime requests non-live on r
         projectId,
       });
       const providerSessionId = yield* idAllocator.allocate.providerSession({
-        provider: "codex",
+        providerInstanceId: modelSelection.instanceId,
         threadId,
       });
       const providerThread = makeProviderThread({
@@ -844,7 +848,7 @@ it.effect(
           projectId,
         });
         const providerSessionId = yield* idAllocator.allocate.providerSession({
-          provider: "codex",
+          providerInstanceId: modelSelection.instanceId,
           threadId: firstThreadId,
         });
         const firstProviderThread = makeProviderThread({
@@ -862,11 +866,11 @@ it.effect(
         const firstRunId = idAllocator.derive.run({ threadId: firstThreadId, ordinal: 1 });
         const secondRunId = idAllocator.derive.run({ threadId: secondThreadId, ordinal: 1 });
         const firstProviderTurnId = idAllocator.derive.providerTurn({
-          provider: "codex",
+          driver: CODEX_DRIVER,
           nativeTurnId: "native-turn-a",
         });
         const secondProviderTurnId = idAllocator.derive.providerTurn({
-          provider: "codex",
+          driver: CODEX_DRIVER,
           nativeTurnId: "native-turn-b",
         });
 
@@ -937,7 +941,7 @@ it.effect(
         assert.isDefined(queue);
         yield* Queue.offer(queue!, {
           type: "turn.terminal",
-          provider: "codex",
+          driver: CODEX_DRIVER,
           providerTurnId: firstProviderTurnId,
           status: "completed",
         });
@@ -947,7 +951,7 @@ it.effect(
 
         yield* Queue.offer(queue!, {
           type: "turn.terminal",
-          provider: "codex",
+          driver: CODEX_DRIVER,
           providerTurnId: secondProviderTurnId,
           status: "completed",
         });
