@@ -1,17 +1,29 @@
-import type { DesktopBridge, DesktopDiscoveredSshHost } from "@t3tools/contracts";
+import type { DesktopBridge } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/unstable/reactivity";
 
 type DesktopSshDiscoveryBridge = Pick<DesktopBridge, "discoverSshHosts">;
 
-class DesktopSshDiscoveryError extends Schema.TaggedErrorClass<DesktopSshDiscoveryError>()(
+export class DesktopSshDiscoveryBridgeUnavailableError extends Schema.TaggedErrorClass<DesktopSshDiscoveryBridgeUnavailableError>()(
+  "DesktopSshDiscoveryBridgeUnavailableError",
+  {},
+) {
+  override get message(): string {
+    return "Desktop SSH host discovery is unavailable.";
+  }
+}
+
+export class DesktopSshDiscoveryError extends Schema.TaggedErrorClass<DesktopSshDiscoveryError>()(
   "DesktopSshDiscoveryError",
   {
-    message: Schema.String,
-    cause: Schema.optional(Schema.Defect()),
+    cause: Schema.Defect(),
   },
-) {}
+) {
+  override get message(): string {
+    return "Failed to discover SSH hosts.";
+  }
+}
 
 function getDesktopSshDiscoveryBridge(): DesktopSshDiscoveryBridge | undefined {
   return typeof window === "undefined" ? undefined : window.desktopBridge;
@@ -23,17 +35,11 @@ export function createDesktopSshHostsStateAtom(
   const discoverDesktopSshHosts = Effect.fn("discoverDesktopSshHosts")(function* () {
     const bridge = getBridge();
     if (!bridge) {
-      return yield* new DesktopSshDiscoveryError({
-        message: "Desktop SSH host discovery is unavailable.",
-      });
+      return yield* new DesktopSshDiscoveryBridgeUnavailableError();
     }
     return yield* Effect.tryPromise({
-      try: (): Promise<ReadonlyArray<DesktopDiscoveredSshHost>> => bridge.discoverSshHosts(),
-      catch: (cause) =>
-        new DesktopSshDiscoveryError({
-          message: cause instanceof Error ? cause.message : "Failed to discover SSH hosts.",
-          cause,
-        }),
+      try: () => bridge.discoverSshHosts(),
+      catch: (cause) => new DesktopSshDiscoveryError({ cause }),
     });
   });
 
