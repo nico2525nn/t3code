@@ -13,6 +13,6 @@ export const encodeEndpointRuntimeConfigJson = Schema.encodeEffect(
   Schema.fromJsonString(RelayManagedEndpointRuntimeConfig),
 );
 
-export const decodeRuntimeConfig = Schema.decodeUnknownOption(
+export const decodeRuntimeConfig = Schema.decodeUnknownEffect(
   Schema.fromJsonString(RelayManagedEndpointRuntimeConfig),
 );

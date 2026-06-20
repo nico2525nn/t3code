@@ -4,6 +4,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Sink from "effect/Sink";
@@ -31,23 +32,26 @@ const relayClientAvailableLayer = Layer.succeed(
 const runtimeDependencies = (
   spawner: ReturnType<typeof ChildProcessSpawner.make>,
   relayClientLayer = relayClientAvailableLayer,
+  getSecret: ServerSecretStore.ServerSecretStore["Service"]["get"] = () =>
+    Effect.succeed(Option.none()),
 ) =>
   Layer.mergeAll(
     Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
     relayClientLayer,
     Layer.mock(ServerSecretStore.ServerSecretStore)({
-      get: () => Effect.succeed(Option.none()),
+      get: getSecret,
     }),
   );
 
 const buildCloudManagedEndpointRuntime = (
   spawner: ReturnType<typeof ChildProcessSpawner.make>,
   relayClientLayer = relayClientAvailableLayer,
+  getSecret?: ServerSecretStore.ServerSecretStore["Service"]["get"],
 ) =>
   Effect.gen(function* () {
     const context = yield* Layer.build(
       ManagedEndpointRuntime.layer.pipe(
-        Layer.provide(runtimeDependencies(spawner, relayClientLayer)),
+        Layer.provide(runtimeDependencies(spawner, relayClientLayer, getSecret)),
       ),
     );
     return yield* Effect.service(ManagedEndpointRuntime.CloudManagedEndpointRuntime).pipe(
@@ -59,12 +63,13 @@ function makeHandle(input: {
   readonly pid: number;
   readonly onKill: () => void;
   readonly isRunning?: () => boolean;
+  readonly isRunningEffect?: ChildProcessSpawner.ChildProcessHandle["isRunning"];
   readonly exitCode?: Effect.Effect<ChildProcessSpawner.ExitCode>;
 }) {
   return ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(input.pid),
     exitCode: input.exitCode ?? Effect.never,
-    isRunning: Effect.sync(() => input.isRunning?.() ?? true),
+    isRunning: input.isRunningEffect ?? Effect.sync(() => input.isRunning?.() ?? true),
     kill: () =>
       Effect.sync(() => {
         input.onKill();
@@ -193,18 +198,29 @@ describe("CloudManagedEndpointRuntime", () => {
     }),
   );
 
-  it.effect("restarts the connector when the active process has exited", () =>
-    Effect.gen(function* () {
+  it.effect("restarts after exit or a failed active-process probe", () => {
+    const logMessages: unknown[] = [];
+    const logger = Logger.make(({ message }) => {
+      logMessages.push(message);
+    });
+
+    return Effect.gen(function* () {
       const spawned: Array<number> = [];
       const killed: Array<number> = [];
-      let firstRunning = true;
+      const probeCause = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "ChildProcess",
+        method: "isRunning",
+        description: "process state is unavailable",
+      });
+      let activeProbe: ChildProcessSpawner.ChildProcessHandle["isRunning"] = Effect.succeed(true);
       const spawner = ChildProcessSpawner.make(() =>
         Effect.gen(function* () {
-          const pid = spawned.length === 0 ? 300 : 301;
+          const pid = 300 + spawned.length;
           spawned.push(pid);
           const handle = makeHandle({
             pid,
-            isRunning: () => (pid === 300 ? firstRunning : true),
+            isRunningEffect: Effect.suspend(() => activeProbe),
             onKill: () => {
               killed.push(pid);
             },
@@ -221,15 +237,30 @@ describe("CloudManagedEndpointRuntime", () => {
       };
 
       const first = yield* runtime.applyConfig(config);
-      firstRunning = false;
+      activeProbe = Effect.succeed(false);
       const second = yield* runtime.applyConfig(config);
+      activeProbe = Effect.fail(probeCause);
+      const third = yield* runtime.applyConfig(config);
 
       expect(first).toMatchObject({ status: "running", pid: 300 });
       expect(second).toMatchObject({ status: "running", pid: 301 });
-      expect(spawned).toEqual([300, 301]);
-      expect(killed).toEqual([300]);
-    }),
-  );
+      expect(third).toMatchObject({ status: "running", pid: 302 });
+      expect(spawned).toEqual([300, 301, 302]);
+      expect(killed).toEqual([300, 301]);
+
+      const warning = logMessages.find(
+        (message) =>
+          Array.isArray(message) && message[0] === "Failed to inspect relay client process",
+      );
+      expect(warning).toBeDefined();
+      if (!Array.isArray(warning)) return;
+      expect(warning[1]).toMatchObject({
+        pid: 301,
+        tunnelId: "tunnel-1",
+      });
+      expect((warning[1] as { cause: unknown }).cause).toBe(probeCause);
+    }).pipe(Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+  });
 
   it.effect("supervises the active connector and restarts it after process exit", () =>
     Effect.gen(function* () {
@@ -347,10 +378,42 @@ describe("CloudManagedEndpointRuntime", () => {
       expect(status).toMatchObject({
         status: "failed",
         providerKind: "cloudflare_tunnel",
+        reason: "Failed to start the relay client.",
         tunnelId: "tunnel-1",
       });
     }),
   );
+
+  it.effect("retains malformed persisted runtime configuration diagnostics", () => {
+    const logMessages: unknown[] = [];
+    const logger = Logger.make(({ message }) => {
+      logMessages.push(message);
+    });
+    const spawn = vi.fn();
+    const spawner = ChildProcessSpawner.make(spawn);
+
+    return Effect.gen(function* () {
+      yield* buildCloudManagedEndpointRuntime(spawner, relayClientAvailableLayer, () =>
+        Effect.succeed(Option.some(new TextEncoder().encode("not-json"))),
+      );
+
+      expect(spawn).not.toHaveBeenCalled();
+      const warning = logMessages.find(
+        (message) =>
+          Array.isArray(message) && message[0] === "Failed to read managed endpoint runtime config",
+      );
+      expect(warning).toBeDefined();
+      if (!Array.isArray(warning)) return;
+      const cause = (warning[1] as { cause: unknown }).cause;
+      expect(cause).toMatchObject({
+        _tag: "CloudManagedEndpointRuntimeConfigDecodeError",
+        resource: "cloud-endpoint-runtime-config",
+      });
+      expect(
+        (cause as ManagedEndpointRuntime.CloudManagedEndpointRuntimeConfigDecodeError).cause,
+      ).toBeDefined();
+    }).pipe(Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
+  });
 
   it.effect("reports a missing relay client executable without spawning", () =>
     Effect.gen(function* () {

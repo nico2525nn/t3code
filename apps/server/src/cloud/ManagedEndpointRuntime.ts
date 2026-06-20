@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -15,6 +16,18 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { CLOUD_ENDPOINT_RUNTIME_CONFIG, decodeRuntimeConfig } from "./config.ts";
+
+export class CloudManagedEndpointRuntimeConfigDecodeError extends Schema.TaggedErrorClass<CloudManagedEndpointRuntimeConfigDecodeError>()(
+  "CloudManagedEndpointRuntimeConfigDecodeError",
+  {
+    resource: Schema.Literal(CLOUD_ENDPOINT_RUNTIME_CONFIG),
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Failed to decode managed endpoint runtime configuration from ${this.resource}.`;
+  }
+}
 
 function bytesToString(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
@@ -26,7 +39,15 @@ const readRuntimeConfig = Effect.gen(function* () {
   if (Option.isNone(bytes)) {
     return null;
   }
-  return Option.getOrNull(decodeRuntimeConfig(bytesToString(bytes.value)));
+  return yield* decodeRuntimeConfig(bytesToString(bytes.value)).pipe(
+    Effect.mapError(
+      (cause) =>
+        new CloudManagedEndpointRuntimeConfigDecodeError({
+          resource: CLOUD_ENDPOINT_RUNTIME_CONFIG,
+          cause,
+        }),
+    ),
+  );
 });
 
 export type CloudManagedEndpointRuntimeStatus =
@@ -92,7 +113,14 @@ const stopConnector = (connector: ActiveConnector | null) =>
             pid: Number(connector.child.pid),
           }),
         ),
-        Effect.ignore,
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Failed to stop relay client", {
+            cause,
+            pid: Number(connector.child.pid),
+            tunnelId: connector.config.tunnelId,
+            tunnelName: connector.config.tunnelName,
+          }),
+        ),
       )
     : Effect.void;
 
@@ -192,7 +220,16 @@ export const make = Effect.gen(function* () {
     const nextConfigKey = runtimeConfigKey(config);
     const active = yield* Ref.get(activeRef);
     if (active?.configKey === nextConfigKey) {
-      const isRunning = yield* active.child.isRunning.pipe(Effect.orElseSucceed(() => false));
+      const isRunning = yield* active.child.isRunning.pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Failed to inspect relay client process", {
+            cause,
+            pid: Number(active.child.pid),
+            tunnelId: active.config.tunnelId,
+            tunnelName: active.config.tunnelName,
+          }).pipe(Effect.as(false)),
+        ),
+      );
       if (isRunning) {
         return {
           status: "running",
@@ -253,7 +290,7 @@ export const make = Effect.gen(function* () {
             Effect.as({
               status: "failed",
               providerKind: "cloudflare_tunnel",
-              reason: String(cause),
+              reason: "Failed to start the relay client.",
               ...(config.tunnelId ? { tunnelId: config.tunnelId } : {}),
               ...(config.tunnelName ? { tunnelName: config.tunnelName } : {}),
             } satisfies CloudManagedEndpointRuntimeStatus),
