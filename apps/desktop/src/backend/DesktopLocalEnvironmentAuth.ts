@@ -21,10 +21,13 @@ export class DesktopLocalEnvironmentAuthBackendNotConfiguredError extends Schema
 
 export class DesktopLocalEnvironmentAuthSessionBootstrapError extends Schema.TaggedErrorClass<DesktopLocalEnvironmentAuthSessionBootstrapError>()(
   "DesktopLocalEnvironmentAuthSessionBootstrapError",
-  { cause: Schema.Defect() },
+  {
+    backendOrigin: Schema.String,
+    cause: Schema.Defect(),
+  },
 ) {
   override get message(): string {
-    return "Failed to create the local desktop bearer session.";
+    return `Failed to create the local desktop bearer session for ${this.backendOrigin}.`;
   }
 }
 
@@ -60,6 +63,7 @@ export const make = Effect.gen(function* () {
           return yield* new DesktopLocalEnvironmentAuthBackendNotConfiguredError();
         }
         const config = configOption.value;
+        const backendOrigin = config.httpBaseUrl.origin;
         const session = yield* bootstrapRemoteBearerSession({
           httpBaseUrl: config.httpBaseUrl.href,
           credential: config.bootstrap.desktopBootstrapToken,
@@ -72,6 +76,7 @@ export const make = Effect.gen(function* () {
           Effect.mapError(
             (cause) =>
               new DesktopLocalEnvironmentAuthSessionBootstrapError({
+                backendOrigin,
                 cause,
               }),
           ),

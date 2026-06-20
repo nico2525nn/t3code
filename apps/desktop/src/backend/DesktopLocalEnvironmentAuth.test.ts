@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
+import { RemoteEnvironmentAuthInvalidJsonError } from "@t3tools/client-runtime/authorization";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -28,12 +29,29 @@ const config: DesktopBackendManager.DesktopBackendStartConfig = {
   captureOutput: true,
 };
 
+const managerLayer = Layer.succeed(DesktopBackendManager.DesktopBackendManager, {
+  start: Effect.void,
+  stop: () => Effect.void,
+  currentConfig: Effect.succeed(Option.some(config)),
+  snapshot: Effect.succeed({
+    desiredRunning: true,
+    ready: true,
+    activePid: Option.none(),
+    restartAttempt: 0,
+    restartScheduled: false,
+  }),
+});
+
+const testLayer = (httpClient: HttpClient.HttpClient) =>
+  DesktopLocalEnvironmentAuth.layer.pipe(
+    Layer.provide(Layer.mergeAll(managerLayer, Layer.succeed(HttpClient.HttpClient, httpClient))),
+  );
+
 describe("DesktopLocalEnvironmentAuth", () => {
   it.effect("exchanges the desktop bootstrap credential only once", () =>
     Effect.gen(function* () {
       const requestCount = yield* Ref.make(0);
-      const httpClientLayer = Layer.succeed(
-        HttpClient.HttpClient,
+      const layer = testLayer(
         HttpClient.make((request) =>
           Ref.update(requestCount, (count) => count + 1).pipe(
             Effect.as(
@@ -54,30 +72,41 @@ describe("DesktopLocalEnvironmentAuth", () => {
           ),
         ),
       );
-      const managerLayer = Layer.succeed(DesktopBackendManager.DesktopBackendManager, {
-        start: Effect.void,
-        stop: () => Effect.void,
-        currentConfig: Effect.succeed(Option.some(config)),
-        snapshot: Effect.succeed({
-          desiredRunning: true,
-          ready: true,
-          activePid: Option.none(),
-          restartAttempt: 0,
-          restartScheduled: false,
-        }),
-      });
-      const testLayer = DesktopLocalEnvironmentAuth.layer.pipe(
-        Layer.provide(Layer.mergeAll(managerLayer, httpClientLayer)),
-      );
 
       const [first, second] = yield* Effect.gen(function* () {
         const auth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth;
         return yield* Effect.all([auth.getBearerToken, auth.getBearerToken]);
-      }).pipe(Effect.provide(testLayer));
+      }).pipe(Effect.provide(layer));
 
       assert.strictEqual(first, "desktop-bearer-token");
       assert.strictEqual(second, "desktop-bearer-token");
       assert.strictEqual(yield* Ref.get(requestCount), 1);
+    }),
+  );
+
+  it.effect("preserves the backend origin and bootstrap failure cause", () =>
+    Effect.gen(function* () {
+      const layer = testLayer(
+        HttpClient.make((request) =>
+          Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ unexpected: true }))),
+        ),
+      );
+
+      const error = yield* Effect.gen(function* () {
+        const auth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth;
+        return yield* auth.getBearerToken;
+      }).pipe(Effect.provide(layer), Effect.flip);
+
+      assert.instanceOf(
+        error,
+        DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuthSessionBootstrapError,
+      );
+      assert.strictEqual(error.backendOrigin, "http://127.0.0.1:3773");
+      assert.strictEqual(
+        error.message,
+        "Failed to create the local desktop bearer session for http://127.0.0.1:3773.",
+      );
+      assert.instanceOf(error.cause, RemoteEnvironmentAuthInvalidJsonError);
     }),
   );
 });
