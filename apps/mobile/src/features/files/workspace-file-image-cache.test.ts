@@ -1,8 +1,13 @@
+import * as Cause from "effect/Cause";
+import * as Option from "effect/Option";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createWorkspaceFileImageAtomFamily } from "./workspace-file-image-cache";
+import {
+  createWorkspaceFileImageAtomFamily,
+  isWorkspaceImagePrefetchError,
+} from "./workspace-file-image-cache";
 
 describe("workspaceFileImageAtom", () => {
   it("reuses a prefetched image across route remounts", async () => {
@@ -49,13 +54,26 @@ describe("workspaceFileImageAtom", () => {
   });
 
   it("exposes prefetch failures", async () => {
-    const imageAtom = createWorkspaceFileImageAtomFamily({ prefetch: async () => false });
+    const cause = new Error("native image prefetch failed");
+    const imageAtom = createWorkspaceFileImageAtomFamily({
+      prefetch: async () => {
+        throw cause;
+      },
+    });
     const registry = AtomRegistry.make();
     const atom = imageAtom("https://example.test/missing.png");
     const unmount = registry.mount(atom);
 
-    await vi.waitFor(() => {
-      expect(AsyncResult.isFailure(registry.get(atom))).toBe(true);
+    await vi.waitFor(() => expect(AsyncResult.isFailure(registry.get(atom))).toBe(true));
+    const result = registry.get(atom);
+    const error = AsyncResult.isFailure(result)
+      ? Option.getOrUndefined(Cause.findErrorOption(result.cause))
+      : undefined;
+
+    expect(isWorkspaceImagePrefetchError(error)).toBe(true);
+    expect(error).toMatchObject({
+      uri: "https://example.test/missing.png",
+      cause,
     });
 
     unmount();

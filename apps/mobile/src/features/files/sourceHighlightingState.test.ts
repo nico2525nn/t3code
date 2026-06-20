@@ -1,9 +1,12 @@
+import * as Cause from "effect/Cause";
+import * as Option from "effect/Option";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   createSourceHighlightAtomFamily,
+  isSourceHighlightError,
   type SourceHighlightTokens,
 } from "./sourceHighlightingState";
 
@@ -101,8 +104,9 @@ describe("sourceHighlightingState", () => {
   });
 
   it("exposes highlighter errors as a failed async result", async () => {
+    const cause = new Error("highlight failed");
     const highlight = vi.fn(async () => {
-      throw new Error("highlight failed");
+      throw cause;
     });
     const sourceHighlightAtom = createSourceHighlightAtomFamily({ highlight });
     const registry = AtomRegistry.make();
@@ -113,8 +117,17 @@ describe("sourceHighlightingState", () => {
     });
     const unmount = registry.mount(atom);
 
-    await vi.waitFor(() => {
-      expect(AsyncResult.isFailure(registry.get(atom))).toBe(true);
+    await vi.waitFor(() => expect(AsyncResult.isFailure(registry.get(atom))).toBe(true));
+    const result = registry.get(atom);
+    const error = AsyncResult.isFailure(result)
+      ? Option.getOrUndefined(Cause.findErrorOption(result.cause))
+      : undefined;
+
+    expect(isSourceHighlightError(error)).toBe(true);
+    expect(error).toMatchObject({
+      path: "src/example.ts",
+      theme: "light",
+      cause,
     });
 
     unmount();
