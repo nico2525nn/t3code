@@ -236,7 +236,7 @@ describe("ssh command", () => {
         Effect.result(
           runSshCommand(
             {
-              alias: "devbox",
+              alias: "  ",
               hostname: "devbox.example.com",
               username: "julius",
               port: 2222,
@@ -252,7 +252,10 @@ describe("ssh command", () => {
 
       assert.isTrue(Result.isFailure(result));
       if (Result.isFailure(result)) {
-        assert.equal(result.failure.message, "SSH command timed out after 1ms for devbox.");
+        assert.equal(
+          result.failure.message,
+          "SSH command timed out after 1ms for devbox.example.com.",
+        );
       }
     }).pipe(Effect.provide(processLayer));
   });
