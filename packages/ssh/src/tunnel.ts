@@ -1084,6 +1084,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
   | Scope.Scope
 > {
   const hostSpec = yield* buildSshHostSpecEffect(input.resolvedTarget);
+  const destination = input.resolvedTarget.alias.trim() || input.resolvedTarget.hostname.trim();
   const childEnvironment = yield* SshAuth.buildSshChildEnvironment({
     ...(input.authOptions.authSecret === undefined
       ? {}
@@ -1146,7 +1147,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
           new SshTunnelSpawnError({
             command: sshCommand,
             argumentCount: args.length,
-            target: input.resolvedTarget.alias,
+            target: destination,
             cause,
           }),
       ),
@@ -1180,7 +1181,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
         new SshTunnelMonitorError({
           command: sshCommand,
           argumentCount: args.length,
-          target: input.resolvedTarget.alias,
+          target: destination,
           cause,
         }),
     ),
@@ -1190,7 +1191,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
         argumentCount: args.length,
         exitCode,
         stderrBytes: utf8ByteLength(stderr),
-        target: input.resolvedTarget.alias,
+        target: destination,
         reason: SshAuth.classifySshProcessExit({ stdout: "", stderr }),
       });
       return Effect.logWarning("ssh.tunnel.process.exited", {

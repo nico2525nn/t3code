@@ -26,6 +26,7 @@ import {
   SshReadinessProbeError,
   SshReadinessProbeTimeoutError,
   SshReadinessTimeoutError,
+  SshTunnelSpawnError,
 } from "./errors.ts";
 import * as SshTunnel from "./tunnel.ts";
 
@@ -711,6 +712,51 @@ describe("ssh tunnel scripts", () => {
       assert.equal(environment.remotePort, 3773);
       assert.equal(launchAttempts, 2);
       assert.deepEqual(promptAttempts, [1]);
+    }).pipe(Effect.provide(layer), Effect.scoped);
+  });
+
+  it.effect("uses the hostname to identify tunnel failures when the alias is empty", () => {
+    const target = {
+      alias: "",
+      hostname: "devbox.example.com",
+      username: "julius",
+      port: 2222,
+    } as const;
+    const spawnFailure = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "ChildProcess",
+      method: "spawn",
+      pathOrDescriptor: "ssh",
+    });
+    const spawner = ChildProcessSpawner.make((command) => {
+      const args = commandArgs(command);
+      if (args.includes("sh") && args.includes("--")) {
+        return Effect.succeed(makeSuccessfulProcess('{"remotePort":3773}\n'));
+      }
+      if (args.includes("-N")) {
+        return Effect.fail(spawnFailure);
+      }
+      return Effect.succeed(makeSuccessfulProcess("\n"));
+    });
+    const layer = Layer.mergeAll(
+      NodeServices.layer,
+      Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Layer.succeed(HttpClient.HttpClient, testHttpClient),
+      Layer.succeed(NetService.NetService, testNetService),
+      SshAuth.disabledLayer,
+      SshTunnel.layer(),
+    );
+
+    return Effect.gen(function* () {
+      const manager = yield* SshTunnel.SshEnvironmentManager;
+      const result = yield* Effect.result(manager.ensureEnvironment(target));
+
+      assert.isTrue(Result.isFailure(result));
+      if (Result.isFailure(result)) {
+        assert.instanceOf(result.failure, SshTunnelSpawnError);
+        assert.equal(result.failure.target, "devbox.example.com");
+        assert.strictEqual(result.failure.cause, spawnFailure);
+      }
     }).pipe(Effect.provide(layer), Effect.scoped);
   });
 
