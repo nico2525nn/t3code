@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
+  NonNegativeInt,
   TrimmedNonEmptyString,
   type SourceControlProviderAuth,
   type SourceControlRepositoryCloneUrls,
@@ -42,6 +43,7 @@ export class BitbucketApiError extends Schema.TaggedErrorClass<BitbucketApiError
     operation: Schema.String,
     detail: Schema.String,
     status: Schema.optional(Schema.Number),
+    responseBodyLength: Schema.optional(NonNegativeInt),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -343,16 +345,22 @@ function responseError(
   response: HttpClientResponse.HttpClientResponse,
 ): Effect.Effect<never, BitbucketApiError> {
   return response.text.pipe(
-    Effect.orElseSucceed(() => ""),
+    Effect.mapError(
+      (cause) =>
+        new BitbucketApiError({
+          operation,
+          status: response.status,
+          detail: "Failed to read the Bitbucket error response body.",
+          cause,
+        }),
+    ),
     Effect.flatMap((body) =>
       Effect.fail(
         new BitbucketApiError({
           operation,
           status: response.status,
-          detail:
-            body.trim().length > 0
-              ? `Bitbucket returned HTTP ${response.status}: ${body.trim()}`
-              : `Bitbucket returned HTTP ${response.status}.`,
+          responseBodyLength: body.length,
+          detail: `Bitbucket returned HTTP ${response.status}.`,
         }),
       ),
     ),

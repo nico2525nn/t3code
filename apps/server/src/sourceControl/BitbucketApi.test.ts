@@ -544,6 +544,68 @@ it.effect("preserves the HTTP client failure without deriving the domain message
   }).pipe(Effect.provide(layer));
 });
 
+it.effect("keeps Bitbucket HTTP response bodies out of diagnostics", () => {
+  const secretBody = '{"error":{"message":"credential=secret-value"}}';
+  const { layer } = makeLayer({
+    response: () => new Response(secretBody, { status: 403 }),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const error = yield* Effect.flip(
+      bitbucket.getPullRequest({
+        cwd: "/repo",
+        reference: "42",
+      }),
+    );
+
+    assert.strictEqual(error.operation, "getPullRequest");
+    assert.strictEqual(error.status, 403);
+    assert.strictEqual(error.responseBodyLength, secretBody.length);
+    assert.strictEqual(error.detail, "Bitbucket returned HTTP 403.");
+    assert.strictEqual(
+      error.message,
+      "Bitbucket API failed in getPullRequest: Bitbucket returned HTTP 403.",
+    );
+    assert.notInclude(error.message, "secret-value");
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("reports Bitbucket response-body read failures with stable diagnostics", () => {
+  const bodyReadCause = new Error("credential=secret-value");
+  const { layer } = makeLayer({
+    response: () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.error(bodyReadCause);
+          },
+        }),
+        { status: 502 },
+      ),
+  });
+
+  return Effect.gen(function* () {
+    const bitbucket = yield* BitbucketApi.BitbucketApi;
+    const error = yield* Effect.flip(
+      bitbucket.getPullRequest({
+        cwd: "/repo",
+        reference: "42",
+      }),
+    );
+
+    assert.strictEqual(error.operation, "getPullRequest");
+    assert.strictEqual(error.status, 502);
+    assert.strictEqual(error.responseBodyLength, undefined);
+    assert.strictEqual(error.detail, "Failed to read the Bitbucket error response body.");
+    assert.strictEqual(
+      error.message,
+      "Bitbucket API failed in getPullRequest: Failed to read the Bitbucket error response body.",
+    );
+    assert.notInclude(error.message, "secret-value");
+  }).pipe(Effect.provide(layer));
+});
+
 it.effect("checks out same-repository pull requests with the existing Bitbucket remote", () => {
   const { git, layer } = makeLayer({
     response: () =>
