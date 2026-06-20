@@ -135,26 +135,22 @@ export const make = Effect.gen(function* () {
           relativeRealPath === ".." ||
           path.isAbsolute(relativeRealPath)
         ) {
-          return yield* Effect.fail(
-            new WorkspaceReadFileResolvedOutsideRootError({
-              cwd: input.cwd,
-              relativePath: target.relativePath,
-              realWorkspaceRoot,
-              realTargetPath,
-            }),
-          );
+          return yield* new WorkspaceReadFileResolvedOutsideRootError({
+            cwd: input.cwd,
+            relativePath: target.relativePath,
+            realWorkspaceRoot,
+            realTargetPath,
+          });
         }
 
         const handle = yield* fileSystem.open(realTargetPath, { flag: "r" });
         const stat = yield* handle.stat;
         if (stat.type !== "File") {
-          return yield* Effect.fail(
-            new WorkspaceReadFileNotFileError({
-              cwd: input.cwd,
-              relativePath: target.relativePath,
-              fileType: stat.type,
-            }),
-          );
+          return yield* new WorkspaceReadFileNotFileError({
+            cwd: input.cwd,
+            relativePath: target.relativePath,
+            fileType: stat.type,
+          });
         }
         const byteLength = Number(stat.size);
         const bytesToRead = Math.min(byteLength, PROJECT_READ_FILE_MAX_BYTES);
@@ -163,13 +159,11 @@ export const make = Effect.gen(function* () {
         const fileBytes = buffer.subarray(0, Number(bytesRead));
         const nulByteOffset = fileBytes.indexOf(0);
         if (nulByteOffset !== -1) {
-          return yield* Effect.fail(
-            new WorkspaceReadFileBinaryFileError({
-              cwd: input.cwd,
-              relativePath: target.relativePath,
-              nulByteOffset,
-            }),
-          );
+          return yield* new WorkspaceReadFileBinaryFileError({
+            cwd: input.cwd,
+            relativePath: target.relativePath,
+            nulByteOffset,
+          });
         }
         const contents = new TextDecoder("utf-8").decode(fileBytes);
         return {
