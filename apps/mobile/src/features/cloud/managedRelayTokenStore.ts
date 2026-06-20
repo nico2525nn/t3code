@@ -48,9 +48,12 @@ export class ManagedRelayTokenStoreError extends Schema.TaggedErrorClass<Managed
   }
 }
 
+export const isManagedRelayTokenStoreError = Schema.is(ManagedRelayTokenStoreError);
+
 function logStoreFailure(error: ManagedRelayTokenStoreError) {
   return Effect.logWarning(error.message).pipe(
     Effect.annotateLogs({
+      error,
       errorTag: error._tag,
       operation: error.operation,
     }),

@@ -1,5 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Logger from "effect/Logger";
+import * as References from "effect/References";
 import { vi } from "vite-plus/test";
 
 const secureStore = vi.hoisted(() => new Map<string, string>());
@@ -16,7 +18,10 @@ vi.mock("expo-secure-store", () => ({
   }),
 }));
 
-import { managedRelayAccessTokenStore } from "./managedRelayTokenStore";
+import {
+  isManagedRelayTokenStoreError,
+  managedRelayAccessTokenStore,
+} from "./managedRelayTokenStore";
 
 it.effect("round-trips and clears persisted managed relay access tokens", () =>
   Effect.gen(function* () {
@@ -45,7 +50,21 @@ it.effect("falls back to an empty cache when persisted data is invalid", () =>
   Effect.gen(function* () {
     secureStore.clear();
     secureStore.set("t3code.cloud.relay-access-tokens", "not-json");
+    const annotations: Array<Record<string, unknown>> = [];
+    const logger = Logger.make(({ fiber }) => {
+      annotations.push(fiber.getRef(References.CurrentLogAnnotations));
+    });
 
-    expect(yield* managedRelayAccessTokenStore.load).toEqual([]);
+    expect(
+      yield* managedRelayAccessTokenStore.load.pipe(
+        Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
+      ),
+    ).toEqual([]);
+    expect(annotations).toHaveLength(1);
+    expect(isManagedRelayTokenStoreError(annotations[0]?.error)).toBe(true);
+    expect(annotations[0]?.error).toMatchObject({
+      operation: "decode-cache",
+      cause: expect.anything(),
+    });
   }),
 );
