@@ -3,7 +3,11 @@ import {
   DesktopSshEnvironmentEnsureResultSchema,
   DesktopSshPasswordPromptCancellationError,
 } from "@t3tools/contracts";
-import { SshHttpBridgeError, SshPasswordPromptError } from "@t3tools/ssh/errors";
+import {
+  SshCommandSpawnError,
+  SshHttpBridgeError,
+  SshPasswordPromptError,
+} from "@t3tools/ssh/errors";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -18,6 +22,7 @@ import {
   DesktopSshEnvironmentRequestError,
   ensureSshEnvironment,
   fetchSshEnvironmentDescriptor,
+  toDesktopSshOperationPresentationError,
 } from "./sshEnvironment.ts";
 import * as DesktopSshEnvironment from "../../ssh/DesktopSshEnvironment.ts";
 import * as DesktopSshPasswordPrompts from "../../ssh/DesktopSshPasswordPrompts.ts";
@@ -86,6 +91,22 @@ describe("SSH environment IPC", () => {
       assert.instanceOf(error.cause, Error);
       assert.instanceOf(error.cause.cause, Error);
     }).pipe(Effect.provide(layer));
+  });
+
+  it("presents legacy process causes without weakening structured errors", () => {
+    const cause = new Error("ssh executable was not found");
+    const structured = new SshCommandSpawnError({
+      command: ["ssh"],
+      exitCode: null,
+      stderr: "",
+      target: "devbox",
+      cause,
+    });
+
+    const presentation = toDesktopSshOperationPresentationError(structured);
+    assert.equal(structured.message, "Failed to spawn SSH command for devbox.");
+    assert.equal(presentation.message, cause.message);
+    assert.strictEqual(presentation.cause, structured);
   });
 
   it.effect("fetches and decodes the remote environment descriptor", () => {

@@ -26,7 +26,13 @@ import {
   AuthSessionState,
   AuthWebSocketTicketResult,
 } from "@t3tools/contracts";
-import { SshHttpBridgeError } from "@t3tools/ssh/errors";
+import {
+  SshCommandExecutionError,
+  SshCommandSpawnError,
+  SshHttpBridgeError,
+  SshTunnelMonitorError,
+  SshTunnelSpawnError,
+} from "@t3tools/ssh/errors";
 import { resolveLoopbackSshHttpBaseUrl } from "@t3tools/ssh/tunnel";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -58,6 +64,23 @@ const isEnvironmentOperationForbiddenError = Schema.is(EnvironmentOperationForbi
 const isEnvironmentRequestInvalidError = Schema.is(EnvironmentRequestInvalidError);
 const isEnvironmentScopeRequiredError = Schema.is(EnvironmentScopeRequiredError);
 const isSshHttpBridgeError = Schema.is(SshHttpBridgeError);
+const isSshCausePresentationError = Schema.is(
+  Schema.Union([
+    SshCommandSpawnError,
+    SshCommandExecutionError,
+    SshTunnelSpawnError,
+    SshTunnelMonitorError,
+  ]),
+);
+
+export function toDesktopSshOperationPresentationError(
+  error: DesktopSshEnvironment.DesktopSshEnvironmentOperationError,
+): DesktopSshEnvironment.DesktopSshEnvironmentOperationError | Error {
+  if (isSshCausePresentationError(error) && error.cause instanceof Error) {
+    return new Error(error.cause.message, { cause: error });
+  }
+  return error;
+}
 
 function readSshHttpStatus(cause: DesktopSshEnvironmentRequestCause): number | null {
   if (isRemoteEnvironmentAuthUndeclaredStatusError(cause)) {
@@ -146,6 +169,7 @@ export const ensureSshEnvironment = DesktopIpc.makeIpcMethod({
               )
             : Effect.fail(error),
       }),
+      Effect.mapError(toDesktopSshOperationPresentationError),
     );
   }),
 });
@@ -156,7 +180,9 @@ export const disconnectSshEnvironment = DesktopIpc.makeIpcMethod({
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.sshEnvironment.disconnectEnvironment")(function* (target) {
     const sshEnvironment = yield* DesktopSshEnvironment.DesktopSshEnvironment;
-    yield* sshEnvironment.disconnectEnvironment(target);
+    yield* sshEnvironment
+      .disconnectEnvironment(target)
+      .pipe(Effect.mapError(toDesktopSshOperationPresentationError));
   }),
 });
 
