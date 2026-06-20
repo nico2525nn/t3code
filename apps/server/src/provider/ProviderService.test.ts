@@ -1810,6 +1810,25 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
 
 const validation = makeProviderServiceLayer();
 validation.layer("ProviderServiceLive validation", (it) => {
+  it.effect("rejects whitespace-only turns without attachments", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+
+      validation.codex.sendTurn.mockClear();
+      const failure = yield* provider
+        .sendTurn({
+          threadId: asThreadId("thread-whitespace-only"),
+          input: " \n\t ",
+          attachments: [],
+        })
+        .pipe(Effect.flip);
+
+      assert.instanceOf(failure, ProviderValidationError);
+      assert.equal(failure.operation, "ProviderService.sendTurn");
+      assert.equal(validation.codex.sendTurn.mock.calls.length, 0);
+    }),
+  );
+
   it.effect("rejects session starts without an explicit provider instance id", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;
