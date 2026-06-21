@@ -70,7 +70,10 @@ describe("makeCatalogBackend", () => {
       const error = yield* backend.write("{}").pipe(Effect.flip);
 
       expect(error).toBeInstanceOf(ConnectionTransientError);
-      expect(error.message).toContain("Desktop secure storage is unavailable");
+      expect(error.message).toBe("Could not save the local connection catalog.");
+      expect(error.cause).toEqual(
+        new Error("Desktop secure storage is unavailable in this system context."),
+      );
       expect(setConnectionCatalog).toHaveBeenCalledWith("{}");
     }),
   );

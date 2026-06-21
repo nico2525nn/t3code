@@ -689,12 +689,13 @@ describe("EnvironmentRegistry", () => {
 
   it.effect("keeps the runtime registered when durable removal fails", () =>
     Effect.gen(function* () {
+      const persistenceCause = new Error("Storage is unavailable.");
       const harness = yield* makeHarness([RELAY_TARGET], [], [], {
         beforeRegistrationRemove: () =>
           Effect.fail(
             new Persistence.ConnectionPersistenceError({
               operation: "remove-connection",
-              message: "Storage is unavailable.",
+              cause: persistenceCause,
             }),
           ),
       });
@@ -711,6 +712,8 @@ describe("EnvironmentRegistry", () => {
         const error = yield* Effect.flip(registry.removeRelayEnvironments());
 
         expect(error._tag).toBe("ConnectionPersistenceError");
+        expect(error.message).toBe("Could not remove connection.");
+        expect(error.cause).toBe(persistenceCause);
         expect(yield* Ref.get(harness.releasedSessions)).toBe(0);
         expect((yield* SubscriptionRef.get(registry.entries)).has(RELAY_TARGET.environmentId)).toBe(
           true,

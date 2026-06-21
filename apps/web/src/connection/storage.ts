@@ -63,26 +63,8 @@ const encodeStoredThreadSnapshot = Schema.encodeEffect(StoredThreadSnapshotJson)
 function catalogError(operation: string, cause: unknown) {
   return new ConnectionTransientError({
     reason: "remote-unavailable",
-    detail: `Could not ${operation} the local connection catalog: ${String(cause)}`,
-  });
-}
-
-function persistenceError(
-  operation:
-    | "list-targets"
-    | "register-connection"
-    | "remove-connection"
-    | "load-shell"
-    | "save-shell"
-    | "load-thread"
-    | "save-thread"
-    | "remove-thread"
-    | "clear-environment",
-  cause: unknown,
-) {
-  return new ConnectionPersistenceError({
-    operation,
-    message: `Could not ${operation.replaceAll("-", " ")}: ${String(cause)}`,
+    detail: `Could not ${operation} the local connection catalog.`,
+    cause,
   });
 }
 
@@ -233,7 +215,7 @@ export function makeCatalogBackend(database: IDBDatabase): CatalogBackend {
               : Effect.fail(
                   catalogError(
                     "save",
-                    "Desktop secure storage is unavailable in this system context.",
+                    new Error("Desktop secure storage is unavailable in this system context."),
                   ),
                 ),
           ),
@@ -330,18 +312,29 @@ export const connectionStorageLayer = Layer.effectContext(
     const targetStore = ConnectionTargetStore.of({
       list: catalog.read.pipe(
         Effect.map((document) => document.targets),
-        Effect.mapError((cause) => persistenceError("list-targets", cause)),
+        Effect.mapError(
+          (cause) => new ConnectionPersistenceError({ operation: "list-targets", cause }),
+        ),
       ),
     });
     const registrationStore = ConnectionRegistrationStore.of({
       register: (registration) =>
         catalog
           .update((document) => registerConnectionInCatalog(document, registration))
-          .pipe(Effect.mapError((cause) => persistenceError("register-connection", cause))),
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ConnectionPersistenceError({ operation: "register-connection", cause }),
+            ),
+          ),
       remove: (target) =>
         catalog
           .update((document) => removeConnectionFromCatalog(document, target))
-          .pipe(Effect.mapError((cause) => persistenceError("remove-connection", cause))),
+          .pipe(
+            Effect.mapError(
+              (cause) => new ConnectionPersistenceError({ operation: "remove-connection", cause }),
+            ),
+          ),
     });
     const profileStore = ProfileStore.make({
       get: (connectionId) =>
@@ -430,7 +423,9 @@ export const connectionStorageLayer = Layer.effectContext(
               return Effect.succeed(Option.none());
             }
             return decodeStoredShellSnapshot(raw).pipe(
-              Effect.mapError((cause) => persistenceError("load-shell", cause)),
+              Effect.mapError(
+                (cause) => new ConnectionPersistenceError({ operation: "load-shell", cause }),
+              ),
               Effect.map((stored) =>
                 stored.environmentId === environmentId
                   ? Option.some(stored.snapshot)
@@ -441,7 +436,7 @@ export const connectionStorageLayer = Layer.effectContext(
           Effect.mapError((cause) =>
             cause._tag === "ConnectionPersistenceError"
               ? cause
-              : persistenceError("load-shell", cause),
+              : new ConnectionPersistenceError({ operation: "load-shell", cause }),
           ),
         ),
       saveShell: (environmentId, snapshot) =>
@@ -450,13 +445,17 @@ export const connectionStorageLayer = Layer.effectContext(
             schemaVersion: SHELL_SNAPSHOT_CACHE_SCHEMA_VERSION,
             environmentId,
             snapshot,
-          }).pipe(Effect.mapError((cause) => persistenceError("save-shell", cause)));
+          }).pipe(
+            Effect.mapError(
+              (cause) => new ConnectionPersistenceError({ operation: "save-shell", cause }),
+            ),
+          );
           yield* writeDatabaseValue(database, SHELL_STORE_NAME, environmentId, encoded);
         }).pipe(
           Effect.mapError((cause) =>
             cause._tag === "ConnectionPersistenceError"
               ? cause
-              : persistenceError("save-shell", cause),
+              : new ConnectionPersistenceError({ operation: "save-shell", cause }),
           ),
         ),
       loadThread: (environmentId, threadId) =>
@@ -470,7 +469,9 @@ export const connectionStorageLayer = Layer.effectContext(
               return Effect.succeed(Option.none());
             }
             return decodeStoredThreadSnapshot(raw).pipe(
-              Effect.mapError((cause) => persistenceError("load-thread", cause)),
+              Effect.mapError(
+                (cause) => new ConnectionPersistenceError({ operation: "load-thread", cause }),
+              ),
               Effect.map((stored) =>
                 stored.environmentId === environmentId && stored.threadId === threadId
                   ? Option.some(stored.thread)
@@ -481,7 +482,7 @@ export const connectionStorageLayer = Layer.effectContext(
           Effect.mapError((cause) =>
             cause._tag === "ConnectionPersistenceError"
               ? cause
-              : persistenceError("load-thread", cause),
+              : new ConnectionPersistenceError({ operation: "load-thread", cause }),
           ),
         ),
       saveThread: (environmentId, thread) =>
@@ -491,7 +492,11 @@ export const connectionStorageLayer = Layer.effectContext(
             environmentId,
             threadId: thread.id,
             thread,
-          }).pipe(Effect.mapError((cause) => persistenceError("save-thread", cause)));
+          }).pipe(
+            Effect.mapError(
+              (cause) => new ConnectionPersistenceError({ operation: "save-thread", cause }),
+            ),
+          );
           yield* writeDatabaseValue(
             database,
             THREAD_STORE_NAME,
@@ -502,7 +507,7 @@ export const connectionStorageLayer = Layer.effectContext(
           Effect.mapError((cause) =>
             cause._tag === "ConnectionPersistenceError"
               ? cause
-              : persistenceError("save-thread", cause),
+              : new ConnectionPersistenceError({ operation: "save-thread", cause }),
           ),
         ),
       removeThread: (environmentId, threadId) =>
@@ -510,7 +515,11 @@ export const connectionStorageLayer = Layer.effectContext(
           database,
           THREAD_STORE_NAME,
           threadCacheKey(environmentId, threadId),
-        ).pipe(Effect.mapError((cause) => persistenceError("remove-thread", cause))),
+        ).pipe(
+          Effect.mapError(
+            (cause) => new ConnectionPersistenceError({ operation: "remove-thread", cause }),
+          ),
+        ),
       clear: (environmentId) =>
         Effect.all(
           [
@@ -522,7 +531,11 @@ export const connectionStorageLayer = Layer.effectContext(
             ),
           ],
           { concurrency: "unbounded", discard: true },
-        ).pipe(Effect.mapError((cause) => persistenceError("clear-environment", cause))),
+        ).pipe(
+          Effect.mapError(
+            (cause) => new ConnectionPersistenceError({ operation: "clear-environment", cause }),
+          ),
+        ),
     });
 
     return Context.make(ConnectionTargetStore, targetStore).pipe(

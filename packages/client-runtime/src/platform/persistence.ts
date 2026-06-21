@@ -26,9 +26,13 @@ export class ConnectionPersistenceError extends Schema.TaggedErrorClass<Connecti
       "remove-thread",
       "clear-environment",
     ]),
-    message: Schema.String,
+    cause: Schema.Defect(),
   },
-) {}
+) {
+  override get message(): string {
+    return `Could not ${this.operation.replaceAll("-", " ")}.`;
+  }
+}
 
 export class ConnectionTargetStore extends Context.Service<
   ConnectionTargetStore,
