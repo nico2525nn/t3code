@@ -1,7 +1,6 @@
 import {
   ORCHESTRATION_V2_WS_METHODS,
   ORCHESTRATION_WS_METHODS,
-  type ServerConfig,
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";

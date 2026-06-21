@@ -40,7 +40,7 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
-import { ServerConfig, type ServerConfigShape } from "../../config.ts";
+import { ServerConfig } from "../../config.ts";
 import { CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS } from "../../provider/CodexDeveloperInstructions.ts";
 import {
   materializeCodexShadowHome,
@@ -767,7 +767,7 @@ export interface CodexAppServerClientFactoryShape {
     readonly settings: CodexSettings;
     readonly environment: NodeJS.ProcessEnv;
   }) => Effect.Effect<
-    CodexClient.CodexAppServerClientShape,
+    CodexClient.CodexAppServerClient["Service"],
     ProviderAdapterOpenSessionError,
     Scope.Scope
   >;
@@ -1064,7 +1064,7 @@ export interface CodexAdapterV2Options {
   readonly clientFactory: CodexAppServerClientFactoryShape;
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocatorV2Shape;
-  readonly serverConfig: ServerConfigShape;
+  readonly serverConfig: ServerConfig["Service"];
 }
 
 export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): ProviderAdapterV2Shape {

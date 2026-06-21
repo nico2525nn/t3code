@@ -31,7 +31,7 @@ import type { CSSProperties, DragEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ProviderModelPicker } from "../components/chat/ProviderModelPicker";
-import { useSettings } from "../hooks/useSettings";
+import { usePrimarySettings } from "../hooks/useSettings";
 import {
   removeAndRenumberTimelineItem,
   upsertTimelineItemAtStablePosition,
@@ -1634,7 +1634,7 @@ function OrchestrationV2DebugRoute() {
 
   const environmentId = usePrimaryEnvironmentId();
   const serverProviders = useAtomValue(primaryServerProvidersAtom);
-  const settings = useSettings();
+  const settings = usePrimarySettings();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const dispatchCommandMutation = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand, {
     reportFailure: false,

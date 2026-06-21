@@ -9,8 +9,8 @@ import type * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { MigrationError } from "effect/unstable/sql/Migrator";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
-import { CheckpointStoreLive } from "../../checkpointing/Layers/CheckpointStore.ts";
-import { ServerConfig, type ServerConfigShape } from "../../config.ts";
+import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
+import { ServerConfig } from "../../config.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
@@ -58,7 +58,7 @@ import {
 export function makeReplayServerConfig(
   scenario: string,
 ): Effect.Effect<
-  ServerConfigShape,
+  ServerConfig["Service"],
   PlatformError.PlatformError,
   FileSystem.FileSystem | Path.Path
 > {
@@ -245,7 +245,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     Layer.provide(serverConfigLayer),
     Layer.provide(NodeServices.layer),
   );
-  const checkpointStoreLayer = CheckpointStoreLive.pipe(
+  const checkpointStoreLayer = CheckpointStore.layer.pipe(
     Layer.provide(vcsDriverRegistryLayer),
     Layer.provide(NodeServices.layer),
   );

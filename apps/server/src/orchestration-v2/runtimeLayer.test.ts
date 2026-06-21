@@ -12,7 +12,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
-import { CheckpointStoreLive } from "../checkpointing/Layers/CheckpointStore.ts";
+import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import { ServerConfig } from "../config.ts";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
@@ -40,7 +40,7 @@ const VcsDriverRegistryTestLayer = VcsDriverRegistry.layer.pipe(
   Layer.provide(NodeServices.layer),
 );
 
-const CheckpointStoreTestLayer = CheckpointStoreLive.pipe(
+const CheckpointStoreTestLayer = CheckpointStore.layer.pipe(
   Layer.provide(VcsDriverRegistryTestLayer),
 );
 
