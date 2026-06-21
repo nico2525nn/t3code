@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopLifecycle from "../../app/DesktopLifecycle.ts";
+import * as DesktopShutdown from "../../app/DesktopShutdown.ts";
 import * as DesktopState from "../../app/DesktopState.ts";
 import * as ElectronApp from "../../electron/ElectronApp.ts";
 import * as ElectronTheme from "../../electron/ElectronTheme.ts";
@@ -45,7 +46,7 @@ function makeLifecycleLayer(relaunchReasons: Array<string>) {
 }
 
 const unusedLifecycleRuntimeLayer = Layer.mergeAll(
-  DesktopLifecycle.layerShutdown,
+  DesktopShutdown.layer,
   DesktopState.layer,
   Layer.succeed(
     DesktopEnvironment.DesktopEnvironment,
@@ -53,15 +54,15 @@ const unusedLifecycleRuntimeLayer = Layer.mergeAll(
   ),
   Layer.succeed(
     DesktopWindow.DesktopWindow,
-    DesktopWindow.DesktopWindow.of({} as DesktopWindow.DesktopWindowShape),
+    DesktopWindow.DesktopWindow.of({} as DesktopWindow.DesktopWindow["Service"]),
   ),
   Layer.succeed(
     ElectronApp.ElectronApp,
-    ElectronApp.ElectronApp.of({} as ElectronApp.ElectronAppShape),
+    ElectronApp.ElectronApp.of({} as ElectronApp.ElectronApp["Service"]),
   ),
   Layer.succeed(
     ElectronTheme.ElectronTheme,
-    ElectronTheme.ElectronTheme.of({} as ElectronTheme.ElectronThemeShape),
+    ElectronTheme.ElectronTheme.of({} as ElectronTheme.ElectronTheme["Service"]),
   ),
 );
 

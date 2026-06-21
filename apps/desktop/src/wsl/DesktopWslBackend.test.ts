@@ -63,7 +63,7 @@ const serverExposureLayer = Layer.succeed(DesktopServerExposure.DesktopServerExp
   setMode: () => Effect.die("unexpected setMode"),
   setTailscaleServeEnabled: () => Effect.die("unexpected setTailscaleServeEnabled"),
   getAdvertisedEndpoints: Effect.succeed([]),
-} satisfies DesktopServerExposure.DesktopServerExposureShape);
+} satisfies DesktopServerExposure.DesktopServerExposure["Service"]);
 
 const backendConfigurationLayer = Layer.succeed(
   DesktopBackendConfiguration.DesktopBackendConfiguration,
@@ -71,7 +71,7 @@ const backendConfigurationLayer = Layer.succeed(
     resolvePrimary: Effect.die("unexpected resolvePrimary"),
     resolvePrimaryLabel: Effect.succeed("Windows"),
     resolveWsl: () => Effect.die("unexpected resolveWsl"),
-  } satisfies DesktopBackendConfiguration.DesktopBackendConfigurationShape,
+  } satisfies DesktopBackendConfiguration.DesktopBackendConfiguration["Service"],
 );
 
 const netLayer = Layer.succeed(NetService.NetService, {
@@ -79,7 +79,7 @@ const netLayer = Layer.succeed(NetService.NetService, {
   isPortAvailableOnLoopback: () => Effect.succeed(true),
   reserveLoopbackPort: () => Effect.succeed(41773),
   findAvailablePort: (preferred) => Effect.succeed(preferred),
-} satisfies NetService.NetServiceShape);
+} satisfies NetService.NetService["Service"]);
 
 describe("DesktopWslBackend", () => {
   it.effect("clears the stored preflight error when a registered WSL backend becomes ready", () => {
@@ -109,7 +109,7 @@ describe("DesktopWslBackend", () => {
           return wsl;
         }),
       unregister: () => Effect.die("unexpected unregister"),
-    } satisfies DesktopBackendPool.DesktopBackendPoolShape);
+    } satisfies DesktopBackendPool.DesktopBackendPool["Service"]);
 
     return Effect.gen(function* () {
       const backend = yield* DesktopWslBackend.DesktopWslBackend;

@@ -9,45 +9,58 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
+import * as Schema from "effect/Schema";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import serverPackageJson from "../../../server/package.json" with { type: "json" };
 
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
-import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopServerExposure from "./DesktopServerExposure.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopWslEnvironment from "../wsl/DesktopWslEnvironment.ts";
 
-export interface DesktopBackendConfigurationShape {
-  // Build the Windows-native primary backend's start config. Reads the
-  // primary's port/host/exposure from DesktopServerExposure. Can fail
-  // with PlatformError because bootstrap token generation now uses
-  // crypto.randomBytes under the hood (post Effect 4 migration).
-  readonly resolvePrimary: Effect.Effect<
-    DesktopBackendManager.DesktopBackendStartConfig,
-    PlatformError.PlatformError
-  >;
-  // Build a WSL backend start config for the given distro on the given
-  // port. The WSL backend is always loopback-only (the primary owns LAN
-  // exposure when the user opts in), so this takes the port directly and
-  // hardcodes 127.0.0.1. Distro=null means "WSL default distro" and is
-  // forwarded to wsl.exe with no -d flag.
-  readonly resolveWsl: (input: {
-    readonly port: number;
-    readonly distro: string | null;
-  }) => Effect.Effect<DesktopBackendManager.DesktopBackendStartConfig, PlatformError.PlatformError>;
-  // The renderer-facing label for the primary instance, derived from the
-  // same decision resolvePrimary makes (including the WSL-availability
-  // fall-back to Windows), so the env switcher can't show "WSL" for a
-  // backend that actually resolved to Windows.
-  readonly resolvePrimaryLabel: Effect.Effect<string>;
+export class DesktopBackendObservabilitySettingsReadError extends Schema.TaggedErrorClass<DesktopBackendObservabilitySettingsReadError>()(
+  "DesktopBackendObservabilitySettingsReadError",
+  {
+    settingsPath: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Failed to read persisted backend observability settings at ${this.settingsPath}.`;
+  }
 }
 
 export class DesktopBackendConfiguration extends Context.Service<
   DesktopBackendConfiguration,
-  DesktopBackendConfigurationShape
+  {
+    // Build the Windows-native primary backend's start config. Reads the
+    // primary's port/host/exposure from DesktopServerExposure. Can fail
+    // with PlatformError because bootstrap token generation now uses
+    // crypto.randomBytes under the hood (post Effect 4 migration).
+    readonly resolvePrimary: Effect.Effect<
+      DesktopBackendManager.DesktopBackendStartConfig,
+      PlatformError.PlatformError
+    >;
+    // Build a WSL backend start config for the given distro on the given
+    // port. The WSL backend is always loopback-only (the primary owns LAN
+    // exposure when the user opts in), so this takes the port directly and
+    // hardcodes 127.0.0.1. Distro=null means "WSL default distro" and is
+    // forwarded to wsl.exe with no -d flag.
+    readonly resolveWsl: (input: {
+      readonly port: number;
+      readonly distro: string | null;
+    }) => Effect.Effect<
+      DesktopBackendManager.DesktopBackendStartConfig,
+      PlatformError.PlatformError
+    >;
+    // The renderer-facing label for the primary instance, derived from the
+    // same decision resolvePrimary makes (including the WSL-availability
+    // fall-back to Windows), so the env switcher can't show "WSL" for a
+    // backend that actually resolved to Windows.
+    readonly resolvePrimaryLabel: Effect.Effect<string>;
+  }
 >()("@t3tools/desktop/backend/DesktopBackendConfiguration") {}
 
 interface BackendObservabilitySettings {
@@ -113,29 +126,34 @@ const mergeWslEnv = (
   return parts.length > 0 ? parts.join(":") : undefined;
 };
 
-const { logWarning: logBackendConfigurationWarning } = DesktopObservability.makeComponentLogger(
-  "desktop-backend-configuration",
-);
+const logBackendObservabilitySettingsReadFailure = (
+  settingsPath: string,
+  cause: PlatformError.PlatformError,
+) => {
+  const error = new DesktopBackendObservabilitySettingsReadError({ settingsPath, cause });
+  return Effect.logWarning(error).pipe(
+    Effect.annotateLogs({
+      component: "desktop-backend-configuration",
+      error,
+    }),
+  );
+};
 
-const readPersistedBackendObservabilitySettings: Effect.Effect<
-  BackendObservabilitySettings,
-  never,
-  FileSystem.FileSystem | DesktopEnvironment.DesktopEnvironment
-> = Effect.gen(function* () {
+const readPersistedBackendObservabilitySettings = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
-  const exists = yield* fileSystem
-    .exists(environment.serverSettingsPath)
-    .pipe(Effect.orElseSucceed(() => false));
-  if (!exists) {
-    return emptyBackendObservabilitySettings;
-  }
-
-  const raw = yield* fileSystem.readFileString(environment.serverSettingsPath).pipe(Effect.option);
+  const raw = yield* fileSystem.readFileString(environment.serverSettingsPath).pipe(
+    Effect.map(Option.some),
+    Effect.catchTags({
+      PlatformError: (cause) =>
+        cause.reason._tag === "NotFound"
+          ? Effect.succeed(Option.none())
+          : logBackendObservabilitySettingsReadFailure(environment.serverSettingsPath, cause).pipe(
+              Effect.as(Option.none()),
+            ),
+    }),
+  );
   if (Option.isNone(raw)) {
-    yield* logBackendConfigurationWarning(
-      "failed to read persisted backend observability settings",
-    );
     return emptyBackendObservabilitySettings;
   }
 
@@ -489,9 +507,7 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
   } satisfies DesktopBackendManager.DesktopBackendStartConfig;
 });
 
-export const layer = Layer.effect(
-  DesktopBackendConfiguration,
-  Effect.gen(function* () {
+export const make = Effect.gen(function* () {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const fileSystem = yield* FileSystem.FileSystem;
     const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
@@ -616,5 +632,6 @@ export const layer = Layer.effect(
           }),
         ),
     });
-  }),
-);
+});
+
+export const layer = Layer.effect(DesktopBackendConfiguration, make);

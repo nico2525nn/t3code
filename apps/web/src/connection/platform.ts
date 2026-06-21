@@ -14,12 +14,12 @@ import {
   BearerConnectionTarget,
   ConnectionBlockedError,
   ConnectionTransientError,
-  ConnectionWakeups,
   Connectivity,
   mapRemoteEnvironmentError,
   type PlatformConnectionRegistration,
   PrimaryConnectionRegistration,
   PrimaryConnectionTarget,
+  Wakeups,
 } from "@t3tools/client-runtime/connection";
 import { bootstrapRemoteBearerSession } from "@t3tools/client-runtime/authorization";
 import { fetchRemoteEnvironmentDescriptor } from "@t3tools/client-runtime/environment";
@@ -60,56 +60,50 @@ function currentNetworkStatus(): "unknown" | "offline" | "online" {
   return navigator.onLine ? "online" : "offline";
 }
 
-const connectivityLayer = Layer.succeed(
-  Connectivity,
-  Connectivity.of({
-    status: Effect.sync(currentNetworkStatus),
-    changes: Stream.callback((queue) =>
+const connectivityLayer = Connectivity.layer({
+  status: Effect.sync(currentNetworkStatus),
+  changes: Stream.callback((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const online = () => Queue.offerUnsafe(queue, "online");
+        const offline = () => Queue.offerUnsafe(queue, "offline");
+        window.addEventListener("online", online);
+        window.addEventListener("offline", offline);
+        return { online, offline };
+      }),
+      ({ online, offline }) =>
+        Effect.sync(() => {
+          window.removeEventListener("online", online);
+          window.removeEventListener("offline", offline);
+        }),
+    ).pipe(Effect.asVoid),
+  ),
+});
+
+const wakeupsLayer = Wakeups.layer({
+  changes: Stream.merge(
+    Stream.callback<"application-active">((queue) =>
       Effect.acquireRelease(
         Effect.sync(() => {
-          const online = () => Queue.offerUnsafe(queue, "online");
-          const offline = () => Queue.offerUnsafe(queue, "offline");
-          window.addEventListener("online", online);
-          window.addEventListener("offline", offline);
-          return { online, offline };
+          const listener = () => {
+            if (document.visibilityState === "visible") {
+              Queue.offerUnsafe(queue, "application-active");
+            }
+          };
+          document.addEventListener("visibilitychange", listener);
+          return listener;
         }),
-        ({ online, offline }) =>
+        (listener) =>
           Effect.sync(() => {
-            window.removeEventListener("online", online);
-            window.removeEventListener("offline", offline);
+            document.removeEventListener("visibilitychange", listener);
           }),
       ).pipe(Effect.asVoid),
     ),
-  }),
-);
-
-const wakeupsLayer = Layer.succeed(
-  ConnectionWakeups,
-  ConnectionWakeups.of({
-    changes: Stream.merge(
-      Stream.callback<"application-active">((queue) =>
-        Effect.acquireRelease(
-          Effect.sync(() => {
-            const listener = () => {
-              if (document.visibilityState === "visible") {
-                Queue.offerUnsafe(queue, "application-active");
-              }
-            };
-            document.addEventListener("visibilitychange", listener);
-            return listener;
-          }),
-          (listener) =>
-            Effect.sync(() => {
-              document.removeEventListener("visibilitychange", listener);
-            }),
-        ).pipe(Effect.asVoid),
-      ),
-      managedRelayAccountChanges(appAtomRegistry).pipe(
-        Stream.map(() => "credentials-changed" as const),
-      ),
+    managedRelayAccountChanges(appAtomRegistry).pipe(
+      Stream.map(() => "credentials-changed" as const),
     ),
-  }),
-);
+  ),
+});
 
 function clientMetadata() {
   const desktop = window.desktopBridge !== undefined;
@@ -126,12 +120,12 @@ function sshPreparationError(cause: unknown) {
   if (message.toLowerCase().includes("cancel")) {
     return new ConnectionBlockedError({
       reason: "authentication",
-      message,
+      detail: message,
     });
   }
   return new ConnectionTransientError({
     reason: "remote-unavailable",
-    message: `Could not prepare the SSH environment: ${message}`,
+    detail: `Could not prepare the SSH environment: ${message}`,
   });
 }
 
@@ -149,7 +143,7 @@ export const provisionDesktopSshEnvironment = Effect.fn(
   if (pairingToken === null) {
     return yield* new ConnectionBlockedError({
       reason: "authentication",
-      message: "The SSH environment did not issue a pairing credential.",
+      detail: "The SSH environment did not issue a pairing credential.",
     });
   }
   const descriptor = yield* Effect.tryPromise({
@@ -180,7 +174,7 @@ const capabilitiesLayer = Layer.effectContext(
         if (session === null) {
           return yield* new ConnectionBlockedError({
             reason: "authentication",
-            message: "Sign in to T3 Cloud to connect this environment.",
+            detail: "Sign in to T3 Cloud to connect this environment.",
           });
         }
         const token = yield* session.readClerkToken().pipe(
@@ -188,14 +182,14 @@ const capabilitiesLayer = Layer.effectContext(
             (error) =>
               new ConnectionTransientError({
                 reason: "network",
-                message: error.message,
+                detail: error.message,
               }),
           ),
         );
         if (token === null) {
           return yield* new ConnectionBlockedError({
             reason: "authentication",
-            message: "The T3 Cloud session is unavailable.",
+            detail: "The T3 Cloud session is unavailable.",
           });
         }
         return token;
@@ -210,7 +204,7 @@ const capabilitiesLayer = Layer.effectContext(
         catch: (cause) =>
           new ConnectionTransientError({
             reason: "remote-unavailable",
-            message: `Could not load the desktop primary credential: ${String(cause)}`,
+            detail: `Could not load the desktop primary credential: ${String(cause)}`,
           }),
       }).pipe(Effect.map(Option.fromNullishOr)),
     });
@@ -220,7 +214,7 @@ const capabilitiesLayer = Layer.effectContext(
         if (bridge === undefined) {
           return yield* new ConnectionBlockedError({
             reason: "unsupported",
-            message: "SSH environments are only available in the desktop app.",
+            detail: "SSH environments are only available in the desktop app.",
           });
         }
         return yield* provisionDesktopSshEnvironment(bridge, target);
@@ -230,7 +224,7 @@ const capabilitiesLayer = Layer.effectContext(
         if (bridge === undefined) {
           return yield* new ConnectionBlockedError({
             reason: "unsupported",
-            message: "SSH environments are only available in the desktop app.",
+            detail: "SSH environments are only available in the desktop app.",
           });
         }
         const bootstrap = yield* Effect.tryPromise({
@@ -243,7 +237,7 @@ const capabilitiesLayer = Layer.effectContext(
         if (bootstrap.pairingToken === null) {
           return yield* new ConnectionBlockedError({
             reason: "authentication",
-            message: "The SSH environment did not issue a pairing credential.",
+            detail: "The SSH environment did not issue a pairing credential.",
           });
         }
         const access = yield* Effect.tryPromise({
@@ -266,7 +260,7 @@ const capabilitiesLayer = Layer.effectContext(
           catch: (cause) =>
             new ConnectionTransientError({
               reason: "remote-unavailable",
-              message: `Could not disconnect the SSH environment: ${String(cause)}`,
+              detail: `Could not disconnect the SSH environment: ${String(cause)}`,
             }),
         });
       }),
@@ -288,7 +282,7 @@ const loadPrimaryConnectionRegistration = Effect.fn(
   if (resolved === null) {
     return yield* new ConnectionBlockedError({
       reason: "configuration",
-      message: "Unable to resolve the primary environment endpoint.",
+      detail: "Unable to resolve the primary environment endpoint.",
     });
   }
   const descriptor = yield* fetchRemoteEnvironmentDescriptor({
@@ -317,7 +311,7 @@ const loadSecondaryConnectionRegistration = Effect.fn(
   ) {
     return yield* new ConnectionTransientError({
       reason: "endpoint-unavailable",
-      message: `Desktop-local backend ${entry.id} is not ready yet.`,
+      detail: `Desktop-local backend ${entry.id} is not ready yet.`,
     });
   }
   const httpBaseUrl = entry.httpBaseUrl;
@@ -465,7 +459,20 @@ const rpcRequestObserverLayer = Layer.succeed(
   }),
 );
 
-export const connectionPlatformLayer = Layer.mergeAll(
+type ConnectionPlatformLayerSource =
+  | typeof connectionStorageLayer
+  | typeof connectivityLayer
+  | typeof wakeupsLayer
+  | typeof capabilitiesLayer
+  | typeof platformConnectionSourceLayer
+  | typeof environmentOwnedDataCleanupLayer
+  | typeof rpcRequestObserverLayer;
+
+export const connectionPlatformLayer: Layer.Layer<
+  Layer.Success<ConnectionPlatformLayerSource>,
+  Layer.Error<ConnectionPlatformLayerSource>,
+  Layer.Services<ConnectionPlatformLayerSource>
+> = Layer.mergeAll(
   connectionStorageLayer,
   connectivityLayer,
   wakeupsLayer,

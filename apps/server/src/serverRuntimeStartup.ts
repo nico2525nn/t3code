@@ -30,8 +30,8 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import * as OrchestrationReactor from "./orchestration/Services/OrchestrationReactor.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerSettings from "./serverSettings.ts";
-import * as ServerEnvironment from "./environment/Services/ServerEnvironment.ts";
-import * as AnalyticsService from "./telemetry/Services/AnalyticsService.ts";
+import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
+import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReaper.ts";
 import {
@@ -44,15 +44,14 @@ import {
 export class ServerRuntimeStartupError extends Schema.TaggedErrorClass<ServerRuntimeStartupError>()(
   "ServerRuntimeStartupError",
   {
-    stage: Schema.Literal("command-readiness"),
-    cause: Schema.optional(Schema.Defect()),
+    mode: ServerConfig.RuntimeMode,
+    host: Schema.NullOr(Schema.String),
+    port: Schema.Number,
+    cause: Schema.Defect(),
   },
 ) {
   override get message(): string {
-    switch (this.stage) {
-      case "command-readiness":
-        return "Server runtime startup failed before command readiness.";
-    }
+    return "Server runtime startup failed before command readiness.";
   }
 }
 
@@ -289,7 +288,7 @@ const runStartupPhase = <A, E, R>(phase: string, effect: Effect.Effect<A, E, R>)
     Effect.withSpan(`server.startup.${phase}`),
   );
 
-const make = Effect.gen(function* () {
+export const make = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const keybindings = yield* Keybindings.Keybindings;
   const orchestrationReactor = yield* OrchestrationReactor.OrchestrationReactor;
@@ -328,7 +327,9 @@ const make = Effect.gen(function* () {
         Effect.catch((error) =>
           Effect.logWarning("failed to start server settings runtime", {
             path: error.settingsPath,
-            detail: error.detail,
+            operation: error.operation,
+            providerInstanceId: error.providerInstanceId,
+            environmentVariable: error.environmentVariable,
             cause: error.cause,
           }),
         ),
@@ -417,7 +418,9 @@ const make = Effect.gen(function* () {
       const startupExit = yield* Effect.exit(startup);
       if (Exit.isFailure(startupExit)) {
         const error = new ServerRuntimeStartupError({
-          stage: "command-readiness",
+          mode: serverConfig.mode,
+          host: serverConfig.host ?? null,
+          port: serverConfig.port,
           cause: startupExit.cause,
         });
         yield* Effect.logError("server runtime startup failed", { cause: startupExit.cause });

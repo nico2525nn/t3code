@@ -4,6 +4,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
 import {
   ArrowRightIcon,
@@ -34,7 +35,7 @@ import {
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useProject, useThread } from "../state/entities";
 import { resolveThreadRouteRef } from "../threadRoutes";
-import { useSettings } from "../hooks/useSettings";
+import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableFileDiff";
@@ -183,7 +184,7 @@ export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 
 export default function DiffPanel({ mode = "inline", composerDraftTarget }: DiffPanelProps) {
   const { resolvedTheme } = useTheme();
-  const settings = useSettings();
+  const settings = useClientSettings();
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("stacked");
   const [diffWordWrap, setDiffWordWrap] = useState(settings.diffWordWrap);
   const [diffIgnoreWhitespace, setDiffIgnoreWhitespace] = useState(settings.diffIgnoreWhitespace);
@@ -452,7 +453,16 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
           void (async () => {
             const result = await openInPreferredEditor(targetPath);
             if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-              console.warn("Failed to open diff file in editor.", squashAtomCommandFailure(result));
+              console.warn("Failed to open diff file in editor.", {
+                operation: "open-diff-file",
+                ...(routeThreadRef
+                  ? {
+                      environmentId: routeThreadRef.environmentId,
+                      threadId: routeThreadRef.threadId,
+                    }
+                  : {}),
+                ...safeErrorLogAttributes(squashAtomCommandFailure(result)),
+              });
             }
           })();
         },

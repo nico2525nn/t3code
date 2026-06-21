@@ -64,7 +64,7 @@ function makePoolLayer(
           resolvePrimary: Effect.die("unexpected primary config resolve"),
           resolvePrimaryLabel: Ref.get(labelRef),
           resolveWsl: () => Effect.die("unexpected WSL config resolve"),
-        } satisfies DesktopBackendConfiguration.DesktopBackendConfigurationShape),
+        } satisfies DesktopBackendConfiguration.DesktopBackendConfiguration["Service"]),
         DesktopAppSettings.layerTest(),
         ElectronDialog.layer,
         Layer.succeed(DesktopWindow.DesktopWindow, {
@@ -78,7 +78,7 @@ function makePoolLayer(
           handleBackendNotReady: Effect.void,
           dispatchMenuAction: () => Effect.die("unexpected menu action"),
           syncAppearance: Effect.void,
-        } satisfies DesktopWindow.DesktopWindowShape),
+        } satisfies DesktopWindow.DesktopWindow["Service"]),
       ),
     ),
   );

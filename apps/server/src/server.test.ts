@@ -2,6 +2,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeCrypto from "node:crypto";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import {
   AuthAccessTokenType,
@@ -14,7 +15,7 @@ import {
   GitCommandError,
   KeybindingRule,
   MessageId,
-  ExternalLauncherError,
+  ExternalLauncherCommandNotFoundError,
   type OrchestrationThreadShell,
   TerminalNotRunningError,
   type OrchestrationCommand,
@@ -71,7 +72,7 @@ const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
 
 import * as ServerConfig from "./config.ts";
 import { makeRoutesLayer } from "./server.ts";
-import * as CheckpointDiffQuery from "./checkpointing/Services/CheckpointDiffQuery.ts";
+import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -85,17 +86,17 @@ import { makeManualOnlyProviderMaintenanceCapabilities } from "./provider/provid
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
-import * as TerminalManager from "./terminal/Services/Manager.ts";
+import * as TerminalManager from "./terminal/Manager.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
-import * as BrowserTraceCollector from "./observability/Services/BrowserTraceCollector.ts";
-import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
-import * as ProjectSetupScriptRunner from "./project/Services/ProjectSetupScriptRunner.ts";
-import * as RepositoryIdentityResolver from "./project/Services/RepositoryIdentityResolver.ts";
-import * as ServerEnvironment from "./environment/Services/ServerEnvironment.ts";
+import * as BrowserTraceCollector from "./observability/BrowserTraceCollector.ts";
+import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
+import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
+import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
+import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
-import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
-import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
+import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as VcsDriver from "./vcs/VcsDriver.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
@@ -485,17 +486,17 @@ const buildAppUnderTest = (options?: {
       ...options?.layers?.gitManager,
     });
     const workspaceEntriesLayer = WorkspaceEntries.layer.pipe(
-      Layer.provide(WorkspacePathsLive),
+      Layer.provide(WorkspacePaths.layer),
       Layer.provideMerge(vcsDriverRegistryLayer),
     );
     const workspaceAndProjectServicesLayer = Layer.mergeAll(
-      WorkspacePathsLive,
+      WorkspacePaths.layer,
       workspaceEntriesLayer,
-      WorkspaceFileSystemLive.pipe(
-        Layer.provide(WorkspacePathsLive),
+      WorkspaceFileSystem.layer.pipe(
+        Layer.provide(WorkspacePaths.layer),
         Layer.provide(workspaceEntriesLayer),
       ),
-      ProjectFaviconResolverLive.pipe(Layer.provide(WorkspacePathsLive)),
+      ProjectFaviconResolver.layer.pipe(Layer.provide(WorkspacePaths.layer)),
     );
     const gitWorkflowLayer = GitWorkflowService.layer.pipe(
       Layer.provideMerge(vcsDriverRegistryLayer),
@@ -4431,27 +4432,147 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
-  it.effect("routes websocket rpc projects.searchEntries errors", () =>
+  it.effect("preserves structured workspace rpc failures", () =>
     Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-ws-workspace-errors-",
+      });
+      const outsideDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-ws-workspace-errors-outside-",
+      });
+      const outsideFile = path.join(outsideDir, "outside.txt");
+      yield* fs.writeFileString(outsideFile, "outside\n");
+      yield* fs.symlink(outsideFile, path.join(workspaceDir, "linked-outside.txt"));
+      const resolvedOutsideFile = yield* fs.realPath(outsideFile);
+
       yield* buildAppUnderTest();
 
+      const invalidWorkspace = path.join(workspaceDir, "missing-workspace");
+      const missingBrowseParent = path.join(workspaceDir, "missing-browse");
+      const sensitiveQuery = "authorization: Bearer secret-token";
       const wsUrl = yield* getWsServerUrl("/ws");
-      const result = yield* Effect.scoped(
+      const results = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.projectsSearchEntries]({
-            cwd: "/definitely/not/a/real/workspace/path",
-            query: "needle",
-            limit: 10,
+          Effect.all({
+            search: client[WS_METHODS.projectsSearchEntries]({
+              cwd: invalidWorkspace,
+              query: sensitiveQuery,
+              limit: 10,
+            }).pipe(Effect.result),
+            list: client[WS_METHODS.projectsListEntries]({ cwd: invalidWorkspace }).pipe(
+              Effect.result,
+            ),
+            read: client[WS_METHODS.projectsReadFile]({
+              cwd: workspaceDir,
+              relativePath: "linked-outside.txt",
+            }).pipe(Effect.result),
+            browse: client[WS_METHODS.filesystemBrowse]({
+              cwd: workspaceDir,
+              partialPath: "./missing-browse/child",
+            }).pipe(Effect.result),
           }),
-        ).pipe(Effect.result),
+        ),
       );
 
-      assertTrue(result._tag === "Failure");
-      assertTrue(result.failure._tag === "ProjectSearchEntriesError");
-      assertInclude(
-        result.failure.message,
-        "Workspace root does not exist: /definitely/not/a/real/workspace/path",
+      if (
+        results.search._tag !== "Failure" ||
+        results.search.failure._tag !== "ProjectSearchEntriesError"
+      ) {
+        assert.fail("Expected a ProjectSearchEntriesError");
+      }
+      const searchError = results.search.failure;
+      assert.equal(
+        searchError.message,
+        `Failed to search workspace entries in '${invalidWorkspace}'.`,
       );
+      assert.equal(searchError.cwd, invalidWorkspace);
+      assert.equal(searchError.queryLength, sensitiveQuery.length);
+      assert.notProperty(searchError, "query");
+      assert.notInclude(searchError.message, "Bearer");
+      assert.notInclude(searchError.message, "secret-token");
+      assert.equal(searchError.limit, 10);
+      assert.equal(searchError.failure, "workspace_root_not_found");
+      assert.equal(searchError.normalizedCwd, invalidWorkspace);
+      assert.isDefined(searchError.cause);
+
+      if (
+        results.list._tag !== "Failure" ||
+        results.list.failure._tag !== "ProjectListEntriesError"
+      ) {
+        assert.fail("Expected a ProjectListEntriesError");
+      }
+      const listError = results.list.failure;
+      assert.equal(listError.message, `Failed to list workspace entries in '${invalidWorkspace}'.`);
+      assert.equal(listError.cwd, invalidWorkspace);
+      assert.equal(listError.failure, "workspace_root_not_found");
+      assert.equal(listError.normalizedCwd, invalidWorkspace);
+      assert.isDefined(listError.cause);
+
+      if (results.read._tag !== "Failure" || results.read.failure._tag !== "ProjectReadFileError") {
+        assert.fail("Expected a ProjectReadFileError");
+      }
+      const readError = results.read.failure;
+      assert.equal(
+        readError.message,
+        `Failed to read workspace file 'linked-outside.txt' in '${workspaceDir}'.`,
+      );
+      assert.equal(readError.cwd, workspaceDir);
+      assert.equal(readError.relativePath, "linked-outside.txt");
+      assert.equal(readError.failure, "resolved_path_outside_root");
+      assert.equal(readError.resolvedPath, resolvedOutsideFile);
+      assert.isDefined(readError.cause);
+
+      if (
+        results.browse._tag !== "Failure" ||
+        results.browse.failure._tag !== "FilesystemBrowseError"
+      ) {
+        assert.fail("Expected a FilesystemBrowseError");
+      }
+      const browseError = results.browse.failure;
+      assert.equal(
+        browseError.message,
+        `Failed to browse filesystem path './missing-browse/child' from '${workspaceDir}'.`,
+      );
+      assert.equal(browseError.cwd, workspaceDir);
+      assert.equal(browseError.partialPath, "./missing-browse/child");
+      assert.equal(browseError.failure, "read_directory_failed");
+      assert.equal(browseError.parentPath, missingBrowseParent);
+      assert.isDefined(browseError.cause);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("reports workspace root stat failures without relabeling them as missing", () =>
+    Effect.gen(function* () {
+      if ((yield* HostProcessPlatform) === "win32") return;
+
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const blockedRoot = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-ws-workspace-stat-error-",
+      });
+      const workspaceRoot = path.join(blockedRoot, "workspace");
+      yield* fs.makeDirectory(workspaceRoot);
+      yield* fs.chmod(blockedRoot, 0o000);
+
+      const result = yield* Effect.gen(function* () {
+        yield* buildAppUnderTest();
+        const wsUrl = yield* getWsServerUrl("/ws");
+        return yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.projectsListEntries]({ cwd: workspaceRoot }).pipe(Effect.result),
+          ),
+        );
+      }).pipe(Effect.ensuring(fs.chmod(blockedRoot, 0o700).pipe(Effect.ignore)));
+
+      if (result._tag !== "Failure" || result.failure._tag !== "ProjectListEntriesError") {
+        assert.fail("Expected a ProjectListEntriesError");
+      }
+      const error = result.failure;
+      assert.equal(error.failure, "workspace_root_stat_failed");
+      assert.equal(error.normalizedCwd, workspaceRoot);
+      assert.equal(error.detail, "validate-existing");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -4532,12 +4653,19 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ).pipe(Effect.result),
       );
 
-      assertTrue(result._tag === "Failure");
-      assertTrue(result.failure._tag === "ProjectWriteFileError");
+      if (result._tag !== "Failure" || result.failure._tag !== "ProjectWriteFileError") {
+        assert.fail("Expected a ProjectWriteFileError");
+      }
+      const writeError = result.failure;
       assert.equal(
-        result.failure.message,
-        "Workspace file path must stay within the project root.",
+        writeError.message,
+        `Failed to write workspace file '../escape.txt' in '${workspaceDir}'.`,
       );
+      assert.equal(writeError.cwd, workspaceDir);
+      assert.equal(writeError.relativePath, "../escape.txt");
+      assert.equal(writeError.failure, "workspace_path_outside_root");
+      assert.isDefined(writeError.cause);
+      assert.notProperty(writeError, "contents");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -4571,8 +4699,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc shell.openInEditor errors", () =>
     Effect.gen(function* () {
-      const externalLauncherError = new ExternalLauncherError({
-        message: "Editor command not found: cursor",
+      const externalLauncherError = new ExternalLauncherCommandNotFoundError({
+        editor: "cursor",
+        command: "cursor",
       });
       yield* buildAppUnderTest({
         layers: {
@@ -6041,6 +6170,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           cwd: "/tmp/project",
           refName: fetchedOriginCommit,
           newRefName: "t3code/bootstrap-refName",
+          baseRefName: "main",
           path: null,
         });
         assert.deepEqual(fetchRemote.mock.calls[0]?.[0], {
@@ -6095,13 +6225,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
       const runForThread = vi.fn(
         (
-          _: Parameters<
+          input: Parameters<
             ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]["runForThread"]
           >[0],
         ) =>
           Effect.fail(
-            new ProjectSetupScriptRunner.ProjectSetupScriptRunnerError({
-              message: "pty unavailable",
+            new ProjectSetupScriptRunner.ProjectSetupScriptOperationError({
+              threadId: input.threadId,
+              worktreePath: input.worktreePath,
+              operation: "openTerminal",
+              cause: { message: "pty unavailable" },
             }),
           ),
       );

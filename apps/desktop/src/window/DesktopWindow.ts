@@ -8,14 +8,14 @@ import type * as Electron from "electron";
 
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
-import * as DesktopObservability from "../app/DesktopObservability.ts";
-import * as PreviewManager from "../preview/Manager.ts";
+import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import * as ElectronMenu from "../electron/ElectronMenu.ts";
+import { getDesktopUrl } from "../electron/ElectronProtocol.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import { getDesktopUrl } from "../electron/ElectronProtocol.ts";
-import * as IpcChannels from "../ipc/channels.ts";
+import { MENU_ACTION_CHANNEL } from "../ipc/channels.ts";
+import * as PreviewManager from "../preview/Manager.ts";
 
 const TITLEBAR_HEIGHT = 40;
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
@@ -40,38 +40,37 @@ export type DesktopWindowError =
   | ElectronWindow.ElectronWindowCreateError
   | PreviewManager.PreviewManagerError;
 
-export interface DesktopWindowShape {
-  readonly createMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
-  readonly ensureMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
-  readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
-  readonly activate: Effect.Effect<void, DesktopWindowError>;
-  readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
-  // Show a lightweight "Connecting to WSL" splash window immediately (wsl-only
-  // mode), before the WSL backend that serves the renderer is ready. It is
-  // dismissed automatically once the real main window reveals.
-  readonly showConnectingSplash: Effect.Effect<void>;
-  // Marks the primary backend as ready so `createMainIfBackendReady` and the
-  // macOS "activate without windows" path may open the real main window. The
-  // renderer now always loads the local client URL (getDesktopUrl) and connects
-  // to the backend through the connection layer, so the reported httpBaseUrl is
-  // no longer used to point the window at the backend — it is kept only for the
-  // readiness log and to preserve the callback contract the backend pool drives.
-  readonly handleBackendReady: (httpBaseUrl: URL) => Effect.Effect<void, DesktopWindowError>;
-  // Called when the backend transitions back to "not ready" (clean stop,
-  // restart, crash). Clears the latch that lets `activate` auto-create a
-  // window so a "macOS dock click" while the backend is down doesn't
-  // produce a stranded window pointing at nothing.
-  readonly handleBackendNotReady: Effect.Effect<void>;
-  readonly dispatchMenuAction: (action: string) => Effect.Effect<void, DesktopWindowError>;
-  readonly syncAppearance: Effect.Effect<void>;
-}
-
-export class DesktopWindow extends Context.Service<DesktopWindow, DesktopWindowShape>()(
-  "@t3tools/desktop/window/DesktopWindow",
-) {}
+export class DesktopWindow extends Context.Service<
+  DesktopWindow,
+  {
+    readonly createMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    readonly ensureMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    readonly activate: Effect.Effect<void, DesktopWindowError>;
+    readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
+    // Show a lightweight "Connecting to WSL" splash window immediately (wsl-only
+    // mode), before the WSL backend that serves the renderer is ready. It is
+    // dismissed automatically once the real main window reveals.
+    readonly showConnectingSplash: Effect.Effect<void>;
+    // Marks the primary backend as ready so `createMainIfBackendReady` and the
+    // macOS "activate without windows" path may open the real main window. The
+    // renderer now always loads the local client URL (getDesktopUrl) and connects
+    // to the backend through the connection layer, so the reported httpBaseUrl is
+    // no longer used to point the window at the backend — it is kept only for the
+    // readiness log and to preserve the callback contract the backend pool drives.
+    readonly handleBackendReady: (httpBaseUrl: URL) => Effect.Effect<void, DesktopWindowError>;
+    // Called when the backend transitions back to "not ready" (clean stop,
+    // restart, crash). Clears the latch that lets `activate` auto-create a
+    // window so a "macOS dock click" while the backend is down doesn't
+    // produce a stranded window pointing at nothing.
+    readonly handleBackendNotReady: Effect.Effect<void>;
+    readonly dispatchMenuAction: (action: string) => Effect.Effect<void, DesktopWindowError>;
+    readonly syncAppearance: Effect.Effect<void>;
+  }
+>()("@t3tools/desktop/window/DesktopWindow") {}
 
 const { logInfo: logWindowInfo, logWarning: logWindowWarning } =
-  DesktopObservability.makeComponentLogger("desktop-window");
+  makeComponentLogger("desktop-window");
 
 function getIconOption(
   iconPaths: DesktopAssets.DesktopIconPaths,
@@ -168,7 +167,7 @@ function bindFirstRevealTrigger(
   }
 }
 
-const make = Effect.gen(function* () {
+export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const assets = yield* DesktopAssets.DesktopAssets;
   const electronMenu = yield* ElectronMenu.ElectronMenu;
@@ -505,7 +504,7 @@ const make = Effect.gen(function* () {
 
       const send = () => {
         if (targetWindow.isDestroyed()) return;
-        targetWindow.webContents.send(IpcChannels.MENU_ACTION_CHANNEL, action);
+        targetWindow.webContents.send(MENU_ACTION_CHANNEL, action);
         void runPromise(electronWindow.reveal(targetWindow));
       };
 

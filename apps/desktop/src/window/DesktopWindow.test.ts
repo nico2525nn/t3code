@@ -217,6 +217,26 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           const outcome = createOutcomes[index] ?? null;
           if (outcome === null) {
             return yield* new ElectronWindow.ElectronWindowCreateError({
+              options: {
+                title: null,
+                width: null,
+                height: null,
+                minWidth: null,
+                minHeight: null,
+                show: null,
+                modal: null,
+                frame: null,
+                transparent: null,
+                backgroundColor: null,
+                webPreferences: {
+                  preload: null,
+                  partition: null,
+                  sandbox: null,
+                  contextIsolation: null,
+                  nodeIntegration: null,
+                  webviewTag: null,
+                },
+              },
               cause: new Error("simulated window-open failure"),
             });
           }
@@ -232,7 +252,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       sendAll: () => Effect.void,
       destroyAll: Effect.void,
       syncAllAppearance: (sync) => (fallbackWindow ? sync(fallbackWindow) : Effect.void),
-    } satisfies ElectronWindow.ElectronWindowShape;
+    } satisfies ElectronWindow.ElectronWindow["Service"];
 
     const layer = DesktopWindow.layer.pipe(
       Layer.provide(
@@ -244,7 +264,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           Layer.succeed(ElectronShell.ElectronShell, {
             openExternal: () => Effect.succeed(true),
             copyText: () => Effect.void,
-          } satisfies ElectronShell.ElectronShellShape),
+          } satisfies ElectronShell.ElectronShell["Service"]),
           electronThemeLayer,
           Layer.succeed(ElectronWindow.ElectronWindow, electronWindowShape),
           Layer.mock(PreviewManager.PreviewManager)({

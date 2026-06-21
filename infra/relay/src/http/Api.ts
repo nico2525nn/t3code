@@ -238,13 +238,12 @@ export const relayEnvironmentAuthLayer = Layer.effect(
         { credential },
       ) {
         const token = readHttpAuthorizationCredential(credential);
-        const principal = yield* credentials
-          .authenticate(token)
-          .pipe(
-            Effect.catchTag("EnvironmentCredentialAuthenticatePersistenceError", () =>
+        const principal = yield* credentials.authenticate(token).pipe(
+          Effect.catchTags({
+            EnvironmentCredentialAuthenticatePersistenceError: () =>
               relayInternalErrorResponse("persistence_failed"),
-            ),
-          );
+          }),
+        );
         if (principal._tag === "None") {
           return yield* relayAuthInvalidError("not_authorized");
         }
@@ -777,7 +776,61 @@ export const serverApi = HttpApiBuilder.group(
               reason: "persistence_failed",
               traceId,
             }),
-          ApnsDeliveryJobInvalid: (_error, traceId) =>
+          ApnsDeliveryJobQueuePayloadInvalid: (_error, traceId) =>
+            new RelayInternalError({
+              code: "internal_error",
+              reason: "internal_error",
+              traceId,
+            }),
+          ApnsDeliveryJobLiveActivityAggregateMissing: (_error, traceId) =>
+            new RelayInternalError({
+              code: "internal_error",
+              reason: "internal_error",
+              traceId,
+            }),
+          ApnsDeliveryJobLiveActivityNotificationUnexpected: (_error, traceId) =>
+            new RelayInternalError({
+              code: "internal_error",
+              reason: "internal_error",
+              traceId,
+            }),
+          ApnsDeliveryJobPushNotificationMissing: (_error, traceId) =>
+            new RelayInternalError({
+              code: "internal_error",
+              reason: "internal_error",
+              traceId,
+            }),
+          ApnsDeliveryJobPushNotificationAggregateUnexpected: (_error, traceId) =>
+            new RelayInternalError({
+              code: "internal_error",
+              reason: "internal_error",
+              traceId,
+            }),
+          ApnsDeliveryJobCreatedAtInvalid: (_error, traceId) =>
+            new RelayInternalError({
+              code: "internal_error",
+              reason: "internal_error",
+              traceId,
+            }),
+          ApnsDeliveryJobExpiresAtInvalid: (_error, traceId) =>
+            new RelayInternalError({
+              code: "internal_error",
+              reason: "internal_error",
+              traceId,
+            }),
+          ApnsDeliveryJobTimeWindowInvalid: (_error, traceId) =>
+            new RelayInternalError({
+              code: "internal_error",
+              reason: "internal_error",
+              traceId,
+            }),
+          ApnsDeliveryJobTimeWindowTooLong: (_error, traceId) =>
+            new RelayInternalError({
+              code: "internal_error",
+              reason: "internal_error",
+              traceId,
+            }),
+          ApnsDeliveryJobSignatureInvalid: (_error, traceId) =>
             new RelayInternalError({
               code: "internal_error",
               reason: "internal_error",
