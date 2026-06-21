@@ -7,7 +7,7 @@ import {
   SshCommandSpawnError,
   SshCommandTimeoutError,
   SshHttpBridgeError,
-  SshPasswordPromptError,
+  SshPasswordPromptWindowClosedError,
 } from "@t3tools/ssh/errors";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -62,8 +62,8 @@ describe("SSH environment IPC", () => {
       requestId: "prompt-1",
       destination: "developer@devbox.example.test",
     });
-    const cause = new SshPasswordPromptError({
-      message: promptCause.message,
+    const cause = new SshPasswordPromptWindowClosedError({
+      destination: promptCause.destination,
       cause: promptCause,
     });
     const layer = Layer.succeed(

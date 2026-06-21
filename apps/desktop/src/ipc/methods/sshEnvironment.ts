@@ -30,6 +30,7 @@ import {
   SshCommandExecutionError,
   SshCommandSpawnError,
   SshHttpBridgeError,
+  type SshPasswordPromptError,
   SshTunnelMonitorError,
   SshTunnelSpawnError,
 } from "@t3tools/ssh/errors";
@@ -62,6 +63,19 @@ const desktopSshPasswordPromptCancellationReasons = {
   DesktopSshPromptServiceStoppedError: "service-stopped",
   DesktopSshPromptTimedOutError: "timed-out",
 } as const;
+
+function handleDesktopSshPasswordPromptCancellation(error: SshPasswordPromptError) {
+  return DesktopSshEnvironment.isDesktopSshPasswordPromptCancellation(error)
+    ? Effect.succeed(
+        new DesktopSshPasswordPromptCancellationError({
+          reason: desktopSshPasswordPromptCancellationReasons[error.cause._tag],
+          requestId: error.cause.requestId,
+          destination: error.cause.destination,
+          cause: error,
+        }),
+      )
+    : Effect.fail(error);
+}
 
 const isEnvironmentAuthInvalidError = Schema.is(EnvironmentAuthInvalidError);
 const isEnvironmentInternalError = Schema.is(EnvironmentInternalError);
@@ -166,17 +180,10 @@ export const ensureSshEnvironment = DesktopIpc.makeIpcMethod({
     const sshEnvironment = yield* DesktopSshEnvironment.DesktopSshEnvironment;
     return yield* sshEnvironment.ensureEnvironment(target, options).pipe(
       Effect.catchTags({
-        SshPasswordPromptError: (error) =>
-          DesktopSshEnvironment.isDesktopSshPasswordPromptCancellation(error)
-            ? Effect.succeed(
-                new DesktopSshPasswordPromptCancellationError({
-                  reason: desktopSshPasswordPromptCancellationReasons[error.cause._tag],
-                  requestId: error.cause.requestId,
-                  destination: error.cause.destination,
-                  cause: error,
-                }),
-              )
-            : Effect.fail(error),
+        SshPasswordPromptCancelledError: handleDesktopSshPasswordPromptCancellation,
+        SshPasswordPromptTimedOutError: handleDesktopSshPasswordPromptCancellation,
+        SshPasswordPromptWindowClosedError: handleDesktopSshPasswordPromptCancellation,
+        SshPasswordPromptServiceStoppedError: handleDesktopSshPasswordPromptCancellation,
       }),
       Effect.mapError(toDesktopSshIpcPresentationError),
     );

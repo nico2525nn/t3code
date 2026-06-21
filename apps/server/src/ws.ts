@@ -1313,7 +1313,7 @@ const makeWsRpcLayer = (currentSession: EnvironmentAuth.AuthenticatedSession) =>
                       (error) =>
                         new RelayClientInstallFailedError({
                           reason: relayClientInstallFailureReason(error),
-                          message: error.message,
+                          cause: error,
                         }),
                     ),
                     Effect.flatMap((status) =>
