@@ -28,7 +28,8 @@ describe("ConnectionTransientError.fromStorageFailure", () => {
         cause: storageCause,
       },
     });
-    expect(error.message).toBe("Could not write local connection data.");
+    expect(error.detail).toBe("Could not write local connection data.");
+    expect(error.message).toBe("Connection attempt failed (remote-unavailable).");
   });
 
   it("maps a cause-free availability failure without inventing a defect", () => {

@@ -1837,7 +1837,7 @@ function ConfiguredCloudRemoteEnvironmentRows({
                     ? "Relay offline"
                     : availability === "checking"
                       ? "Checking relay status"
-                      : (Option.getOrNull(error)?.message ?? "Relay status unavailable")
+                      : (Option.getOrNull(error)?.detail ?? "Relay status unavailable")
               }
             />
             <p className="truncate text-sm font-medium">{environment.label}</p>
@@ -1854,7 +1854,7 @@ function ConfiguredCloudRemoteEnvironmentRows({
                 ? "Available · Relay offline"
                 : availability === "checking"
                   ? "Available · Checking relay status…"
-                  : (Option.getOrNull(error)?.message ?? "Available · Relay status unavailable")}
+                  : (Option.getOrNull(error)?.detail ?? "Available · Relay status unavailable")}
           </p>
         </div>
         <Button

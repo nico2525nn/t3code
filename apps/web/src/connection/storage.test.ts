@@ -70,7 +70,8 @@ describe("makeCatalogBackend", () => {
       const error = yield* backend.write("{}").pipe(Effect.flip);
 
       expect(error).toBeInstanceOf(ConnectionTransientError);
-      expect(error.message).toContain("Desktop secure storage is unavailable");
+      expect(error.detail).toContain("Desktop secure storage is unavailable");
+      expect(error.message).toBe("Connection attempt failed (remote-unavailable).");
       expect(error.cause).toMatchObject({ _tag: "DesktopSecureStorageUnavailableError" });
       expect(setConnectionCatalog).toHaveBeenCalledWith("{}");
     }),
@@ -95,7 +96,7 @@ describe("makeCatalogBackend", () => {
         backend: "desktop-secure-storage",
         cause,
       });
-      expect(error.message).toBe("Could not save local connection data.");
+      expect(error.detail).toBe("Could not save local connection data.");
       expect(error.message).not.toContain(cause.message);
     }),
   );

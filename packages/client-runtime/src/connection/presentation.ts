@@ -35,7 +35,7 @@ export function presentConnectionState(
     case "connecting":
       return {
         phase: state.attempt <= 1 && state.lastFailure === null ? "connecting" : "reconnecting",
-        error: state.lastFailure?.message ?? null,
+        error: state.lastFailure?.detail ?? null,
         traceId: state.lastFailure?.traceId ?? null,
       };
     case "connected":
@@ -43,13 +43,13 @@ export function presentConnectionState(
     case "backoff":
       return {
         phase: "reconnecting",
-        error: state.lastFailure?.message ?? null,
+        error: state.lastFailure?.detail ?? null,
         traceId: state.lastFailure?.traceId ?? null,
       };
     case "blocked":
       return {
         phase: "error",
-        error: state.lastFailure?.message ?? null,
+        error: state.lastFailure?.detail ?? null,
         traceId: state.lastFailure?.traceId ?? null,
       };
   }

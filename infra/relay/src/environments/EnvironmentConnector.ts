@@ -58,29 +58,6 @@ export const EnvironmentConnectNotAuthorizedReason = Schema.Literals([
 export type EnvironmentConnectNotAuthorizedReason =
   typeof EnvironmentConnectNotAuthorizedReason.Type;
 
-function environmentConnectNotAuthorizedReasonMessage(
-  reason: EnvironmentConnectNotAuthorizedReason,
-): string {
-  switch (reason) {
-    case "client_proof_key_thumbprint_missing":
-      return "the client proof key thumbprint is missing";
-    case "environment_link_not_found":
-      return "no active environment link was found";
-    case "endpoint_provider_not_managed":
-      return "the linked endpoint is not relay-managed";
-    case "managed_endpoint_allocation_not_found":
-      return "no managed endpoint allocation was found";
-    case "managed_endpoint_base_domain_not_configured":
-      return "the managed endpoint base domain is not configured";
-    case "managed_endpoint_allocation_not_ready":
-      return "the managed endpoint allocation is incomplete";
-    case "managed_endpoint_hostname_invalid":
-      return "the managed endpoint hostname is invalid";
-    case "managed_endpoint_mismatch":
-      return "the linked endpoint does not match its managed allocation";
-  }
-}
-
 export class EnvironmentConnectNotAuthorized extends Schema.TaggedErrorClass<EnvironmentConnectNotAuthorized>()(
   "EnvironmentConnectNotAuthorized",
   {
@@ -90,7 +67,7 @@ export class EnvironmentConnectNotAuthorized extends Schema.TaggedErrorClass<Env
   },
 ) {
   override get message(): string {
-    return `Environment '${this.environmentId}' is not authorized for ${this.operation}: ${environmentConnectNotAuthorizedReasonMessage(this.reason)}`;
+    return `Environment '${this.environmentId}' is not authorized for ${this.operation} (${this.reason}).`;
   }
 }
 

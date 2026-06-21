@@ -148,27 +148,15 @@ export class ConnectionTransientError extends Schema.TaggedErrorClass<Connection
   },
 ) {
   static fromStorageFailure(cause: ConnectionStorageFailure): ConnectionTransientError {
-    let detail: string;
-    switch (cause._tag) {
-      case "ConnectionStorageOperationError":
-        detail = `Could not ${cause.operation} local connection data.`;
-        break;
-      case "IndexedDbUnavailableError":
-        detail = "IndexedDB is unavailable in this browser context.";
-        break;
-      case "DesktopSecureStorageUnavailableError":
-        detail = "Desktop secure storage is unavailable in this system context.";
-        break;
-    }
     return new ConnectionTransientError({
       reason: "remote-unavailable",
-      detail,
+      detail: cause.message,
       cause,
     });
   }
 
   override get message(): string {
-    return this.detail;
+    return `Connection attempt failed (${this.reason}).`;
   }
 }
 
@@ -185,7 +173,7 @@ export class ConnectionBlockedError extends Schema.TaggedErrorClass<ConnectionBl
   },
 ) {
   override get message(): string {
-    return this.detail;
+    return `Connection attempt blocked (${this.reason}).`;
   }
 }
 

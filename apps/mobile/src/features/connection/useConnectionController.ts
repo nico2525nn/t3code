@@ -58,7 +58,7 @@ export function useConnectionController() {
         environment: entry.environment,
         availability: entry.availability,
         status: Option.getOrNull(entry.status),
-        error: Option.getOrNull(entry.error)?.message ?? null,
+        error: Option.getOrNull(entry.error)?.detail ?? null,
         traceId: Option.getOrNull(entry.error)?.traceId ?? null,
       })),
     [discovery.environments],
@@ -112,7 +112,7 @@ export function useConnectionController() {
     relayDiscovery: {
       isRefreshing: discovery.refreshing,
       isOffline: discovery.offline,
-      error: Option.getOrNull(discovery.error)?.message ?? null,
+      error: Option.getOrNull(discovery.error)?.detail ?? null,
       errorTraceId: Option.getOrNull(discovery.error)?.traceId ?? null,
     },
     connectPairingUrl,

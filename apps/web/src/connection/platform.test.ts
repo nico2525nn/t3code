@@ -104,7 +104,8 @@ describe("desktop SSH pairing", () => {
       ).pipe(Effect.flip);
 
       expect(error).toBeInstanceOf(ConnectionTransientError);
-      expect(error.message).toBe("Could not prepare the SSH environment.");
+      expect(error.detail).toBe("Could not prepare the SSH environment.");
+      expect(error.message).toBe("Connection attempt failed (remote-unavailable).");
       expect(error.message).not.toContain(cause.message);
       expect(error.cause).toBe(cause);
     }),
@@ -126,9 +127,10 @@ describe("desktop SSH pairing", () => {
       ).pipe(Effect.flip);
 
       expect(error).toBeInstanceOf(ConnectionBlockedError);
-      expect(error.message).toBe(
+      expect(error.detail).toBe(
         "SSH authentication did not complete for developer@devbox.example.test.",
       );
+      expect(error.message).toBe("Connection attempt blocked (authentication).");
       expect(error.cause).toBe(cancellation);
       expect(cancellation.cause).toBe(promptCause);
     }),

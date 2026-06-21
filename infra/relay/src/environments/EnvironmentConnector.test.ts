@@ -397,6 +397,9 @@ describe("EnvironmentConnector", () => {
             operation: "status",
             reason: "endpoint_provider_not_managed",
           });
+          expect(result.failure.message).toBe(
+            "Environment 'env-connector-test' is not authorized for status (endpoint_provider_not_managed).",
+          );
         }
       }
       expect(requestCount).toBe(0);
