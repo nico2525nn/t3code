@@ -26,14 +26,7 @@ import {
   AuthSessionState,
   AuthWebSocketTicketResult,
 } from "@t3tools/contracts";
-import {
-  SshCommandExecutionError,
-  SshCommandSpawnError,
-  SshHttpBridgeError,
-  type SshPasswordPromptError,
-  SshTunnelMonitorError,
-  SshTunnelSpawnError,
-} from "@t3tools/ssh/errors";
+import { SshHttpBridgeError, type SshPasswordPromptError } from "@t3tools/ssh/errors";
 import { resolveLoopbackSshHttpBaseUrl } from "@t3tools/ssh/tunnel";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -83,26 +76,6 @@ const isEnvironmentOperationForbiddenError = Schema.is(EnvironmentOperationForbi
 const isEnvironmentRequestInvalidError = Schema.is(EnvironmentRequestInvalidError);
 const isEnvironmentScopeRequiredError = Schema.is(EnvironmentScopeRequiredError);
 const isSshHttpBridgeError = Schema.is(SshHttpBridgeError);
-const isSshCausePresentationError = Schema.is(
-  Schema.Union([
-    SshCommandSpawnError,
-    SshCommandExecutionError,
-    SshTunnelSpawnError,
-    SshTunnelMonitorError,
-  ]),
-);
-
-// Electron only forwards the message from a rejected ipcRenderer.invoke promise. Keep the typed,
-// structural SSH error intact as the cause for main-process diagnostics while preserving the
-// actionable process message that the renderer historically presented to the user.
-export function toDesktopSshIpcPresentationError(
-  error: DesktopSshEnvironment.DesktopSshEnvironmentOperationError,
-): DesktopSshEnvironment.DesktopSshEnvironmentOperationError | Error {
-  if (isSshCausePresentationError(error) && error.cause instanceof Error) {
-    return new Error(error.cause.message, { cause: error });
-  }
-  return error;
-}
 
 function readSshHttpStatus(cause: DesktopSshEnvironmentRequestCause): number | null {
   if (isRemoteEnvironmentAuthUndeclaredStatusError(cause)) {
@@ -169,6 +142,9 @@ export const discoverSshHosts = DesktopIpc.makeIpcMethod({
   }),
 });
 
+// Electron forwards only the message from a rejected ipcRenderer.invoke promise to the renderer.
+// Preserve typed SSH errors at this boundary so that message stays structural while main-process
+// diagnostics retain the exact cause and error fields.
 export const ensureSshEnvironment = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.ENSURE_SSH_ENVIRONMENT_CHANNEL,
   payload: DesktopSshEnvironmentEnsureInputSchema,
@@ -185,7 +161,6 @@ export const ensureSshEnvironment = DesktopIpc.makeIpcMethod({
         SshPasswordPromptWindowClosedError: handleDesktopSshPasswordPromptCancellation,
         SshPasswordPromptServiceStoppedError: handleDesktopSshPasswordPromptCancellation,
       }),
-      Effect.mapError(toDesktopSshIpcPresentationError),
     );
   }),
 });
@@ -196,9 +171,7 @@ export const disconnectSshEnvironment = DesktopIpc.makeIpcMethod({
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.sshEnvironment.disconnectEnvironment")(function* (target) {
     const sshEnvironment = yield* DesktopSshEnvironment.DesktopSshEnvironment;
-    yield* sshEnvironment
-      .disconnectEnvironment(target)
-      .pipe(Effect.mapError(toDesktopSshIpcPresentationError));
+    yield* sshEnvironment.disconnectEnvironment(target);
   }),
 });
 

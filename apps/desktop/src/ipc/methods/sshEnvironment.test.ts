@@ -5,7 +5,6 @@ import {
 } from "@t3tools/contracts";
 import {
   SshCommandSpawnError,
-  SshCommandTimeoutError,
   SshHttpBridgeError,
   SshPasswordPromptWindowClosedError,
 } from "@t3tools/ssh/errors";
@@ -21,9 +20,9 @@ import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 
 import {
   DesktopSshEnvironmentRequestError,
+  disconnectSshEnvironment,
   ensureSshEnvironment,
   fetchSshEnvironmentDescriptor,
-  toDesktopSshIpcPresentationError,
 } from "./sshEnvironment.ts";
 import * as DesktopSshEnvironment from "../../ssh/DesktopSshEnvironment.ts";
 import * as DesktopSshPasswordPrompts from "../../ssh/DesktopSshPasswordPrompts.ts";
@@ -95,7 +94,7 @@ describe("SSH environment IPC", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it("presents legacy process causes without weakening structured errors", () => {
+  it.effect("preserves structural SSH errors and exact causes at the IPC boundary", () => {
     const cause = new Error("ssh executable was not found");
     const structured = new SshCommandSpawnError({
       command: "ssh",
@@ -103,22 +102,35 @@ describe("SSH environment IPC", () => {
       target: "devbox",
       cause,
     });
+    const target = {
+      alias: "devbox",
+      hostname: "devbox.example.test",
+      username: "developer",
+      port: 22,
+    };
+    const layer = Layer.succeed(
+      DesktopSshEnvironment.DesktopSshEnvironment,
+      DesktopSshEnvironment.DesktopSshEnvironment.of({
+        discoverHosts: () => Effect.die("unexpected host discovery"),
+        ensureEnvironment: () => Effect.fail(structured),
+        disconnectEnvironment: () => Effect.fail(structured),
+      }),
+    );
 
-    const presentation = toDesktopSshIpcPresentationError(structured);
-    assert.equal(structured.message, "Failed to spawn SSH command for devbox.");
-    assert.equal(presentation.message, cause.message);
-    assert.strictEqual(presentation.cause, structured);
-  });
-
-  it("passes structural SSH errors without process causes through the IPC boundary", () => {
-    const structured = new SshCommandTimeoutError({
-      command: "ssh",
-      argumentCount: 0,
-      target: "devbox",
-      timeoutMs: 30_000,
-    });
-
-    assert.strictEqual(toDesktopSshIpcPresentationError(structured), structured);
+    return Effect.gen(function* () {
+      const exits = yield* Effect.all([
+        Effect.exit(ensureSshEnvironment.handler({ target })),
+        Effect.exit(disconnectSshEnvironment.handler(target)),
+      ]);
+      for (const exit of exits) {
+        assert(Exit.isFailure(exit));
+        const failure = Cause.findErrorOption(exit.cause);
+        assert(Option.isSome(failure));
+        assert.strictEqual(failure.value, structured);
+      }
+      assert.equal(structured.message, "Failed to spawn SSH command for devbox.");
+      assert.strictEqual(structured.cause, cause);
+    }).pipe(Effect.provide(layer));
   });
 
   it.effect("fetches and decodes the remote environment descriptor", () => {
