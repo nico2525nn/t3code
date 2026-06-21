@@ -1,21 +1,30 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
+import * as References from "effect/References";
 import * as Tracer from "effect/Tracer";
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
-import { RelayEnvironmentAuth } from "@t3tools/contracts/relay";
+import {
+  RelayEnvironmentAuth,
+  RelayEnvironmentConnectNotAuthorizedError,
+  RelayInternalError,
+} from "@t3tools/contracts/relay";
 
 import {
   ClerkBearerTokenVerificationError,
   ClerkTokenVerificationError,
+  mapErrorTags,
+  mapRelayCommonApiErrors,
   relayCors,
   relayDocsRedirectRoute,
   relayEnvironmentAuthLayer,
@@ -27,6 +36,7 @@ import {
 } from "./Api.ts";
 import * as RelayConfiguration from "../Config.ts";
 import * as EnvironmentCredentials from "../environments/EnvironmentCredentials.ts";
+import * as EnvironmentConnector from "../environments/EnvironmentConnector.ts";
 
 vi.mock("@clerk/backend", () => ({
   createClerkClient: vi.fn(),
@@ -51,6 +61,19 @@ const relaySettings: RelayConfiguration.RelayConfiguration["Service"] = {
   managedEndpointBaseDomain: undefined,
   managedEndpointNamespace: undefined,
 };
+
+const projectionTraceId = "00000000000000000000000000000042";
+const projectionParentSpan = Tracer.externalSpan({
+  traceId: projectionTraceId,
+  spanId: "0000000000000042",
+  sampled: true,
+});
+
+interface CapturedLog {
+  readonly message: unknown;
+  readonly cause: Cause.Cause<unknown>;
+  readonly annotations: Readonly<Record<string, unknown>>;
+}
 
 describe("relay client authentication", () => {
   it.effect("preserves the existing Clerk session JWT path", () =>
@@ -242,6 +265,14 @@ describe("relay DPoP token exchange authentication", () => {
 
 describe("relay environment authentication", () => {
   it.effect("preserves credential lookup persistence failures as internal errors", () => {
+    const logs: CapturedLog[] = [];
+    const logger = Logger.make(({ cause, fiber, message }) => {
+      logs.push({
+        message,
+        cause,
+        annotations: fiber.getRef(References.CurrentLogAnnotations),
+      });
+    });
     const failure = new EnvironmentCredentials.EnvironmentCredentialAuthenticatePersistenceError({
       stage: "lookup-credential",
       cause: "database unavailable",
@@ -265,8 +296,25 @@ describe("relay environment authentication", () => {
       expect(Predicate.isTagged(error, "RelayInternalError")).toBe(true);
       if (Predicate.isTagged(error, "RelayInternalError")) {
         expect(error.reason).toBe("persistence_failed");
+        expect(error.traceId).toBe(projectionTraceId);
+        expect(error).not.toHaveProperty("cause");
       }
+      expect(logs).toEqual([
+        {
+          message: ["relay API failure projected to wire response"],
+          cause: Cause.fail(failure),
+          annotations: expect.objectContaining({
+            traceId: projectionTraceId,
+            sourceErrorTag: "EnvironmentCredentialAuthenticatePersistenceError",
+            responseErrorTag: "RelayInternalError",
+            responseCode: "internal_error",
+            responseReason: "persistence_failed",
+          }),
+        },
+      ]);
     }).pipe(
+      Effect.provideService(Tracer.ParentSpan, projectionParentSpan),
+      Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
       Effect.provideService(
         HttpServerRequest.HttpServerRequest,
         HttpServerRequest.fromWeb(new Request("https://relay.test/v1/server/link")),
@@ -282,6 +330,128 @@ describe("relay environment authentication", () => {
         ),
       ),
       Effect.scoped,
+    );
+  });
+});
+
+describe("relay API error projection", () => {
+  it.effect("logs common persistence failures with the wire response trace", () => {
+    const logs: CapturedLog[] = [];
+    const logger = Logger.make(({ cause, fiber, message }) => {
+      logs.push({
+        message,
+        cause,
+        annotations: fiber.getRef(References.CurrentLogAnnotations),
+      });
+    });
+    const databaseCause = new Error("database connection refused");
+    const failure = new EnvironmentCredentials.EnvironmentCredentialRevokePersistenceError({
+      environmentId: "env-test",
+      cause: databaseCause,
+    });
+
+    return Effect.gen(function* () {
+      const error = yield* Effect.fail(failure).pipe(
+        mapRelayCommonApiErrors("not_authorized"),
+        Effect.flip,
+      );
+
+      expect(error).toBeInstanceOf(RelayInternalError);
+      expect(error).toMatchObject({
+        code: "internal_error",
+        reason: "persistence_failed",
+        traceId: projectionTraceId,
+      });
+      expect(error).not.toHaveProperty("cause");
+      expect(logs).toEqual([
+        {
+          message: ["relay API failure projected to wire response"],
+          cause: Cause.fail(failure),
+          annotations: expect.objectContaining({
+            traceId: projectionTraceId,
+            sourceErrorTag: "EnvironmentCredentialRevokePersistenceError",
+            responseErrorTag: "RelayInternalError",
+            responseCode: "internal_error",
+            responseReason: "persistence_failed",
+          }),
+        },
+      ]);
+      expect(failure.cause).toBe(databaseCause);
+    }).pipe(
+      Effect.provideService(Tracer.ParentSpan, projectionParentSpan),
+      Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
+    );
+  });
+
+  it.effect("logs selected server failures but not expected authorization projections", () => {
+    const logs: CapturedLog[] = [];
+    const logger = Logger.make(({ cause, fiber, message }) => {
+      logs.push({
+        message,
+        cause,
+        annotations: fiber.getRef(References.CurrentLogAnnotations),
+      });
+    });
+    const serverCause = new Error("mint request transport failed");
+    const serverFailure = EnvironmentConnector.EnvironmentMintRequestFailed.fromEndpoint({
+      userId: "user-test",
+      environmentId: "env-test",
+      operation: "connect",
+      stage: "send_request",
+      httpBaseUrl: "https://environment.example.test",
+      cause: serverCause,
+    });
+    const authorizationFailure = new EnvironmentConnector.EnvironmentConnectNotAuthorized({
+      environmentId: "env-test",
+      operation: "connect",
+      reason: "environment_link_not_found",
+    });
+
+    return Effect.gen(function* () {
+      const serverError = yield* Effect.fail(serverFailure).pipe(
+        mapErrorTags({
+          EnvironmentMintRequestFailed: (_error, traceId) =>
+            new RelayInternalError({
+              code: "internal_error",
+              reason: "upstream_unavailable",
+              traceId,
+            }),
+        }),
+        Effect.flip,
+      );
+      const authorizationError = yield* Effect.fail(authorizationFailure).pipe(
+        mapErrorTags({
+          EnvironmentConnectNotAuthorized: (_error, traceId) =>
+            new RelayEnvironmentConnectNotAuthorizedError({
+              code: "environment_connect_not_authorized",
+              traceId,
+            }),
+        }),
+        Effect.flip,
+      );
+
+      expect(serverError).toMatchObject({
+        reason: "upstream_unavailable",
+        traceId: projectionTraceId,
+      });
+      expect(authorizationError.traceId).toBe(projectionTraceId);
+      expect(logs).toEqual([
+        {
+          message: ["relay API failure projected to wire response"],
+          cause: Cause.fail(serverFailure),
+          annotations: expect.objectContaining({
+            traceId: projectionTraceId,
+            sourceErrorTag: "EnvironmentMintRequestFailed",
+            responseErrorTag: "RelayInternalError",
+            responseCode: "internal_error",
+            responseReason: "upstream_unavailable",
+          }),
+        },
+      ]);
+      expect(serverFailure.cause).toBe(serverCause);
+    }).pipe(
+      Effect.provideService(Tracer.ParentSpan, projectionParentSpan),
+      Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
     );
   });
 });

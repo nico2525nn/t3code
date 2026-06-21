@@ -1,5 +1,6 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { sql as drizzleSql } from "drizzle-orm";
+import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -239,8 +240,8 @@ export const relayEnvironmentAuthLayer = Layer.effect(
         const token = readHttpAuthorizationCredential(credential);
         const principal = yield* credentials.authenticate(token).pipe(
           Effect.catchTags({
-            EnvironmentCredentialAuthenticatePersistenceError: () =>
-              relayInternalErrorResponse("persistence_failed"),
+            EnvironmentCredentialAuthenticatePersistenceError: (error) =>
+              relayInternalErrorResponse("persistence_failed", error),
           }),
         );
         if (principal._tag === "None") {
@@ -353,7 +354,7 @@ export const healthApi = HttpApiBuilder.group(
           yield* db.execute(drizzleSql`SELECT 1`);
           return { ok: true, service: "relay" as const };
         },
-        Effect.catch(() => relayInternalErrorResponse("database_unavailable")),
+        Effect.catch((error) => relayInternalErrorResponse("database_unavailable", error)),
       ),
     );
   }),
@@ -512,7 +513,7 @@ export const clientApi = HttpApiBuilder.group(
           const now = yield* DateTime.now;
           const expiresAt = DateTime.add(now, { minutes: 5 });
           const jti = yield* crypto.randomUUIDv4.pipe(
-            Effect.catch(() => relayInternalErrorResponse("internal_error")),
+            Effect.catch((error) => relayInternalErrorResponse("internal_error", error)),
           );
           const challenge = yield* relayTokens
             .issueLinkChallenge({
@@ -522,7 +523,7 @@ export const clientApi = HttpApiBuilder.group(
               issuedAtEpochSeconds: Math.floor(now.epochMilliseconds / 1_000),
               expiresAtEpochSeconds: Math.floor(expiresAt.epochMilliseconds / 1_000),
             })
-            .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
+            .pipe(Effect.catch((error) => relayInternalErrorResponse("internal_error", error)));
           return { challenge, expiresAt: DateTime.formatIso(expiresAt) };
         }, mapRelayCommonApiErrors("not_authorized")),
       )
@@ -536,7 +537,9 @@ export const clientApi = HttpApiBuilder.group(
               userId,
               environmentId: params.environmentId,
             })
-            .pipe(Effect.catch(() => relayInternalErrorResponse("upstream_unavailable")));
+            .pipe(
+              Effect.catch((error) => relayInternalErrorResponse("upstream_unavailable", error)),
+            );
           const link = yield* links.getForUser({
             userId,
             environmentId: params.environmentId,
@@ -596,7 +599,7 @@ export const tokenApi = HttpApiBuilder.group(
         const now = yield* DateTime.now;
         const expiresAt = DateTime.addDuration(now, RelayTokens.RELAY_DPOP_ACCESS_TOKEN_TTL);
         const jti = yield* crypto.randomUUIDv4.pipe(
-          Effect.catch(() => relayInternalErrorResponse("internal_error")),
+          Effect.catch((error) => relayInternalErrorResponse("internal_error", error)),
         );
         return {
           access_token: yield* relayTokens
@@ -609,7 +612,7 @@ export const tokenApi = HttpApiBuilder.group(
               clientId: args.payload.client_id,
               scopes: requestedScopes,
             })
-            .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error"))),
+            .pipe(Effect.catch((error) => relayInternalErrorResponse("internal_error", error))),
           issued_token_type: RelayAccessTokenType,
           token_type: "DPoP" as const,
           expires_in: Duration.toSeconds(RelayTokens.RELAY_DPOP_ACCESS_TOKEN_TTL),
@@ -901,6 +904,50 @@ const currentTraceId = Effect.currentParentSpan.pipe(
   Effect.orElseSucceed(() => "unavailable"),
 );
 
+function relayApiErrorTag(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "_tag" in error &&
+    typeof error._tag === "string"
+  ) {
+    return error._tag;
+  }
+  if (error instanceof Error && error.name.length > 0) {
+    return error.name;
+  }
+  return typeof error;
+}
+
+function safeRelayApiLogCode(value: unknown): string | undefined {
+  return typeof value === "string" && value.length <= 64 && /^[a-z0-9._-]+$/iu.test(value)
+    ? value
+    : undefined;
+}
+
+function relayApiProjectionResponseFields(error: unknown) {
+  if (typeof error !== "object" || error === null) {
+    return {};
+  }
+  const code = "code" in error ? safeRelayApiLogCode(error.code) : undefined;
+  const reason = "reason" in error ? safeRelayApiLogCode(error.reason) : undefined;
+  return {
+    ...(code === undefined ? {} : { responseCode: code }),
+    ...(reason === undefined ? {} : { responseReason: reason }),
+  };
+}
+
+function logRelayApiProjection(cause: unknown, responseError: unknown, traceId: string) {
+  return Effect.logError("relay API failure projected to wire response", Cause.fail(cause)).pipe(
+    Effect.annotateLogs({
+      traceId,
+      sourceErrorTag: relayApiErrorTag(cause),
+      responseErrorTag: relayApiErrorTag(responseError),
+      ...relayApiProjectionResponseFields(responseError),
+    }),
+  );
+}
+
 const RelayCommonPersistenceError = Schema.Union([
   Devices.DeviceRegistrationPersistenceError,
   Devices.DeviceUnregistrationPersistenceError,
@@ -930,15 +977,16 @@ type MapRelayCommonApiError<E> =
   | (Extract<E, HttpApiError.Unauthorized> extends never ? never : RelayAuthInvalidError)
   | (Extract<E, RelayCommonPersistenceError> extends never ? never : RelayInternalError);
 
-function relayInternalErrorResponse(reason: RelayInternalError["reason"]) {
-  return currentTraceId.pipe(
-    Effect.flatMap((traceId) =>
-      Effect.fail(new RelayInternalError({ code: "internal_error", reason, traceId })),
-    ),
-  );
+function relayInternalErrorResponse(reason: RelayInternalError["reason"], cause: unknown) {
+  return Effect.gen(function* () {
+    const traceId = yield* currentTraceId;
+    const responseError = new RelayInternalError({ code: "internal_error", reason, traceId });
+    yield* logRelayApiProjection(cause, responseError, traceId);
+    return yield* responseError;
+  });
 }
 
-function mapRelayCommonApiErrors(authReason: RelayAuthInvalidReason) {
+export function mapRelayCommonApiErrors(authReason: RelayAuthInvalidReason) {
   const mapError = Effect.fnUntraced(function* <E>(error: E) {
     const traceId = yield* currentTraceId;
     if (isHttpUnauthorized(error)) {
@@ -951,13 +999,13 @@ function mapRelayCommonApiErrors(authReason: RelayAuthInvalidReason) {
       );
     }
     if (isRelayCommonPersistenceError(error)) {
-      return yield* Effect.fail(
-        new RelayInternalError({
-          code: "internal_error",
-          reason: "persistence_failed",
-          traceId,
-        }) as MapRelayCommonApiError<E>,
-      );
+      const responseError = new RelayInternalError({
+        code: "internal_error",
+        reason: "persistence_failed",
+        traceId,
+      });
+      yield* logRelayApiProjection(error, responseError, traceId);
+      return yield* Effect.fail(responseError as MapRelayCommonApiError<E>);
     }
 
     return yield* Effect.fail(error as MapRelayCommonApiError<E>);
@@ -989,7 +1037,19 @@ type CatchTagCases<E, Cases> = {
   ) => Effect.Effect<never, MappedTagError<Cases>>;
 } & (unknown extends E ? {} : { readonly [K in Exclude<keyof Cases, TaggedErrorTag<E>>]: never });
 
-function mapErrorTags<
+const relayApiProjectedFailureLogTags = new Set([
+  "ManagedEndpointProvisioningNotConfigured",
+  "ManagedEndpointProvisioningFailed",
+  "EnvironmentLinkUpsertPersistenceError",
+  "EnvironmentCredentialCreatePersistenceError",
+  "DpopProofReplayPersistenceError",
+  "EnvironmentMintRequestFailed",
+  "EnvironmentMintRequestTimedOut",
+  "EnvironmentMintResponseInvalid",
+  "ApnsDeliveryQueueSendError",
+]);
+
+export function mapErrorTags<
   E,
   Cases extends MapErrorTagCases<E> &
     (unknown extends E ? {} : { readonly [K in Exclude<keyof Cases, TaggedErrorTag<E>>]: never }),
@@ -1000,7 +1060,15 @@ function mapErrorTags<
       (error: never, traceId: string) => MappedTagError<Cases>
     >,
     (makeError) => (error: never) =>
-      currentTraceId.pipe(Effect.flatMap((traceId) => Effect.fail(makeError(error, traceId)))),
+      currentTraceId.pipe(
+        Effect.flatMap((traceId) => {
+          const responseError = makeError(error, traceId);
+          const logProjection = relayApiProjectedFailureLogTags.has(relayApiErrorTag(error))
+            ? logRelayApiProjection(error, responseError, traceId)
+            : Effect.void;
+          return logProjection.pipe(Effect.andThen(Effect.fail(responseError)));
+        }),
+      ),
   ) as CatchTagCases<E, Cases>;
 
   return <A, R>(
