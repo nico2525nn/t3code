@@ -45,6 +45,31 @@ const makePermissionDeniedSecretStoreLayer = () =>
     Layer.provideMerge(PermissionDeniedFileSystemLayer),
   );
 
+const DirectoryCreateFailureFileSystemLayer = Layer.effect(
+  FileSystem.FileSystem,
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    return {
+      ...fileSystem,
+      makeDirectory: (path) =>
+        Effect.fail(
+          PlatformError.systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method: "makeDirectory",
+            pathOrDescriptor: String(path),
+          }),
+        ),
+    } satisfies FileSystem.FileSystem;
+  }),
+).pipe(Layer.provide(NodeServices.layer));
+
+const makeDirectoryCreateFailureSecretStoreLayer = (config: ServerConfig.ServerConfig["Service"]) =>
+  ServerSecretStore.layer.pipe(
+    Layer.provide(Layer.succeed(ServerConfig.ServerConfig, config)),
+    Layer.provideMerge(DirectoryCreateFailureFileSystemLayer),
+  );
+
 const RenameFailureFileSystemLayer = Layer.effect(
   FileSystem.FileSystem,
   Effect.gen(function* () {
@@ -145,7 +170,56 @@ const makeConcurrentCreateSecretStoreLayer = () =>
     Layer.provideMerge(ConcurrentReadMissFileSystemLayer),
   );
 
+const ConcurrentCreationWithoutReadableSecretFileSystemLayer = Layer.effect(
+  FileSystem.FileSystem,
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+
+    return {
+      ...fileSystem,
+      readFile: (path) =>
+        Effect.fail(
+          PlatformError.systemError({
+            _tag: "NotFound",
+            module: "FileSystem",
+            method: "readFile",
+            pathOrDescriptor: path,
+          }),
+        ),
+      open: (path) =>
+        Effect.fail(
+          PlatformError.systemError({
+            _tag: "AlreadyExists",
+            module: "FileSystem",
+            method: "open",
+            pathOrDescriptor: path,
+          }),
+        ),
+    } satisfies FileSystem.FileSystem;
+  }),
+).pipe(Layer.provide(NodeServices.layer));
+
+const makeConcurrentCreationWithoutReadableSecretStoreLayer = () =>
+  ServerSecretStore.layer.pipe(
+    Layer.provide(makeServerConfigLayer()),
+    Layer.provideMerge(ConcurrentCreationWithoutReadableSecretFileSystemLayer),
+  );
+
 it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
+  it.effect("preserves directory context when secret-store initialization fails", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig.pipe(Effect.provide(makeServerConfigLayer()));
+      const error = yield* Layer.build(makeDirectoryCreateFailureSecretStoreLayer(config)).pipe(
+        Effect.scoped,
+        Effect.flip,
+      );
+
+      assert.instanceOf(error, ServerSecretStore.SecretStoreDirectoryCreateError);
+      assert.match(error.directoryPath, /secrets$/u);
+      assert.instanceOf(error.cause, PlatformError.PlatformError);
+    }),
+  );
+
   it.effect("returns Option.none when a secret file does not exist", () =>
     Effect.gen(function* () {
       const secretStore = yield* ServerSecretStore.ServerSecretStore;
@@ -184,6 +258,25 @@ it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
       assert.deepEqual(Array.from(first), Array.from(persistedBytes));
       assert.deepEqual(Array.from(second), Array.from(persistedBytes));
     }).pipe(Effect.provide(makeConcurrentCreateSecretStoreLayer())),
+  );
+
+  it.effect("preserves the persist failure when a concurrent secret remains unreadable", () =>
+    Effect.gen(function* () {
+      const secretStore = yield* ServerSecretStore.ServerSecretStore;
+
+      const error = yield* Effect.flip(secretStore.getOrCreateRandom("session-signing-key", 32));
+
+      assert.instanceOf(error, ServerSecretStore.SecretStoreConcurrentReadError);
+      assert.equal(error.secretName, "session-signing-key");
+      assert.equal(
+        error.message,
+        "Failed to read secret session-signing-key after concurrent creation.",
+      );
+      assert.instanceOf(error.cause, ServerSecretStore.SecretStorePersistError);
+      assert.equal(error.cause.operation, "create");
+      assert.instanceOf(error.cause.cause, PlatformError.PlatformError);
+      assert.equal(error.cause.cause.reason._tag, "AlreadyExists");
+    }).pipe(Effect.provide(makeConcurrentCreationWithoutReadableSecretStoreLayer())),
   );
 
   it.effect("uses restrictive permissions for the secret directory and files", () =>
@@ -232,7 +325,8 @@ it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
       const error = yield* Effect.flip(secretStore.getOrCreateRandom("session-signing-key", 32));
 
       assert.instanceOf(error, ServerSecretStore.SecretStoreReadError);
-      assert.include(error.message, "Failed to read secret session-signing-key.");
+      assert.equal(error.secretName, "session-signing-key");
+      assert.match(error.secretPath, /session-signing-key\.bin$/u);
       assert.instanceOf(error.cause, PlatformError.PlatformError);
       assert.equal((error.cause as PlatformError.PlatformError).reason._tag, "PermissionDenied");
     }).pipe(Effect.provide(makePermissionDeniedSecretStoreLayer())),
@@ -247,7 +341,9 @@ it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
       );
 
       assert.instanceOf(error, ServerSecretStore.SecretStorePersistError);
-      assert.include(error.message, "Failed to persist secret session-signing-key.");
+      assert.equal(error.operation, "set");
+      assert.equal(error.secretName, "session-signing-key");
+      assert.match(error.secretPath, /session-signing-key\.bin$/u);
       assert.instanceOf(error.cause, PlatformError.PlatformError);
       assert.equal((error.cause as PlatformError.PlatformError).reason._tag, "PermissionDenied");
     }).pipe(Effect.provide(makeRenameFailureSecretStoreLayer())),
@@ -260,7 +356,8 @@ it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
       const error = yield* Effect.flip(secretStore.remove("session-signing-key"));
 
       assert.instanceOf(error, ServerSecretStore.SecretStoreRemoveError);
-      assert.include(error.message, "Failed to remove secret session-signing-key.");
+      assert.equal(error.secretName, "session-signing-key");
+      assert.match(error.secretPath, /session-signing-key\.bin$/u);
       assert.instanceOf(error.cause, PlatformError.PlatformError);
       assert.equal((error.cause as PlatformError.PlatformError).reason._tag, "PermissionDenied");
     }).pipe(Effect.provide(makeRemoveFailureSecretStoreLayer())),
