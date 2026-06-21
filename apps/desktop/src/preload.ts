@@ -1,28 +1,31 @@
-import type {
-  DesktopBridge,
-  DesktopPreviewPointerEvent,
-  DesktopPreviewRecordingFrame,
-  DesktopPreviewTabState,
+import {
+  DesktopSshPasswordPromptCancellationError,
+  DesktopSshPasswordPromptCancellationErrorTag,
+  type DesktopBridge,
+  type DesktopPreviewPointerEvent,
+  type DesktopPreviewRecordingFrame,
+  type DesktopPreviewTabState,
 } from "@t3tools/contracts";
 import { exposeClerkBridge } from "@clerk/electron/preload";
 import { contextBridge, ipcRenderer } from "electron";
+import * as Schema from "effect/Schema";
 
 import * as IpcChannels from "./ipc/channels.ts";
 
 exposeClerkBridge({ passkeys: true });
 
+const decodeDesktopSshPasswordPromptCancellationError = Schema.decodeUnknownSync(
+  DesktopSshPasswordPromptCancellationError,
+);
+
 function unwrapEnsureSshEnvironmentResult(result: unknown) {
   if (
     typeof result === "object" &&
     result !== null &&
-    "type" in result &&
-    result.type === IpcChannels.SSH_PASSWORD_PROMPT_CANCELLED_RESULT
+    "_tag" in result &&
+    result._tag === DesktopSshPasswordPromptCancellationErrorTag
   ) {
-    const message =
-      "message" in result && typeof result.message === "string"
-        ? result.message
-        : "SSH authentication cancelled.";
-    throw new Error(message);
+    throw decodeDesktopSshPasswordPromptCancellationError(result);
   }
   return result as Awaited<ReturnType<DesktopBridge["ensureSshEnvironment"]>>;
 }

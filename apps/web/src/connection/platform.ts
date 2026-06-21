@@ -21,6 +21,7 @@ import { managedRelayAccountChanges, managedRelaySessionAtom } from "@t3tools/cl
 import { EnvironmentRpcRequestObserver } from "@t3tools/client-runtime/rpc";
 import {
   AuthStandardClientScopes,
+  isDesktopSshPasswordPromptCancellationError,
   type DesktopBridge,
   type DesktopSshEnvironmentTarget,
 } from "@t3tools/contracts";
@@ -105,32 +106,36 @@ function clientMetadata() {
   };
 }
 
-function sshPreparationError(cause: unknown) {
-  const message = cause instanceof Error ? cause.message : String(cause);
-  if (message.toLowerCase().includes("cancel")) {
-    return new ConnectionBlockedError({
-      reason: "authentication",
-      detail: message,
-      cause,
-    });
-  }
-  return new ConnectionTransientError({
-    reason: "remote-unavailable",
-    detail: "Could not prepare the SSH environment.",
-    cause,
-  });
-}
+const trySshPreparation = <A>(operation: () => Promise<A>) =>
+  Effect.tryPromise({
+    try: operation,
+    catch: (cause) =>
+      isDesktopSshPasswordPromptCancellationError(cause)
+        ? cause
+        : new ConnectionTransientError({
+            reason: "remote-unavailable",
+            detail: "Could not prepare the SSH environment.",
+            cause,
+          }),
+  }).pipe(
+    Effect.catchTags({
+      DesktopSshPasswordPromptCancellationError: (cause) =>
+        new ConnectionBlockedError({
+          reason: "authentication",
+          detail: cause.message,
+          cause,
+        }),
+    }),
+  );
 
 export const provisionDesktopSshEnvironment = Effect.fn(
   "web.connectionPlatform.ssh.provisionDesktop",
 )(function* (bridge: DesktopBridge, target: DesktopSshEnvironmentTarget) {
-  const bootstrap = yield* Effect.tryPromise({
-    try: () =>
-      bridge.ensureSshEnvironment(target, {
-        issuePairingToken: true,
-      }),
-    catch: sshPreparationError,
-  });
+  const bootstrap = yield* trySshPreparation(() =>
+    bridge.ensureSshEnvironment(target, {
+      issuePairingToken: true,
+    }),
+  );
   const pairingToken = bootstrap.pairingToken;
   if (pairingToken === null) {
     return yield* new ConnectionBlockedError({
@@ -138,14 +143,12 @@ export const provisionDesktopSshEnvironment = Effect.fn(
       detail: "The SSH environment did not issue a pairing credential.",
     });
   }
-  const descriptor = yield* Effect.tryPromise({
-    try: () => bridge.fetchSshEnvironmentDescriptor(bootstrap.httpBaseUrl),
-    catch: sshPreparationError,
-  });
-  const access = yield* Effect.tryPromise({
-    try: () => bridge.bootstrapSshBearerSession(bootstrap.httpBaseUrl, pairingToken),
-    catch: sshPreparationError,
-  });
+  const descriptor = yield* trySshPreparation(() =>
+    bridge.fetchSshEnvironmentDescriptor(bootstrap.httpBaseUrl),
+  );
+  const access = yield* trySshPreparation(() =>
+    bridge.bootstrapSshBearerSession(bootstrap.httpBaseUrl, pairingToken),
+  );
   return {
     environmentId: descriptor.environmentId,
     label: descriptor.label,
@@ -221,24 +224,20 @@ const capabilitiesLayer = Layer.effectContext(
             detail: "SSH environments are only available in the desktop app.",
           });
         }
-        const bootstrap = yield* Effect.tryPromise({
-          try: () =>
-            bridge.ensureSshEnvironment(input.target, {
-              issuePairingToken: true,
-            }),
-          catch: sshPreparationError,
-        });
+        const bootstrap = yield* trySshPreparation(() =>
+          bridge.ensureSshEnvironment(input.target, {
+            issuePairingToken: true,
+          }),
+        );
         if (bootstrap.pairingToken === null) {
           return yield* new ConnectionBlockedError({
             reason: "authentication",
             detail: "The SSH environment did not issue a pairing credential.",
           });
         }
-        const access = yield* Effect.tryPromise({
-          try: () =>
-            bridge.bootstrapSshBearerSession(bootstrap.httpBaseUrl, bootstrap.pairingToken!),
-          catch: sshPreparationError,
-        });
+        const access = yield* trySshPreparation(() =>
+          bridge.bootstrapSshBearerSession(bootstrap.httpBaseUrl, bootstrap.pairingToken!),
+        );
         return {
           bootstrap,
           bearerToken: access.access_token,

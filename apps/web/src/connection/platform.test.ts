@@ -1,6 +1,10 @@
-import { ConnectionTransientError } from "@t3tools/client-runtime/connection";
+import {
+  ConnectionBlockedError,
+  ConnectionTransientError,
+} from "@t3tools/client-runtime/connection";
 import {
   AuthStandardClientScopes,
+  DesktopSshPasswordPromptCancellationError,
   EnvironmentId,
   type DesktopBridge,
   type DesktopSshEnvironmentTarget,
@@ -19,11 +23,14 @@ const TARGET: DesktopSshEnvironmentTarget = {
 
 function makeBridge(
   calls: string[],
-  options?: { readonly descriptorError?: Error },
+  options?: { readonly descriptorError?: unknown; readonly ensureError?: unknown },
 ): DesktopBridge {
   return {
     ensureSshEnvironment: async (target: DesktopSshEnvironmentTarget) => {
       calls.push("ensure");
+      if (options?.ensureError !== undefined) {
+        throw options.ensureError;
+      }
       return {
         target,
         httpBaseUrl: "http://127.0.0.1:3201/",
@@ -99,6 +106,44 @@ describe("desktop SSH pairing", () => {
       expect(error).toBeInstanceOf(ConnectionTransientError);
       expect(error.message).toBe("Could not prepare the SSH environment.");
       expect(error.message).not.toContain(cause.message);
+      expect(error.cause).toBe(cause);
+    }),
+  );
+
+  it.effect("classifies password prompt cancellation from its tag and preserves its cause", () =>
+    Effect.gen(function* () {
+      const promptCause = new Error("password prompt closed");
+      const cancellation = new DesktopSshPasswordPromptCancellationError({
+        reason: "window-closed",
+        requestId: "prompt-1",
+        destination: "developer@devbox.example.test",
+        cause: promptCause,
+      });
+
+      const error = yield* provisionDesktopSshEnvironment(
+        makeBridge([], { ensureError: cancellation }),
+        TARGET,
+      ).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(ConnectionBlockedError);
+      expect(error.message).toBe(
+        "SSH authentication did not complete for developer@devbox.example.test.",
+      );
+      expect(error.cause).toBe(cancellation);
+      expect(cancellation.cause).toBe(promptCause);
+    }),
+  );
+
+  it.effect("does not infer cancellation from an unstructured error message", () =>
+    Effect.gen(function* () {
+      const cause = new Error("remote operation was cancelled");
+
+      const error = yield* provisionDesktopSshEnvironment(
+        makeBridge([], { ensureError: cause }),
+        TARGET,
+      ).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(ConnectionTransientError);
       expect(error.cause).toBe(cause);
     }),
   );

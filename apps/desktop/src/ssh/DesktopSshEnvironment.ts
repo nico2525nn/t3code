@@ -75,7 +75,9 @@ function discoverDesktopSshHostsEffect(input?: { readonly homeDir?: string }) {
 
 export function isDesktopSshPasswordPromptCancellation(
   error: unknown,
-): error is SshPasswordPromptError {
+): error is SshPasswordPromptError & {
+  readonly cause: DesktopSshPasswordPrompts.DesktopSshPasswordPromptCancellation;
+} {
   return (
     error instanceof SshPasswordPromptError &&
     DesktopSshPasswordPrompts.isDesktopSshPasswordPromptCancellation(error.cause)

@@ -329,12 +329,35 @@ export const DesktopSshPasswordPromptRequestSchema = Schema.Struct({
   expiresAt: Schema.String,
 });
 
-export const DesktopSshPasswordPromptCancelledType = "ssh-password-prompt-cancelled" as const;
+export const DesktopSshPasswordPromptCancellationErrorTag =
+  "DesktopSshPasswordPromptCancellationError" as const;
 
-export const DesktopSshPasswordPromptCancelledResultSchema = Schema.Struct({
-  type: Schema.Literal(DesktopSshPasswordPromptCancelledType),
-  message: Schema.String,
-});
+export const DesktopSshPasswordPromptCancellationReason = Schema.Literals([
+  "user-cancelled",
+  "window-closed",
+  "service-stopped",
+  "timed-out",
+]);
+export type DesktopSshPasswordPromptCancellationReason =
+  typeof DesktopSshPasswordPromptCancellationReason.Type;
+
+export class DesktopSshPasswordPromptCancellationError extends Schema.TaggedErrorClass<DesktopSshPasswordPromptCancellationError>()(
+  DesktopSshPasswordPromptCancellationErrorTag,
+  {
+    reason: DesktopSshPasswordPromptCancellationReason,
+    requestId: Schema.String,
+    destination: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `SSH authentication did not complete for ${this.destination}.`;
+  }
+}
+
+export const isDesktopSshPasswordPromptCancellationError = Schema.is(
+  DesktopSshPasswordPromptCancellationError,
+);
 
 export const DesktopSshEnvironmentEnsureOptionsSchema = Schema.Struct({
   issuePairingToken: Schema.optionalKey(Schema.Boolean),
@@ -347,7 +370,7 @@ export const DesktopSshEnvironmentEnsureInputSchema = Schema.Struct({
 
 export const DesktopSshEnvironmentEnsureResultSchema = Schema.Union([
   DesktopSshEnvironmentBootstrapSchema,
-  DesktopSshPasswordPromptCancelledResultSchema,
+  DesktopSshPasswordPromptCancellationError,
 ]);
 
 export const DesktopSshHttpBaseUrlInputSchema = Schema.Struct({

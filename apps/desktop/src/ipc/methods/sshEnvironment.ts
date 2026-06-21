@@ -15,7 +15,7 @@ import {
   DesktopSshEnvironmentEnsureResultSchema,
   DesktopSshEnvironmentTargetSchema,
   DesktopSshHttpBaseUrlInputSchema,
-  DesktopSshPasswordPromptCancelledType,
+  DesktopSshPasswordPromptCancellationError,
   DesktopSshPasswordPromptResolutionInputSchema,
   ExecutionEnvironmentDescriptor,
   EnvironmentInternalError,
@@ -44,6 +44,13 @@ type DesktopSshEnvironmentRequestOperation =
   | "issue-websocket-ticket";
 
 type DesktopSshEnvironmentRequestCause = RemoteEnvironmentAuthError | SshHttpBridgeError;
+
+const desktopSshPasswordPromptCancellationReasons = {
+  DesktopSshPromptCancelledError: "user-cancelled",
+  DesktopSshPromptWindowClosedError: "window-closed",
+  DesktopSshPromptServiceStoppedError: "service-stopped",
+  DesktopSshPromptTimedOutError: "timed-out",
+} as const;
 
 const isEnvironmentAuthInvalidError = Schema.is(EnvironmentAuthInvalidError);
 const isEnvironmentInternalError = Schema.is(EnvironmentInternalError);
@@ -124,14 +131,19 @@ export const ensureSshEnvironment = DesktopIpc.makeIpcMethod({
   }) {
     const sshEnvironment = yield* DesktopSshEnvironment.DesktopSshEnvironment;
     return yield* sshEnvironment.ensureEnvironment(target, options).pipe(
-      Effect.catch((error) =>
-        DesktopSshEnvironment.isDesktopSshPasswordPromptCancellation(error)
-          ? Effect.succeed({
-              type: DesktopSshPasswordPromptCancelledType,
-              message: error.message,
-            })
-          : Effect.fail(error),
-      ),
+      Effect.catchTags({
+        SshPasswordPromptError: (error) =>
+          DesktopSshEnvironment.isDesktopSshPasswordPromptCancellation(error)
+            ? Effect.succeed(
+                new DesktopSshPasswordPromptCancellationError({
+                  reason: desktopSshPasswordPromptCancellationReasons[error.cause._tag],
+                  requestId: error.cause.requestId,
+                  destination: error.cause.destination,
+                  cause: error,
+                }),
+              )
+            : Effect.fail(error),
+      }),
     );
   }),
 });

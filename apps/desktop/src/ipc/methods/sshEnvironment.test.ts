@@ -1,16 +1,28 @@
 import { assert, describe, it } from "@effect/vitest";
-import { SshHttpBridgeError } from "@t3tools/ssh/errors";
+import {
+  DesktopSshEnvironmentEnsureResultSchema,
+  DesktopSshPasswordPromptCancellationError,
+} from "@t3tools/contracts";
+import { SshHttpBridgeError, SshPasswordPromptError } from "@t3tools/ssh/errors";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 import {
   DesktopSshEnvironmentRequestError,
+  ensureSshEnvironment,
   fetchSshEnvironmentDescriptor,
 } from "./sshEnvironment.ts";
+import * as DesktopSshEnvironment from "../../ssh/DesktopSshEnvironment.ts";
+import * as DesktopSshPasswordPrompts from "../../ssh/DesktopSshPasswordPrompts.ts";
+
+const decodeDesktopSshEnvironmentEnsureResult = Schema.decodeUnknownEffect(
+  DesktopSshEnvironmentEnsureResultSchema,
+);
 
 function jsonResponse(request: HttpClientRequest.HttpClientRequest, body: unknown, status = 200) {
   return HttpClientResponse.fromWeb(
@@ -34,6 +46,43 @@ function makeHttpClientLayer(
 }
 
 describe("SSH environment IPC", () => {
+  it.effect("encodes password prompt cancellations with structured context and their cause", () => {
+    const promptCause = new DesktopSshPasswordPrompts.DesktopSshPromptWindowClosedError({
+      requestId: "prompt-1",
+      destination: "developer@devbox.example.test",
+    });
+    const cause = new SshPasswordPromptError({
+      message: promptCause.message,
+      cause: promptCause,
+    });
+    const layer = Layer.succeed(
+      DesktopSshEnvironment.DesktopSshEnvironment,
+      DesktopSshEnvironment.DesktopSshEnvironment.of({
+        discoverHosts: () => Effect.die("unexpected host discovery"),
+        ensureEnvironment: () => Effect.fail(cause),
+        disconnectEnvironment: () => Effect.die("unexpected disconnect"),
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const encoded = yield* ensureSshEnvironment.handler({
+        target: {
+          alias: "devbox",
+          hostname: "devbox.example.test",
+          username: "developer",
+          port: 22,
+        },
+      });
+      const error = yield* decodeDesktopSshEnvironmentEnsureResult(encoded);
+
+      assert.instanceOf(error, DesktopSshPasswordPromptCancellationError);
+      assert.equal(error.reason, "window-closed");
+      assert.equal(error.requestId, "prompt-1");
+      assert.equal(error.destination, "developer@devbox.example.test");
+      assert.instanceOf(error.cause, Error);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("fetches and decodes the remote environment descriptor", () => {
     const requestUrls: string[] = [];
     const layer = makeHttpClientLayer((request) =>
