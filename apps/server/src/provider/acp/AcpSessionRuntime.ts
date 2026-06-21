@@ -1,4 +1,5 @@
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -6,9 +7,9 @@ import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
-import * as Context from "effect/Context";
 import * as Stream from "effect/Stream";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import * as ChildProcess from "effect/unstable/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import * as EffectAcpClient from "effect-acp/client";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
@@ -92,21 +93,21 @@ export interface AcpSessionRuntimeStartResult {
 }
 
 export interface AcpSessionRuntimeShape {
-  readonly handleRequestPermission: EffectAcpClient.AcpClientShape["handleRequestPermission"];
-  readonly handleElicitation: EffectAcpClient.AcpClientShape["handleElicitation"];
-  readonly handleReadTextFile: EffectAcpClient.AcpClientShape["handleReadTextFile"];
-  readonly handleWriteTextFile: EffectAcpClient.AcpClientShape["handleWriteTextFile"];
-  readonly handleCreateTerminal: EffectAcpClient.AcpClientShape["handleCreateTerminal"];
-  readonly handleTerminalOutput: EffectAcpClient.AcpClientShape["handleTerminalOutput"];
-  readonly handleTerminalWaitForExit: EffectAcpClient.AcpClientShape["handleTerminalWaitForExit"];
-  readonly handleTerminalKill: EffectAcpClient.AcpClientShape["handleTerminalKill"];
-  readonly handleTerminalRelease: EffectAcpClient.AcpClientShape["handleTerminalRelease"];
-  readonly handleSessionUpdate: EffectAcpClient.AcpClientShape["handleSessionUpdate"];
-  readonly handleElicitationComplete: EffectAcpClient.AcpClientShape["handleElicitationComplete"];
-  readonly handleUnknownExtRequest: EffectAcpClient.AcpClientShape["handleUnknownExtRequest"];
-  readonly handleUnknownExtNotification: EffectAcpClient.AcpClientShape["handleUnknownExtNotification"];
-  readonly handleExtRequest: EffectAcpClient.AcpClientShape["handleExtRequest"];
-  readonly handleExtNotification: EffectAcpClient.AcpClientShape["handleExtNotification"];
+  readonly handleRequestPermission: EffectAcpClient.AcpClient["Service"]["handleRequestPermission"];
+  readonly handleElicitation: EffectAcpClient.AcpClient["Service"]["handleElicitation"];
+  readonly handleReadTextFile: EffectAcpClient.AcpClient["Service"]["handleReadTextFile"];
+  readonly handleWriteTextFile: EffectAcpClient.AcpClient["Service"]["handleWriteTextFile"];
+  readonly handleCreateTerminal: EffectAcpClient.AcpClient["Service"]["handleCreateTerminal"];
+  readonly handleTerminalOutput: EffectAcpClient.AcpClient["Service"]["handleTerminalOutput"];
+  readonly handleTerminalWaitForExit: EffectAcpClient.AcpClient["Service"]["handleTerminalWaitForExit"];
+  readonly handleTerminalKill: EffectAcpClient.AcpClient["Service"]["handleTerminalKill"];
+  readonly handleTerminalRelease: EffectAcpClient.AcpClient["Service"]["handleTerminalRelease"];
+  readonly handleSessionUpdate: EffectAcpClient.AcpClient["Service"]["handleSessionUpdate"];
+  readonly handleElicitationComplete: EffectAcpClient.AcpClient["Service"]["handleElicitationComplete"];
+  readonly handleUnknownExtRequest: EffectAcpClient.AcpClient["Service"]["handleUnknownExtRequest"];
+  readonly handleUnknownExtNotification: EffectAcpClient.AcpClient["Service"]["handleUnknownExtNotification"];
+  readonly handleExtRequest: EffectAcpClient.AcpClient["Service"]["handleExtRequest"];
+  readonly handleExtNotification: EffectAcpClient.AcpClient["Service"]["handleExtNotification"];
   readonly start: () => Effect.Effect<AcpSessionRuntimeStartResult, EffectAcpErrors.AcpError>;
   readonly getEvents: () => Stream.Stream<AcpParsedSessionEvent, never>;
   readonly getModeState: Effect.Effect<AcpSessionModeState | undefined>;
@@ -151,6 +152,20 @@ export interface AcpSessionRuntimeShape {
   ) => Effect.Effect<void, EffectAcpErrors.AcpError>;
 }
 
+export class AcpSessionRuntime extends Context.Service<AcpSessionRuntime, AcpSessionRuntimeShape>()(
+  "t3/provider/acp/AcpSessionRuntime",
+) {
+  static layer(
+    options: AcpSessionRuntimeOptions,
+  ): Layer.Layer<
+    AcpSessionRuntime,
+    EffectAcpErrors.AcpError,
+    ChildProcessSpawner.ChildProcessSpawner
+  > {
+    return Layer.effect(AcpSessionRuntime, make(options));
+  }
+}
+
 interface AcpStartedState extends AcpSessionRuntimeStartResult {}
 
 type AcpStartState =
@@ -171,24 +186,10 @@ interface EnsureActiveAssistantSegmentResult {
   readonly startedEvent?: Extract<AcpParsedSessionEvent, { readonly _tag: "AssistantItemStarted" }>;
 }
 
-export class AcpSessionRuntime extends Context.Service<AcpSessionRuntime, AcpSessionRuntimeShape>()(
-  "t3/provider/acp/AcpSessionRuntime",
-) {
-  static layer(
-    options: AcpSessionRuntimeOptions,
-  ): Layer.Layer<
-    AcpSessionRuntime,
-    EffectAcpErrors.AcpError,
-    ChildProcessSpawner.ChildProcessSpawner
-  > {
-    return Layer.effect(AcpSessionRuntime, makeAcpSessionRuntime(options));
-  }
-}
-
-const makeAcpSessionRuntime = (
+export const make = (
   options: AcpSessionRuntimeOptions,
 ): Effect.Effect<
-  AcpSessionRuntimeShape,
+  AcpSessionRuntime["Service"],
   EffectAcpErrors.AcpError,
   ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
 > =>
@@ -748,8 +749,16 @@ const makeAcpSessionRuntime = (
       request: (method, payload) =>
         runLoggedRequest(method, payload, acp.raw.request(method, payload)),
       notify: acp.raw.notify,
-    } satisfies AcpSessionRuntimeShape;
+    } satisfies AcpSessionRuntime["Service"];
   });
+
+export const layer = (
+  options: AcpSessionRuntimeOptions,
+): Layer.Layer<
+  AcpSessionRuntime,
+  EffectAcpErrors.AcpError,
+  ChildProcessSpawner.ChildProcessSpawner
+> => Layer.effect(AcpSessionRuntime, make(options));
 
 function sessionConfigOptionsFromSetup(
   response:

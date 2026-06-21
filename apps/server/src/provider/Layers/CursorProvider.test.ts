@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import type * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import type * as EffectAcpSchema from "effect-acp/schema";
 import type { CursorSettings } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
@@ -29,7 +30,11 @@ import {
 import { CursorSdkCatalogError, makeCursorSdkCatalogTestLayer } from "./CursorSdkCatalog.ts";
 
 const runNode = <A, E>(
-  effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>,
+  effect: Effect.Effect<
+    A,
+    E,
+    ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+  >,
 ): Promise<A> => Effect.runPromise(effect.pipe(Effect.provide(NodeServices.layer)));
 
 const resolveMockAgentPath = Effect.fn("resolveMockAgentPath")(function* () {
@@ -298,6 +303,18 @@ const baseCursorSettings: CursorSettings = {
   apiEndpoint: "",
   customModels: [],
 };
+const cursorAcpDiscoveryFailedMessage = [
+  "Cursor ACP model discovery failed.",
+  "Cursor CLI setup may be incomplete; install or enable the Cursor CLI, restart T3 Code, and try again.",
+  "See https://cursor.com/docs/cli/installation.",
+  "Check server logs for ACP details.",
+].join(" ");
+const missingCursorBinaryPath = "/definitely/not/installed/t3-cursor-agent";
+const cursorCliCommandMissingMessage = [
+  `Cursor CLI command \`${missingCursorBinaryPath}\` was not found.`,
+  `Install or enable the Cursor CLI, make sure \`${missingCursorBinaryPath}\` is on PATH, then restart T3 Code.`,
+  "See https://cursor.com/docs/cli/installation.",
+].join(" ");
 
 const sdkParameterizedModel = {
   id: "claude-opus-4-8",
@@ -388,12 +405,11 @@ describe("buildCursorProviderSnapshot", () => {
           auth: { status: "unauthenticated" },
           message: "Cursor Agent is not authenticated. Run `agent login` and try again.",
         },
-        discoveryWarning: "Cursor ACP model discovery failed. Check server logs for details.",
+        discoveryWarning: cursorAcpDiscoveryFailedMessage,
       }),
     ).toMatchObject({
       status: "error",
-      message:
-        "Cursor Agent is not authenticated. Run `agent login` and try again. Cursor ACP model discovery failed. Check server logs for details.",
+      message: `Cursor Agent is not authenticated. Run \`agent login\` and try again. ${cursorAcpDiscoveryFailedMessage}`,
       models: [
         {
           slug: "claude-sonnet-4-6",
@@ -571,10 +587,37 @@ describe("checkCursorProviderStatus", () => {
     });
   });
 
+  it("reports the install docs when the Cursor CLI command is missing", async () => {
+    const provider = await Effect.runPromise(
+      checkCursorProviderStatus({
+        enabled: true,
+        binaryPath: missingCursorBinaryPath,
+        apiEndpoint: "",
+        customModels: [],
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            makeCursorSdkCatalogTestLayer(() =>
+              Effect.die("SDK catalog must not be used without CURSOR_API_KEY"),
+            ),
+            NodeServices.layer,
+          ),
+        ),
+      ),
+    );
+
+    expect(provider).toMatchObject({
+      installed: false,
+      status: "error",
+      auth: { status: "unknown" },
+      message: cursorCliCommandMissingMessage,
+    });
+  });
+
   it("passes the injected environment to ACP model discovery", async () => {
     const { requestLogPath, wrapperPath } = await runNode(makeProviderStatusEnvFixture());
 
-    const provider = await Effect.runPromise(
+    const provider = await runNode(
       checkCursorProviderStatus(
         {
           enabled: true,

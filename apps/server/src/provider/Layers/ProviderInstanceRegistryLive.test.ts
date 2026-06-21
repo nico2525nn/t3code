@@ -110,6 +110,7 @@ describe("ProviderInstanceRegistryLive — multi-instance codex slice", () => {
     prefix: "provider-instance-registry-test",
   }).pipe(
     Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(TestHttpClientLive),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers)),
@@ -251,6 +252,7 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
     prefix: "provider-instance-registry-all-drivers-test",
   }).pipe(
     Layer.provideMerge(infraLayer),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(TestHttpClientLive),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers)),

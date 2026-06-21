@@ -323,7 +323,7 @@ function replayTransportError(
   error: CodexAppServerReplayError,
 ): CodexError.CodexAppServerTransportError {
   return new CodexError.CodexAppServerTransportError({
-    detail: error.message,
+    operation: "read-input-stream",
     cause: error,
   });
 }
