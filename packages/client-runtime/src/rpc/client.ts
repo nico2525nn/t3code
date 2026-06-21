@@ -16,9 +16,13 @@ export class EnvironmentRpcUnavailableError extends Schema.TaggedErrorClass<Envi
   "EnvironmentRpcUnavailableError",
   {
     environmentId: Schema.String,
-    message: Schema.String,
+    environmentLabel: Schema.String,
   },
-) {}
+) {
+  override get message(): string {
+    return `${this.environmentLabel} is not connected.`;
+  }
+}
 
 export interface EnvironmentRpcRequestObservation {
   readonly environmentId: string;
@@ -94,7 +98,7 @@ const currentSession = Effect.fn("EnvironmentRpc.currentSession")(function* () {
           Effect.fail(
             new EnvironmentRpcUnavailableError({
               environmentId: supervisor.target.environmentId,
-              message: `${supervisor.target.label} is not connected.`,
+              environmentLabel: supervisor.target.label,
             }),
           ),
         onSome: Effect.succeed,

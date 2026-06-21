@@ -25,7 +25,13 @@ import {
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as RpcSession from "../rpc/session.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
-import { EnvironmentRpcRequestObserver, request, runStream, subscribe } from "./client.ts";
+import {
+  EnvironmentRpcRequestObserver,
+  EnvironmentRpcUnavailableError,
+  request,
+  runStream,
+  subscribe,
+} from "./client.ts";
 
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
@@ -77,6 +83,25 @@ const makeHarness = Effect.fn("TestEnvironmentRpc.makeHarness")(function* () {
 });
 
 describe("environment RPC", () => {
+  it.effect("describes unavailable environments from structured context", () =>
+    Effect.gen(function* () {
+      const { supervisor } = yield* makeHarness();
+
+      const error = yield* request(WS_METHODS.cloudGetRelayClientStatus, {}).pipe(
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.flip,
+      );
+
+      expect(error).toEqual(
+        new EnvironmentRpcUnavailableError({
+          environmentId: TARGET.environmentId,
+          environmentLabel: TARGET.label,
+        }),
+      );
+      expect(error.message).toBe("Test environment is not connected.");
+    }),
+  );
+
   it.effect("observes unary requests until they complete", () =>
     Effect.gen(function* () {
       const observations: string[] = [];
