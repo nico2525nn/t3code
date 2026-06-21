@@ -255,7 +255,11 @@ function ConnectedCloudEnvironmentRow(props: {
         props.onDisconnect();
       }}
       onToggleError={props.onToggleError}
-      value={props.environment.connectionState !== "available"}
+      value={
+        props.environment.connectionState === "connected" ||
+        props.environment.connectionState === "connecting" ||
+        props.environment.connectionState === "reconnecting"
+      }
     />
   );
 }

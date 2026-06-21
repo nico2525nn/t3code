@@ -300,7 +300,11 @@ export const layer = Layer.effect(
           return yield* migrateLegacyCatalog;
         }
         if (!(yield* safeStorage.isEncryptionAvailable)) {
-          return Option.none<string>();
+          return yield* new ElectronSafeStorage.ElectronSafeStorageAvailabilityError({
+            cause: new Error(
+              "Safe storage encryption is unavailable; cannot decrypt the existing connection catalog",
+            ),
+          });
         }
         const decrypted = yield* decodeSecretBytes(document.value.encryptedCatalog).pipe(
           Effect.flatMap(safeStorage.decryptString),
