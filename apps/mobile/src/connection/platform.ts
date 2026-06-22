@@ -106,10 +106,12 @@ const capabilitiesLayer = Layer.succeedContext(
         );
         return yield* Option.match(token, {
           onNone: () =>
-            Effect.fail(new ConnectionBlockedError({
-              reason: "authentication",
-              detail: "The T3 Cloud session is unavailable.",
-            })),
+            Effect.fail(
+              new ConnectionBlockedError({
+                reason: "authentication",
+                detail: "The T3 Cloud session is unavailable.",
+              }),
+            ),
           onSome: Effect.succeed,
         });
       }),

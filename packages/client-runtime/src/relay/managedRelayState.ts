@@ -113,10 +113,7 @@ interface ManagedRelaySessionCacheState {
 }
 
 function isFreshCachedToken(cachedToken: CachedClerkToken, nowMillis: number): boolean {
-  return (
-    cachedToken.expiresAtMillis >
-    nowMillis + Duration.toMillis(CLERK_TOKEN_EXPIRY_SKEW)
-  );
+  return cachedToken.expiresAtMillis > nowMillis + Duration.toMillis(CLERK_TOKEN_EXPIRY_SKEW);
 }
 
 function decodeCachedToken(token: string): Option.Option<CachedClerkToken> {
@@ -174,10 +171,7 @@ export function createManagedRelaySession(input: ManagedRelaySessionInput): Mana
         yield* Deferred.failCause(deferred, readExit.cause).pipe(Effect.orDie);
       }
 
-      if (
-        Option.isSome(state.pendingToken) &&
-        state.pendingToken.value.deferred === deferred
-      ) {
+      if (Option.isSome(state.pendingToken) && state.pendingToken.value.deferred === deferred) {
         state = {
           ...state,
           pendingToken: Option.none(),
@@ -286,9 +280,7 @@ function requireClerkToken(
 ): Effect.Effect<string, ManagedRelaySessionError> {
   const session = get(managedRelaySessionAtom);
   if (!session || session.accountId !== accountId) {
-    return Effect.fail(
-      new ManagedRelaySessionTokenUnavailableError({ reason: "missing-session" }),
-    );
+    return Effect.fail(new ManagedRelaySessionTokenUnavailableError({ reason: "missing-session" }));
   }
   return readSessionClerkToken(session);
 }
