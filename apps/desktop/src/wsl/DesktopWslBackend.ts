@@ -45,21 +45,20 @@ export const WSL_INSTANCE_ID_PREFIX = "wsl:";
 const WSL_DEFAULT_DISTRO_ID = `${WSL_INSTANCE_ID_PREFIX}default`;
 const MAX_TCP_PORT = 65_535;
 
-export interface DesktopWslBackendShape {
-  // Bring the pool in line with the current persisted WSL settings.
-  // Idempotent. Never fails (errors are logged); callers can chain it
-  // after persisting settings without an error-handling dance.
-  readonly reconcile: Effect.Effect<void>;
-  // Reason the dual-mode WSL secondary last failed preflight (no node, wrong
-  // version, missing build tools), or None. Read by the getWslState IPC so
-  // Connections settings can show it inline. None in wsl-only mode (that path
-  // surfaces via a dialog + Windows fallback).
-  readonly lastPreflightError: Effect.Effect<Option.Option<string>>;
-}
-
-export class DesktopWslBackend extends Context.Service<DesktopWslBackend, DesktopWslBackendShape>()(
-  "@t3tools/desktop/wsl/DesktopWslBackend",
-) {}
+export class DesktopWslBackend extends Context.Service<
+  DesktopWslBackend,
+  {
+    // Bring the pool in line with the current persisted WSL settings.
+    // Idempotent. Never fails (errors are logged); callers can chain it
+    // after persisting settings without an error-handling dance.
+    readonly reconcile: Effect.Effect<void>;
+    // Reason the dual-mode WSL secondary last failed preflight (no node, wrong
+    // version, missing build tools), or None. Read by the getWslState IPC so
+    // Connections settings can show it inline. None in wsl-only mode (that path
+    // surfaces via a dialog + Windows fallback).
+    readonly lastPreflightError: Effect.Effect<Option.Option<string>>;
+  }
+>()("@t3tools/desktop/wsl/DesktopWslBackend") {}
 
 const { logInfo: logWslBackendInfo, logWarning: logWslBackendWarning } =
   DesktopObservability.makeComponentLogger("desktop-wsl-backend");

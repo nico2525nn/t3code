@@ -32,34 +32,32 @@ export type EnsureWslNodePtyResult =
   | { readonly ok: true; readonly nodePath: string }
   | { readonly ok: false; readonly reason: string };
 
-export interface DesktopWslEnvironmentShape {
-  readonly isAvailable: Effect.Effect<boolean>;
-  readonly listDistros: Effect.Effect<readonly WslDistro[]>;
-  readonly preWarm: (distro: string | null) => Effect.Effect<void>;
-  readonly windowsToWslPath: (
-    distro: string | null,
-    windowsPath: string,
-  ) => Effect.Effect<Option.Option<string>>;
-  // Resolves the user's Linux home dir inside the chosen distro (e.g.
-  // "/home/josh"). Used by the folder picker to expand `~` correctly.
-  readonly getUserHome: (distro: string | null) => Effect.Effect<Option.Option<string>>;
-  // Resolves the WSL distro's IPv4 address on the WSL vEthernet adapter
-  // (e.g. "172.x.x.x"). The orchestrator uses this for the WSL backend's
-  // httpBaseUrl so the renderer can reach it without relying on wslhost's
-  // localhost→WSL automatic forwarding, which is flaky in practice
-  // (the backend can be listening for 30+ seconds before wslhost starts
-  // forwarding 127.0.0.1:port to WSL-side localhost).
-  readonly getDistroIp: (distro: string | null) => Effect.Effect<Option.Option<string>>;
-  readonly ensureNodePty: (
-    distro: string | null,
-    windowsRepoRoot: string,
-    options?: EnsureWslNodePtyOptions,
-  ) => Effect.Effect<EnsureWslNodePtyResult>;
-}
-
 export class DesktopWslEnvironment extends Context.Service<
   DesktopWslEnvironment,
-  DesktopWslEnvironmentShape
+  {
+    readonly isAvailable: Effect.Effect<boolean>;
+    readonly listDistros: Effect.Effect<readonly WslDistro[]>;
+    readonly preWarm: (distro: string | null) => Effect.Effect<void>;
+    readonly windowsToWslPath: (
+      distro: string | null,
+      windowsPath: string,
+    ) => Effect.Effect<Option.Option<string>>;
+    // Resolves the user's Linux home dir inside the chosen distro (e.g.
+    // "/home/josh"). Used by the folder picker to expand `~` correctly.
+    readonly getUserHome: (distro: string | null) => Effect.Effect<Option.Option<string>>;
+    // Resolves the WSL distro's IPv4 address on the WSL vEthernet adapter
+    // (e.g. "172.x.x.x"). The orchestrator uses this for the WSL backend's
+    // httpBaseUrl so the renderer can reach it without relying on wslhost's
+    // localhost→WSL automatic forwarding, which is flaky in practice
+    // (the backend can be listening for 30+ seconds before wslhost starts
+    // forwarding 127.0.0.1:port to WSL-side localhost).
+    readonly getDistroIp: (distro: string | null) => Effect.Effect<Option.Option<string>>;
+    readonly ensureNodePty: (
+      distro: string | null,
+      windowsRepoRoot: string,
+      options?: EnsureWslNodePtyOptions,
+    ) => Effect.Effect<EnsureWslNodePtyResult>;
+  }
 >()("@t3tools/desktop/wsl/DesktopWslEnvironment") {}
 
 const buildDistroArgs = (distro: string | null): ReadonlyArray<string> =>

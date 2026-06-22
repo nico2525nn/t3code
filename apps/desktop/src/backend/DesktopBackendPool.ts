@@ -134,40 +134,38 @@ export class DesktopBackendPoolCannotUnregisterPrimaryError extends Schema.Tagge
   }
 }
 
-export interface DesktopBackendPoolShape {
-  // Look up a registered instance. None when no backend with that id is
-  // currently registered (e.g. WSL backend disabled).
-  readonly get: (id: BackendInstanceId) => Effect.Effect<Option.Option<DesktopBackendInstance>>;
-  // Snapshot of all currently-registered instances. Order is unspecified;
-  // callers that need a canonical "primary first" view should sort by id.
-  readonly list: Effect.Effect<readonly DesktopBackendInstance[]>;
-  // Convenience accessor for the always-registered primary instance.
-  // Currently equivalent to `get(PRIMARY_INSTANCE_ID)` unwrapped, but
-  // exposed as a typed effect so consumers don't have to handle the
-  // Option for the case that's guaranteed to be present.
-  readonly primary: Effect.Effect<DesktopBackendInstance>;
-  // Build a fresh DesktopBackendInstance from `spec` and add it to the
-  // registry. The pool owns the instance's scope: unregister(id) or pool
-  // teardown closes it and runs the instance's auto-stop finalizer. The
-  // returned instance has not been started — callers decide when to
-  // start it (and can call start more than once if a retry-after-failure
-  // story makes sense for them).
-  readonly register: (
-    spec: BackendInstanceSpec,
-  ) => Effect.Effect<DesktopBackendInstance, DesktopBackendPoolInstanceAlreadyRegisteredError>;
-  // Stop the named instance and remove it from the registry. Closing the
-  // instance's scope triggers its auto-stop finalizer; the registry is
-  // updated atomically with the scope close so subsequent get(id) calls
-  // observe the unregister before the underlying child process has fully
-  // exited.
-  readonly unregister: (
-    id: BackendInstanceId,
-  ) => Effect.Effect<void, DesktopBackendPoolCannotUnregisterPrimaryError>;
-}
-
 export class DesktopBackendPool extends Context.Service<
   DesktopBackendPool,
-  DesktopBackendPoolShape
+  {
+    // Look up a registered instance. None when no backend with that id is
+    // currently registered (e.g. WSL backend disabled).
+    readonly get: (id: BackendInstanceId) => Effect.Effect<Option.Option<DesktopBackendInstance>>;
+    // Snapshot of all currently-registered instances. Order is unspecified;
+    // callers that need a canonical "primary first" view should sort by id.
+    readonly list: Effect.Effect<readonly DesktopBackendInstance[]>;
+    // Convenience accessor for the always-registered primary instance.
+    // Currently equivalent to `get(PRIMARY_INSTANCE_ID)` unwrapped, but
+    // exposed as a typed effect so consumers don't have to handle the
+    // Option for the case that's guaranteed to be present.
+    readonly primary: Effect.Effect<DesktopBackendInstance>;
+    // Build a fresh DesktopBackendInstance from `spec` and add it to the
+    // registry. The pool owns the instance's scope: unregister(id) or pool
+    // teardown closes it and runs the instance's auto-stop finalizer. The
+    // returned instance has not been started — callers decide when to
+    // start it (and can call start more than once if a retry-after-failure
+    // story makes sense for them).
+    readonly register: (
+      spec: BackendInstanceSpec,
+    ) => Effect.Effect<DesktopBackendInstance, DesktopBackendPoolInstanceAlreadyRegisteredError>;
+    // Stop the named instance and remove it from the registry. Closing the
+    // instance's scope triggers its auto-stop finalizer; the registry is
+    // updated atomically with the scope close so subsequent get(id) calls
+    // observe the unregister before the underlying child process has fully
+    // exited.
+    readonly unregister: (
+      id: BackendInstanceId,
+    ) => Effect.Effect<void, DesktopBackendPoolCannotUnregisterPrimaryError>;
+  }
 >()("@t3tools/desktop/backend/DesktopBackendPool") {}
 
 // Services required by makeBackendInstance — exported so caller
@@ -278,7 +276,7 @@ export const layer = Layer.effect(
       ]),
     );
 
-    const register: DesktopBackendPoolShape["register"] = (spec) =>
+    const register: DesktopBackendPool["Service"]["register"] = (spec) =>
       SynchronizedRef.modifyEffect(instancesRef, (current) => {
         if (current.has(spec.id)) {
           return Effect.fail(new DesktopBackendPoolInstanceAlreadyRegisteredError({ id: spec.id }));
@@ -298,7 +296,7 @@ export const layer = Layer.effect(
         });
       });
 
-    const unregister: DesktopBackendPoolShape["unregister"] = (id) =>
+    const unregister: DesktopBackendPool["Service"]["unregister"] = (id) =>
       Effect.gen(function* () {
         if (id === DesktopBackendManager.PRIMARY_INSTANCE_ID) {
           return yield* new DesktopBackendPoolCannotUnregisterPrimaryError();

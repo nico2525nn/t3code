@@ -132,7 +132,7 @@ function makeTestInstance(input: MakeInstanceInput) {
     input.httpClientLayer ?? healthyHttpClientLayer,
     Layer.succeed(DesktopObservability.DesktopBackendOutputLogFactory, {
       forInstance: () => Effect.succeed(stubLog),
-    } satisfies DesktopObservability.DesktopBackendOutputLogFactoryShape),
+    } satisfies DesktopObservability.DesktopBackendOutputLogFactory["Service"]),
   );
 
   const instance = DesktopBackendManager.makeBackendInstance({

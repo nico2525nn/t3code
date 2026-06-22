@@ -59,7 +59,7 @@ function makePoolLayer(
               writeSessionBoundary: () => Effect.void,
               writeOutputChunk: () => Effect.void,
             } satisfies DesktopObservability.DesktopBackendOutputLogShape),
-        } satisfies DesktopObservability.DesktopBackendOutputLogFactoryShape),
+        } satisfies DesktopObservability.DesktopBackendOutputLogFactory["Service"]),
         Layer.succeed(DesktopBackendConfiguration.DesktopBackendConfiguration, {
           resolvePrimary: Effect.die("unexpected primary config resolve"),
           resolvePrimaryLabel: Ref.get(labelRef),

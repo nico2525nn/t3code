@@ -51,13 +51,11 @@ export interface DesktopBackendOutputLogShape {
 // `forInstance` calls (e.g. during a backend restart that re-resolves
 // services) reuse the same rotating writer rather than racing each other
 // on the same file.
-export interface DesktopBackendOutputLogFactoryShape {
-  readonly forInstance: (id: string) => Effect.Effect<DesktopBackendOutputLogShape>;
-}
-
 export class DesktopBackendOutputLogFactory extends Context.Service<
   DesktopBackendOutputLogFactory,
-  DesktopBackendOutputLogFactoryShape
+  {
+    readonly forInstance: (id: string) => Effect.Effect<DesktopBackendOutputLogShape>;
+  }
 >()("@t3tools/desktop/app/DesktopObservability/DesktopBackendOutputLogFactory") {}
 
 const textEncoder = new TextEncoder();
