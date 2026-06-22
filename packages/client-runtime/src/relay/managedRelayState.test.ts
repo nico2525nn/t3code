@@ -12,7 +12,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
-import * as TestClock from "effect/TestClock";
+import * as TestClock from "effect/testing/TestClock";
 import { Atom, AtomRegistry } from "effect/unstable/reactivity";
 import { afterEach, vi } from "vite-plus/test";
 
@@ -170,7 +170,7 @@ describe("createManagedRelayQueryManager", () => {
 
       assert.equal(Option.getOrThrow(yield* session.readClerkToken()), secondToken);
       assert.equal(readClerkToken.mock.calls.length, 2);
-    }),
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("updates the token provider without replacing a same-account session", () =>
