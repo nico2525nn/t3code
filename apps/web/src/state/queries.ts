@@ -4,13 +4,8 @@ import {
   type ComposerPathSearchTarget,
 } from "@t3tools/client-runtime/state/threads";
 import { type VcsRefTarget } from "@t3tools/client-runtime/state/vcs";
-import type {
-  EnvironmentId,
-  OrchestrationThread,
-  ThreadId,
-  VcsListRefsResult,
-  VcsRef,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, VcsListRefsResult, VcsRef } from "@t3tools/contracts";
+import type { EnvironmentThread } from "@t3tools/client-runtime/state/shell";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
@@ -30,7 +25,7 @@ const EMPTY_REFS: ReadonlyArray<VcsRef> = [];
 const INITIAL_BRANCH_CURSORS = [undefined] as const;
 
 export interface ThreadDetailView {
-  readonly data: OrchestrationThread | null;
+  readonly data: EnvironmentThread | null;
   readonly error: string | null;
   readonly isPending: boolean;
   readonly isDeleted: boolean;

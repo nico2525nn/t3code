@@ -1,4 +1,5 @@
-import type { EnvironmentId, OrchestrationThread, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentThread } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { useEffect, useMemo, useState } from "react";
 
@@ -18,7 +19,7 @@ const COMPOSER_PATH_SEARCH_LIMIT = 20;
 const VCS_REF_LIST_LIMIT = 100;
 
 export interface ThreadDetailView {
-  readonly data: OrchestrationThread | null;
+  readonly data: EnvironmentThread | null;
   readonly error: string | null;
   readonly isPending: boolean;
   readonly isDeleted: boolean;
