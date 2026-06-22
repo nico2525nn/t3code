@@ -121,14 +121,15 @@ export const layer = Layer.effect(
 
     const stopExisting = (id: DesktopBackendPool.BackendInstanceId) =>
       pool.unregister(id).pipe(
-        Effect.catchTag("DesktopBackendPoolCannotUnregisterPrimaryError", (cause) =>
-          // Should never happen — wsl: ids are not the primary id — but
-          // log loudly if the logic ever drifts.
-          logWslBackendWarning("refusing to unregister primary as wsl instance", {
-            id,
-            error: cause.message,
-          }),
-        ),
+        Effect.catchTags({
+          DesktopBackendPoolCannotUnregisterPrimaryError: (cause) =>
+            // Should never happen — wsl: ids are not the primary id — but
+            // log loudly if the logic ever drifts.
+            logWslBackendWarning("refusing to unregister primary as wsl instance", {
+              id,
+              error: cause.message,
+            }),
+        }),
       );
 
     const startNew = Effect.fn("desktop.wslBackend.startNew")(function* (input: {
