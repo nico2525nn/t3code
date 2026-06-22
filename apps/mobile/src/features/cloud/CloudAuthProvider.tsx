@@ -1,12 +1,17 @@
 import { ClerkProvider, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
-import { ManagedRelay, setManagedRelaySession } from "@t3tools/client-runtime/relay";
+import {
+  ManagedRelay,
+  ManagedRelaySessionTokenReadError,
+  setManagedRelaySession,
+} from "@t3tools/client-runtime/relay";
 import {
   reportAtomCommandResult,
   settleAsyncResult,
   settlePromise,
 } from "@t3tools/client-runtime/state/runtime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { type ReactNode, useEffect, useRef } from "react";
 
 import { environmentCatalog } from "../../connection/catalog";
@@ -39,7 +44,11 @@ export function activateCloudRelayAccount(
   setAgentAwarenessRelayTokenProvider(tokenProvider, accountId);
   setManagedRelaySession(appAtomRegistry, {
     accountId,
-    readClerkToken: tokenProvider,
+    readClerkToken: () =>
+      Effect.tryPromise({
+        try: tokenProvider,
+        catch: (cause) => new ManagedRelaySessionTokenReadError({ cause }),
+      }).pipe(Effect.map(Option.fromNullOr)),
   });
 }
 
