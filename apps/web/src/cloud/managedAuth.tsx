@@ -1,11 +1,16 @@
 import { useAuth } from "@clerk/react";
-import { ManagedRelay, setManagedRelaySession } from "@t3tools/client-runtime/relay";
+import {
+  ManagedRelay,
+  ManagedRelaySessionTokenReadError,
+  setManagedRelaySession,
+} from "@t3tools/client-runtime/relay";
 import {
   reportAtomCommandResult,
   settleAsyncResult,
   settlePromise,
 } from "@t3tools/client-runtime/state/runtime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { useEffect, useRef, type ReactNode } from "react";
 
 import { environmentCatalog } from "../connection/catalog";
@@ -32,7 +37,11 @@ export function activateManagedRelayAuthentication(
   relayTokenProvider = readClerkToken;
   setManagedRelaySession(appAtomRegistry, {
     accountId,
-    readClerkToken,
+    readClerkToken: () =>
+      Effect.tryPromise({
+        try: readClerkToken,
+        catch: (cause) => new ManagedRelaySessionTokenReadError({ cause }),
+      }).pipe(Effect.map(Option.fromNullOr)),
   });
 }
 

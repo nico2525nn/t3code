@@ -9,27 +9,30 @@ import {
 import { decodeRelayJwt } from "@t3tools/shared/relayJwt";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
-import * as Data from "effect/Data";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
 
 import { findErrorTraceId } from "../errors/errorTrace.ts";
 import * as ManagedRelay from "./managedRelay.ts";
 
-const DEFAULT_STALE_TIME_MS = 15_000;
-const DEFAULT_IDLE_TTL_MS = 5 * 60_000;
-const CLERK_TOKEN_EXPIRY_SKEW_MS = 5_000;
+const DEFAULT_STALE_TIME = Duration.seconds(15);
+const DEFAULT_IDLE_TTL = Duration.minutes(5);
+const CLERK_TOKEN_EXPIRY_SKEW = Duration.seconds(5);
 
 export interface ManagedRelaySession {
   readonly accountId: string;
-  readonly readClerkToken: () => Effect.Effect<string | null, ManagedRelaySessionError>;
+  readonly readClerkToken: () => Effect.Effect<Option.Option<string>, ManagedRelaySessionError>;
 }
 
 export interface ManagedRelaySessionInput {
   readonly accountId: string;
-  readonly readClerkToken: () => Promise<string | null>;
+  readonly readClerkToken: () => Effect.Effect<Option.Option<string>, ManagedRelaySessionError>;
 }
 
 interface ManagedRelaySessionControl {
@@ -55,14 +58,36 @@ export interface ManagedRelayQueryEvent {
   readonly traceId?: string | null;
 }
 
-export class ManagedRelaySessionError extends Data.TaggedError("ManagedRelaySessionError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+export class ManagedRelaySessionTokenReadError extends Schema.TaggedErrorClass<ManagedRelaySessionTokenReadError>()(
+  "ManagedRelaySessionTokenReadError",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not obtain the T3 Cloud session token.";
+  }
+}
 
-export class ManagedRelaySnapshotError extends Data.TaggedError("ManagedRelaySnapshotError")<{
-  readonly message: string;
-}> {}
+export class ManagedRelaySessionTokenUnavailableError extends Schema.TaggedErrorClass<ManagedRelaySessionTokenUnavailableError>()(
+  "ManagedRelaySessionTokenUnavailableError",
+  { reason: Schema.Literals(["missing-session", "missing-token"]) },
+) {
+  override get message(): string {
+    return this.reason === "missing-session"
+      ? "Sign in to T3 Cloud before loading relay data."
+      : "The T3 Cloud session token is unavailable.";
+  }
+}
+
+export const ManagedRelaySessionError = Schema.Union([
+  ManagedRelaySessionTokenReadError,
+  ManagedRelaySessionTokenUnavailableError,
+]);
+export type ManagedRelaySessionError = typeof ManagedRelaySessionError.Type;
+
+export class ManagedRelaySnapshotError extends Schema.TaggedErrorClass<ManagedRelaySnapshotError>()(
+  "ManagedRelaySnapshotError",
+  { message: Schema.String },
+) {}
 
 export const managedRelaySessionAtom = Atom.make<ManagedRelaySession | null>(null).pipe(
   Atom.keepAlive,
@@ -71,69 +96,108 @@ export const managedRelaySessionAtom = Atom.make<ManagedRelaySession | null>(nul
 
 const managedRelaySessionControls = new WeakMap<ManagedRelaySession, ManagedRelaySessionControl>();
 
+interface CachedClerkToken {
+  readonly token: string;
+  readonly expiresAtMillis: number;
+}
+
+interface PendingClerkTokenRead {
+  readonly deferred: Deferred.Deferred<Option.Option<string>, ManagedRelaySessionError>;
+}
+
+interface ManagedRelaySessionCacheState {
+  readonly readClerkToken: ManagedRelaySessionInput["readClerkToken"];
+  readonly generation: number;
+  readonly cachedToken: Option.Option<CachedClerkToken>;
+  readonly pendingToken: Option.Option<PendingClerkTokenRead>;
+}
+
+function isFreshCachedToken(cachedToken: CachedClerkToken, nowMillis: number): boolean {
+  return (
+    cachedToken.expiresAtMillis >
+    nowMillis + Duration.toMillis(CLERK_TOKEN_EXPIRY_SKEW)
+  );
+}
+
+function decodeCachedToken(token: string): Option.Option<CachedClerkToken> {
+  try {
+    const expiresAtSeconds = decodeRelayJwt(token).exp;
+    return typeof expiresAtSeconds === "number"
+      ? Option.some({ token, expiresAtMillis: expiresAtSeconds * 1_000 })
+      : Option.none();
+  } catch {
+    return Option.none();
+  }
+}
+
 export function createManagedRelaySession(input: ManagedRelaySessionInput): ManagedRelaySession {
-  let cachedToken: { readonly token: string; readonly expiresAtMillis: number } | null = null;
-  let pendingToken: Promise<string | null> | null = null;
-  let readClerkToken = input.readClerkToken;
-  let tokenProviderGeneration = 0;
-
-  const readCachedClerkToken = async (nowMillis: number): Promise<string | null> => {
-    if (cachedToken && cachedToken.expiresAtMillis > nowMillis + CLERK_TOKEN_EXPIRY_SKEW_MS) {
-      return cachedToken.token;
-    }
-    if (pendingToken) {
-      return await pendingToken;
-    }
-
-    const operationGeneration = tokenProviderGeneration;
-    const operation = readClerkToken().then((token) => {
-      if (operationGeneration !== tokenProviderGeneration) {
-        return token;
-      }
-      if (!token) {
-        cachedToken = null;
-        return null;
-      }
-      try {
-        const expiresAtSeconds = decodeRelayJwt(token).exp;
-        cachedToken =
-          typeof expiresAtSeconds === "number"
-            ? { token, expiresAtMillis: expiresAtSeconds * 1_000 }
-            : null;
-      } catch {
-        cachedToken = null;
-      }
-      return token;
-    });
-    pendingToken = operation;
-    try {
-      return await operation;
-    } finally {
-      if (pendingToken === operation) {
-        pendingToken = null;
-      }
-    }
+  let state: ManagedRelaySessionCacheState = {
+    readClerkToken: input.readClerkToken,
+    generation: 0,
+    cachedToken: Option.none(),
+    pendingToken: Option.none(),
   };
 
   const session: ManagedRelaySession = {
     accountId: input.accountId,
     readClerkToken: Effect.fn("clientRuntime.managedRelaySession.readClerkToken")(function* () {
       const nowMillis = yield* Clock.currentTimeMillis;
-      return yield* Effect.tryPromise({
-        try: () => readCachedClerkToken(nowMillis),
-        catch: (cause) =>
-          new ManagedRelaySessionError({
-            message: "Could not obtain the T3 Cloud session token.",
-            cause,
-          }),
-      });
+      const current = state;
+      if (
+        Option.isSome(current.cachedToken) &&
+        isFreshCachedToken(current.cachedToken.value, nowMillis)
+      ) {
+        return Option.some(current.cachedToken.value.token);
+      }
+      if (Option.isSome(current.pendingToken)) {
+        return yield* Deferred.await(current.pendingToken.value.deferred);
+      }
+
+      const deferred = yield* Deferred.make<Option.Option<string>, ManagedRelaySessionError>();
+      state = {
+        ...state,
+        pendingToken: Option.some({ deferred }),
+      };
+
+      const readExit = yield* Effect.exit(current.readClerkToken());
+      if (Exit.isSuccess(readExit)) {
+        if (state.generation === current.generation) {
+          state = {
+            ...state,
+            cachedToken: Option.isSome(readExit.value)
+              ? decodeCachedToken(readExit.value.value)
+              : Option.none(),
+          };
+        }
+        yield* Deferred.succeed(deferred, readExit.value).pipe(Effect.orDie);
+      } else {
+        yield* Deferred.failCause(deferred, readExit.cause).pipe(Effect.orDie);
+      }
+
+      if (
+        Option.isSome(state.pendingToken) &&
+        state.pendingToken.value.deferred === deferred
+      ) {
+        state = {
+          ...state,
+          pendingToken: Option.none(),
+        };
+      }
+
+      if (Exit.isSuccess(readExit)) {
+        return readExit.value;
+      }
+      return yield* Effect.failCause(readExit.cause);
     }),
   };
   managedRelaySessionControls.set(session, {
     updateReadClerkToken: (nextReadClerkToken) => {
-      readClerkToken = nextReadClerkToken;
-      tokenProviderGeneration += 1;
-      pendingToken = null;
+      state = {
+        readClerkToken: nextReadClerkToken,
+        generation: state.generation + 1,
+        cachedToken: Option.none(),
+        pendingToken: Option.none(),
+      };
     },
   });
   return session;
@@ -176,14 +240,12 @@ function readSessionClerkToken(
   session: ManagedRelaySession,
 ): Effect.Effect<string, ManagedRelaySessionError> {
   return session.readClerkToken().pipe(
-    Effect.flatMap((token) =>
-      token
-        ? Effect.succeed(token)
-        : Effect.fail(
-            new ManagedRelaySessionError({
-              message: "The T3 Cloud session token is unavailable.",
-            }),
-          ),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(new ManagedRelaySessionTokenUnavailableError({ reason: "missing-token" })),
+        onSome: Effect.succeed,
+      }),
     ),
   );
 }
@@ -225,9 +287,7 @@ function requireClerkToken(
   const session = get(managedRelaySessionAtom);
   if (!session || session.accountId !== accountId) {
     return Effect.fail(
-      new ManagedRelaySessionError({
-        message: "Sign in to T3 Cloud before loading relay data.",
-      }),
+      new ManagedRelaySessionTokenUnavailableError({ reason: "missing-session" }),
     );
   }
   return readSessionClerkToken(session);
@@ -315,8 +375,8 @@ export function createManagedRelayQueryManager(
     readonly onQueryEvent?: (event: ManagedRelayQueryEvent) => void;
   },
 ) {
-  const staleTime = options?.staleTimeMs ?? DEFAULT_STALE_TIME_MS;
-  const idleTtl = options?.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
+  const staleTime = options?.staleTimeMs ?? Duration.toMillis(DEFAULT_STALE_TIME);
+  const idleTtl = options?.idleTtlMs ?? Duration.toMillis(DEFAULT_IDLE_TTL);
   const observe = <A, E, R>(
     input: Omit<ManagedRelayQueryEvent, "phase" | "message" | "traceId">,
     effect: Effect.Effect<A, E, R>,

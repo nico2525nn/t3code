@@ -1,4 +1,6 @@
 import { managedRelaySessionAtom, setManagedRelaySession } from "@t3tools/client-runtime/relay";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -45,7 +47,7 @@ describe("managed relay authentication", () => {
   it("replaces an existing account session atomically", () => {
     setManagedRelaySession(appAtomRegistry, {
       accountId: "account-1",
-      readClerkToken: async () => "account-1-token",
+      readClerkToken: () => Effect.succeed(Option.some("account-1-token")),
     });
 
     activateManagedRelayAuthentication("account-2", async () => "account-2-token");
