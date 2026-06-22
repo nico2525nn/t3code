@@ -648,7 +648,7 @@ export const OrchestrationV2Checkpoint = Schema.Struct({
   runId: Schema.NullOr(RunId),
   nodeId: NodeId,
   parentCheckpointId: Schema.NullOr(CheckpointId),
-  ordinalWithinScope: PositiveInt,
+  ordinalWithinScope: NonNegativeInt,
   appRunOrdinal: Schema.NullOr(PositiveInt),
   ref: CheckpointRef,
   status: Schema.Literals(["ready", "missing", "error", "stale"]),
@@ -664,6 +664,18 @@ export const OrchestrationV2CheckpointRollbackRequest = Schema.Struct({
 });
 export type OrchestrationV2CheckpointRollbackRequest =
   typeof OrchestrationV2CheckpointRollbackRequest.Type;
+
+export class OrchestrationV2CheckpointUnavailableError extends Schema.TaggedErrorClass<OrchestrationV2CheckpointUnavailableError>()(
+  "OrchestrationV2CheckpointUnavailableError",
+  {
+    threadId: ThreadId,
+    target: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Rollback target ${this.target} is unavailable for thread ${this.threadId}.`;
+  }
+}
 
 export const OrchestrationV2TurnItemStatus = Schema.Literals([
   "pending",

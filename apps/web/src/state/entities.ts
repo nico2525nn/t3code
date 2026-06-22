@@ -3,6 +3,7 @@ import type {
   EnvironmentProject,
   EnvironmentThread,
   EnvironmentThreadShell,
+  ScopedThreadProjection,
   ThreadConversationMessage,
   ThreadProposedPlan,
   ThreadRuntimeSummary,
@@ -39,6 +40,9 @@ const EMPTY_THREAD_SHELL_ATOM = Atom.make<EnvironmentThreadShell | null>(null).p
 );
 const EMPTY_THREAD_DETAIL_ATOM = Atom.make<EnvironmentThread | null>(null).pipe(
   Atom.withLabel("web-thread-detail:empty"),
+);
+const EMPTY_SCOPED_THREAD_PROJECTION_ATOM = Atom.make<ScopedThreadProjection | null>(null).pipe(
+  Atom.withLabel("web-scoped-thread-projection:empty"),
 );
 const EMPTY_MESSAGES_ATOM = Atom.make(EMPTY_MESSAGES).pipe(
   Atom.withLabel("web-thread-messages:empty"),
@@ -132,6 +136,12 @@ export function useThreadShell(ref: ScopedThreadRef | null): EnvironmentThreadSh
 export function useThreadDetail(ref: ScopedThreadRef | null): EnvironmentThread | null {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_DETAIL_ATOM : environmentThreadDetails.detailAtom(ref),
+  );
+}
+
+export function useThreadProjection(ref: ScopedThreadRef | null): ScopedThreadProjection | null {
+  return useAtomValue(
+    ref === null ? EMPTY_SCOPED_THREAD_PROJECTION_ATOM : environmentThreadDetails.threadAtom(ref),
   );
 }
 
