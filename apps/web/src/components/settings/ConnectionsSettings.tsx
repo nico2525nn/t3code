@@ -1432,6 +1432,31 @@ function SavedBackendListRow({
           : "bg-muted-foreground/40";
   const statusTooltip = connectionStatusText(environment.connection);
   const errorTraceId = environment.connection.traceId;
+  const { copyToClipboard: copyTraceIdToClipboard } = useCopyToClipboard<{ traceId: string }>({
+    target: "trace ID",
+    onCopy: ({ traceId }) => {
+      toastManager.add({
+        type: "success",
+        title: "Trace ID copied",
+        description: traceId,
+      });
+    },
+    onError: (error) => {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not copy trace ID",
+          description: error.message,
+        }),
+      );
+    },
+  });
+  const copyTraceId = useCallback(
+    (traceId: string) => {
+      copyTraceIdToClipboard(traceId, { traceId });
+    },
+    [copyTraceIdToClipboard],
+  );
   const versionMismatch = resolveServerConfigVersionMismatch(environment.serverConfig);
   const sshTarget =
     environment.entry.target._tag === "SshConnectionTarget" &&
@@ -1483,7 +1508,7 @@ function SavedBackendListRow({
                 <button
                   type="button"
                   className="shrink-0 underline underline-offset-2"
-                  onClick={() => void navigator.clipboard.writeText(errorTraceId)}
+                  onClick={() => copyTraceId(errorTraceId)}
                 >
                   Copy trace ID
                 </button>
