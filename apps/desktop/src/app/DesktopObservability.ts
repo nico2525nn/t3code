@@ -2,7 +2,6 @@ import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
 import { makeLocalFileTracer, makeTraceSink } from "@t3tools/shared/observability";
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -98,12 +97,13 @@ export function makeComponentLogger(component: string): DesktopComponentLogger {
   };
 }
 
-class DesktopLogFileWriterConfigurationError extends Data.TaggedError(
+class DesktopLogFileWriterConfigurationError extends Schema.TaggedErrorClass<DesktopLogFileWriterConfigurationError>()(
   "DesktopLogFileWriterConfigurationError",
-)<{
-  readonly option: "maxBytes" | "maxFiles";
-  readonly value: number;
-}> {
+  {
+    option: Schema.Literals(["maxBytes", "maxFiles"]),
+    value: Schema.Number,
+  },
+) {
   override get message() {
     return `${this.option} must be >= 1 (received ${this.value})`;
   }

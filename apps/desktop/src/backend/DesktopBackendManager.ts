@@ -25,7 +25,6 @@
 
 import * as Brand from "effect/Brand";
 import * as Cause from "effect/Cause";
-import * as Data from "effect/Data";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -104,29 +103,36 @@ interface BackendProcessExit {
   readonly result: Result.Result<ChildProcessSpawner.ExitCode, PlatformError.PlatformError>;
 }
 
-export class BackendTimeoutError extends Data.TaggedError("BackendTimeoutError")<{
-  readonly url: URL;
-}> {
+export class BackendTimeoutError extends Schema.TaggedErrorClass<BackendTimeoutError>()(
+  "BackendTimeoutError",
+  {
+    url: Schema.instanceOf(URL),
+  },
+) {
   override get message() {
     return `Timed out waiting for backend readiness at ${this.url.href}.`;
   }
 }
 
-class BackendProcessBootstrapEncodeError extends Data.TaggedError(
+class BackendProcessBootstrapEncodeError extends Schema.TaggedErrorClass<BackendProcessBootstrapEncodeError>()(
   "BackendProcessBootstrapEncodeError",
-)<{
-  readonly entryPath: string;
-  readonly cause: Schema.SchemaError;
-}> {
+  {
+    entryPath: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
   override get message() {
     return `Failed to encode the desktop backend bootstrap payload for ${this.entryPath}.`;
   }
 }
 
-class BackendProcessSpawnError extends Data.TaggedError("BackendProcessSpawnError")<{
-  readonly executablePath: string;
-  readonly cause: PlatformError.PlatformError;
-}> {
+class BackendProcessSpawnError extends Schema.TaggedErrorClass<BackendProcessSpawnError>()(
+  "BackendProcessSpawnError",
+  {
+    executablePath: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
   override get message() {
     return `Failed to spawn the desktop backend process at ${this.executablePath}.`;
   }

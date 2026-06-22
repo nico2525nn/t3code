@@ -76,16 +76,7 @@ const runProviderMaintenanceCommandWithSpawner = Effect.fn("ProviderMaintenanceR
     const collectCommandResult = Effect.fn("ProviderMaintenanceRunner.collectCommandResult")(
       function* () {
         const child = yield* input.spawner
-          .spawn(
-            ChildProcess.make(input.command, [...input.args], {
-              // The update executable is usually a launcher shim (e.g. `npm` ->
-              // `npm.cmd`, `pnpm` -> `pnpm.cmd`). On Windows a bare-name spawn
-              // does not resolve PATHEXT, so it fails with ENOENT; run through
-              // the shell so the shim resolves, matching how every other
-              // provider command is spawned on Windows.
-              shell: process.platform === "win32",
-            }),
-          )
+          .spawn(ChildProcess.make(input.command, [...input.args]))
           .pipe(
             Effect.mapError(
               (cause) =>
