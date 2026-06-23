@@ -472,9 +472,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       ),
     );
 
-  const tabIdForWebContents = Effect.fn("PreviewManager.tabIdForWebContents")(function* (
-    webContentsId: number,
-  ) {
+  const tabIdForWebContents = Effect.fnUntraced(function* (webContentsId: number) {
     const tabs = yield* SynchronizedRef.get(tabsRef);
     return (
       Array.from(tabs.entries()).find(([, tab]) => tab.webContentsId === webContentsId)?.[0] ?? null
@@ -484,7 +482,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const pushBounded = <A>(buffer: ReadonlyArray<A>, entry: A): ReadonlyArray<A> =>
     [...buffer, entry].slice(-DIAGNOSTIC_BUFFER_LIMIT);
 
-  const captureDiagnosticMessage = Effect.fn("PreviewManager.captureDiagnosticMessage")(function* (
+  const captureDiagnosticMessage = Effect.fnUntraced(function* (
     webContentsId: number,
     method: string,
     params: Record<string, unknown>,
@@ -663,7 +661,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       const createControlSession = Effect.fn("PreviewManager.createControlSession")(function* () {
         const semaphore = yield* Semaphore.make(1);
         const scope = yield* Scope.fork(parentScope, "sequential");
-        const handleDebuggerMessage = Effect.fn("PreviewManager.handleDebuggerMessage")(function* (
+        const handleDebuggerMessage = Effect.fnUntraced(function* (
           method: string,
           params: Record<string, unknown>,
         ) {
