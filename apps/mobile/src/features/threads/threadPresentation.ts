@@ -22,7 +22,7 @@ export function threadStatusTone(thread: EnvironmentThreadShell): StatusTone {
       textClassName: "text-emerald-700 dark:text-emerald-300",
     };
   }
-  if (status === "queued" || status === "starting") {
+  if (status === "preparing" || status === "queued" || status === "starting") {
     return {
       label: "Starting",
       pillClassName: "bg-sky-500/12 dark:bg-sky-500/16",

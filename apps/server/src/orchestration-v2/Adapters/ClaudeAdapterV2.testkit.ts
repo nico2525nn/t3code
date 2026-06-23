@@ -20,6 +20,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import { ServerConfig } from "../../config.ts";
 import {
   CLAUDE_PROVIDER,
   CLAUDE_DEFAULT_INSTANCE_ID,
@@ -39,7 +40,10 @@ import { layer as idAllocatorLayer } from "../IdAllocator.ts";
 import { ProviderAdapterDriverCreateError } from "../ProviderAdapterDriver.ts";
 import { makeDriverLayer as makeProviderAdapterRegistryDriverLayer } from "../ProviderAdapterRegistry.ts";
 import { randomUuidV4 } from "../RandomUuid.ts";
-import type { OrchestratorV2ProviderReplayHarness } from "../testkit/ProviderReplayHarness.ts";
+import {
+  makeReplayServerConfig,
+  type OrchestratorV2ProviderReplayHarness,
+} from "../testkit/ProviderReplayHarness.ts";
 
 export const CLAUDE_AGENT_SDK_REPLAY_PROTOCOL = "claude-agent-sdk.query" as const;
 
@@ -730,6 +734,10 @@ export function makeClaudeAgentSdkReplayLayer(
 export function makeClaudeProviderAdapterRegistryReplayLayer(
   transcript: ClaudeAgentSdkReplayTranscript,
 ) {
+  const serverConfigLayer = Layer.effect(
+    ServerConfig,
+    makeReplayServerConfig(transcript.scenario).pipe(Effect.orDie),
+  ).pipe(Layer.provide(NodeServices.layer));
   return makeProviderAdapterRegistryDriverLayer({
     drivers: [ClaudeAdapterV2Driver],
     configMap: {
@@ -738,9 +746,14 @@ export function makeClaudeProviderAdapterRegistryReplayLayer(
       },
     },
   }).pipe(
-    Layer.provide(makeClaudeAgentSdkReplayLayer(transcript)),
-    Layer.provide(idAllocatorLayer),
-    Layer.provide(NodeServices.layer),
+    Layer.provide(
+      Layer.mergeAll(
+        makeClaudeAgentSdkReplayLayer(transcript),
+        idAllocatorLayer,
+        NodeServices.layer,
+        serverConfigLayer,
+      ),
+    ),
   );
 }
 
