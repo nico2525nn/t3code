@@ -379,11 +379,16 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
           pathOrDescriptor: cwd,
           description: "Test PermissionDenied readDirectory failure.",
         });
-        const workspaceEntries = yield* WorkspaceEntries.make.pipe(
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries.pipe(
           Effect.provide(
-            Layer.mock(FileSystem.FileSystem)({
-              readDirectory: () => Effect.fail(denied),
-            }),
+            WorkspaceEntries.layer.pipe(
+              Layer.provide(WorkspacePaths.layer),
+              Layer.provide(
+                Layer.mock(FileSystem.FileSystem)({
+                  readDirectory: () => Effect.fail(denied),
+                }),
+              ),
+            ),
           ),
         );
 
