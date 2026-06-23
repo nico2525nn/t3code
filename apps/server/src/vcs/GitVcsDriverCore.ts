@@ -968,7 +968,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     ];
   });
 
-  const hasActiveFetchLock = Effect.fn("GitVcsDriver.hasActiveFetchLock")(function* (
+  const hasActiveGitPackLock = Effect.fn("GitVcsDriver.hasActiveGitPackLock")(function* (
     gitCommonDir: string,
   ): Effect.fn.Return<boolean> {
     const lockPaths = yield* listFetchHeadLockPaths(gitCommonDir);
@@ -988,6 +988,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         return true;
       }
     }
+    const gcPidExists = yield* fileSystem.exists(path.join(gitCommonDir, "gc.pid")).pipe(
+      Effect.catchTags({
+        PlatformError: () => Effect.succeed(false),
+      }),
+    );
+    if (gcPidExists) {
+      return true;
+    }
     return false;
   });
 
@@ -1004,13 +1012,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       if (newFiles.length === 0) {
         return;
       }
-      if (yield* hasActiveFetchLock(gitCommonDir)) {
-        yield* Effect.logWarning(
-          "Skipped temporary Git pack cleanup while a fetch lock is active",
-          {
-            temporaryPackCount: newFiles.length,
-          },
-        );
+      if (yield* hasActiveGitPackLock(gitCommonDir)) {
+        yield* Effect.logWarning("Skipped temporary Git pack cleanup while a git lock is active", {
+          temporaryPackCount: newFiles.length,
+        });
         return;
       }
 
