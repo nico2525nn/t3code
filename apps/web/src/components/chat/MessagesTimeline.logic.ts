@@ -1,5 +1,10 @@
 import * as Equal from "effect/Equal";
-import { formatDuration, type TimelineEntry, type WorkLogEntry } from "../../session-logic";
+import {
+  formatDuration,
+  timelineEntryIsPersistentResourceCard,
+  type TimelineEntry,
+  type WorkLogEntry,
+} from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import {
   type MessageId,
@@ -190,7 +195,8 @@ function deriveSupersededAttemptFolds(
   for (const entry of timelineEntries) {
     if (
       entry.attempt?.status !== "superseded" ||
-      (entry.kind === "message" && entry.message.role === "user")
+      (entry.kind === "message" && entry.message.role === "user") ||
+      timelineEntryIsPersistentResourceCard(entry)
     ) {
       continue;
     }

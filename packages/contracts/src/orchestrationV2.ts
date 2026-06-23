@@ -441,6 +441,7 @@ export const OrchestrationV2Subagent = Schema.Struct({
     "cancelled",
     "interrupted",
   ]),
+  progress: Schema.optional(Schema.String),
   result: Schema.NullOr(Schema.String),
   startedAt: Schema.NullOr(Schema.DateTimeUtc),
   completedAt: Schema.NullOr(Schema.DateTimeUtc),
@@ -904,6 +905,14 @@ export const OrchestrationV2TurnItem = Schema.Union([
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
+    type: Schema.Literal("thread_created"),
+    targetThreadId: ThreadId,
+    targetRunId: Schema.NullOr(RunId),
+    targetProviderInstanceId: ProviderInstanceId,
+    targetModel: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("subagent"),
     subagentId: NodeId,
     origin: Schema.Literals(["provider_native", "app_owned"]),
@@ -911,6 +920,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     providerInstanceId: ProviderInstanceId,
     childThreadId: Schema.NullOr(ThreadId),
     prompt: Schema.String,
+    progress: Schema.optional(Schema.String),
     result: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
@@ -1489,6 +1499,14 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
+    type: Schema.Literal("thread_created"),
+    targetThreadId: ThreadId,
+    targetRunId: Schema.NullOr(RunId),
+    targetProviderInstanceId: ProviderInstanceId,
+    targetModel: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("subagent"),
     subagentId: NodeId,
     origin: Schema.Literals(["provider_native", "app_owned"]),
@@ -1496,6 +1514,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     providerInstanceId: ProviderInstanceId,
     childThreadId: Schema.NullOr(ThreadId),
     prompt: Schema.String,
+    progress: Schema.optional(Schema.String),
     result: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
@@ -1819,6 +1838,15 @@ export const OrchestrationV2Command = Schema.Union([
     runtimeMode: RuntimeMode,
     interactionMode: ProviderInteractionMode,
     createdAt: Schema.optional(Schema.DateTimeUtc),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.created.record"),
+    commandId: CommandId,
+    parentThreadId: ThreadId,
+    parentRunId: RunId,
+    parentNodeId: NodeId,
+    targetThreadId: ThreadId,
+    targetRunId: Schema.NullOr(RunId),
   }),
   Schema.Struct({
     type: Schema.Literal("provider.switch"),

@@ -100,6 +100,7 @@ import { formatChatTimestampTooltip, formatShortTimestamp } from "../../timestam
 import { V2ItemInspector } from "./V2ItemInspector";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { isV2LifecycleItem, V2LifecycleRow } from "./V2LifecycleRow";
+import { TimelineSystemDivider } from "./TimelineSystemDivider";
 
 import {
   buildInlineTerminalContextText,
@@ -174,6 +175,10 @@ interface MessagesTimelineProps {
   routeThreadKey: string;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
+  parentThreadLink?: {
+    readonly threadId: ThreadId;
+    readonly title: string;
+  } | null;
   onForkFromRun: (input: {
     readonly sourceThreadId: ThreadId;
     readonly runId: RunId;
@@ -212,6 +217,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   routeThreadKey,
   onOpenTurnDiff,
   onOpenThread,
+  parentThreadLink = null,
   onForkFromRun,
   onRollbackCheckpoint,
   revertTurnCountByUserMessageId,
@@ -395,6 +401,23 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }),
     [activeTurnInProgress, isRevertingCheckpoint, isWorking],
   );
+  const listHeader = useMemo(
+    () =>
+      parentThreadLink === null ? (
+        TIMELINE_LIST_HEADER
+      ) : (
+        <div className="mx-auto w-full min-w-0 max-w-3xl pt-1 sm:pt-2">
+          <TimelineSystemDivider
+            label="Subagent of"
+            detail={parentThreadLink.title}
+            icon={GitForkIcon}
+            actionLabel="Open parent thread"
+            onAction={() => onOpenThread(parentThreadLink.threadId)}
+          />
+        </div>
+      ),
+    [onOpenThread, parentThreadLink],
+  );
 
   // Stable renderItem — no closure deps. Row components read shared state
   // from TimelineRowCtx, which propagates through LegendList's memo.
@@ -407,7 +430,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [],
   );
 
-  if (rows.length === 0 && !isWorking) {
+  if (rows.length === 0 && !isWorking && parentThreadLink === null) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-muted-foreground/30">
@@ -435,7 +458,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           maintainVisibleContentPosition
           onScroll={handleScroll}
           className="scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain px-3 sm:px-5"
-          ListHeaderComponent={TIMELINE_LIST_HEADER}
+          ListHeaderComponent={listHeader}
           ListFooterComponent={TIMELINE_LIST_FOOTER}
         />
       </TimelineRowActivityCtx>
@@ -517,6 +540,14 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
 
   return (
     <div className="group flex flex-col items-end gap-1">
+      {row.message.createdBy === "agent" ? (
+        <p
+          className="me-1 text-[11px] text-muted-foreground/70"
+          data-user-message-attribution="agent"
+        >
+          Sent by another agent
+        </p>
+      ) : null}
       <div className="relative max-w-[80%] rounded-2xl border border-border bg-secondary p-3">
         {regularImages.length > 0 && (
           <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
@@ -912,7 +943,7 @@ function v2EventPresentation(item: OrchestrationV2TurnItem): {
     case "subagent":
       return {
         label: item.title ?? "Subagent",
-        detail: item.result ?? item.prompt,
+        detail: item.result ?? item.progress ?? item.prompt,
         tone:
           item.status === "failed" ? "danger" : item.status === "completed" ? "success" : "muted",
         icon: HammerIcon,
