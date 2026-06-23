@@ -101,9 +101,7 @@ describe("ProcessDiagnostics", () => {
       const layer = ProcessDiagnostics.layer.pipe(Layer.provideMerge(telemetryLayer));
 
       const diagnostics = yield* Effect.gen(function* () {
-        const telemetry = yield* ResourceTelemetry.ResourceTelemetry;
         const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
-        yield* telemetry.refresh;
         return yield* processDiagnostics.read;
       }).pipe(Effect.provide(layer));
 

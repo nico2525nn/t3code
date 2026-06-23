@@ -72,7 +72,8 @@ function canSignalCategory(category: ResourceTelemetryProcessCategory): boolean 
 
 export const make = Effect.fn("makeProcessDiagnostics")(function* () {
   const telemetry = yield* ResourceTelemetry.ResourceTelemetry;
-  const read: ProcessDiagnosticsShape["read"] = telemetry.latest.pipe(
+  const read: ProcessDiagnosticsShape["read"] = telemetry.refresh.pipe(
+    Effect.catch(() => telemetry.latest),
     Effect.map((snapshot) => {
       const processes = snapshot.processes
         .filter((entry) => entry.identity.pid !== process.pid)
