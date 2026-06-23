@@ -371,6 +371,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
 
     it.effect("returns an empty listing when the OS denies directory access", () =>
       Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
         const cwd = yield* makeTempDir({ prefix: "t3code-workspace-browse-eacces-" });
         const denied = PlatformError.systemError({
           _tag: "PermissionDenied",
@@ -384,9 +385,13 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
             WorkspaceEntries.layer.pipe(
               Layer.provide(WorkspacePaths.layer),
               Layer.provide(
-                Layer.mock(FileSystem.FileSystem)({
-                  readDirectory: () => Effect.fail(denied),
-                }),
+                Layer.succeed(
+                  FileSystem.FileSystem,
+                  FileSystem.FileSystem.of({
+                    ...fileSystem,
+                    readDirectory: () => Effect.fail(denied),
+                  }),
+                ),
               ),
             ),
           ),
