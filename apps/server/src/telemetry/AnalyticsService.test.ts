@@ -74,6 +74,7 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
       const runtimeLayer = telemetryLayer.pipe(
         Layer.provide(configLayer),
         Layer.provideMerge(NodeHttpServer.layerTest),
+        Layer.provideMerge(TestClock.layer()),
       );
 
       yield* Effect.gen(function* () {
@@ -169,7 +170,7 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
 
         yield* TestClock.adjust(AnalyticsService.ANALYTICS_FLUSH_INTERVAL);
         yield* Deferred.await(receivedRequest).pipe(Effect.timeout("1 second"), TestClock.withLive);
-      }).pipe(Effect.provide(runtimeLayer), Effect.provide(TestClock.layer()));
+      }).pipe(Effect.provide(runtimeLayer));
 
       const batchRequests = capturedRequests.filter(
         (request): request is RecordedBatchRequest & { readonly body: RecordedBatchBody } =>
