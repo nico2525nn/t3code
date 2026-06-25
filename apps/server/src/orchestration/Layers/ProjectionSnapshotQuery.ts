@@ -4,13 +4,18 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  ProjectScript,
+  TurnId,
+  ModelSelection,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
+import {
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationThread,
-  ProjectScript,
-  TurnId,
   type OrchestrationCheckpointSummary,
   type OrchestrationLatestTurn,
   type OrchestrationMessage,
@@ -20,10 +25,7 @@ import {
   type OrchestrationSession,
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
-  ModelSelection,
-  ProjectId,
-  ThreadId,
-} from "@t3tools/contracts";
+} from "@t3tools/contracts/legacy-orchestration";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";

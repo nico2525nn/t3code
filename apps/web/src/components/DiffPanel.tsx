@@ -33,7 +33,7 @@ import {
   resolveFileDiffPath,
 } from "../lib/diffRendering";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
-import { useProject, useThread } from "../state/entities";
+import { useProject, useThreadProjection, useThreadShell } from "../state/entities";
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
@@ -203,7 +203,8 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
     selectThreadDiffPanelSelection(state.byThreadKey, routeThreadRef),
   );
   const activeThreadId = routeThreadRef?.threadId ?? null;
-  const activeThread = useThread(routeThreadRef);
+  const activeThread = useThreadShell(routeThreadRef);
+  const activeThreadProjection = useThreadProjection(routeThreadRef)?.projection ?? null;
   const activeProjectId = activeThread?.projectId ?? null;
   const activeProject = useProject(
     activeThread && activeProjectId
@@ -231,7 +232,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
   );
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByRunId } =
-    useTurnDiffSummaries(activeThread);
+    useTurnDiffSummaries(activeThreadProjection);
   const orderedTurnDiffSummaries = useMemo(
     () =>
       [...turnDiffSummaries].toSorted((left, right) => {

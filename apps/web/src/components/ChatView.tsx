@@ -4,6 +4,7 @@ import {
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
+  type OrchestrationV2ThreadProjection,
   type ProjectScript,
   type ProjectId,
   type ProviderApprovalDecision,
@@ -20,8 +21,12 @@ import {
   RuntimeMode,
   TerminalOpenInput,
 } from "@t3tools/contracts";
-import type { ThreadWorkEntry } from "@t3tools/client-runtime/state/shell";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
+import {
+  deriveLatestThreadRun,
+  deriveThreadRuntime,
+} from "@t3tools/client-runtime/state/thread-execution";
+import { derivePendingThreadRequests } from "@t3tools/client-runtime/state/thread-requests";
 import {
   parseScopedThreadKey,
   scopedThreadKey,
@@ -71,14 +76,12 @@ import {
   derivePendingApprovals,
   derivePendingUserInputs,
   derivePhase,
-  deriveTimelineEntries,
   deriveTimelineEntriesFromVisibleTurnItems,
   deriveRevertTurnCountByUserMessageId,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
   findSidebarProposedPlan,
   findLatestProposedPlan,
-  deriveWorkLogEntries,
   hasActionableProposedPlan,
   isLatestRunSettled,
 } from "../session-logic";
@@ -198,9 +201,8 @@ import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
   useProject,
   useProjects,
-  useThread,
+  useThreadProjection,
   useThreadShell,
-  useThreadProposedPlans,
   useThreadRefs,
   useThreadVisibleTurnItems,
   waitForThreadShell,
@@ -264,9 +266,9 @@ import { useAssetUrls } from "../assets/assetUrls";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
-const EMPTY_WORK_ENTRIES: ThreadWorkEntry[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
+const EMPTY_ATTACHMENT_IDS: string[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const PreviewPanel = lazy(() =>
   import("./preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -309,7 +311,10 @@ type EnvironmentUnavailableState = {
   readonly connection: EnvironmentConnectionPresentation;
 };
 
-type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
+type ThreadPlanCatalogEntry = {
+  readonly id: ThreadId;
+  readonly projection: OrchestrationV2ThreadProjection;
+};
 
 function eventPathContainsSelector(event: Event, selector: string): boolean {
   const path = event.composedPath();
@@ -501,7 +506,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
   const closeTerminalMutation = useAtomCommand(terminalEnvironment.close, "terminal close");
-  const serverThread = useThread(threadRef);
+  const serverThread = useThreadShell(threadRef);
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
   const projectRef = serverThread
     ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
@@ -857,7 +862,7 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
   newShortcutLabel,
   closeShortcutLabel,
 }: PersistentThreadTerminalPanelProps) {
-  const serverThread = useThread(threadRef);
+  const serverThread = useThreadShell(threadRef);
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
   const projectRef = serverThread
     ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
@@ -1050,9 +1055,17 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const composerDraftTarget: ScopedThreadRef | DraftId =
     routeKind === "server" ? routeThreadRef : props.draftId;
-  const serverThread = useThread(routeKind === "server" ? routeThreadRef : null);
+  const serverThread = useThreadShell(routeKind === "server" ? routeThreadRef : null);
+  const serverThreadProjection = useThreadProjection(
+    routeKind === "server" ? routeThreadRef : null,
+  );
+  const serverProjection = serverThreadProjection?.projection ?? null;
   const serverVisibleTurnItems = useThreadVisibleTurnItems(
     routeKind === "server" ? routeThreadRef : null,
+  );
+  const committedServerMessageIds = useMemo(
+    () => new Set(serverProjection?.messages.map((message) => message.id) ?? []),
+    [serverProjection],
   );
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const activeThreadLastVisitedAt = useUiStateStore((store) =>
@@ -1259,6 +1272,16 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const isServerThread = routeKind === "server" && serverThread !== null;
   const activeThread = isServerThread ? serverThread : localDraftThread;
+  const serverLatestRun = useMemo(
+    () => (serverProjection === null ? null : deriveLatestThreadRun(serverProjection)),
+    [serverProjection],
+  );
+  const serverRuntime = useMemo(
+    () => (serverProjection === null ? null : deriveThreadRuntime(serverProjection)),
+    [serverProjection],
+  );
+  const activeLatestRun = isServerThread ? serverLatestRun : (activeThread?.latestRun ?? null);
+  const activeRuntime = isServerThread ? serverRuntime : (activeThread?.runtime ?? null);
   const parentSubagentThreadId =
     activeThread?.lineage.relationshipToParent === "subagent"
       ? activeThread.lineage.parentThreadId
@@ -1282,7 +1305,7 @@ function ChatViewContent(props: ChatViewProps) {
     [parentSubagentThread?.title, parentSubagentThreadRef],
   );
   const threadError = isServerThread
-    ? (localServerError ?? serverThread?.runtime?.lastError ?? null)
+    ? (localServerError ?? serverRuntime?.lastError ?? null)
     : localDraftError;
   const runtimeMode = composerRuntimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
@@ -1290,6 +1313,7 @@ function ChatViewContent(props: ChatViewProps) {
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
+  const activeMessageCount = isServerThread ? committedServerMessageIds.size : 0;
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: activeThread?.environmentId ?? null,
     threadId: activeThreadId,
@@ -1392,7 +1416,6 @@ function ChatViewContent(props: ChatViewProps) {
     const existingThreadKeys = new Set<string>([...serverThreadKeys, ...draftThreadKeys]);
     return openTerminalThreadKeys.filter((nextThreadKey) => existingThreadKeys.has(nextThreadKey));
   }, [draftThreadKeys, openTerminalThreadKeys, serverThreadKeys]);
-  const activeLatestRun = activeThread?.latestRun ?? null;
   const sourcePlanThreadRef = useMemo(() => {
     const sourceThreadId = activeLatestRun?.sourcePlanRef?.threadId;
     if (!activeThread || !sourceThreadId || sourceThreadId === activeThread.id) {
@@ -1400,22 +1423,22 @@ function ChatViewContent(props: ChatViewProps) {
     }
     return scopeThreadRef(activeThread.environmentId, sourceThreadId);
   }, [activeLatestRun?.sourcePlanRef?.threadId, activeThread]);
-  const sourceThreadProposedPlans = useThreadProposedPlans(sourcePlanThreadRef);
+  const sourceThreadProjection = useThreadProjection(sourcePlanThreadRef);
   const threadPlanCatalog = useMemo<ThreadPlanCatalogEntry[]>(() => {
-    if (!activeThread) {
+    if (!activeThread || serverProjection === null) {
       return [];
     }
     const entries: ThreadPlanCatalogEntry[] = [
-      { id: activeThread.id, proposedPlans: activeThread.proposedPlans },
+      { id: activeThread.id, projection: serverProjection },
     ];
-    if (sourcePlanThreadRef) {
+    if (sourcePlanThreadRef && sourceThreadProjection !== null) {
       entries.push({
         id: sourcePlanThreadRef.threadId,
-        proposedPlans: sourceThreadProposedPlans,
+        projection: sourceThreadProjection.projection,
       });
     }
     return entries;
-  }, [activeThread, sourcePlanThreadRef, sourceThreadProposedPlans]);
+  }, [activeThread, serverProjection, sourcePlanThreadRef, sourceThreadProjection]);
   useEffect(() => {
     setMountedTerminalThreadKeys((currentThreadIds) => {
       const nextThreadIds = reconcileMountedTerminalThreadIds({
@@ -1431,7 +1454,7 @@ function ChatViewContent(props: ChatViewProps) {
         : nextThreadIds;
     });
   }, [activeThreadKey, existingOpenTerminalThreadKeys, terminalUiState.terminalOpen]);
-  const latestRunSettled = isLatestRunSettled(activeLatestRun, activeThread?.runtime ?? null);
+  const latestRunSettled = isLatestRunSettled(activeLatestRun, activeRuntime);
   const activeProjectRef = activeThread
     ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
     : null;
@@ -1722,19 +1745,21 @@ function ChatViewContent(props: ChatViewProps) {
     selectedProviderByThreadId ?? threadProvider ?? ProviderDriverKind.make("codex"),
   );
   const selectedProvider: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
-  const phase = derivePhase(activeThread?.runtime ?? null);
-  const threadWorkEntries = activeThread?.workEntries ?? EMPTY_WORK_ENTRIES;
-  const workLogEntries = useMemo(
-    () => deriveWorkLogEntries(threadWorkEntries),
-    [threadWorkEntries],
+  const phase = derivePhase(activeRuntime);
+  const pendingRequests = useMemo(
+    () =>
+      serverProjection === null
+        ? { approvals: [], userInputs: [] }
+        : derivePendingThreadRequests(serverProjection),
+    [serverProjection],
   );
   const pendingApprovals = useMemo(
-    () => derivePendingApprovals(activeThread?.pendingApprovals ?? []),
-    [activeThread?.pendingApprovals],
+    () => derivePendingApprovals(pendingRequests.approvals),
+    [pendingRequests.approvals],
   );
   const pendingUserInputs = useMemo(
-    () => derivePendingUserInputs(activeThread?.pendingUserInputs ?? []),
-    [activeThread?.pendingUserInputs],
+    () => derivePendingUserInputs(pendingRequests.userInputs),
+    [pendingRequests.userInputs],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingDraftAnswers = useMemo(
@@ -1774,11 +1799,8 @@ function ChatViewContent(props: ChatViewProps) {
     if (!latestRunSettled) {
       return null;
     }
-    return findLatestProposedPlan(
-      activeThread?.proposedPlans ?? [],
-      activeLatestRun?.runId ?? null,
-    );
-  }, [activeLatestRun?.runId, activeThread?.proposedPlans, latestRunSettled]);
+    return findLatestProposedPlan(serverProjection, activeLatestRun?.runId ?? null);
+  }, [activeLatestRun?.runId, latestRunSettled, serverProjection]);
   const sidebarProposedPlan = useMemo(
     () =>
       findSidebarProposedPlan({
@@ -1790,8 +1812,8 @@ function ChatViewContent(props: ChatViewProps) {
     [activeLatestRun, activeThread?.id, latestRunSettled, threadPlanCatalog],
   );
   const activePlan = useMemo(
-    () => deriveActivePlanState(activeThread?.todoPlans ?? [], activeLatestRun?.runId ?? undefined),
-    [activeLatestRun?.runId, activeThread?.todoPlans],
+    () => deriveActivePlanState(serverProjection, activeLatestRun?.runId ?? undefined),
+    [activeLatestRun?.runId, serverProjection],
   );
   const planSidebarLabel = sidebarProposedPlan || interactionMode === "plan" ? "Plan" : "Tasks";
   const showPlanFollowUpPrompt =
@@ -1817,7 +1839,7 @@ function ChatViewContent(props: ChatViewProps) {
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestRun,
-    activeThread?.runtime ?? null,
+    activeRuntime,
     localDispatchStartedAt,
   );
   useEffect(() => {
@@ -1880,7 +1902,6 @@ function ChatViewContent(props: ChatViewProps) {
       return next;
     });
   }, []);
-  const serverMessages = activeThread?.messages;
   const committedServerAttachmentIds = useMemo(() => {
     const attachmentIds = new Set<string>();
     for (const row of serverVisibleTurnItems) {
@@ -1891,16 +1912,7 @@ function ChatViewContent(props: ChatViewProps) {
     }
     return [...attachmentIds];
   }, [serverVisibleTurnItems]);
-  const draftAttachmentIds = useMemo(() => {
-    const attachmentIds = new Set<string>();
-    for (const message of serverMessages ?? []) {
-      for (const attachment of message.attachments ?? []) {
-        attachmentIds.add(attachment.id);
-      }
-    }
-    return [...attachmentIds];
-  }, [serverMessages]);
-  const serverAttachmentIds = isServerThread ? committedServerAttachmentIds : draftAttachmentIds;
+  const serverAttachmentIds = isServerThread ? committedServerAttachmentIds : EMPTY_ATTACHMENT_IDS;
   const serverAttachmentResources = useMemo(
     () =>
       serverAttachmentIds.map((attachmentId) => ({
@@ -1920,31 +1932,16 @@ function ChatViewContent(props: ChatViewProps) {
       ),
     [serverAttachmentIds, serverAttachmentUrls],
   );
-  const displayServerMessages = useMemo<ReadonlyArray<ChatMessage>>(() => {
-    if (!serverMessages) return [];
-    return serverMessages.map((message) => {
-      if (!message.attachments || message.attachments.length === 0) {
-        return message;
-      }
-      return {
-        ...message,
-        attachments: message.attachments.map((attachment) => {
-          const previewUrl = serverAttachmentUrlById.get(attachment.id);
-          return previewUrl ? { ...attachment, previewUrl } : attachment;
-        }),
-      };
-    });
-  }, [serverAttachmentUrlById, serverMessages]);
   useEffect(() => {
-    if (typeof Image === "undefined" || displayServerMessages.length === 0) {
+    if (typeof Image === "undefined" || serverVisibleTurnItems.length === 0) {
       return;
     }
 
     const cleanups: Array<() => void> = [];
-    const userMessagesById = new Map<string, ChatMessage>(
-      displayServerMessages
-        .filter((message) => message.role === "user")
-        .map((message) => [String(message.id), message] as const),
+    const userMessagesById = new Map(
+      serverVisibleTurnItems.flatMap((row) =>
+        row.item.type === "user_message" ? [[String(row.item.messageId), row.item] as const] : [],
+      ),
     );
 
     for (const [messageId, handoffPreviewUrls] of Object.entries(
@@ -1955,12 +1952,16 @@ function ChatViewContent(props: ChatViewProps) {
       }
 
       const serverMessage = userMessagesById.get(messageId);
-      if (!serverMessage?.attachments || serverMessage.attachments.length === 0) {
+      if (serverMessage === undefined || serverMessage.attachments.length === 0) {
         continue;
       }
 
       const serverPreviewUrls = serverMessage.attachments.flatMap((attachment) =>
-        attachment.type === "image" && attachment.previewUrl ? [attachment.previewUrl] : [],
+        attachment.type === "image"
+          ? [serverAttachmentUrlById.get(attachment.id)].filter(
+              (previewUrl): previewUrl is string => previewUrl !== undefined,
+            )
+          : [],
       );
       if (
         serverPreviewUrls.length === 0 ||
@@ -2018,88 +2019,58 @@ function ChatViewContent(props: ChatViewProps) {
         cleanup();
       }
     };
-  }, [attachmentPreviewHandoffByMessageId, clearAttachmentPreviewHandoff, displayServerMessages]);
-  const timelineMessages = useMemo(() => {
-    const messages = displayServerMessages;
-    const serverMessagesWithPreviewHandoff =
-      Object.keys(attachmentPreviewHandoffByMessageId).length === 0
-        ? messages
-        : // Spread only fires for the few messages that actually changed;
-          // unchanged ones early-return their original reference.
-          // In-place mutation would break React's immutable state contract.
-          // oxlint-disable-next-line no-map-spread
-          messages.map((message) => {
-            if (
-              message.role !== "user" ||
-              !message.attachments ||
-              message.attachments.length === 0
-            ) {
-              return message;
-            }
-            const handoffPreviewUrls = attachmentPreviewHandoffByMessageId[message.id];
-            if (!handoffPreviewUrls || handoffPreviewUrls.length === 0) {
-              return message;
-            }
-
-            let changed = false;
-            let imageIndex = 0;
-            const attachments = message.attachments.map((attachment) => {
-              if (attachment.type !== "image") {
-                return attachment;
-              }
-              const handoffPreviewUrl = handoffPreviewUrls[imageIndex];
-              imageIndex += 1;
-              if (!handoffPreviewUrl || attachment.previewUrl === handoffPreviewUrl) {
-                return attachment;
-              }
-              changed = true;
-              return {
-                ...attachment,
-                previewUrl: handoffPreviewUrl,
-              };
-            });
-
-            return changed ? { ...message, attachments } : message;
-          });
-
-    if (optimisticUserMessages.length === 0) {
-      return serverMessagesWithPreviewHandoff;
+  }, [
+    attachmentPreviewHandoffByMessageId,
+    clearAttachmentPreviewHandoff,
+    serverAttachmentUrlById,
+    serverVisibleTurnItems,
+  ]);
+  const timelineAttachmentUrlById = useMemo(() => {
+    const urls = new Map(serverAttachmentUrlById);
+    for (const row of serverVisibleTurnItems) {
+      if (row.item.type !== "user_message") continue;
+      const handoffUrls = attachmentPreviewHandoffByMessageId[row.item.messageId];
+      if (handoffUrls === undefined) continue;
+      let imageIndex = 0;
+      for (const attachment of row.item.attachments) {
+        if (attachment.type !== "image") continue;
+        const handoffUrl = handoffUrls[imageIndex];
+        imageIndex += 1;
+        if (handoffUrl !== undefined) urls.set(attachment.id, handoffUrl);
+      }
     }
-    const serverIds = new Set(serverMessagesWithPreviewHandoff.map((message) => message.id));
-    const pendingMessages = optimisticUserMessages.filter((message) => !serverIds.has(message.id));
-    if (pendingMessages.length === 0) {
-      return serverMessagesWithPreviewHandoff;
-    }
-    return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
-  }, [attachmentPreviewHandoffByMessageId, displayServerMessages, optimisticUserMessages]);
+    return urls;
+  }, [attachmentPreviewHandoffByMessageId, serverAttachmentUrlById, serverVisibleTurnItems]);
   const serverTimelineEntries = useMemo(
     () =>
       deriveTimelineEntriesFromVisibleTurnItems({
         visibleTurnItems: serverVisibleTurnItems,
         optimisticMessages: optimisticUserMessages,
-        attachmentUrlById: serverAttachmentUrlById,
-        ...(serverThread === null
+        attachmentUrlById: timelineAttachmentUrlById,
+        ...(serverProjection === null
           ? {}
           : {
-              attempts: serverThread.projection.attempts,
-              nodes: serverThread.projection.nodes,
+              attempts: serverProjection.attempts,
+              nodes: serverProjection.nodes,
             }),
       }),
-    [
-      optimisticUserMessages,
-      serverVisibleTurnItems,
-      serverAttachmentUrlById,
-      serverThread?.projection.attempts,
-      serverThread?.projection.nodes,
-    ],
+    [optimisticUserMessages, serverVisibleTurnItems, serverProjection, timelineAttachmentUrlById],
   );
   const draftTimelineEntries = useMemo(
     () =>
-      deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
-    [activeThread?.proposedPlans, timelineMessages, workLogEntries],
+      optimisticUserMessages.map(
+        (message) =>
+          ({
+            id: message.id,
+            kind: "message",
+            createdAt: message.createdAt,
+            message,
+          }) as const,
+      ),
+    [optimisticUserMessages],
   );
   const timelineEntries = isServerThread ? serverTimelineEntries : draftTimelineEntries;
-  const { turnDiffSummaries } = useTurnDiffSummaries(activeThread);
+  const { turnDiffSummaries } = useTurnDiffSummaries(serverProjection);
   const turnDiffSummaryByAssistantMessageId = useMemo(() => {
     const byMessageId = new Map<MessageId, TurnDiffSummary>();
     for (const summary of turnDiffSummaries) {
@@ -2154,7 +2125,7 @@ function ChatViewContent(props: ChatViewProps) {
       ?.instanceId ?? null;
   const activeProviderInstanceId =
     selectedProviderInstanceId ??
-    activeThread?.runtime?.providerInstanceId ??
+    activeRuntime?.providerInstanceId ??
     activeThread?.modelSelection.instanceId ??
     activeProject?.defaultModelSelection?.instanceId ??
     null;
@@ -2212,9 +2183,7 @@ function ChatViewContent(props: ChatViewProps) {
     }
   }, [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen]);
 
-  const envLocked = Boolean(
-    activeThread && (activeThread.messages.length > 0 || activeThread.runtime !== null),
-  );
+  const envLocked = Boolean(activeThread && (activeMessageCount > 0 || activeRuntime !== null));
 
   // Handle environment change for draft threads.  When the user picks a
   // different environment we update the draft context to point at the physical
@@ -3257,17 +3226,18 @@ function ChatViewContent(props: ChatViewProps) {
 
   useEffect(() => {
     if (!activeThread?.id) return;
-    if (activeThread.messages.length === 0) {
+    if (activeMessageCount === 0) {
       return;
     }
-    const serverIds = new Set(activeThread.messages.map((message) => message.id));
-    const removedMessages = optimisticUserMessages.filter((message) => serverIds.has(message.id));
+    const removedMessages = optimisticUserMessages.filter((message) =>
+      committedServerMessageIds.has(message.id),
+    );
     if (removedMessages.length === 0) {
       return;
     }
     const timer = window.setTimeout(() => {
       setOptimisticUserMessages((existing) =>
-        existing.filter((message) => !serverIds.has(message.id)),
+        existing.filter((message) => !committedServerMessageIds.has(message.id)),
       );
     }, 0);
     for (const removedMessage of removedMessages) {
@@ -3281,7 +3251,13 @@ function ChatViewContent(props: ChatViewProps) {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [activeThread?.id, activeThread?.messages, handoffAttachmentPreviews, optimisticUserMessages]);
+  }, [
+    activeMessageCount,
+    activeThread?.id,
+    committedServerMessageIds,
+    handoffAttachmentPreviews,
+    optimisticUserMessages,
+  ]);
 
   useEffect(() => {
     setOptimisticUserMessages((existing) => {
@@ -3307,7 +3283,7 @@ function ChatViewContent(props: ChatViewProps) {
   const canOverrideServerThreadEnvMode = Boolean(
     isServerThread &&
     activeThread &&
-    activeThread.messages.length === 0 &&
+    activeMessageCount === 0 &&
     activeThread.worktreePath === null &&
     !envLocked,
   );
@@ -3825,7 +3801,7 @@ function ChatViewContent(props: ChatViewProps) {
     }
     if (!activeProject) return;
     const threadIdForSend = activeThread.id;
-    const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
+    const isFirstMessage = !isServerThread || activeMessageCount === 0;
     const baseBranchForWorktree =
       isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath
         ? activeThreadBranch
@@ -4295,167 +4271,141 @@ function ChatViewContent(props: ChatViewProps) {
     setActivePendingUserInputQuestionIndex(Math.max(activePendingProgress.questionIndex - 1, 0));
   }, [activePendingProgress, setActivePendingUserInputQuestionIndex]);
 
-  const onSubmitPlanFollowUp = useCallback(
-    async ({
-      text,
-      interactionMode: nextInteractionMode,
-    }: {
-      text: string;
-      interactionMode: "default" | "plan";
-    }) => {
-      if (
-        !activeThread ||
-        !isServerThread ||
-        isSendBusy ||
-        isConnecting ||
-        sendInFlightRef.current
-      ) {
-        return;
-      }
+  async function onSubmitPlanFollowUp({
+    text,
+    interactionMode: nextInteractionMode,
+  }: {
+    text: string;
+    interactionMode: "default" | "plan";
+  }) {
+    if (!activeThread || !isServerThread || isSendBusy || isConnecting || sendInFlightRef.current) {
+      return;
+    }
 
-      const trimmed = text.trim();
-      if (!trimmed) {
-        return;
-      }
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
 
-      const sendCtx = composerRef.current?.getSendContext();
-      if (!sendCtx) {
-        return;
-      }
-      const {
-        selectedProvider: ctxSelectedProvider,
-        selectedModel: ctxSelectedModel,
-        selectedProviderModels: ctxSelectedProviderModels,
-        selectedPromptEffort: ctxSelectedPromptEffort,
-        selectedModelSelection: ctxSelectedModelSelection,
-      } = sendCtx;
+    const sendCtx = composerRef.current?.getSendContext();
+    if (!sendCtx) {
+      return;
+    }
+    const {
+      selectedProvider: ctxSelectedProvider,
+      selectedModel: ctxSelectedModel,
+      selectedProviderModels: ctxSelectedProviderModels,
+      selectedPromptEffort: ctxSelectedPromptEffort,
+      selectedModelSelection: ctxSelectedModelSelection,
+    } = sendCtx;
 
-      const threadIdForSend = activeThread.id;
-      const messageIdForSend = newMessageId();
-      const messageCreatedAt = new Date().toISOString();
-      const outgoingMessageText = formatOutgoingPrompt({
-        provider: ctxSelectedProvider,
-        model: ctxSelectedModel,
-        models: ctxSelectedProviderModels,
-        effort: ctxSelectedPromptEffort,
-        text: trimmed,
-      });
+    const threadIdForSend = activeThread.id;
+    const messageIdForSend = newMessageId();
+    const messageCreatedAt = new Date().toISOString();
+    const outgoingMessageText = formatOutgoingPrompt({
+      provider: ctxSelectedProvider,
+      model: ctxSelectedModel,
+      models: ctxSelectedProviderModels,
+      effort: ctxSelectedPromptEffort,
+      text: trimmed,
+    });
 
-      sendInFlightRef.current = true;
-      beginLocalDispatch({ preparingWorktree: false });
-      setThreadError(threadIdForSend, null);
+    sendInFlightRef.current = true;
+    beginLocalDispatch({ preparingWorktree: false });
+    setThreadError(threadIdForSend, null);
 
-      // Scroll to the current end *before* adding the optimistic message.
-      isAtEndRef.current = true;
-      showScrollDebouncer.current.cancel();
-      setShowScrollToBottom(false);
-      await legendListRef.current?.scrollToEnd?.({ animated: false });
+    // Scroll to the current end *before* adding the optimistic message.
+    isAtEndRef.current = true;
+    showScrollDebouncer.current.cancel();
+    setShowScrollToBottom(false);
+    await legendListRef.current?.scrollToEnd?.({ animated: false });
 
-      setOptimisticUserMessages((existing) => [
-        ...existing,
-        {
-          id: messageIdForSend,
-          role: "user",
-          text: outgoingMessageText,
-          runId: null,
-          createdAt: messageCreatedAt,
-          updatedAt: messageCreatedAt,
-          streaming: false,
-        },
-      ]);
-
-      const settingsResult = await persistThreadSettingsForNextTurn({
-        threadId: threadIdForSend,
+    setOptimisticUserMessages((existing) => [
+      ...existing,
+      {
+        id: messageIdForSend,
+        role: "user",
+        text: outgoingMessageText,
+        runId: null,
         createdAt: messageCreatedAt,
-        modelSelection: ctxSelectedModelSelection,
-        runtimeMode,
-        interactionMode: nextInteractionMode,
-      });
-      let failure: AtomCommandResult<unknown, unknown> | null =
-        settingsResult._tag === "Failure" ? settingsResult : null;
+        updatedAt: messageCreatedAt,
+        streaming: false,
+      },
+    ]);
 
-      if (failure === null) {
-        // Keep the mode toggle and plan-follow-up banner in sync immediately
-        // while the same-thread implementation turn is starting.
-        setComposerDraftInteractionMode(
-          scopeThreadRef(activeThread.environmentId, threadIdForSend),
-          nextInteractionMode,
-        );
+    const settingsResult = await persistThreadSettingsForNextTurn({
+      threadId: threadIdForSend,
+      createdAt: messageCreatedAt,
+      modelSelection: ctxSelectedModelSelection,
+      runtimeMode,
+      interactionMode: nextInteractionMode,
+    });
+    let failure: AtomCommandResult<unknown, unknown> | null =
+      settingsResult._tag === "Failure" ? settingsResult : null;
 
-        const startResult = await startThreadTurn({
-          environmentId,
-          input: {
-            threadId: threadIdForSend,
-            message: {
-              messageId: messageIdForSend,
-              role: "user",
-              text: outgoingMessageText,
-              attachments: [],
-            },
-            modelSelection: ctxSelectedModelSelection,
-            titleSeed: activeThread.title,
-            runtimeMode,
-            interactionMode: nextInteractionMode,
-            ...(nextInteractionMode === "default" && activeProposedPlan
-              ? {
-                  sourceProposedPlan: {
-                    threadId: activeThread.id,
-                    planId: activeProposedPlan.id,
-                  },
-                }
-              : {}),
-            createdAt: messageCreatedAt,
-          },
-        });
-        failure = startResult._tag === "Failure" ? startResult : null;
-      }
-
-      if (failure === null) {
-        // Optimistically open the plan sidebar when implementing (not refining).
-        // "default" mode here means the agent is executing the plan, which produces
-        // step-tracking activities that the sidebar will display.
-        if (nextInteractionMode === "default" && autoOpenPlanSidebar) {
-          planSidebarDismissedForTurnRef.current = null;
-          if (activeThreadRef) {
-            useRightPanelStore.getState().open(activeThreadRef, "plan");
-          }
-        }
-        sendInFlightRef.current = false;
-        return;
-      }
-
-      setOptimisticUserMessages((existing) =>
-        existing.filter((message) => message.id !== messageIdForSend),
+    if (failure === null) {
+      // Keep the mode toggle and plan-follow-up banner in sync immediately
+      // while the same-thread implementation turn is starting.
+      setComposerDraftInteractionMode(
+        scopeThreadRef(activeThread.environmentId, threadIdForSend),
+        nextInteractionMode,
       );
-      if (!isAtomCommandInterrupted(failure)) {
-        const error = squashAtomCommandFailure(failure);
-        setThreadError(
-          threadIdForSend,
-          error instanceof Error ? error.message : "Failed to send plan follow-up.",
-        );
+
+      const startResult = await startThreadTurn({
+        environmentId,
+        input: {
+          threadId: threadIdForSend,
+          message: {
+            messageId: messageIdForSend,
+            role: "user",
+            text: outgoingMessageText,
+            attachments: [],
+          },
+          modelSelection: ctxSelectedModelSelection,
+          titleSeed: activeThread.title,
+          runtimeMode,
+          interactionMode: nextInteractionMode,
+          ...(nextInteractionMode === "default" && activeProposedPlan
+            ? {
+                sourceProposedPlan: {
+                  threadId: activeThread.id,
+                  planId: activeProposedPlan.id,
+                },
+              }
+            : {}),
+          createdAt: messageCreatedAt,
+        },
+      });
+      failure = startResult._tag === "Failure" ? startResult : null;
+    }
+
+    if (failure === null) {
+      // Optimistically open the plan sidebar when implementing (not refining).
+      // "default" mode here means the agent is executing the plan, which produces
+      // step-tracking activities that the sidebar will display.
+      if (nextInteractionMode === "default" && autoOpenPlanSidebar) {
+        planSidebarDismissedForTurnRef.current = null;
+        if (activeThreadRef) {
+          useRightPanelStore.getState().open(activeThreadRef, "plan");
+        }
       }
       sendInFlightRef.current = false;
-      resetLocalDispatch();
-    },
-    [
-      activeThread,
-      activeProposedPlan,
-      beginLocalDispatch,
-      isConnecting,
-      isSendBusy,
-      isServerThread,
-      persistThreadSettingsForNextTurn,
-      resetLocalDispatch,
-      runtimeMode,
-      setComposerDraftInteractionMode,
-      setThreadError,
-      startThreadTurn,
-      activeThreadRef,
-      autoOpenPlanSidebar,
-      environmentId,
-      composerRef,
-    ],
-  );
+      return;
+    }
+
+    setOptimisticUserMessages((existing) =>
+      existing.filter((message) => message.id !== messageIdForSend),
+    );
+    if (!isAtomCommandInterrupted(failure)) {
+      const error = squashAtomCommandFailure(failure);
+      setThreadError(
+        threadIdForSend,
+        error instanceof Error ? error.message : "Failed to send plan follow-up.",
+      );
+    }
+    sendInFlightRef.current = false;
+    resetLocalDispatch();
+  }
 
   const onImplementPlanInNewThread = useCallback(async () => {
     if (
@@ -4624,14 +4574,14 @@ function ChatViewContent(props: ChatViewProps) {
       }
       const reason = getStartedThreadModelChangeBlockReason({
         providers: providerStatuses,
-        hasStartedSession: activeThread.runtime !== null,
+        hasStartedSession: activeRuntime !== null,
         currentModelSelection: activeThread.modelSelection,
-        currentProviderInstanceId: activeThread.runtime?.providerInstanceId ?? null,
+        currentProviderInstanceId: activeRuntime?.providerInstanceId ?? null,
         nextModelSelection: { instanceId, model },
       });
       return reason ? `${reason.description} Start a new thread to use this model.` : null;
     },
-    [activeThread, providerStatuses],
+    [activeRuntime, activeThread, providerStatuses],
   );
 
   const onProviderModelSelect = useCallback(
@@ -4650,9 +4600,9 @@ function ChatViewContent(props: ChatViewProps) {
         scheduleComposerFocus();
         return;
       }
-      if (lockedProvider !== null && activeThread.runtime?.providerInstanceId) {
+      if (lockedProvider !== null && activeRuntime?.providerInstanceId) {
         const currentEntry = providerStatuses.find(
-          (snapshot) => snapshot.instanceId === activeThread.runtime?.providerInstanceId,
+          (snapshot) => snapshot.instanceId === activeRuntime.providerInstanceId,
         );
         if (
           currentEntry?.continuation?.groupKey &&
@@ -4679,9 +4629,9 @@ function ChatViewContent(props: ChatViewProps) {
       };
       const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({
         providers: providerStatuses,
-        hasStartedSession: activeThread.runtime !== null,
+        hasStartedSession: activeRuntime !== null,
         currentModelSelection: activeThread.modelSelection,
-        currentProviderInstanceId: activeThread.runtime?.providerInstanceId ?? null,
+        currentProviderInstanceId: activeRuntime?.providerInstanceId ?? null,
         nextModelSelection,
       });
       if (modelChangeBlockReason) {
@@ -4702,6 +4652,7 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [
       activeThread,
+      activeRuntime,
       lockedProvider,
       scheduleComposerFocus,
       setComposerDraftModelSelection,
@@ -5130,7 +5081,7 @@ function ChatViewContent(props: ChatViewProps) {
                       providerStatuses={providerStatuses as ServerProvider[]}
                       activeProjectDefaultModelSelection={activeProject?.defaultModelSelection}
                       activeThreadModelSelection={activeThread?.modelSelection}
-                      activeThreadWorkEntries={activeThread?.workEntries}
+                      activeThreadVisibleTurnItems={serverVisibleTurnItems}
                       resolvedTheme={resolvedTheme}
                       settings={settings}
                       keybindings={keybindings}

@@ -30,7 +30,7 @@ import {
   type Project,
   type Thread,
 } from "../types";
-import { makeThreadFixture } from "../test-fixtures";
+import { makeThreadFixture, type ThreadFixtureOverrides } from "../test-fixtures";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
 
@@ -847,7 +847,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
   };
 }
 
-function makeThread(overrides: Partial<Thread> = {}): Thread {
+function makeThread(overrides: ThreadFixtureOverrides = {}): Thread {
   return makeThreadFixture({
     id: ThreadId.make("thread-1"),
     environmentId: localEnvironmentId,
