@@ -23,11 +23,14 @@ import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagnostics'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
+<<<<<<< HEAD
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as ConnectCallbackRouteImport } from './routes/connect_.callback'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as DebugOrchestrationV2RouteImport } from './routes/debug.orchestration-v2'
+=======
+>>>>>>> d849d1caf9 (Retire V1 client orchestration parity)
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 
@@ -100,6 +103,7 @@ const SettingsArchivedRoute = SettingsArchivedRouteImport.update({
   path: '/archived',
   getParentRoute: () => SettingsRoute,
 } as any)
+<<<<<<< HEAD
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   id: '/appearance',
   path: '/appearance',
@@ -123,6 +127,8 @@ const ChatPullRequestsRoute = ChatPullRequestsRouteImport.update({
   path: '/pull-requests',
   getParentRoute: () => ChatRoute,
 } as any)
+=======
+>>>>>>> d849d1caf9 (Retire V1 client orchestration parity)
 const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
   id: '/draft/$draftId',
   path: '/draft/$draftId',
@@ -140,12 +146,15 @@ export interface FileRoutesByFullPath {
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+<<<<<<< HEAD
   '/usage': typeof UsageRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/connect/callback': typeof ConnectCallbackRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/debug/orchestration-v2': typeof DebugOrchestrationV2Route
+=======
+>>>>>>> d849d1caf9 (Retire V1 client orchestration parity)
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -161,12 +170,15 @@ export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+<<<<<<< HEAD
   '/usage': typeof UsageRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/connect/callback': typeof ConnectCallbackRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/debug/orchestration-v2': typeof DebugOrchestrationV2Route
+=======
+>>>>>>> d849d1caf9 (Retire V1 client orchestration parity)
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -185,12 +197,15 @@ export interface FileRoutesById {
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+<<<<<<< HEAD
   '/usage': typeof UsageRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
   '/connect_/callback': typeof ConnectCallbackRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/debug/orchestration-v2': typeof DebugOrchestrationV2Route
+=======
+>>>>>>> d849d1caf9 (Retire V1 client orchestration parity)
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -210,12 +225,15 @@ export interface FileRouteTypes {
     | '/connect'
     | '/pair'
     | '/settings'
+<<<<<<< HEAD
     | '/usage'
     | '/pull-requests'
     | '/connect/callback'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/debug/orchestration-v2'
+=======
+>>>>>>> d849d1caf9 (Retire V1 client orchestration parity)
     | '/settings/archived'
     | '/settings/connections'
     | '/settings/diagnostics'
@@ -231,12 +249,15 @@ export interface FileRouteTypes {
     | '/connect'
     | '/pair'
     | '/settings'
+<<<<<<< HEAD
     | '/usage'
     | '/pull-requests'
     | '/connect/callback'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/debug/orchestration-v2'
+=======
+>>>>>>> d849d1caf9 (Retire V1 client orchestration parity)
     | '/settings/archived'
     | '/settings/connections'
     | '/settings/diagnostics'
@@ -254,12 +275,15 @@ export interface FileRouteTypes {
     | '/connect'
     | '/pair'
     | '/settings'
+<<<<<<< HEAD
     | '/usage'
     | '/_chat/pull-requests'
     | '/connect_/callback'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/debug/orchestration-v2'
+=======
+>>>>>>> d849d1caf9 (Retire V1 client orchestration parity)
     | '/settings/archived'
     | '/settings/connections'
     | '/settings/diagnostics'
@@ -278,10 +302,13 @@ export interface RootRouteChildren {
   ConnectRoute: typeof ConnectRoute
   PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+<<<<<<< HEAD
   UsageRoute: typeof UsageRoute
   ConnectCallbackRoute: typeof ConnectCallbackRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
   DebugOrchestrationV2Route: typeof DebugOrchestrationV2Route
+=======
+>>>>>>> d849d1caf9 (Retire V1 client orchestration parity)
 }
 
 declare module '@tanstack/react-router' {
@@ -384,6 +411,7 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsArchivedRouteImport
       parentRoute: typeof SettingsRoute
     }
+<<<<<<< HEAD
     '/settings/appearance': {
       id: '/settings/appearance'
       path: '/appearance'
@@ -417,6 +445,8 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatPullRequestsRouteImport
       parentRoute: typeof ChatRoute
     }
+=======
+>>>>>>> d849d1caf9 (Retire V1 client orchestration parity)
     '/_chat/draft/$draftId': {
       id: '/_chat/draft/$draftId'
       path: '/draft/$draftId'
@@ -483,10 +513,13 @@ const rootRouteChildren: RootRouteChildren = {
   ConnectRoute: ConnectRoute,
   PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,
+<<<<<<< HEAD
   UsageRoute: UsageRoute,
   ConnectCallbackRoute: ConnectCallbackRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
   DebugOrchestrationV2Route: DebugOrchestrationV2Route,
+=======
+>>>>>>> d849d1caf9 (Retire V1 client orchestration parity)
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
