@@ -2749,7 +2749,7 @@ export function ConnectionsSettings() {
                 key={`${target.alias}:${target.hostname}:${target.port ?? ""}`}
                 target={target}
                 connectingHostAlias={connectingSshHostAlias}
-                onConnect={(nextTarget) => void handleConnectSshHost(nextTarget)}
+                onConnect={handleConnectSshHost}
               />
             ))}
             {hasLoadedDiscoveredSshHosts &&
