@@ -1375,6 +1375,7 @@ function ChatViewContent(props: ChatViewProps) {
       threadPanelPresentation,
     ),
   );
+  const inlineThreadPanelOpen = threadPanelOpen && threadPanelPresentation === "inline";
 
   useEffect(() => {
     if (!activeThreadRef) return;
@@ -5000,7 +5001,10 @@ function ChatViewContent(props: ChatViewProps) {
           onDismiss={() => setThreadError(activeThread.id, null)}
         />
         {/* Main content area with optional plan sidebar */}
-        <div className="flex min-h-0 min-w-0 flex-1">
+        <div
+          className="relative flex min-h-0 min-w-0 flex-1"
+          data-thread-details-inline-reserved={inlineThreadPanelOpen ? "true" : undefined}
+        >
           {/* Chat column */}
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {/* Messages Wrapper */}
@@ -5039,7 +5043,7 @@ function ChatViewContent(props: ChatViewProps) {
               {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
               {showScrollToBottom && (
                 <div
-                  className="pointer-events-none absolute left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5"
+                  className="chat-scroll-to-bottom pointer-events-none absolute z-30 flex justify-center py-1.5"
                   style={{ bottom: composerOverlayHeight + 4 }}
                 >
                   <button
@@ -5174,7 +5178,7 @@ function ChatViewContent(props: ChatViewProps) {
             ) : null}
           </div>
           {/* end chat column */}
-          {threadPanelOpen && threadPanelPresentation === "inline" ? (
+          {inlineThreadPanelOpen ? (
             <ThreadDetailsPanel mode="inline" {...threadDetailsPanelProps} />
           ) : null}
         </div>
