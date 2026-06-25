@@ -3,8 +3,10 @@ import {
   type ModelCapabilities,
   type ModelSelection,
   ProviderDriverKind,
+  type ServerProviderAuth,
   type ServerProviderModel,
   type ServerProviderSlashCommand,
+  type ServerProviderState,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -30,11 +32,14 @@ import {
   buildBooleanOptionDescriptor,
   buildSelectOptionDescriptor,
   buildServerProvider,
+  AUTH_PROBE_TIMEOUT_MS,
   DEFAULT_TIMEOUT_MS,
+  extractAuthBoolean,
   isCommandMissingCause,
   parseGenericCliVersion,
   providerModelsFromSettings,
   spawnAndCollect,
+  type CommandResult,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
@@ -444,6 +449,81 @@ function claudeAuthMetadata(input: {
   return undefined;
 }
 
+function parseClaudeAuthStatusFromOutput(result: CommandResult): {
+  readonly status: Exclude<ServerProviderState, "disabled">;
+  readonly auth: Pick<ServerProviderAuth, "status">;
+  readonly message?: string;
+} {
+  const lowerOutput = `${result.stdout}\n${result.stderr}`.toLowerCase();
+
+  if (
+    lowerOutput.includes("unknown command") ||
+    lowerOutput.includes("unrecognized command") ||
+    lowerOutput.includes("unexpected argument")
+  ) {
+    return {
+      status: "warning",
+      auth: { status: "unknown" },
+      message:
+        "Claude Agent authentication status command is unavailable in this version of Claude.",
+    };
+  }
+
+  if (
+    lowerOutput.includes("not logged in") ||
+    lowerOutput.includes("login required") ||
+    lowerOutput.includes("authentication required") ||
+    lowerOutput.includes("run `claude login`") ||
+    lowerOutput.includes("run claude login")
+  ) {
+    return {
+      status: "error",
+      auth: { status: "unauthenticated" },
+      message: "Claude is not authenticated. Run `claude auth login` and try again.",
+    };
+  }
+
+  const trimmedStdout = result.stdout.trim();
+  let parsedAuth: boolean | undefined;
+  let parsedJson = false;
+  if (trimmedStdout.startsWith("{") || trimmedStdout.startsWith("[")) {
+    try {
+      parsedAuth = extractAuthBoolean(JSON.parse(trimmedStdout) as unknown);
+      parsedJson = true;
+    } catch {
+      // Fall through to the command exit status for non-JSON output.
+    }
+  }
+
+  if (parsedAuth === true) {
+    return { status: "ready", auth: { status: "authenticated" } };
+  }
+  if (parsedAuth === false) {
+    return {
+      status: "error",
+      auth: { status: "unauthenticated" },
+      message: "Claude is not authenticated. Run `claude auth login` and try again.",
+    };
+  }
+  if (parsedJson) {
+    return {
+      status: "warning",
+      auth: { status: "unknown" },
+      message:
+        "Could not verify Claude authentication status from JSON output (missing auth marker).",
+    };
+  }
+  if (result.code === 0) {
+    return { status: "ready", auth: { status: "authenticated" } };
+  }
+
+  return {
+    status: "warning",
+    auth: { status: "unknown" },
+    message: "Could not verify Claude authentication status.",
+  };
+}
+
 // ── SDK capability probe ────────────────────────────────────────────
 
 const CAPABILITIES_PROBE_TIMEOUT_MS = 8_000;
@@ -741,6 +821,34 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   const dedupedSlashCommands = dedupeSlashCommands(slashCommands);
 
   if (!capabilities) {
+    const authProbe = yield* runClaudeCommand(
+      claudeSettings,
+      ["auth", "status"],
+      resolvedEnvironment,
+    ).pipe(Effect.timeoutOption(AUTH_PROBE_TIMEOUT_MS), Effect.result);
+
+    if (Result.isSuccess(authProbe) && Option.isSome(authProbe.success)) {
+      const parsedAuth = parseClaudeAuthStatusFromOutput(authProbe.success.value);
+      return buildServerProvider({
+        presentation: CLAUDE_PRESENTATION,
+        enabled: claudeSettings.enabled,
+        checkedAt,
+        models,
+        slashCommands: dedupedSlashCommands,
+        probe: {
+          installed: true,
+          version: parsedVersion,
+          status: parsedAuth.status,
+          auth: parsedAuth.auth,
+          ...(parsedAuth.message
+            ? { message: parsedAuth.message }
+            : versionUpgradeMessage
+              ? { message: versionUpgradeMessage }
+              : {}),
+        },
+      });
+    }
+
     return buildServerProvider({
       presentation: CLAUDE_PRESENTATION,
       enabled: claudeSettings.enabled,
@@ -752,7 +860,10 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         version: parsedVersion,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Could not verify Claude authentication status from initialization result.",
+        message:
+          Result.isSuccess(authProbe) && Option.isNone(authProbe.success)
+            ? "Could not verify Claude authentication status. Timed out while running command."
+            : "Could not verify Claude authentication status.",
       },
     });
   }
