@@ -13,6 +13,7 @@ import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { sharedServerCommandFlags } from "./cli/config.ts";
 import { projectCommand } from "./cli/project.ts";
 import { runServerCommand, serveCommand, startCommand } from "./cli/server.ts";
+import { installNodeShutdownSignalEscalation } from "./cli/shutdownSignalEscalation.ts";
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
@@ -54,9 +55,12 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
 export const cli = makeCli();
 
 if (import.meta.main) {
+  const removeShutdownSignalEscalation = installNodeShutdownSignalEscalation();
+
   Command.run(cli, { version: packageJson.version }).pipe(
     Effect.scoped,
     Effect.provide(CliRuntimeLayer),
+    Effect.ensuring(Effect.sync(removeShutdownSignalEscalation)),
     NodeRuntime.runMain,
   );
 }
