@@ -225,4 +225,4 @@ const McpTransportLive = McpServer.layerHttp({
 export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   OrchestratorToolkitRegistrationLive,
-).pipe(Layer.provideMerge(McpTransportLive), Layer.provide(PreviewAutomationBroker.layer));
+).pipe(Layer.provideMerge(McpTransportLive));
