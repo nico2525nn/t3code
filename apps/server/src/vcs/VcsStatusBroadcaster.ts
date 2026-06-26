@@ -190,6 +190,7 @@ export const make = Effect.gen(function* () {
     Scope.close(scope, Exit.void),
   );
   const statusCache = new Map<string, CachedVcsStatus>();
+  const activeRemotePollerCwds = new Set<string>();
   const pollersRef = yield* SynchronizedRef.make(new Map<string, ActiveRemotePoller>());
 
   const setCachedStatus = (cwd: string, status: CachedVcsStatus) => {
@@ -197,7 +198,13 @@ export const make = Effect.gen(function* () {
     statusCache.set(cwd, status);
 
     while (statusCache.size > VCS_STATUS_CACHE_CAPACITY) {
-      const oldestCwd = statusCache.keys().next().value;
+      let oldestCwd: string | undefined;
+      for (const cachedCwd of statusCache.keys()) {
+        if (!activeRemotePollerCwds.has(cachedCwd)) {
+          oldestCwd = cachedCwd;
+          break;
+        }
+      }
       if (oldestCwd === undefined) {
         break;
       }
@@ -489,6 +496,7 @@ export const make = Effect.gen(function* () {
       return makeRemoteRefreshLoop(cwd, automaticRemoteRefreshInterval, refreshImmediately).pipe(
         Effect.forkIn(broadcasterScope),
         Effect.map((fiber) => {
+          activeRemotePollerCwds.add(cwd);
           const nextPollers = new Map(activePollers);
           nextPollers.set(cwd, {
             fiber,
@@ -531,6 +539,7 @@ export const make = Effect.gen(function* () {
         }
 
         return Effect.sync(() => {
+          activeRemotePollerCwds.delete(cwd);
           statusCache.delete(cwd);
           return [undefined, activePollers] as const;
         });

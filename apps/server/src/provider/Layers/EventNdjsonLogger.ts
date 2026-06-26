@@ -296,7 +296,7 @@ function enforceRetention(input: {
     (left, right) => left.mtimeMs - right.mtimeMs || left.filePath.localeCompare(right.filePath),
   )) {
     if (totalBytes <= input.maxTotalBytes) break;
-    remove(file);
+    if (!remove(file)) break;
   }
 
   return { failures, removedCount, totalBytes };
