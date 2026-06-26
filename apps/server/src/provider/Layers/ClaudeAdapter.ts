@@ -1387,7 +1387,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const offerRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
     Queue.offer(runtimeEventQueue, event).pipe(Effect.asVoid);
 
-  const logNativeSdkMessage = Effect.fn("logNativeSdkMessage")(function* (
+  const logNativeSdkMessage = Effect.fnUntraced(function* (
     context: ClaudeSessionContext,
     message: SDKMessage,
   ) {
