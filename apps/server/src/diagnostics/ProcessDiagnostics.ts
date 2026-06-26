@@ -120,7 +120,9 @@ const ProcessDiagnosticsError = Schema.Union([
 ]);
 type ProcessDiagnosticsError = typeof ProcessDiagnosticsError.Type;
 const isProcessDiagnosticsError = Schema.is(ProcessDiagnosticsError);
-const decodeWindowsProcessRowsJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
+const decodeWindowsProcessRowsJson = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Unknown),
+);
 
 function parsePositiveInt(value: string): number | null {
   const parsed = Number.parseInt(value, 10);
