@@ -865,6 +865,65 @@ describe("VcsStatusBroadcaster", () => {
     }),
   );
 
+  it.effect("does not continue remote status work after an upstream refresh is interrupted", () => {
+    const state = {
+      remoteStatusCalls: 0,
+      remoteInvalidationCalls: 0,
+    };
+    let refreshStartedDeferred: Deferred.Deferred<void> | null = null;
+    let refreshInterruptedDeferred: Deferred.Deferred<void> | null = null;
+    const testLayer = VcsStatusBroadcaster.layer.pipe(
+      Layer.provideMerge(NodeServices.layer),
+      Layer.provide(
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          localStatus: () => Effect.succeed(baseLocalStatus),
+          refreshStatusUpstream: () =>
+            Effect.gen(function* () {
+              if (refreshStartedDeferred) {
+                yield* Deferred.succeed(refreshStartedDeferred, undefined);
+              }
+              return yield* Effect.never;
+            }).pipe(
+              Effect.onInterrupt(() =>
+                refreshInterruptedDeferred
+                  ? Deferred.succeed(refreshInterruptedDeferred, undefined).pipe(Effect.ignore)
+                  : Effect.void,
+              ),
+            ),
+          remoteStatus: () =>
+            Effect.sync(() => {
+              state.remoteStatusCalls += 1;
+              return baseRemoteStatus;
+            }),
+          invalidateRemoteStatus: () =>
+            Effect.sync(() => {
+              state.remoteInvalidationCalls += 1;
+            }),
+        } satisfies Partial<GitWorkflowService.GitWorkflowService["Service"]>),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      refreshStartedDeferred = yield* Deferred.make<void>();
+      refreshInterruptedDeferred = yield* Deferred.make<void>();
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const scope = yield* Scope.make();
+      yield* broadcaster
+        .streamStatus(
+          { cwd: "/repo" },
+          { automaticRemoteRefreshInterval: Effect.succeed(Duration.hours(1)) },
+        )
+        .pipe(Stream.runDrain, Effect.forkIn(scope));
+
+      yield* Deferred.await(refreshStartedDeferred);
+      yield* Scope.close(scope, Exit.void);
+      yield* Deferred.await(refreshInterruptedDeferred);
+
+      assert.equal(state.remoteInvalidationCalls, 0);
+      assert.equal(state.remoteStatusCalls, 0);
+    }).pipe(Effect.provide(testLayer));
+  });
+
   it.effect("stops the remote poller after the last stream subscriber disconnects", () => {
     const state = {
       currentLocalStatus: baseLocalStatus,

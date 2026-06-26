@@ -36,7 +36,6 @@ const DEFAULT_MAX_RECORD_BYTES = MEBIBYTE;
 const DEFAULT_MAX_CACHED_SINKS = 64;
 const GLOBAL_THREAD_SEGMENT = "_global";
 const LOG_SCOPE = "provider-observability";
-const PROVIDER_LOG_FILE_PATTERN = /\.log(?:\.\d+)?$/u;
 const encodeUnknownJsonString = Schema.encodeUnknownEffect(Schema.UnknownFromJsonString);
 
 const transientCanonicalEventTypes = new Set([
@@ -244,6 +243,7 @@ function writeBatchedRecords(
 
 function enforceRetention(input: {
   readonly directory: string;
+  readonly filePattern: RegExp;
   readonly maxTotalBytes: number;
   readonly maxAgeMs: number;
   readonly now: number;
@@ -263,7 +263,7 @@ function enforceRetention(input: {
   }
 
   for (const entry of entries) {
-    if (!entry.isFile() || !PROVIDER_LOG_FILE_PATTERN.test(entry.name)) continue;
+    if (!entry.isFile() || !input.filePattern.test(entry.name)) continue;
     const filePath = NodePath.join(input.directory, entry.name);
     try {
       const stat = NodeFS.statSync(filePath);
@@ -352,6 +352,8 @@ function resolveOptions(filePath: string, options: EventNdjsonLogStoreOptions) {
 
 function drainPending(input: {
   readonly directory: string;
+  readonly filePrefix: string;
+  readonly filePattern: RegExp;
   readonly options: ResolvedOptions;
   readonly state: StoreState;
   readonly now: number;
@@ -373,7 +375,7 @@ function drainPending(input: {
 
   let writtenBytes = 0;
   for (const [threadSegment, records] of recordsBySegment) {
-    const filePath = NodePath.join(input.directory, `${threadSegment}.log`);
+    const filePath = NodePath.join(input.directory, `${input.filePrefix}-${threadSegment}.log`);
     let sink = sinks.get(threadSegment);
     try {
       if (!sink) {
@@ -412,6 +414,7 @@ function drainPending(input: {
   const retention = retentionDue
     ? enforceRetention({
         directory: input.directory,
+        filePattern: input.filePattern,
         maxTotalBytes: input.options.maxTotalBytes,
         maxAgeMs: input.options.maxAgeMs,
         now: input.now,
@@ -452,6 +455,9 @@ export const makeEventNdjsonLogStore = Effect.fnUntraced(function* (
 ): Effect.fn.Return<EventNdjsonLogStore, EventNdjsonLogStoreError> {
   const resolved = yield* resolveOptions(filePath, options);
   const directory = NodePath.dirname(filePath);
+  const filePrefix =
+    toSafeThreadAttachmentSegment(NodePath.parse(filePath).name) ?? "provider-events";
+  const filePattern = new RegExp(`^${filePrefix}-.+\\.log(?:\\.\\d+)?$`, "u");
 
   yield* Effect.try({
     try: () => NodeFS.mkdirSync(directory, { recursive: true }),
@@ -462,6 +468,7 @@ export const makeEventNdjsonLogStore = Effect.fnUntraced(function* (
   const initialRetention = yield* Effect.sync(() =>
     enforceRetention({
       directory,
+      filePattern,
       maxTotalBytes: resolved.maxTotalBytes,
       maxAgeMs: resolved.maxAgeMs,
       now: initializedAt,
@@ -499,6 +506,8 @@ export const makeEventNdjsonLogStore = Effect.fnUntraced(function* (
       Effect.sync(() =>
         drainPending({
           directory,
+          filePrefix,
+          filePattern,
           options: resolved,
           state,
           now,
@@ -569,6 +578,8 @@ export const makeEventNdjsonLogStore = Effect.fnUntraced(function* (
         return Effect.sync(() => {
           const [drainResult, drainedState] = drainPending({
             directory,
+            filePrefix,
+            filePattern,
             options: resolved,
             state: nextState,
             now,

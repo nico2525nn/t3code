@@ -375,6 +375,9 @@ export const make = Effect.gen(function* () {
       options?.refreshUpstream === false
         ? Exit.void
         : yield* workflow.refreshStatusUpstream(cwd).pipe(Effect.exit);
+    if (Exit.isFailure(refreshExit) && Cause.hasInterrupts(refreshExit.cause)) {
+      return yield* Effect.failCause(refreshExit.cause);
+    }
     if (options?.refreshUpstream !== false) {
       yield* workflow.invalidateRemoteStatus(cwd);
     }

@@ -50,7 +50,7 @@ const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 80_000;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 120_000;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
-const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.minutes(1);
+const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
 
 const STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN = Duration.seconds(30);
 const STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY = 2_048;
@@ -112,12 +112,13 @@ class StatusRemoteRefreshCacheKey {
     return (
       that instanceof StatusRemoteRefreshCacheKey &&
       this.objectDir === that.objectDir &&
-      this.remoteName === that.remoteName
+      this.remoteName === that.remoteName &&
+      this.cwd === that.cwd
     );
   }
 
   [Hash.symbol]() {
-    return Hash.string(`${this.objectDir}\0${this.remoteName}`);
+    return Hash.string(`${this.objectDir}\0${this.remoteName}\0${this.cwd}`);
   }
 }
 

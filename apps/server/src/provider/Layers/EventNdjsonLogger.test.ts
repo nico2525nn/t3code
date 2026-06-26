@@ -44,6 +44,13 @@ function parseLogLine(line: string) {
   };
 }
 
+function threadLogPath(basePath: string, threadSegment: string) {
+  return NodePath.join(
+    NodePath.dirname(basePath),
+    `${NodePath.parse(basePath).name}-${threadSegment}.log`,
+  );
+}
+
 describe("EventNdjsonLogger", () => {
   it.effect("logs bounded diagnostics when an event cannot be serialized", () => {
     const messages: Array<unknown> = [];
@@ -100,8 +107,8 @@ describe("EventNdjsonLogger", () => {
         );
         yield* logger.close();
 
-        const threadOnePath = NodePath.join(tempDir, "thread-1.log");
-        const threadTwoPath = NodePath.join(tempDir, "thread-2.log");
+        const threadOnePath = threadLogPath(basePath, "thread-1");
+        const threadTwoPath = threadLogPath(basePath, "thread-2");
         assert.equal(NodeFS.existsSync(threadOnePath), true);
         assert.equal(NodeFS.existsSync(threadTwoPath), true);
 
@@ -142,7 +149,7 @@ describe("EventNdjsonLogger", () => {
           yield* logger.write({ id: "evt-invalid-thread" }, "!!!" as unknown as ThreadId);
           yield* logger.close();
 
-          const globalPath = NodePath.join(tempDir, "_global.log");
+          const globalPath = threadLogPath(basePath, "_global");
           assert.equal(NodeFS.existsSync(globalPath), true);
           const lines = NodeFS.readFileSync(globalPath, "utf8")
             .trim()
@@ -185,7 +192,7 @@ describe("EventNdjsonLogger", () => {
         );
         yield* logger.close();
 
-        const globalPath = NodePath.join(tempDir, "_global.log");
+        const globalPath = threadLogPath(basePath, "_global");
         assert.equal(NodeFS.existsSync(globalPath), true);
         const lines = NodeFS.readFileSync(globalPath, "utf8")
           .trim()
@@ -221,7 +228,7 @@ describe("EventNdjsonLogger", () => {
         yield* canonical.write({ type: "item.completed", id: "canonical-event" }, threadId);
         yield* store.close();
 
-        const lines = NodeFS.readFileSync(NodePath.join(tempDir, "thread-shared.log"), "utf8")
+        const lines = NodeFS.readFileSync(threadLogPath(basePath, "thread-shared"), "utf8")
           .trim()
           .split("\n")
           .map(parseLogLine);
@@ -260,7 +267,7 @@ describe("EventNdjsonLogger", () => {
         yield* native.write({ type: "content.delta", id: "native-delta" }, threadId);
         yield* store.close();
 
-        const lines = NodeFS.readFileSync(NodePath.join(tempDir, "thread-filtered.log"), "utf8")
+        const lines = NodeFS.readFileSync(threadLogPath(basePath, "thread-filtered"), "utf8")
           .trim()
           .split("\n")
           .map(parseLogLine);
@@ -308,7 +315,7 @@ describe("EventNdjsonLogger", () => {
         }
         yield* store.close();
 
-        const fileStem = "thread-rotate.log";
+        const fileStem = NodePath.basename(threadLogPath(basePath, "thread-rotate"));
         const matchingFiles = NodeFS.readdirSync(tempDir)
           .filter((entry) => entry === fileStem || entry.startsWith(`${fileStem}.`))
           .toSorted();
@@ -360,7 +367,7 @@ describe("EventNdjsonLogger", () => {
           );
         yield* store.close();
 
-        const filePath = NodePath.join(tempDir, "thread-oversized.log");
+        const filePath = threadLogPath(basePath, "thread-oversized");
         assert.isAtMost(NodeFS.statSync(filePath).size, 256);
         const line = parseLogLine(NodeFS.readFileSync(filePath, "utf8").trim());
         const payload = decodeOmittedRecord(line.payload);
@@ -368,7 +375,7 @@ describe("EventNdjsonLogger", () => {
         assert.equal(payload.eventType, "item.completed");
         assert.isAbove(payload.originalBytes, 2_000);
 
-        const longTypeFilePath = NodePath.join(tempDir, "thread-oversized-type.log");
+        const longTypeFilePath = threadLogPath(basePath, "thread-oversized-type");
         assert.isAtMost(NodeFS.statSync(longTypeFilePath).size, 256);
         const longTypeLine = parseLogLine(NodeFS.readFileSync(longTypeFilePath, "utf8").trim());
         const longTypePayload = decodeOmittedRecord(longTypeLine.payload);
@@ -383,20 +390,22 @@ describe("EventNdjsonLogger", () => {
     Effect.gen(function* () {
       const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-provider-log-"));
       const basePath = NodePath.join(tempDir, "events.log");
-      const expiredPath = NodePath.join(tempDir, "expired.log");
-      const oldPath = NodePath.join(tempDir, "old.log");
-      const newPath = NodePath.join(tempDir, "new.log");
+      const expiredPath = threadLogPath(basePath, "expired");
+      const oldPath = threadLogPath(basePath, "old");
+      const newPath = threadLogPath(basePath, "new");
+      const unrelatedLogPath = NodePath.join(tempDir, "unrelated.log");
       const ignoredPath = NodePath.join(tempDir, "ignored.txt");
 
       try {
         yield* TestClock.setTime(1_800_000_000_000);
         const now = yield* Clock.currentTimeMillis;
-        for (const filePath of [expiredPath, oldPath, newPath, ignoredPath]) {
+        for (const filePath of [expiredPath, oldPath, newPath, unrelatedLogPath, ignoredPath]) {
           NodeFS.writeFileSync(filePath, "x".repeat(400));
         }
         NodeFS.utimesSync(expiredPath, (now - 20_000) / 1_000, (now - 20_000) / 1_000);
         NodeFS.utimesSync(oldPath, (now - 5_000) / 1_000, (now - 5_000) / 1_000);
         NodeFS.utimesSync(newPath, now / 1_000, now / 1_000);
+        NodeFS.utimesSync(unrelatedLogPath, (now - 20_000) / 1_000, (now - 20_000) / 1_000);
 
         const store = yield* makeEventNdjsonLogStore(basePath, {
           maxAgeMs: 10_000,
@@ -407,6 +416,7 @@ describe("EventNdjsonLogger", () => {
         assert.equal(NodeFS.existsSync(expiredPath), false);
         assert.equal(NodeFS.existsSync(oldPath), false);
         assert.equal(NodeFS.existsSync(newPath), true);
+        assert.equal(NodeFS.existsSync(unrelatedLogPath), true);
         assert.equal(NodeFS.existsSync(ignoredPath), true);
       } finally {
         NodeFS.rmSync(tempDir, { recursive: true, force: true });
@@ -442,7 +452,7 @@ describe("EventNdjsonLogger", () => {
         yield* store.close();
 
         const totalBytes = NodeFS.readdirSync(tempDir, { withFileTypes: true })
-          .filter((entry) => entry.isFile() && /\.log(?:\.\d+)?$/u.test(entry.name))
+          .filter((entry) => entry.isFile() && /^events-.+\.log(?:\.\d+)?$/u.test(entry.name))
           .reduce(
             (total, entry) => total + NodeFS.statSync(NodePath.join(tempDir, entry.name)).size,
             0,
