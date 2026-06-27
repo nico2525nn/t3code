@@ -22,13 +22,14 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 const connectClientInternalErrorContext = {
-  cause: Schema.optional(Schema.Defect()),
+  cause: Schema.Defect(),
 };
 
 export class ConnectSecurityModeLoadError extends Schema.TaggedErrorClass<ConnectSecurityModeLoadError>()(
   "ConnectSecurityModeLoadError",
   {
     ...connectClientInternalErrorContext,
+    cause: Schema.optional(Schema.Defect()),
     invalidValue: Schema.optional(Schema.String),
   },
 ) {
