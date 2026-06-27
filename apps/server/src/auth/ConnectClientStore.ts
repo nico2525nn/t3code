@@ -330,10 +330,20 @@ export const make = Effect.gen(function* () {
     if (Option.isSome(seen)) {
       const seenClient = toAuthConnectClient(seen.value);
       yield* emitUpsert(seenClient);
-      return { mode, status: "approved" as const, client: seenClient };
+      return { mode, status: seen.value.status, client: seenClient };
     }
 
-    return { mode, status: "approved" as const, client: visibleClient };
+    return {
+      mode,
+      status: "pending" as const,
+      client: {
+        ...visibleClient,
+        status: "pending" as const,
+        updatedAt: DateTime.toUtc(seenAt),
+        approvedAt: null,
+        lastSeenAt: null,
+      },
+    };
   });
 
   const updateDecision = <E extends ConnectClientApprovalError | ConnectClientRejectionError>(

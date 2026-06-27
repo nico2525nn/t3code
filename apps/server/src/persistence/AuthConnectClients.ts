@@ -256,6 +256,10 @@ export const make = Effect.gen(function* () {
             WHEN auth_connect_clients.revoked_at IS NULL THEN auth_connect_clients.rejected_at
             ELSE NULL
           END,
+          last_seen_at = CASE
+            WHEN auth_connect_clients.revoked_at IS NULL THEN auth_connect_clients.last_seen_at
+            ELSE NULL
+          END,
           revoked_at = NULL
         RETURNING ${sql.unsafe(rowSelection)}
       `,
@@ -272,6 +276,10 @@ export const make = Effect.gen(function* () {
           updated_at = ${decidedAt},
           approved_at = CASE WHEN ${status} = 'approved' THEN ${decidedAt} ELSE approved_at END,
           rejected_at = CASE WHEN ${status} = 'rejected' THEN ${decidedAt} ELSE rejected_at END,
+          last_seen_at = CASE
+            WHEN ${status} = 'approved' AND status = 'approved' THEN last_seen_at
+            ELSE NULL
+          END,
           revoked_at = NULL
         WHERE client_proof_key_thumbprint = ${clientProofKeyThumbprint}
           AND revoked_at IS NULL
@@ -301,10 +309,9 @@ export const make = Effect.gen(function* () {
       sql`
         UPDATE auth_connect_clients
         SET
-          last_seen_at = ${seenAt},
-          updated_at = ${seenAt}
+          last_seen_at = CASE WHEN status = 'approved' THEN ${seenAt} ELSE last_seen_at END,
+          updated_at = CASE WHEN status = 'approved' THEN ${seenAt} ELSE updated_at END
         WHERE client_proof_key_thumbprint = ${clientProofKeyThumbprint}
-          AND status = 'approved'
           AND revoked_at IS NULL
         RETURNING ${sql.unsafe(rowSelection)}
       `,
