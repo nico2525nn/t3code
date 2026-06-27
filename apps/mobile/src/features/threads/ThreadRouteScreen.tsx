@@ -220,7 +220,7 @@ function ThreadRouteContent(
     readonly selectedThreadDetailState: ReturnType<typeof useSelectedThreadDetailState>;
   },
 ) {
-  const { fileInspector, layout, showAuxiliaryPane, toggleAuxiliaryPane } =
+  const { fileInspector, layout, panes, showAuxiliaryPane, toggleAuxiliaryPane } =
     useAdaptiveWorkspaceLayout();
   const { connectionState } = useRemoteConnectionStatus();
   const { onReconnectEnvironment } = useRemoteConnections();
@@ -261,6 +261,22 @@ function ThreadRouteContent(
     }
     return null;
   })();
+  useEffect(() => {
+    if (
+      fileInspector.supported &&
+      selectedThreadCwd === null &&
+      inspectorMode === null &&
+      panes.auxiliaryPaneVisible
+    ) {
+      toggleAuxiliaryPane();
+    }
+  }, [
+    fileInspector.supported,
+    inspectorMode,
+    panes.auxiliaryPaneVisible,
+    selectedThreadCwd,
+    toggleAuxiliaryPane,
+  ]);
 
   useEffect(() => {
     setInspectorSelection((current) => {
@@ -451,6 +467,7 @@ function ThreadRouteContent(
       ) : null,
     [handleSelectInspectorFile, selectedThread, selectedThreadCwd, selectedThreadProject?.title],
   );
+  const RouteInspector = useCallback(() => props.renderInspector?.(0), [props.renderInspector]);
   const renderInspectorStack = useCallback(
     () =>
       inspectorMode === null ? null : (
@@ -458,10 +475,10 @@ function ThreadRouteContent(
           Files={FilesInspector}
           Git={GitInspector}
           mode={inspectorMode}
-          Route={props.renderInspector ? () => props.renderInspector?.(0) : undefined}
+          Route={props.renderInspector ? RouteInspector : undefined}
         />
       ),
-    [FilesInspector, GitInspector, inspectorMode, props.renderInspector],
+    [FilesInspector, GitInspector, RouteInspector, inspectorMode, props.renderInspector],
   );
   const activeInspectorRenderer = inspectorMode === null ? undefined : renderInspectorStack;
 
