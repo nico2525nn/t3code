@@ -468,6 +468,7 @@ export function ThreadFilesTreeScreen() {
   const colorScheme = useColorScheme();
   const highlightTheme = colorScheme === "dark" ? "dark" : "light";
   const { cwd, environmentId, projectName, selectedThread, threadId } = useThreadFilesWorkspace();
+  const revealedInspectorRef = useRef(false);
   const entriesQuery = useEnvironmentQuery(
     environmentId !== null && cwd !== null && !fileInspector.supported
       ? projectEnvironment.listEntries({
@@ -537,7 +538,8 @@ export function ThreadFilesTreeScreen() {
     [projectName],
   );
   useEffect(() => {
-    if (fileInspector.supported && cwd !== null) {
+    if (fileInspector.supported && cwd !== null && !revealedInspectorRef.current) {
+      revealedInspectorRef.current = true;
       showAuxiliaryPane("inspector");
     }
   }, [cwd, fileInspector.supported, showAuxiliaryPane]);
