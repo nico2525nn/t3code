@@ -258,25 +258,28 @@ describe("ProcessDiagnostics", () => {
       if (error._tag !== "ProcessDiagnosticsQueryFailedError") {
         assert.fail(`Expected ProcessDiagnosticsQueryFailedError, got ${error._tag}`);
       }
-      assert.deepStrictEqual({
-        command: error.command,
-        argCount: error.argCount,
-        cwd: error.cwd,
-        exitCode: error.exitCode,
-        stdoutBytes: error.stdoutBytes,
-        stderrBytes: error.stderrBytes,
-        stdoutTruncated: error.stdoutTruncated,
-        stderrTruncated: error.stderrTruncated,
-      }, {
-        command: "ps",
-        argCount: 2,
-        cwd: process.cwd(),
-        exitCode: 17,
-        stdoutBytes: 22,
-        stderrBytes: 21,
-        stdoutTruncated: false,
-        stderrTruncated: false,
-      });
+      assert.deepStrictEqual(
+        {
+          command: error.command,
+          argCount: error.argCount,
+          cwd: error.cwd,
+          exitCode: error.exitCode,
+          stdoutBytes: error.stdoutBytes,
+          stderrBytes: error.stderrBytes,
+          stdoutTruncated: error.stdoutTruncated,
+          stderrTruncated: error.stderrTruncated,
+        },
+        {
+          command: "ps",
+          argCount: 2,
+          cwd: process.cwd(),
+          exitCode: 17,
+          stdoutBytes: 22,
+          stderrBytes: 21,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        },
+      );
       assert.equal(
         error.message,
         `Process diagnostics query 'ps' failed with exit code 17 in '${process.cwd()}'.`,

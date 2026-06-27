@@ -253,7 +253,9 @@ function normalizeWindowsProcessRecord(record: WindowsProcessRecord): Option.Opt
     pgid: null,
     status: Option.getOrElse(nonEmptyString(record.Status), () => "Live"),
     cpuPercent: optionalNumberOrElse(record.PercentProcessorTime, (value) => Math.max(0, value)),
-    rssBytes: optionalNumberOrElse(record.WorkingSetSize, (value) => Math.max(0, Math.round(value))),
+    rssBytes: optionalNumberOrElse(record.WorkingSetSize, (value) =>
+      Math.max(0, Math.round(value)),
+    ),
     elapsed: "",
     command: commandLine.value,
   });
