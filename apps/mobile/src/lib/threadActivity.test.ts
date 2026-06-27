@@ -9,7 +9,12 @@ import {
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildThreadFeed, deriveThreadFeedPresentation } from "./threadActivity";
+import {
+  buildThreadFeed,
+  deriveThreadFeedPresentation,
+  type ThreadFeedActivity,
+  type ThreadFeedEntry,
+} from "./threadActivity";
 
 const threadId = ThreadId.make("thread-1");
 const sourceThreadId = ThreadId.make("thread-source");
@@ -229,5 +234,52 @@ describe("buildThreadFeed", () => {
     expect(presented.find((entry) => entry.type === "activity-group")?.activities[0]?.status).toBe(
       "failure",
     );
+  });
+
+  it("keeps work-log overflow inside grouped activity rows", () => {
+    const activity = (
+      id: string,
+      createdAt: string,
+      status: ThreadFeedActivity["status"] = "success",
+    ): ThreadFeedActivity => ({
+      id,
+      createdAt,
+      runId: null,
+      summary: `Tool ${id}`,
+      detail: null,
+      fullDetail: null,
+      copyText: id,
+      icon: "command",
+      toolLike: true,
+      prominent: false,
+      status,
+      projectedItem: projected(command(createdAt), 0),
+    });
+    const feed: ThreadFeedEntry[] = [
+      {
+        type: "activity-group",
+        id: "work-group-1",
+        createdAt: "2026-04-01T00:00:01.000Z",
+        runId: null,
+        activities: [
+          activity("activity-1", "2026-04-01T00:00:01.000Z"),
+          activity("activity-neutral", "2026-04-01T00:00:02.000Z", "neutral"),
+          activity("activity-2", "2026-04-01T00:00:03.000Z"),
+          activity("activity-3", "2026-04-01T00:00:04.000Z"),
+        ],
+      },
+    ];
+
+    const presented = deriveThreadFeedPresentation(feed, null, new Set());
+    expect(presented).toHaveLength(1);
+    expect(presented[0]).toMatchObject({
+      type: "activity-group",
+      id: "work-group-1",
+    });
+    expect(
+      presented[0]?.type === "activity-group"
+        ? presented[0].activities.map((entry) => entry.id)
+        : [],
+    ).toEqual(["activity-1", "activity-neutral", "activity-2", "activity-3"]);
   });
 });

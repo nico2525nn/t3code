@@ -753,7 +753,7 @@ function renderFeedEntry(
     readonly unsettledTurnId: RunId | null;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string) => void;
-    readonly onToggleWorkRow: (rowId: string) => void;
+    readonly onToggleWorkRow: (rowId: string, anchorKey?: string) => void;
     readonly onToggleTurnFold: (runId: RunId) => void;
     readonly onPressImage: (uri: string, headers?: Record<string, string>) => void;
     readonly onMarkdownLinkPress: (href: string) => void;
@@ -935,7 +935,7 @@ function renderFeedEntry(
       iconSubtleColor={iconSubtleColor}
       onCopyRow={props.onCopyWorkRow}
       onToggleGroup={() => props.onToggleWorkGroup(entry.id)}
-      onToggleRow={props.onToggleWorkRow}
+      onToggleRow={(rowId) => props.onToggleWorkRow(rowId, entry.id)}
       workspaceRoot={props.workspaceRoot}
     />
   );
@@ -1217,8 +1217,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const foldSettleFrameRef = useRef<number | null>(null);
   const foldSettleSecondFrameRef = useRef<number | null>(null);
   const previousLatestTurnRef = useRef(props.latestRun);
+  const disclosureAnchorKeyRef = useRef<string | null>(null);
   const { width: viewportWidth } = useWindowDimensions();
-  const [foldToggleSettling, setFoldToggleSettling] = useState(false);
+  const [disclosureToggleSettling, setDisclosureToggleSettling] = useState(false);
   const [interactionState, setInteractionState] = useState<{
     readonly copiedRowId: string | null;
     readonly expandedWorkGroups: Record<string, boolean>;
@@ -1365,6 +1366,39 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     };
   }, []);
 
+  const suspendEndScrollMaintenanceForDisclosure = useCallback((anchorKey: string | null) => {
+    disclosureAnchorKeyRef.current = anchorKey;
+    setDisclosureToggleSettling(true);
+    if (foldSettleFrameRef.current !== null) {
+      cancelAnimationFrame(foldSettleFrameRef.current);
+    }
+    if (foldSettleSecondFrameRef.current !== null) {
+      cancelAnimationFrame(foldSettleSecondFrameRef.current);
+    }
+    foldSettleFrameRef.current = requestAnimationFrame(() => {
+      foldSettleSecondFrameRef.current = requestAnimationFrame(() => {
+        disclosureAnchorKeyRef.current = null;
+        setDisclosureToggleSettling(false);
+        foldSettleFrameRef.current = null;
+        foldSettleSecondFrameRef.current = null;
+      });
+    });
+  }, []);
+
+  const shouldRestoreVisibleContentPosition = useCallback((entry: ThreadFeedEntry) => {
+    const disclosureAnchorKey = disclosureAnchorKeyRef.current;
+    return disclosureAnchorKey === null || entry.id === disclosureAnchorKey;
+  }, []);
+
+  const maintainVisibleContentPosition = useMemo(
+    () => ({
+      data: true,
+      size: true,
+      shouldRestorePosition: shouldRestoreVisibleContentPosition,
+    }),
+    [shouldRestoreVisibleContentPosition],
+  );
+
   const onCopyWorkRow = useCallback((rowId: string, value: string) => {
     copyTextWithHaptic(value, {
       target: "thread-work-row",
@@ -1382,51 +1416,49 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }, 1200);
   }, []);
 
-  const onToggleWorkGroup = useCallback((groupId: string) => {
-    setInteractionState((current) => ({
-      ...current,
-      expandedWorkGroups: {
-        ...current.expandedWorkGroups,
-        [groupId]: !(current.expandedWorkGroups[groupId] ?? false),
-      },
-    }));
-  }, []);
+  const onToggleWorkGroup = useCallback(
+    (groupId: string) => {
+      suspendEndScrollMaintenanceForDisclosure(groupId);
+      setInteractionState((current) => ({
+        ...current,
+        expandedWorkGroups: {
+          ...current.expandedWorkGroups,
+          [groupId]: !(current.expandedWorkGroups[groupId] ?? false),
+        },
+      }));
+    },
+    [suspendEndScrollMaintenanceForDisclosure],
+  );
 
-  const onToggleWorkRow = useCallback((rowId: string) => {
-    setInteractionState((current) => ({
-      ...current,
-      expandedWorkRows: {
-        ...current.expandedWorkRows,
-        [rowId]: !(current.expandedWorkRows[rowId] ?? false),
-      },
-    }));
-  }, []);
+  const onToggleWorkRow = useCallback(
+    (rowId: string, anchorKey?: string) => {
+      suspendEndScrollMaintenanceForDisclosure(anchorKey ?? null);
+      setInteractionState((current) => ({
+        ...current,
+        expandedWorkRows: {
+          ...current.expandedWorkRows,
+          [rowId]: !(current.expandedWorkRows[rowId] ?? false),
+        },
+      }));
+    },
+    [suspendEndScrollMaintenanceForDisclosure],
+  );
 
-  const onToggleTurnFold = useCallback((runId: RunId) => {
-    setFoldToggleSettling(true);
-    if (foldSettleFrameRef.current !== null) {
-      cancelAnimationFrame(foldSettleFrameRef.current);
-    }
-    if (foldSettleSecondFrameRef.current !== null) {
-      cancelAnimationFrame(foldSettleSecondFrameRef.current);
-    }
-    setInteractionState((current) => {
-      const next = new Set(current.expandedTurnIds);
-      if (next.has(runId)) {
-        next.delete(runId);
-      } else {
-        next.add(runId);
-      }
-      return { ...current, expandedTurnIds: next };
-    });
-    foldSettleFrameRef.current = requestAnimationFrame(() => {
-      foldSettleSecondFrameRef.current = requestAnimationFrame(() => {
-        setFoldToggleSettling(false);
-        foldSettleFrameRef.current = null;
-        foldSettleSecondFrameRef.current = null;
+  const onToggleTurnFold = useCallback(
+    (runId: RunId) => {
+      suspendEndScrollMaintenanceForDisclosure(`run-fold:${runId}`);
+      setInteractionState((current) => {
+        const next = new Set(current.expandedTurnIds);
+        if (next.has(runId)) {
+          next.delete(runId);
+        } else {
+          next.add(runId);
+        }
+        return { ...current, expandedTurnIds: next };
       });
-    });
-  }, []);
+    },
+    [suspendEndScrollMaintenanceForDisclosure],
+  );
 
   const onPressImage = useCallback((uri: string, headers?: Record<string, string>) => {
     setExpandedImage({ uri, headers });
@@ -1520,7 +1552,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           contentInsetEndAdjustment={props.contentInsetEndAdjustment}
           freeze={props.freeze}
           maintainScrollAtEnd={
-            foldToggleSettling
+            disclosureToggleSettling
               ? false
               : {
                   animated: false,
@@ -1531,7 +1563,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
                   },
                 }
           }
-          maintainVisibleContentPosition
+          maintainVisibleContentPosition={maintainVisibleContentPosition}
           data={presentedFeed}
           extraData={listAppearanceData}
           renderItem={renderItem}
