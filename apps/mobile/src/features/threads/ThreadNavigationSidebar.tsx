@@ -537,7 +537,11 @@ export function ThreadNavigationSidebar(props: {
             style={styles.threadList}
             ListEmptyComponent={
               <Text className="px-2 py-4 text-sm" style={{ color: mutedColor }}>
-                {searchQuery.trim().length > 0 ? "No matching threads" : "No threads yet"}
+                {catalogState.isLoadingConnections
+                  ? "Loading threads…"
+                  : searchQuery.trim().length > 0
+                    ? "No matching threads"
+                    : "No threads yet"}
               </Text>
             }
           />

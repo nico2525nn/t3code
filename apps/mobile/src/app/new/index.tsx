@@ -116,7 +116,7 @@ export default function NewTaskRoute() {
           <Stack.Toolbar.Button
             accessibilityLabel="Close new task"
             icon="xmark"
-            onPress={() => router.back()}
+            onPress={() => router.dismiss()}
             separateBackground
           />
         ) : null}
