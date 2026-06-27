@@ -47,6 +47,7 @@ import { OpenAddProjectCommandPaletteProvider } from "../commandPaletteContext";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useClientSettings } from "../hooks/useSettings";
 import { readLocalApi } from "../localApi";
+import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment } from "../state/filesystem";
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
@@ -79,6 +80,7 @@ import { getLatestThreadForProject } from "../lib/threadSort";
 import { cn, isMacPlatform, isWindowsPlatform, newProjectId } from "../lib/utils";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
+import { parseWslUncPath, resolveWslProjectSelection } from "../wslPaths";
 import {
   ADDON_ICON_CLASS,
   buildBrowseGroups,
@@ -500,6 +502,18 @@ function OpenCommandPaletteDialog(props: {
     return options;
   }, [environments]);
   const defaultAddProjectEnvironmentId = addProjectEnvironmentOptions[0]?.environmentId ?? null;
+  const wslAddProjectEnvironmentOption = useMemo(
+    () =>
+      addProjectEnvironmentOptions.find((option) => {
+        const environment = environments.find(
+          (candidate) => candidate.environmentId === option.environmentId,
+        );
+        return environment
+          ? desktopLocalBackendId(environment.entry.target)?.startsWith("wsl:") === true
+          : false;
+      }) ?? null,
+    [addProjectEnvironmentOptions, environments],
+  );
   const browseEnvironmentId = addProjectEnvironmentId ?? defaultAddProjectEnvironmentId;
   const browseEnvironment =
     environments.find((environment) => environment.environmentId === browseEnvironmentId) ?? null;
@@ -984,6 +998,21 @@ function OpenCommandPaletteDialog(props: {
     },
   });
 
+  if (wslAddProjectEnvironmentOption) {
+    actionItems.push({
+      kind: "action",
+      value: "action:add-project:wsl-folder",
+      searchTerms: ["add project", "open", "wsl", "linux", "folder", "directory"],
+      title: "Open WSL folder",
+      description: wslAddProjectEnvironmentOption.label,
+      icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+      keepOpen: true,
+      run: async () => {
+        startAddProjectBrowse(wslAddProjectEnvironmentOption.environmentId);
+      },
+    });
+  }
+
   actionItems.push({
     kind: "action",
     value: "action:settings",
@@ -1016,11 +1045,16 @@ function OpenCommandPaletteDialog(props: {
     threadSearchItems: allThreadItems,
   });
 
-  const handleAddProject = useCallback(
-    async (rawCwd: string) => {
-      if (!browseEnvironmentId) return;
+  const handleAddProjectForEnvironment = useCallback(
+    async (input: {
+      readonly environmentId: EnvironmentId;
+      readonly rawCwd: string;
+      readonly platform: string;
+      readonly currentProjectCwd: string | null;
+    }) => {
+      const rawCwd = input.rawCwd;
 
-      if (isUnsupportedWindowsProjectPath(rawCwd.trim(), browseEnvironmentPlatform)) {
+      if (isUnsupportedWindowsProjectPath(rawCwd.trim(), input.platform)) {
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -1031,7 +1065,7 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
 
-      if (isExplicitRelativeProjectPath(rawCwd.trim()) && !currentProjectCwdForBrowse) {
+      if (isExplicitRelativeProjectPath(rawCwd.trim()) && !input.currentProjectCwd) {
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -1042,11 +1076,11 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
 
-      const cwd = resolveProjectPathForDispatch(rawCwd, currentProjectCwdForBrowse);
+      const cwd = resolveProjectPathForDispatch(rawCwd, input.currentProjectCwd);
       if (cwd.length === 0) return;
 
       const existing = findProjectByPath(
-        projects.filter((project) => project.environmentId === browseEnvironmentId),
+        projects.filter((project) => project.environmentId === input.environmentId),
         cwd,
       );
       if (existing) {
@@ -1084,7 +1118,7 @@ function OpenCommandPaletteDialog(props: {
 
       const projectId = newProjectId();
       const createResult = await createProject({
-        environmentId: browseEnvironmentId,
+        environmentId: input.environmentId,
         input: {
           projectId,
           title: inferProjectTitleFromPath(cwd),
@@ -1111,7 +1145,7 @@ function OpenCommandPaletteDialog(props: {
       }
 
       const navigationResult = await settlePromise(() =>
-        handleNewThread(scopeProjectRef(browseEnvironmentId, projectId)),
+        handleNewThread(scopeProjectRef(input.environmentId, projectId)),
       );
       if (navigationResult._tag === "Failure") {
         const error = squashAtomCommandFailure(navigationResult);
@@ -1127,9 +1161,6 @@ function OpenCommandPaletteDialog(props: {
       setOpen(false);
     },
     [
-      browseEnvironmentId,
-      browseEnvironmentPlatform,
-      currentProjectCwdForBrowse,
       handleNewThread,
       createProject,
       navigate,
@@ -1137,6 +1168,24 @@ function OpenCommandPaletteDialog(props: {
       setOpen,
       clientSettings.sidebarThreadSortOrder,
       threads,
+    ],
+  );
+
+  const handleAddProject = useCallback(
+    async (rawCwd: string) => {
+      if (!browseEnvironmentId) return;
+      await handleAddProjectForEnvironment({
+        environmentId: browseEnvironmentId,
+        rawCwd,
+        platform: browseEnvironmentPlatform,
+        currentProjectCwd: currentProjectCwdForBrowse,
+      });
+    },
+    [
+      browseEnvironmentId,
+      browseEnvironmentPlatform,
+      currentProjectCwdForBrowse,
+      handleAddProjectForEnvironment,
     ],
   );
 
@@ -1369,11 +1418,13 @@ function OpenCommandPaletteDialog(props: {
     query.trim().length > 0 &&
     !isRemoteProjectPending;
   const fileManagerName = getLocalFileManagerName(navigator.platform);
+  const browseDesktopLocalBackendId = browseEnvironment
+    ? desktopLocalBackendId(browseEnvironment.entry.target)
+    : null;
   const canOpenProjectFromFileManager =
     isBrowsing &&
     browseEnvironmentId !== null &&
-    primaryEnvironmentId !== null &&
-    browseEnvironmentId === primaryEnvironmentId &&
+    (browseEnvironmentId === primaryEnvironmentId || browseDesktopLocalBackendId !== null) &&
     typeof window !== "undefined" &&
     window.desktopBridge !== undefined;
   const fileManagerInitialPath = useMemo(() => {
@@ -1469,8 +1520,14 @@ function OpenCommandPaletteDialog(props: {
     setIsPickingProjectFolder(true);
     let pickedPath: string | null = null;
     try {
+      const pickerOptions = {
+        ...(fileManagerInitialPath ? { initialPath: fileManagerInitialPath } : {}),
+        ...(browseDesktopLocalBackendId
+          ? { targetEnvironmentId: browseDesktopLocalBackendId }
+          : {}),
+      };
       pickedPath = await api.dialogs.pickFolder(
-        fileManagerInitialPath ? { initialPath: fileManagerInitialPath } : undefined,
+        Object.keys(pickerOptions).length > 0 ? pickerOptions : undefined,
       );
     } catch {
       // Ignore picker failures and leave the palette open.
@@ -1481,11 +1538,40 @@ function OpenCommandPaletteDialog(props: {
     if (!pickedPath) {
       return;
     }
+    if (parseWslUncPath(pickedPath)) {
+      const selection = resolveWslProjectSelection(
+        pickedPath,
+        environments.flatMap((environment) => {
+          const backendId = desktopLocalBackendId(environment.entry.target);
+          return backendId ? [{ environmentId: environment.environmentId, backendId }] : [];
+        }),
+      );
+      if (!selection) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not add WSL project",
+            description: "Start the matching WSL backend, then choose the folder again.",
+          }),
+        );
+        return;
+      }
+      await handleAddProjectForEnvironment({
+        environmentId: selection.environmentId,
+        rawCwd: selection.linuxPath,
+        platform: "Linux",
+        currentProjectCwd: null,
+      });
+      return;
+    }
     await handleAddProject(pickedPath);
   }, [
+    browseDesktopLocalBackendId,
     canOpenProjectFromFileManager,
+    environments,
     fileManagerInitialPath,
     handleAddProject,
+    handleAddProjectForEnvironment,
     isPickingProjectFolder,
   ]);
 
