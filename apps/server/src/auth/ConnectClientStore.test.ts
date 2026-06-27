@@ -34,16 +34,36 @@ const approvedRecord: AuthConnectClients.AuthConnectClientRecord = {
   lastSeenAt: null,
 };
 
-const secretStoreLayer = Layer.succeed(
-  ServerSecretStore.ServerSecretStore,
-  ServerSecretStore.ServerSecretStore.of({
-    get: () => Effect.succeed(Option.some(textEncoder.encode("client-approval"))),
-    set: () => Effect.void,
-    create: () => Effect.void,
-    getOrCreateRandom: () => Effect.succeed(new Uint8Array()),
-    remove: () => Effect.void,
-  }),
-);
+const makeSecretStoreLayer = (mode: string) =>
+  Layer.succeed(
+    ServerSecretStore.ServerSecretStore,
+    ServerSecretStore.ServerSecretStore.of({
+      get: () => Effect.succeed(Option.some(textEncoder.encode(mode))),
+      set: () => Effect.void,
+      create: () => Effect.void,
+      getOrCreateRandom: () => Effect.succeed(new Uint8Array()),
+      remove: () => Effect.void,
+    }),
+  );
+
+const secretStoreLayer = makeSecretStoreLayer("client-approval");
+
+const makeStoreOnlyLayer = (mode: string) =>
+  Layer.effect(ConnectClientStore.ConnectClientStore, ConnectClientStore.make).pipe(
+    Layer.provide(makeSecretStoreLayer(mode)),
+    Layer.provide(
+      Layer.succeed(
+        AuthConnectClients.AuthConnectClientRepository,
+        AuthConnectClients.AuthConnectClientRepository.of({
+          upsertRequest: () => Effect.succeed(approvedRecord),
+          updateStatus: () => Effect.succeed(Option.none()),
+          revoke: () => Effect.succeed(false),
+          markSeen: () => Effect.succeed(Option.some(approvedRecord)),
+          listActive: () => Effect.succeed([]),
+        }),
+      ),
+    ),
+  );
 
 const makeStoreLayer = (
   overrides: Partial<AuthConnectClients.AuthConnectClientRepository["Service"]>,
@@ -64,6 +84,15 @@ const makeStoreLayer = (
       ),
     ),
   );
+
+it.effect("fails closed when persisted security mode is invalid", () =>
+  Effect.gen(function* () {
+    const store = yield* ConnectClientStore.ConnectClientStore;
+    const error = yield* Effect.flip(store.getSecurityMode());
+
+    expect(error._tag).toBe("ConnectSecurityModeLoadError");
+  }).pipe(Effect.provide(makeStoreOnlyLayer("invalid-mode"))),
+);
 
 it.effect("returns rejected when an approved client is rejected before last-seen update", () =>
   Effect.gen(function* () {

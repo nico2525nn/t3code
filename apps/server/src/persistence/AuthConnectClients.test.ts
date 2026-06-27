@@ -57,3 +57,71 @@ it.effect("clears stale last-seen timestamps when a revoked client re-registers"
     expect(reregistered.lastSeenAt).toBeNull();
   }).pipe(Effect.provide(layer)),
 );
+
+it.effect("resets approval when the same proof key is requested by a different cloud user", () =>
+  Effect.gen(function* () {
+    const clients = yield* AuthConnectClients.AuthConnectClientRepository;
+    const clientProofKeyThumbprint = "client-thumbprint-cloud-user-change";
+
+    yield* clients.upsertRequest({
+      clientProofKeyThumbprint,
+      cloudUserId: "cloud-user-a",
+      deviceId: "device-1",
+      client,
+      requestedAt: DateTime.makeUnsafe("2026-06-27T13:00:00.000Z"),
+    });
+    yield* clients.updateStatus({
+      clientProofKeyThumbprint,
+      status: "approved",
+      decidedAt: DateTime.makeUnsafe("2026-06-27T13:01:00.000Z"),
+    });
+    yield* clients.markSeen({
+      clientProofKeyThumbprint,
+      seenAt: DateTime.makeUnsafe("2026-06-27T13:02:00.000Z"),
+    });
+
+    const reregistered = yield* clients.upsertRequest({
+      clientProofKeyThumbprint,
+      cloudUserId: "cloud-user-b",
+      deviceId: "device-1",
+      client,
+      requestedAt: DateTime.makeUnsafe("2026-06-27T13:03:00.000Z"),
+    });
+
+    expect(reregistered.cloudUserId).toBe("cloud-user-b");
+    expect(reregistered.status).toBe("pending");
+    expect(reregistered.approvedAt).toBeNull();
+    expect(reregistered.rejectedAt).toBeNull();
+    expect(reregistered.lastSeenAt).toBeNull();
+  }).pipe(Effect.provide(layer)),
+);
+
+it.effect("clears the opposite decision timestamp when approval status changes", () =>
+  Effect.gen(function* () {
+    const clients = yield* AuthConnectClients.AuthConnectClientRepository;
+    const clientProofKeyThumbprint = "client-thumbprint-status-flip";
+
+    yield* clients.upsertRequest({
+      clientProofKeyThumbprint,
+      cloudUserId: "cloud-user",
+      deviceId: "device-1",
+      client,
+      requestedAt: DateTime.makeUnsafe("2026-06-27T14:00:00.000Z"),
+    });
+    const rejected = yield* clients.updateStatus({
+      clientProofKeyThumbprint,
+      status: "rejected",
+      decidedAt: DateTime.makeUnsafe("2026-06-27T14:01:00.000Z"),
+    });
+    expect(Option.isSome(rejected) ? rejected.value.rejectedAt : null).not.toBeNull();
+    expect(Option.isSome(rejected) ? rejected.value.approvedAt : null).toBeNull();
+
+    const approved = yield* clients.updateStatus({
+      clientProofKeyThumbprint,
+      status: "approved",
+      decidedAt: DateTime.makeUnsafe("2026-06-27T14:02:00.000Z"),
+    });
+    expect(Option.isSome(approved) ? approved.value.approvedAt : null).not.toBeNull();
+    expect(Option.isSome(approved) ? approved.value.rejectedAt : null).toBeNull();
+  }).pipe(Effect.provide(layer)),
+);

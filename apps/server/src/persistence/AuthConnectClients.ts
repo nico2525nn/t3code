@@ -237,7 +237,9 @@ export const make = Effect.gen(function* () {
           cloud_user_id = excluded.cloud_user_id,
           device_id = excluded.device_id,
           status = CASE
-            WHEN auth_connect_clients.revoked_at IS NULL THEN auth_connect_clients.status
+            WHEN auth_connect_clients.revoked_at IS NULL
+              AND auth_connect_clients.cloud_user_id = excluded.cloud_user_id
+              THEN auth_connect_clients.status
             ELSE 'pending'
           END,
           client_label = excluded.client_label,
@@ -249,15 +251,21 @@ export const make = Effect.gen(function* () {
           requested_at = excluded.requested_at,
           updated_at = excluded.updated_at,
           approved_at = CASE
-            WHEN auth_connect_clients.revoked_at IS NULL THEN auth_connect_clients.approved_at
+            WHEN auth_connect_clients.revoked_at IS NULL
+              AND auth_connect_clients.cloud_user_id = excluded.cloud_user_id
+              THEN auth_connect_clients.approved_at
             ELSE NULL
           END,
           rejected_at = CASE
-            WHEN auth_connect_clients.revoked_at IS NULL THEN auth_connect_clients.rejected_at
+            WHEN auth_connect_clients.revoked_at IS NULL
+              AND auth_connect_clients.cloud_user_id = excluded.cloud_user_id
+              THEN auth_connect_clients.rejected_at
             ELSE NULL
           END,
           last_seen_at = CASE
-            WHEN auth_connect_clients.revoked_at IS NULL THEN auth_connect_clients.last_seen_at
+            WHEN auth_connect_clients.revoked_at IS NULL
+              AND auth_connect_clients.cloud_user_id = excluded.cloud_user_id
+              THEN auth_connect_clients.last_seen_at
             ELSE NULL
           END,
           revoked_at = NULL
@@ -274,8 +282,8 @@ export const make = Effect.gen(function* () {
         SET
           status = ${status},
           updated_at = ${decidedAt},
-          approved_at = CASE WHEN ${status} = 'approved' THEN ${decidedAt} ELSE approved_at END,
-          rejected_at = CASE WHEN ${status} = 'rejected' THEN ${decidedAt} ELSE rejected_at END,
+          approved_at = CASE WHEN ${status} = 'approved' THEN ${decidedAt} ELSE NULL END,
+          rejected_at = CASE WHEN ${status} = 'rejected' THEN ${decidedAt} ELSE NULL END,
           last_seen_at = CASE
             WHEN ${status} = 'approved' AND status = 'approved' THEN last_seen_at
             ELSE NULL

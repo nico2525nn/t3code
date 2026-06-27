@@ -1077,6 +1077,7 @@ const ConnectClientListRow = memo(function ConnectClientListRow({
   const pendingApproveKey = `approve:${connectClient.clientProofKeyThumbprint}`;
   const pendingRejectKey = `reject:${connectClient.clientProofKeyThumbprint}`;
   const pendingRevokeKey = `revoke:${connectClient.clientProofKeyThumbprint}`;
+  const hasPendingAction = pendingActionKey !== null;
   const statusConfig =
     connectClient.status === "approved"
       ? {
@@ -1139,7 +1140,7 @@ const ConnectClientListRow = memo(function ConnectClientListRow({
             <Button
               size="xs"
               variant="outline"
-              disabled={pendingActionKey === pendingApproveKey}
+              disabled={hasPendingAction}
               onClick={() => void onApprove(connectClient.clientProofKeyThumbprint)}
             >
               {pendingActionKey === pendingApproveKey ? "Approving…" : "Approve"}
@@ -1149,7 +1150,7 @@ const ConnectClientListRow = memo(function ConnectClientListRow({
             <Button
               size="xs"
               variant="outline"
-              disabled={pendingActionKey === pendingRejectKey}
+              disabled={hasPendingAction}
               onClick={() => void onReject(connectClient.clientProofKeyThumbprint)}
             >
               {pendingActionKey === pendingRejectKey ? "Rejecting…" : "Reject"}
@@ -1159,7 +1160,7 @@ const ConnectClientListRow = memo(function ConnectClientListRow({
             <Button
               size="xs"
               variant="destructive-outline"
-              disabled={pendingActionKey === pendingRevokeKey}
+              disabled={hasPendingAction}
               onClick={() => void onRevoke(connectClient.clientProofKeyThumbprint)}
             >
               {pendingActionKey === pendingRevokeKey ? "Revoking…" : "Revoke"}
@@ -2316,9 +2317,9 @@ export function ConnectionsSettings() {
       ),
     );
   }, [authAccessChanges.data]);
-  const desktopConnectSecurityMode: AuthConnectSecurityMode = useMemo(() => {
+  const desktopConnectSecurityMode: AuthConnectSecurityMode | null = useMemo(() => {
     const event = authAccessChanges.data;
-    return event?.type === "snapshot" ? event.payload.connectSecurityMode : "account";
+    return event?.type === "snapshot" ? event.payload.connectSecurityMode : null;
   }, [authAccessChanges.data]);
   const desktopConnectClients = useMemo(() => {
     const event = authAccessChanges.data;
@@ -2548,6 +2549,7 @@ export function ConnectionsSettings() {
 
   const handleConnectClientAction = useCallback(
     async (action: "approve" | "reject" | "revoke", clientProofKeyThumbprint: string) => {
+      if (pendingConnectClientActionKey !== null) return;
       const actionKey = `${action}:${clientProofKeyThumbprint}`;
       setPendingConnectClientActionKey(actionKey);
       setDesktopAccessManagementMutationError(null);
@@ -2574,7 +2576,7 @@ export function ConnectionsSettings() {
         setPendingConnectClientActionKey(null);
       }
     },
-    [],
+    [pendingConnectClientActionKey],
   );
 
   const handleAddSavedBackend = useCallback(async () => {
@@ -2784,6 +2786,13 @@ export function ConnectionsSettings() {
   );
   const isLocalBackendRemotelyReachable =
     isLocalBackendNetworkAccessible || tailscaleHttpsEndpoint?.status === "available";
+  const shouldShowT3ConnectClients =
+    hasCloudPublicConfig() &&
+    (desktopConnectSecurityMode !== "account" ||
+      desktopConnectClients.length > 0 ||
+      isLoadingDesktopAccessManagement ||
+      desktopAccessManagementError !== null);
+  const shouldShowAuthorizedClients = isLocalBackendRemotelyReachable || shouldShowT3ConnectClients;
   const defaultDesktopNetworkAdvertisedEndpoint = useMemo(
     () =>
       selectPairingEndpoint(visibleDesktopNetworkAdvertisedEndpoints, defaultAdvertisedEndpointKey),
@@ -3095,14 +3104,20 @@ export function ConnectionsSettings() {
       <SettingsRow
         title="T3 Connect approval"
         description={
-          desktopConnectSecurityMode === "client-approval"
-            ? "New T3 Connect clients must be approved here before they can connect."
-            : "Any signed-in client on this T3 account can connect through T3 Connect."
+          desktopConnectSecurityMode === null
+            ? "Loading T3 Connect approval state."
+            : desktopConnectSecurityMode === "client-approval"
+              ? "New T3 Connect clients must be approved here before they can connect."
+              : "Any signed-in client on this T3 account can connect through T3 Connect."
         }
         control={
           <Switch
             checked={desktopConnectSecurityMode === "client-approval"}
-            disabled={isUpdatingConnectSecurityMode || isLoadingDesktopAccessManagement}
+            disabled={
+              desktopConnectSecurityMode === null ||
+              isUpdatingConnectSecurityMode ||
+              isLoadingDesktopAccessManagement
+            }
             onCheckedChange={(checked) => void handleUpdateConnectSecurityMode(checked)}
             aria-label="Require T3 Connect client approval"
           />
@@ -3206,7 +3221,7 @@ export function ConnectionsSettings() {
             )}
           </SettingsSection>
 
-          {isLocalBackendRemotelyReachable ? (
+          {shouldShowAuthorizedClients ? (
             <SettingsSection
               title="Authorized clients"
               headerAction={

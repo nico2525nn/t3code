@@ -222,9 +222,18 @@ function fromPresentationMetadata(
   };
 }
 
-function decodeSecurityMode(bytes: Uint8Array): AuthConnectSecurityMode {
+function decodeSecurityMode(
+  bytes: Uint8Array,
+): Effect.Effect<AuthConnectSecurityMode, ConnectSecurityModeLoadError> {
   const value = textDecoder.decode(bytes).trim();
-  return value === "client-approval" ? "client-approval" : "account";
+  if (value === "account" || value === "client-approval") {
+    return Effect.succeed(value);
+  }
+  return Effect.fail(
+    new ConnectSecurityModeLoadError({
+      cause: new Error(`Invalid Connect security mode: ${value}`),
+    }),
+  );
 }
 
 function encodeSecurityMode(mode: AuthConnectSecurityMode): Uint8Array {
@@ -256,10 +265,10 @@ export const make = Effect.gen(function* () {
 
   const getSecurityMode: ConnectClientStore["Service"]["getSecurityMode"] = () =>
     secrets.get(CONNECT_SECURITY_MODE_SECRET).pipe(
-      Effect.map((mode) =>
-        Option.isSome(mode) ? decodeSecurityMode(mode.value) : ("account" as const),
-      ),
       Effect.mapError((cause) => new ConnectSecurityModeLoadError({ cause })),
+      Effect.flatMap((mode) =>
+        Option.isSome(mode) ? decodeSecurityMode(mode.value) : Effect.succeed("account" as const),
+      ),
       Effect.withSpan("ConnectClientStore.getSecurityMode"),
     );
 
