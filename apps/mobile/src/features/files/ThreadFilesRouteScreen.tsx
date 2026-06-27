@@ -538,14 +538,6 @@ export function ThreadFilesTreeScreen() {
     [projectName],
   );
 
-  if (selectedThread === null || environmentId === null || threadId === null) {
-    return <LoadingScreen message="Opening files..." messagePlacement="above-spinner" />;
-  }
-
-  if (cwd === null) {
-    return <FilesUnavailable />;
-  }
-
   if (fileInspector.supported) {
     return (
       <ThreadRouteScreen
@@ -553,6 +545,14 @@ export function ThreadFilesTreeScreen() {
         renderInspector={renderInspector}
       />
     );
+  }
+
+  if (selectedThread === null || environmentId === null || threadId === null) {
+    return <LoadingScreen message="Opening files..." messagePlacement="above-spinner" />;
+  }
+
+  if (cwd === null) {
+    return <FilesUnavailable />;
   }
 
   return (
@@ -652,6 +652,15 @@ export function ThreadFileScreen() {
     assetPreviewUri === null || previewRevision === 0
       ? assetPreviewUri
       : `${assetPreviewUri}${assetPreviewUri.includes("?") ? "&" : "?"}revision=${previewRevision}`;
+  const handleReturnToThread = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    if (environmentId !== null && threadId !== null) {
+      router.replace(buildThreadRoutePath({ environmentId, threadId }));
+    }
+  }, [environmentId, router, threadId]);
   const needsFileContents =
     relativePath !== null &&
     (resolvedActiveMode === "source" || isMarkdownPreviewFile(relativePath));
@@ -691,6 +700,15 @@ export function ThreadFileScreen() {
       ) : undefined,
     [cwd, environmentId, fileInspector.supported, handleSelectFile, projectName, relativePath],
   );
+
+  if (fileInspector.supported && environmentId !== null && threadId !== null) {
+    return (
+      <ThreadRouteScreen
+        onReturnToThread={handleReturnToThread}
+        renderInspector={renderInspector}
+      />
+    );
+  }
 
   if (selectedThread === null || environmentId === null || threadId === null) {
     return <LoadingScreen message="Opening file..." messagePlacement="above-spinner" />;

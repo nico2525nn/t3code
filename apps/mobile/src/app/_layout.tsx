@@ -16,7 +16,6 @@ import { useResolveClassNames } from "uniwind";
 
 import { LoadingScreen } from "../components/LoadingScreen";
 
-import { useWorkspaceState } from "../state/workspace";
 import { useThreadOutboxDrain } from "../state/use-thread-outbox-drain";
 import { RegistryContext } from "@effect/atom-react";
 import { appAtomRegistry } from "../state/atom-registry";
@@ -47,15 +46,10 @@ function AppNavigator() {
 }
 
 function AppNavigatorContent() {
-  const { state } = useWorkspaceState();
   const colorScheme = useColorScheme();
   const statusBarBg = useThemeColor("--color-status-bar");
   useAgentNotificationNavigation();
   useThreadOutboxDrain();
-
-  if (state.isLoadingConnections) {
-    return <LoadingScreen message="Loading remote workspace…" />;
-  }
 
   return (
     <>

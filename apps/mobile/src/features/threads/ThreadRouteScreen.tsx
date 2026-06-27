@@ -418,9 +418,14 @@ function ThreadRouteContent(
       if (selectedThread === null) {
         return;
       }
-      router.push(buildThreadFilesNavigation(selectedThread, path));
+      const navigation = buildThreadFilesNavigation(selectedThread, path);
+      if (fileInspector.supported) {
+        router.replace(navigation);
+        return;
+      }
+      router.push(navigation);
     },
-    [router, selectedThread],
+    [fileInspector.supported, router, selectedThread],
   );
   const GitInspector = useCallback(
     () => <GitOverviewSheet headerInset={headerHeight} presentation="inspector" />,

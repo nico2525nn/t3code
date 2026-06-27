@@ -492,6 +492,8 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
   }
 
   func setTokensPatchJson(_ tokensPatchJson: String) {
+    let contentResetKey = self.contentResetKey
+
     payloadDecodeQueue.async { [weak self] in
       guard let data = tokensPatchJson.data(using: .utf8) else {
         return
@@ -501,6 +503,9 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
         let patch = try JSONDecoder().decode(ReviewDiffNativeTokenPatch.self, from: data)
         DispatchQueue.main.async { [weak self] in
           guard let self else {
+            return
+          }
+          guard contentResetKey == self.contentResetKey else {
             return
           }
           // A highlighter request from the previous file can finish after the view has
@@ -550,6 +555,7 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
     }
 
     self.contentResetKey = contentResetKey
+    rowsDecodeGeneration += 1
     tokensDecodeGeneration += 1
     contentView.tokensByRowId = [:]
     hasAppliedInitialRowIndex = false

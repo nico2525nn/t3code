@@ -12,10 +12,21 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   ) {
     guard
       let windowScene = scene as? UIWindowScene,
-      let appDelegate = UIApplication.shared.delegate as? AppDelegate,
-      let appWindow = appDelegate.window
+      let appDelegate = UIApplication.shared.delegate as? AppDelegate
     else {
       return
+    }
+
+    let appWindow: UIWindow
+    if let existingWindow = appDelegate.window {
+      appWindow = existingWindow
+    } else {
+      appWindow = UIWindow(windowScene: windowScene)
+      appDelegate.window = appWindow
+      appDelegate.reactNativeFactory?.startReactNative(
+        withModuleName: "main",
+        in: appWindow,
+        launchOptions: nil)
     }
 
     window = appWindow
@@ -24,6 +35,13 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     if let url = connectionOptions.urlContexts.first?.url {
       _ = appDelegate.application(UIApplication.shared, open: url, options: [:])
+    }
+
+    if let userActivity = connectionOptions.userActivities.first {
+      _ = appDelegate.application(
+        UIApplication.shared,
+        continue: userActivity,
+        restorationHandler: { _ in })
     }
   }
 
