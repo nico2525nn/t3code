@@ -8,7 +8,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import { useAuth } from "@clerk/react";
-import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AuthAccessReadScope,
   AuthAccessWriteScope,
@@ -2224,6 +2224,7 @@ export function ConnectionsSettings() {
   const [pendingConnectClientActionKey, setPendingConnectClientActionKey] = useState<string | null>(
     null,
   );
+  const pendingConnectClientActionRef = useRef(false);
   const [addBackendDialogOpen, setAddBackendDialogOpen] = useState(false);
   const [savedBackendMode, setSavedBackendMode] = useState<"remote" | "ssh">("remote");
   const [savedBackendHost, setSavedBackendHost] = useState("");
@@ -2549,7 +2550,8 @@ export function ConnectionsSettings() {
 
   const handleConnectClientAction = useCallback(
     async (action: "approve" | "reject" | "revoke", clientProofKeyThumbprint: string) => {
-      if (pendingConnectClientActionKey !== null) return;
+      if (pendingConnectClientActionRef.current) return;
+      pendingConnectClientActionRef.current = true;
       const actionKey = `${action}:${clientProofKeyThumbprint}`;
       setPendingConnectClientActionKey(actionKey);
       setDesktopAccessManagementMutationError(null);
@@ -2573,10 +2575,11 @@ export function ConnectionsSettings() {
           }),
         );
       } finally {
+        pendingConnectClientActionRef.current = false;
         setPendingConnectClientActionKey(null);
       }
     },
-    [pendingConnectClientActionKey],
+    [],
   );
 
   const handleAddSavedBackend = useCallback(async () => {
