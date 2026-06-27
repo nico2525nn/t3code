@@ -1,7 +1,6 @@
 import Stack from "expo-router/stack";
 import { SymbolView } from "expo-symbols";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useHeaderHeight } from "expo-router/build/react-navigation/elements";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -463,7 +462,6 @@ function FilesToolbarBottomFade() {
 export function ThreadFilesTreeScreen() {
   useAdaptiveWorkspacePaneRole("inspector");
   const router = useRouter();
-  const headerHeight = useHeaderHeight();
   const { fileInspector, layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
   const [searchQuery, setSearchQuery] = useState("");
   const colorScheme = useColorScheme();
@@ -506,18 +504,18 @@ export function ThreadFilesTreeScreen() {
     [environmentId, fileInspector.supported, router, threadId],
   );
   const renderInspector = useCallback(
-    () =>
+    (headerInset: number) =>
       environmentId !== null && cwd !== null ? (
         <ThreadFileNavigatorPane
           cwd={cwd}
           environmentId={environmentId}
-          headerInset={headerHeight}
+          headerInset={headerInset}
           projectName={projectName}
           selectedPath={null}
           onSelectFile={handleSelectFile}
         />
       ) : null,
-    [cwd, environmentId, handleSelectFile, headerHeight, projectName],
+    [cwd, environmentId, handleSelectFile, projectName],
   );
   const handlePreviewFile = useCallback(
     (relativePath: string) => {
@@ -687,12 +685,12 @@ export function ThreadFileScreen() {
     [router],
   );
   const renderInspector = useCallback(
-    () =>
+    (headerInset: number) =>
       fileInspector.supported && environmentId !== null && cwd !== null ? (
         <ThreadFileNavigatorPane
           cwd={cwd}
           environmentId={environmentId}
-          headerInset={0}
+          headerInset={headerInset}
           projectName={projectName}
           selectedPath={relativePath}
           onSelectFile={handleSelectFile}
@@ -772,7 +770,7 @@ export function ThreadFileScreen() {
           />
         </Stack.Toolbar>
         <AdaptiveInspectorLayout
-          renderInspector={fileInspector.supported ? renderInspector : undefined}
+          renderInspector={fileInspector.supported ? () => renderInspector(0) : undefined}
         >
           <FilePreviewHeader
             activeMode={resolvedActiveMode}

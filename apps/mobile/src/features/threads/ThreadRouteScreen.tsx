@@ -101,7 +101,7 @@ function OpeningThreadLoadingScreen() {
 
 interface ThreadRouteScreenProps {
   readonly onReturnToThread?: () => void;
-  readonly renderInspector?: () => ReactNode;
+  readonly renderInspector?: (headerInset: number) => ReactNode;
 }
 
 function ThreadUnavailableScreen() {
@@ -458,10 +458,10 @@ function ThreadRouteContent(
           Files={FilesInspector}
           Git={GitInspector}
           mode={inspectorMode}
-          Route={props.renderInspector}
+          Route={props.renderInspector ? () => props.renderInspector?.(headerHeight) : undefined}
         />
       ),
-    [FilesInspector, GitInspector, inspectorMode, props.renderInspector],
+    [FilesInspector, GitInspector, headerHeight, inspectorMode, props.renderInspector],
   );
   const activeInspectorRenderer = inspectorMode === null ? undefined : renderInspectorStack;
 
