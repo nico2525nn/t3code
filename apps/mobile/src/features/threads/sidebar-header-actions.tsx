@@ -1,11 +1,11 @@
 import { SymbolView } from "expo-symbols";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View, useColorScheme } from "react-native";
 
 import { useThemeColor } from "../../lib/useThemeColor";
 
 export interface SidebarHeaderActionsProps {
   readonly onOpenSettings: () => void;
-  readonly onStartNewTask: () => void;
+  readonly onStartNewTask?: () => void;
 }
 
 function FallbackHeaderButton(props: {
@@ -15,6 +15,10 @@ function FallbackHeaderButton(props: {
 }) {
   const iconColor = useThemeColor("--color-icon-muted");
   const pressedBackgroundColor = useThemeColor("--color-subtle");
+  const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
+  const idleBackgroundColor =
+    colorScheme === "dark" ? "rgba(118,118,128,0.24)" : "rgba(255,255,255,0.72)";
+  const borderColor = colorScheme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
 
   return (
     <Pressable
@@ -24,7 +28,10 @@ function FallbackHeaderButton(props: {
       onPress={props.onPress}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: pressed ? pressedBackgroundColor : "transparent" },
+        {
+          backgroundColor: pressed ? pressedBackgroundColor : idleBackgroundColor,
+          borderColor,
+        },
       ]}
     >
       <SymbolView name={props.icon} size={18} tintColor={iconColor} type="monochrome" />
@@ -40,11 +47,13 @@ export function SidebarHeaderActions(props: SidebarHeaderActionsProps) {
         icon="gearshape"
         onPress={props.onOpenSettings}
       />
-      <FallbackHeaderButton
-        accessibilityLabel="New task"
-        icon="square.and.pencil"
-        onPress={props.onStartNewTask}
-      />
+      {props.onStartNewTask ? (
+        <FallbackHeaderButton
+          accessibilityLabel="New task"
+          icon="square.and.pencil"
+          onPress={props.onStartNewTask}
+        />
+      ) : null}
     </View>
   );
 }
@@ -58,7 +67,8 @@ const styles = StyleSheet.create({
   button: {
     width: 44,
     height: 44,
-    borderRadius: 12,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },

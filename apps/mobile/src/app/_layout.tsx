@@ -1,14 +1,20 @@
-import "../../global.css";
 import {
   DMSans_400Regular,
   DMSans_500Medium,
   DMSans_700Bold,
   useFonts,
 } from "@expo-google-fonts/dm-sans";
-import { usePathname } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import Stack from "expo-router/stack";
-import { useCallback } from "react";
-import { StatusBar, useColorScheme, useWindowDimensions } from "react-native";
+import { useCallback, useEffect } from "react";
+import {
+  LogBox,
+  Platform,
+  Settings,
+  StatusBar,
+  useColorScheme,
+  useWindowDimensions,
+} from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -33,6 +39,17 @@ import { deriveStableFormSheetDetent } from "../lib/layout";
 import { useThemeColor } from "../lib/useThemeColor";
 import { HardwareKeyboardCommandProvider } from "../features/keyboard/HardwareKeyboardCommandProvider";
 
+const debugLaunchRoute =
+  __DEV__ && Platform.OS === "ios" ? Settings.get("T3DebugRoute") : undefined;
+
+if (debugLaunchRoute !== "/debug/rns-glass") {
+  require("../../global.css");
+}
+
+if (debugLaunchRoute === "/debug/rns-glass") {
+  LogBox.ignoreAllLogs(true);
+}
+
 function AppNavigator() {
   const pathname = usePathname();
   const expandedSettingsRouteIsActive =
@@ -46,10 +63,57 @@ function AppNavigator() {
 }
 
 function AppNavigatorContent() {
+  const pathname = usePathname();
+  const isDebugRoute = pathname.startsWith("/debug/") || debugLaunchRoute === "/debug/rns-glass";
+
+  if (isDebugRoute) {
+    return <DebugNavigatorHost pathname={pathname} />;
+  }
+
+  return <WorkspaceNavigatorHost pathname={pathname} />;
+}
+
+function DebugNavigatorHost(props: { readonly pathname: string }) {
+  const router = useRouter();
+
+  useEffect(() => {
+    if (debugLaunchRoute === "/debug/rns-glass" && props.pathname !== "/debug/rns-glass") {
+      router.replace("/debug/rns-glass" as never);
+    }
+  }, [props.pathname, router]);
+
+  return (
+    <>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen
+          name="debug/rns-glass"
+          options={{
+            animation: "none",
+            contentStyle: { backgroundColor: "transparent" },
+            headerShown: false,
+          }}
+        />
+      </Stack>
+    </>
+  );
+}
+
+function WorkspaceNavigatorHost(props: { readonly pathname: string }) {
   const colorScheme = useColorScheme();
+  const pathname = props.pathname;
+  const router = useRouter();
   const statusBarBg = useThemeColor("--color-status-bar");
   useAgentNotificationNavigation();
   useThreadOutboxDrain();
+
+  useEffect(() => {
+    if (!__DEV__ || Platform.OS !== "ios") return;
+    const debugRoute = Settings.get("T3DebugRoute");
+    if (typeof debugRoute !== "string" || debugRoute.length === 0 || pathname === debugRoute)
+      return;
+    router.replace(debugRoute as never);
+  }, [pathname, router]);
 
   return (
     <>
@@ -127,6 +191,14 @@ function WorkspaceNavigator() {
       />
       <Stack.Screen name="connections" options={connectionSheetScreenOptions} />
       <Stack.Screen name="new" options={newTaskScreenOptions} />
+      <Stack.Screen
+        name="debug/rns-glass"
+        options={{
+          animation: "none",
+          contentStyle: { backgroundColor: "transparent" },
+          headerShown: false,
+        }}
+      />
       <Stack.Screen
         name="threads/[environmentId]/[threadId]"
         options={{

@@ -1,4 +1,4 @@
-export type NativeTopScrollEdgeEffect = "automatic" | "hard";
+export type NativeTopScrollEdgeEffect = "automatic" | "soft";
 
 function majorVersion(version: number | string): number {
   if (typeof version === "number") {
@@ -10,14 +10,13 @@ function majorVersion(version: number | string): number {
 }
 
 /**
- * iOS 27 beta currently renders the automatic/soft top scroll-edge effect as
- * fully transparent. Keep the subtler automatic treatment on iOS 26 and use
- * UIKit's native hard treatment on iOS 27+ until the platform regression is
- * resolved.
+ * iOS 27's system apps use a soft scroll-edge treatment for Messages-style
+ * chrome. Avoid the `hard` style here: it adds the dividing line that makes the
+ * header feel custom and heavier than Messages/Mail.
  */
 export function nativeTopScrollEdgeEffect(
   os: string,
   version: number | string,
 ): NativeTopScrollEdgeEffect {
-  return os === "ios" && majorVersion(version) >= 27 ? "hard" : "automatic";
+  return os === "ios" && majorVersion(version) >= 27 ? "soft" : "automatic";
 }

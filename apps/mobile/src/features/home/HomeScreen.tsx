@@ -9,8 +9,15 @@ import type {
 } from "@t3tools/contracts";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
-import { ActivityIndicator, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  ScrollView,
+  useColorScheme,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import Animated, {
   Easing,
@@ -20,7 +27,10 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Screen, ScreenStack, ScreenStackHeaderConfig } from "react-native-screens";
 import { useThemeColor } from "../../lib/useThemeColor";
+import { nativeTopScrollEdgeEffect } from "../../lib/native-scroll-edge-effect";
+import { iosNativeGlassButtonTint } from "../../lib/ios-native-chrome";
 
 import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
@@ -29,6 +39,11 @@ import type { WorkspaceState } from "../../state/workspaceModel";
 import type { SavedRemoteConnection } from "../../lib/connection";
 import { relativeTime } from "../../lib/time";
 import { threadStatusTone } from "../threads/threadPresentation";
+import {
+  buildHomeListFilterMenu,
+  type HomeListFilterMenuEnvironment,
+} from "./home-list-filter-menu";
+import { hasCustomHomeListOptions } from "./home-list-options";
 import { buildHomeThreadGroups, type HomeProjectSortOrder } from "./homeThreadList";
 import { ThreadSwipeable } from "./thread-swipe-actions";
 import { WorkspaceConnectionStatus } from "./WorkspaceConnectionStatus";
@@ -41,13 +56,21 @@ interface HomeScreenProps {
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly catalogState: WorkspaceState;
   readonly savedConnectionsById: Readonly<Record<string, SavedRemoteConnection>>;
+  readonly environments: ReadonlyArray<HomeListFilterMenuEnvironment>;
   readonly searchQuery: string;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
+  readonly onSearchQueryChange: (query: string) => void;
+  readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
+  readonly onProjectSortOrderChange: (sortOrder: HomeProjectSortOrder) => void;
+  readonly onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
+  readonly onProjectGroupingModeChange: (mode: SidebarProjectGroupingMode) => void;
   readonly onAddConnection: () => void;
   readonly onOpenEnvironments: () => void;
+  readonly onOpenSettings: () => void;
+  readonly onStartNewTask: () => void;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
@@ -58,19 +81,20 @@ interface HomeScreenProps {
 function statusColors(thread: EnvironmentThreadShell): { bg: string; fg: string } {
   switch (thread.session?.status) {
     case "running":
-      return { bg: "rgba(249,115,22,0.14)", fg: "#f97316" };
+      return { bg: "rgba(249,115,22,0.22)", fg: "#ff9f0a" };
     case "ready":
-      return { bg: "rgba(34,197,94,0.14)", fg: "#22c55e" };
+      return { bg: "rgba(48,209,88,0.22)", fg: "#30d158" };
     case "starting":
-      return { bg: "rgba(59,130,246,0.14)", fg: "#3b82f6" };
+      return { bg: "rgba(10,132,255,0.22)", fg: "#0a84ff" };
     case "error":
-      return { bg: "rgba(239,68,68,0.14)", fg: "#ef4444" };
+      return { bg: "rgba(255,69,58,0.22)", fg: "#ff453a" };
     default:
-      return { bg: "rgba(163,163,163,0.10)", fg: "#a3a3a3" };
+      return { bg: "rgba(142,142,147,0.22)", fg: "#8e8e93" };
   }
 }
 
 const COLLAPSED_THREAD_LIMIT = 6;
+const HOME_COMPACT_HEADER_THRESHOLD = 48;
 const THREAD_LAYOUT_TRANSITION = LinearTransition.duration(220).easing(Easing.out(Easing.cubic));
 
 function threadRowExit(values: ExitAnimationsValues) {
@@ -174,7 +198,7 @@ function ProjectGroupLabel(props: {
   const hiddenCount = props.totalThreadCount - COLLAPSED_THREAD_LIMIT;
 
   return (
-    <View className="flex-row items-center gap-2.5 px-1 pb-2">
+    <View className="flex-row items-center gap-2.5 px-5 pb-2 pt-5">
       <ProjectFavicon
         environmentId={props.project.environmentId}
         size={18}
@@ -182,7 +206,7 @@ function ProjectGroupLabel(props: {
         workspaceRoot={props.project.workspaceRoot}
       />
       <Text
-        className="flex-1 text-xs font-t3-medium uppercase text-foreground-muted"
+        className="flex-1 text-xs font-t3-bold text-foreground-muted"
         style={{ letterSpacing: 0.5 }}
         numberOfLines={1}
       >
@@ -203,6 +227,10 @@ function ProjectGroupLabel(props: {
   );
 }
 
+function HomeTopContentSpacer(props: { readonly topInset: number }) {
+  return <View style={{ height: props.topInset + 78 }} />;
+}
+
 /* ─── Thread row ─────────────────────────────────────────────────────── */
 
 function ThreadRow(props: {
@@ -221,7 +249,7 @@ function ThreadRow(props: {
   const { width: windowWidth } = useWindowDimensions();
   const separatorColor = useThemeColor("--color-separator");
   const iconSubtleColor = useThemeColor("--color-icon-subtle");
-  const cardColor = useThemeColor("--color-card");
+  const screenColor = useThemeColor("--color-screen");
   const { bg, fg } = statusColors(props.thread);
   const tone = threadStatusTone(props.thread);
   const timestamp = relativeTime(
@@ -234,7 +262,7 @@ function ThreadRow(props: {
 
   return (
     <ThreadSwipeable
-      backgroundColor={cardColor}
+      backgroundColor={screenColor}
       fullSwipeWidth={windowWidth - 32}
       onDelete={props.onDelete}
       onSwipeableClose={props.onSwipeableClose}
@@ -253,7 +281,7 @@ function ThreadRow(props: {
           accessibilityHint="Swipe left for archive and delete actions"
           accessibilityLabel={props.thread.title}
           accessibilityRole="button"
-          className="bg-card"
+          className="bg-screen"
           onPress={() => {
             close();
             props.onPress();
@@ -263,32 +291,39 @@ function ThreadRow(props: {
           <View
             style={{
               flexDirection: "row",
-              paddingLeft: 16,
-              paddingRight: 16,
-              paddingVertical: 10,
+              paddingLeft: 20,
+              paddingRight: 18,
+              paddingVertical: 11,
               gap: 12,
-              borderBottomWidth: props.isLast ? 0 : 1,
-              borderBottomColor: separatorColor,
+              minHeight: 78,
             }}
           >
             <View
               style={{
-                width: 30,
-                height: 30,
-                borderRadius: 9,
+                width: 46,
+                height: 46,
+                borderRadius: 23,
                 backgroundColor: bg,
                 alignItems: "center",
                 justifyContent: "center",
-                marginTop: 2,
+                marginTop: 1,
               }}
             >
-              <SymbolView name="arrow.triangle.branch" size={13} tintColor={fg} type="monochrome" />
+              <SymbolView name="arrow.triangle.branch" size={20} tintColor={fg} type="monochrome" />
             </View>
 
-            <View style={{ flex: 1, gap: 3 }}>
+            <View
+              style={{
+                flex: 1,
+                gap: 3,
+                borderBottomWidth: props.isLast ? 0 : 1,
+                borderBottomColor: separatorColor,
+                paddingBottom: 11,
+              }}
+            >
               <View className="flex-row items-center justify-between gap-2">
                 <Text
-                  className="flex-1 text-base font-t3-bold leading-[20px] text-foreground"
+                  className="flex-1 text-lg font-t3-bold leading-[22px] text-foreground"
                   numberOfLines={1}
                 >
                   {props.thread.title}
@@ -303,11 +338,17 @@ function ThreadRow(props: {
                     </Text>
                   </View>
                   <Text
-                    className="text-xs text-foreground-tertiary"
+                    className="text-base text-foreground-tertiary"
                     style={{ fontVariant: ["tabular-nums"] }}
                   >
                     {timestamp}
                   </Text>
+                  <SymbolView
+                    name="chevron.right"
+                    size={13}
+                    tintColor={iconSubtleColor}
+                    type="monochrome"
+                  />
                 </View>
               </View>
 
@@ -319,11 +360,7 @@ function ThreadRow(props: {
                     tintColor={iconSubtleColor}
                     type="monochrome"
                   />
-                  <Text
-                    className="text-2xs text-foreground-tertiary"
-                    numberOfLines={1}
-                    style={{ fontFamily: "monospace" }}
-                  >
+                  <Text className="text-sm text-foreground-muted" numberOfLines={1}>
                     {subtitleParts.join(" · ")}
                   </Text>
                 </View>
@@ -341,10 +378,26 @@ function ThreadRow(props: {
 export function HomeScreen(props: HomeScreenProps) {
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set());
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
-  const homeScrollGesture = useMemo(() => Gesture.Native(), []);
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const accentColor = useThemeColor("--color-icon-muted");
-
+  const foregroundColor = useThemeColor("--color-foreground");
+  const screenColor = useThemeColor("--color-screen");
+  const colorScheme = useColorScheme();
+  const nativeHeaderButtonTint = iosNativeGlassButtonTint(colorScheme);
+  const hasCustomListOptions = hasCustomHomeListOptions(props);
+  const filterMenu = buildHomeListFilterMenu({
+    environments: props.environments,
+    selectedEnvironmentId: props.selectedEnvironmentId,
+    projectSortOrder: props.projectSortOrder,
+    threadSortOrder: props.threadSortOrder,
+    projectGroupingMode: props.projectGroupingMode,
+    onEnvironmentChange: props.onEnvironmentChange,
+    onProjectSortOrderChange: props.onProjectSortOrderChange,
+    onThreadSortOrderChange: props.onThreadSortOrderChange,
+    onProjectGroupingModeChange: props.onProjectGroupingModeChange,
+    onOpenSettings: props.onOpenSettings,
+  });
   const toggleExpanded = useCallback((key: string) => {
     setExpandedProjects((prev) => {
       const next = new Set(prev);
@@ -366,7 +419,6 @@ export function HomeScreen(props: HomeScreenProps) {
       openSwipeableRef.current = null;
     }
   }, []);
-
   const projectGroups = useMemo(
     () =>
       buildHomeThreadGroups({
@@ -404,124 +456,202 @@ export function HomeScreen(props: HomeScreenProps) {
     projectCount: props.projects.length,
   });
 
-  return (
-    <View className="flex-1 bg-screen">
-      <GestureDetector gesture={homeScrollGesture}>
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          showsVerticalScrollIndicator={false}
-          keyboardDismissMode="on-drag"
-          keyboardShouldPersistTaps="handled"
-          onScrollBeginDrag={() => openSwipeableRef.current?.close()}
-          className="flex-1"
-          contentContainerStyle={{
-            paddingHorizontal: 16,
-            paddingTop: 8,
-            paddingBottom: 24,
-            gap: 20,
-          }}
-        >
-          {!hasAnyThreads ? (
-            <View>
-              <EmptyState
-                title={emptyState.title}
-                detail={emptyState.detail}
-                actionLabel={
-                  !props.catalogState.hasReadyEnvironment ? "Add environment" : undefined
-                }
-                onAction={
-                  !props.catalogState.hasReadyEnvironment ? props.onAddConnection : undefined
-                }
-              />
-              {emptyState.loading ? (
-                <View className="absolute right-5 top-5">
-                  <ActivityIndicator color={accentColor} />
-                </View>
-              ) : null}
-            </View>
-          ) : !hasResults && hasSearchQuery ? (
-            <EmptyState title="No results" detail={`No threads matching "${props.searchQuery}".`} />
-          ) : !hasResults && selectedEnvironmentLabel ? (
-            <EmptyState
-              title={`No threads in ${selectedEnvironmentLabel}`}
-              detail="Choose another environment or create a new task."
-            />
-          ) : !hasResults ? (
-            <EmptyState
-              title="No threads yet"
-              detail="Create a task to start a new coding session."
-            />
-          ) : (
-            projectGroups.map((group) => {
-              const isExpanded = expandedProjects.has(group.key);
-              const visibleThreads = isExpanded
-                ? group.threads
-                : group.threads.slice(0, COLLAPSED_THREAD_LIMIT);
+  const listContent = (
+    <>
+      {Platform.OS === "ios" ? null : <HomeTopContentSpacer topInset={insets.top} />}
 
-              return (
-                <Animated.View
-                  key={group.key}
-                  collapsable={false}
-                  exiting={threadRowExit}
-                  layout={THREAD_LAYOUT_TRANSITION}
-                  style={{ overflow: "hidden" }}
-                >
-                  <ProjectGroupLabel
-                    isExpanded={isExpanded}
-                    onToggleExpand={() => toggleExpanded(group.key)}
-                    project={group.representative}
-                    title={group.title}
-                    totalThreadCount={group.threads.length}
-                  />
-                  <View
-                    className="overflow-hidden rounded-[20px] bg-card"
-                    style={{ borderCurve: "continuous" }}
-                  >
-                    {visibleThreads.map((thread, i) => {
-                      const threadKey = `${thread.environmentId}:${thread.id}`;
-                      return (
-                        <Animated.View
-                          key={threadKey}
-                          collapsable={false}
-                          exiting={threadRowExit}
-                          layout={THREAD_LAYOUT_TRANSITION}
-                          style={{ overflow: "hidden" }}
-                        >
-                          <ThreadRow
-                            thread={thread}
-                            environmentLabel={
-                              props.savedConnectionsById[thread.environmentId]?.environmentLabel ??
-                              null
-                            }
-                            isLast={i === visibleThreads.length - 1}
-                            onArchive={() => props.onArchiveThread(thread)}
-                            onDelete={() => props.onDeleteThread(thread)}
-                            onPress={() => props.onSelectThread(thread)}
-                            onSwipeableClose={handleSwipeableClose}
-                            onSwipeableWillOpen={handleSwipeableWillOpen}
-                            simultaneousSwipeGesture={homeScrollGesture}
-                          />
-                        </Animated.View>
-                      );
-                    })}
-                  </View>
-                </Animated.View>
-              );
-            })
-          )}
-        </ScrollView>
-      </GestureDetector>
-      {shouldShowConnectionStatus ? (
-        <View
-          className="absolute left-0 right-0 items-center"
-          style={{ bottom: Math.max(insets.bottom, 18) + 76 }}
-        >
-          <WorkspaceConnectionStatus
-            state={props.catalogState}
-            onPress={props.onOpenEnvironments}
+      {!hasAnyThreads ? (
+        <View>
+          <EmptyState
+            title={emptyState.title}
+            detail={emptyState.detail}
+            actionLabel={!props.catalogState.hasReadyEnvironment ? "Add environment" : undefined}
+            onAction={!props.catalogState.hasReadyEnvironment ? props.onAddConnection : undefined}
           />
+          {emptyState.loading ? (
+            <View className="absolute right-5 top-5">
+              <ActivityIndicator color={accentColor} />
+            </View>
+          ) : null}
         </View>
-      ) : null}
+      ) : !hasResults && hasSearchQuery ? (
+        <EmptyState title="No results" detail={`No threads matching "${props.searchQuery}".`} />
+      ) : !hasResults && selectedEnvironmentLabel ? (
+        <EmptyState
+          title={`No threads in ${selectedEnvironmentLabel}`}
+          detail="Choose another environment or create a new task."
+        />
+      ) : !hasResults ? (
+        <EmptyState title="No threads yet" detail="Create a task to start a new coding session." />
+      ) : (
+        projectGroups.map((group) => {
+          const isExpanded = expandedProjects.has(group.key);
+          const visibleThreads = isExpanded
+            ? group.threads
+            : group.threads.slice(0, COLLAPSED_THREAD_LIMIT);
+
+          return (
+            <Animated.View
+              key={group.key}
+              collapsable={false}
+              exiting={threadRowExit}
+              layout={THREAD_LAYOUT_TRANSITION}
+              style={{ overflow: "hidden" }}
+            >
+              <ProjectGroupLabel
+                isExpanded={isExpanded}
+                onToggleExpand={() => toggleExpanded(group.key)}
+                project={group.representative}
+                title={group.title}
+                totalThreadCount={group.threads.length}
+              />
+              <View className="bg-screen">
+                {visibleThreads.map((thread, i) => {
+                  const threadKey = `${thread.environmentId}:${thread.id}`;
+                  return (
+                    <Animated.View
+                      key={threadKey}
+                      collapsable={false}
+                      exiting={threadRowExit}
+                      layout={THREAD_LAYOUT_TRANSITION}
+                      style={{ overflow: "hidden" }}
+                    >
+                      <ThreadRow
+                        thread={thread}
+                        environmentLabel={
+                          props.savedConnectionsById[thread.environmentId]?.environmentLabel ?? null
+                        }
+                        isLast={i === visibleThreads.length - 1}
+                        onArchive={() => props.onArchiveThread(thread)}
+                        onDelete={() => props.onDeleteThread(thread)}
+                        onPress={() => props.onSelectThread(thread)}
+                        onSwipeableClose={handleSwipeableClose}
+                        onSwipeableWillOpen={handleSwipeableWillOpen}
+                      />
+                    </Animated.View>
+                  );
+                })}
+              </View>
+            </Animated.View>
+          );
+        })
+      )}
+    </>
+  );
+
+  const scrollView = (
+    <ScrollView
+      contentInsetAdjustmentBehavior={Platform.OS === "ios" ? "automatic" : "never"}
+      showsVerticalScrollIndicator={false}
+      keyboardDismissMode="on-drag"
+      keyboardShouldPersistTaps="handled"
+      onScrollBeginDrag={() => openSwipeableRef.current?.close()}
+      scrollEventThrottle={16}
+      className="flex-1 bg-screen"
+      contentContainerStyle={{
+        minHeight: windowHeight + HOME_COMPACT_HEADER_THRESHOLD + insets.top,
+        paddingHorizontal: 0,
+        paddingTop: Platform.OS === "ios" ? 18 : 0,
+        paddingBottom: Platform.OS === "ios" ? Math.max(insets.bottom, 24) + 132 : 24,
+        gap: 0,
+      }}
+      scrollIndicatorInsets={
+        Platform.OS === "ios"
+          ? {
+              bottom: Math.max(insets.bottom, 16) + 92,
+              top: insets.top + 72,
+            }
+          : undefined
+      }
+    >
+      {listContent}
+    </ScrollView>
+  );
+
+  const connectionStatus = shouldShowConnectionStatus ? (
+    <View
+      className="absolute left-0 right-0 items-center"
+      style={{ bottom: Math.max(insets.bottom, 18) + 76 }}
+    >
+      <WorkspaceConnectionStatus state={props.catalogState} onPress={props.onOpenEnvironments} />
     </View>
+  ) : null;
+
+  if (Platform.OS === "ios") {
+    return (
+      <ScreenStack style={{ flex: 1 }}>
+        <Screen
+          activityState={2}
+          enabled
+          hasLargeHeader={false}
+          isNativeStack
+          screenId="home-native-mail"
+          scrollEdgeEffects={{
+            bottom: "automatic",
+            left: "hidden",
+            right: "hidden",
+            top: nativeTopScrollEdgeEffect(Platform.OS, Platform.Version),
+          }}
+          style={{ flex: 1, backgroundColor: screenColor }}
+        >
+          {scrollView}
+          {connectionStatus}
+          <ScreenStackHeaderConfig
+            backgroundColor="rgba(0,0,0,0)"
+            color={foregroundColor}
+            headerRightBarButtonItems={
+              [
+                {
+                  accessibilityLabel: "Open settings",
+                  icon: { name: "gearshape", type: "sfSymbol" },
+                  identifier: "home-settings",
+                  onPress: props.onOpenSettings,
+                  sharesBackground: true,
+                  tintColor: nativeHeaderButtonTint,
+                  type: "button",
+                  variant: "prominent",
+                  width: 58,
+                },
+              ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerRightBarButtonItems"]
+            }
+            headerToolbarItems={
+              [
+                {
+                  composeButtonId: "home-new-task",
+                  composeSystemImageName: "square.and.pencil",
+                  filterButtonId: "home-filter",
+                  filterMenu,
+                  filterSystemImageName: hasCustomListOptions
+                    ? "line.3.horizontal.decrease.circle.fill"
+                    : "line.3.horizontal.decrease",
+                  onComposePress: props.onStartNewTask,
+                  onSearchTextChange: props.onSearchQueryChange,
+                  placeholder: "Search",
+                  searchTextChangeId: "home-search-text",
+                  type: "mailSearchToolbar",
+                  useFallbackSearchField: true,
+                },
+              ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerToolbarItems"]
+            }
+            hideBackButton
+            hideShadow={false}
+            largeTitle={false}
+            navigationItemStyle="editor"
+            title="Threads"
+            titleColor={foregroundColor}
+            titleFontSize={18}
+            titleFontWeight="800"
+            translucent
+          />
+        </Screen>
+      </ScreenStack>
+    );
+  }
+
+  return (
+    <>
+      {scrollView}
+      {connectionStatus}
+    </>
   );
 }

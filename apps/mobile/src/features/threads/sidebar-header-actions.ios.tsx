@@ -11,11 +11,13 @@ export function SidebarHeaderActions(props: SidebarHeaderActionsProps) {
         icon="gearshape"
         onPress={props.onOpenSettings}
       />
-      <T3HeaderButton
-        accessibilityLabel="New task"
-        icon="square.and.pencil"
-        onPress={props.onStartNewTask}
-      />
+      {props.onStartNewTask ? (
+        <T3HeaderButton
+          accessibilityLabel="New task"
+          icon="square.and.pencil"
+          onPress={props.onStartNewTask}
+        />
+      ) : null}
     </View>
   );
 }

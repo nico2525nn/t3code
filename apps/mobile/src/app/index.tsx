@@ -2,6 +2,7 @@ import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { Stack, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
+import { Platform } from "react-native";
 
 import { useProjects, useThreadShells } from "../state/entities";
 import { useWorkspaceState } from "../state/workspace";
@@ -72,30 +73,42 @@ export default function HomeRouteScreen() {
 
   return (
     <>
-      <HomeHeader
+      {Platform.OS === "ios" ? (
+        <Stack.Screen options={{ headerShown: false }} />
+      ) : (
+        <HomeHeader
+          environments={environments}
+          selectedEnvironmentId={selectedEnvironmentId}
+          projectSortOrder={listOptions.projectSortOrder}
+          threadSortOrder={listOptions.threadSortOrder}
+          projectGroupingMode={listOptions.projectGroupingMode}
+          onEnvironmentChange={setSelectedEnvironmentId}
+          onOpenSettings={() => router.push("/settings")}
+          onProjectGroupingModeChange={setProjectGroupingMode}
+          onProjectSortOrderChange={setProjectSortOrder}
+          onSearchQueryChange={setSearchQuery}
+          onStartNewTask={() => router.push("/new")}
+          onThreadSortOrderChange={setThreadSortOrder}
+        />
+      )}
+
+      <HomeScreen
+        catalogState={catalogState}
         environments={environments}
-        selectedEnvironmentId={selectedEnvironmentId}
-        projectSortOrder={listOptions.projectSortOrder}
-        threadSortOrder={listOptions.threadSortOrder}
-        projectGroupingMode={listOptions.projectGroupingMode}
+        onAddConnection={() => router.push("/connections/new")}
+        onArchiveThread={archiveThread}
+        onDeleteThread={confirmDeleteThread}
         onEnvironmentChange={setSelectedEnvironmentId}
+        onOpenEnvironments={() => router.push("/settings/environments")}
         onOpenSettings={() => router.push("/settings")}
         onProjectGroupingModeChange={setProjectGroupingMode}
         onProjectSortOrderChange={setProjectSortOrder}
         onSearchQueryChange={setSearchQuery}
-        onStartNewTask={() => router.push("/new")}
-        onThreadSortOrderChange={setThreadSortOrder}
-      />
-
-      <HomeScreen
-        catalogState={catalogState}
-        onAddConnection={() => router.push("/connections/new")}
-        onArchiveThread={archiveThread}
-        onDeleteThread={confirmDeleteThread}
-        onOpenEnvironments={() => router.push("/settings/environments")}
         onSelectThread={(thread) => {
           router.push(buildThreadRoutePath(thread));
         }}
+        onStartNewTask={() => router.push("/new")}
+        onThreadSortOrderChange={setThreadSortOrder}
         projectGroupingMode={listOptions.projectGroupingMode}
         projects={projects}
         projectSortOrder={listOptions.projectSortOrder}

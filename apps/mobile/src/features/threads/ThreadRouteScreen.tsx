@@ -3,15 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import * as Option from "effect/Option";
 import { EnvironmentId, ThreadId, type ProjectScript } from "@t3tools/contracts";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import {
-  Platform,
-  Pressable,
-  ScrollView,
-  Text as RNText,
-  View,
-  useColorScheme,
-} from "react-native";
-import { isLiquidGlassAvailable } from "expo-glass-effect";
+import { Platform, Pressable, ScrollView, Text as RNText, View } from "react-native";
+import type { SearchBarCommands } from "react-native-screens";
 import { useWorkspaceState } from "../../state/workspace";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { useEnvironmentQuery } from "../../state/query";
@@ -72,13 +65,13 @@ import {
   ThreadInspectorContentStack,
   type ThreadInspectorMode,
 } from "./thread-inspector-content-stack";
+import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 
 interface ThreadInspectorSelection {
   readonly routeThreadIdentity: string | null;
   readonly mode: ThreadInspectorMode;
 }
 
-const USES_NATIVE_GLASS_HEADER = Platform.OS === "ios" && isLiquidGlassAvailable();
 const TOP_SCROLL_EDGE_EFFECT = nativeTopScrollEdgeEffect(Platform.OS, Platform.Version);
 
 function InspectorPaneRoleActivation() {
@@ -227,6 +220,7 @@ function ThreadRouteContent(
   const { selectedThread, selectedThreadProject, selectedEnvironmentConnection } =
     useThreadSelection();
   const selectedThreadDetailState = props.selectedThreadDetailState;
+  const threadSearchBarRef = useRef<SearchBarCommands>(null);
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const composer = useThreadComposerState();
@@ -240,7 +234,6 @@ function ThreadRouteContent(
     threadId?: string | string[];
   }>();
   const [drawerVisible, setDrawerVisible] = useState(false);
-  const [headerMaterialVisible, setHeaderMaterialVisible] = useState(false);
   const environmentIdRaw = firstRouteParam(params.environmentId);
   const environmentId = environmentIdRaw ? EnvironmentId.make(environmentIdRaw) : null;
   const threadId = firstRouteParam(params.threadId);
@@ -325,20 +318,20 @@ function ThreadRouteContent(
   );
 
   /* ─── Native header theming ──────────────────────────────────────── */
-  const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
   const iconColor = String(useThemeColor("--color-icon"));
   const foregroundColor = String(useThemeColor("--color-foreground"));
   const secondaryFg = String(useThemeColor("--color-foreground-secondary"));
   const screenBackgroundColor = String(useThemeColor("--color-screen"));
-  const usesEdgeToEdgeGlassHeader = USES_NATIVE_GLASS_HEADER && !layout.usesSplitView;
-  // Compact/iPhone stacks use the edge-to-edge UIKit material seen in Messages.
-  // iPad split view keeps a clean pane header; native iPad Messages/Mail reserve
-  // the stronger glass treatment for local controls/floating elements instead.
-  const glassHeaderBlurEffect =
-    colorScheme === "dark"
-      ? ("systemUltraThinMaterialDark" as const)
-      : ("systemUltraThinMaterialLight" as const);
-  const showGlassHeaderMaterial = usesEdgeToEdgeGlassHeader && headerMaterialVisible;
+  const usesNativeHeaderGlass = Platform.OS === "ios";
+  const usesThreadSearchToolbar = Platform.OS === "ios" && layout.usesSplitView;
+  const focusThreadSearch = useCallback(() => {
+    if (!usesThreadSearchToolbar) {
+      return false;
+    }
+    threadSearchBarRef.current?.focus();
+    return true;
+  }, [usesThreadSearchToolbar]);
+  useHardwareKeyboardCommand("focusSearch", focusThreadSearch);
   const headerSubtitle = [
     selectedThreadProject?.title ?? null,
     selectedEnvironmentConnection?.environmentLabel ?? null,
@@ -627,10 +620,9 @@ function ThreadRouteContent(
       <Stack.Screen
         options={{
           headerShown: true,
-          headerTransparent: usesEdgeToEdgeGlassHeader,
-          headerBlurEffect: showGlassHeaderMaterial ? glassHeaderBlurEffect : undefined,
-          headerShadowVisible: showGlassHeaderMaterial,
-          ...(usesEdgeToEdgeGlassHeader
+          headerTransparent: usesNativeHeaderGlass,
+          headerShadowVisible: false,
+          ...(usesNativeHeaderGlass
             ? { headerStyle: { backgroundColor: "transparent" } }
             : {
                 headerStyle: { backgroundColor: screenBackgroundColor },
@@ -639,16 +631,29 @@ function ThreadRouteContent(
           headerTintColor: iconColor,
           headerBackVisible: !layout.usesSplitView,
           headerBackTitle: "",
-          ...(USES_NATIVE_GLASS_HEADER
-            ? {}
-            : {
-                scrollEdgeEffects: {
-                  top: TOP_SCROLL_EDGE_EFFECT,
-                  bottom: "hidden",
-                  left: "hidden",
-                  right: "hidden",
+          scrollEdgeEffects: {
+            top: TOP_SCROLL_EDGE_EFFECT,
+            bottom: "hidden",
+            left: "hidden",
+            right: "hidden",
+          },
+          headerSearchBarOptions: usesThreadSearchToolbar
+            ? {
+                ref: threadSearchBarRef,
+                allowToolbarIntegration: true,
+                hideNavigationBar: false,
+                placeholder: "Search",
+              }
+            : undefined,
+          unstable_headerRightItems: usesThreadSearchToolbar
+            ? () => [
+                {
+                  activatesSearchController: true,
+                  type: "searchBarPlacement",
                 },
-              }),
+              ]
+            : undefined,
+          unstable_navigationItemStyle: usesNativeHeaderGlass ? "editor" : undefined,
         }}
       />
 
@@ -661,7 +666,16 @@ function ThreadRouteContent(
         />
       </Stack.Screen.Title>
 
-      <WorkspaceSidebarToolbar>
+      <WorkspaceSidebarToolbar
+        afterSidebarButton={
+          <Stack.Toolbar.Button
+            accessibilityLabel="New task"
+            icon="square.and.pencil"
+            onPress={() => router.push("/new")}
+            separateBackground
+          />
+        }
+      >
         {props.onReturnToThread ? (
           <Stack.Toolbar.Button
             accessibilityLabel="Return to chat"
@@ -673,7 +687,7 @@ function ThreadRouteContent(
 
       <ThreadGitControls
         auxiliaryPaneControl={
-          fileInspector.supported && selectedThreadCwd !== null
+          !layout.usesSplitView && fileInspector.supported && selectedThreadCwd !== null
             ? {
                 accessibilityLabel: "Toggle inspector",
                 onPress: handleToggleInspector,
@@ -693,6 +707,8 @@ function ThreadRouteContent(
         canOpenFiles={Boolean(selectedThreadProject?.workspaceRoot)}
         projectScripts={selectedThreadProject?.scripts ?? []}
         terminalSessions={terminalMenuSessions}
+        showDirectFileControl={layout.usesSplitView}
+        showSearchSlot={false}
         onOpenTerminal={handleOpenTerminal}
         onOpenNewTerminal={handleOpenNewTerminal}
         onRunProjectScript={handleRunProjectScript}
@@ -727,8 +743,7 @@ function ThreadRouteContent(
             threadCwd={selectedThreadCwd}
             selectedThreadQueueCount={composer.selectedThreadQueueCount}
             layoutVariant={layout.variant}
-            usesAutomaticContentInsets={usesEdgeToEdgeGlassHeader}
-            onHeaderMaterialVisibilityChange={setHeaderMaterialVisible}
+            usesAutomaticContentInsets={usesNativeHeaderGlass}
             onOpenDrawer={handleOpenDrawer}
             onOpenConnectionEditor={handleOpenConnectionEditor}
             onChangeDraftMessage={composer.onChangeDraftMessage}

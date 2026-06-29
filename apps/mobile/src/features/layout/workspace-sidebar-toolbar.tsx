@@ -3,7 +3,12 @@ import type { ReactNode } from "react";
 
 import { useAdaptiveWorkspaceLayout } from "./AdaptiveWorkspaceLayout";
 
-export function WorkspaceSidebarToolbar(props: { readonly children?: ReactNode } = {}) {
+export function WorkspaceSidebarToolbar(
+  props: {
+    readonly children?: ReactNode;
+    readonly afterSidebarButton?: ReactNode;
+  } = {},
+) {
   const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
 
   if (!layout.usesSplitView) {
@@ -21,6 +26,7 @@ export function WorkspaceSidebarToolbar(props: { readonly children?: ReactNode }
         onPress={togglePrimarySidebar}
         separateBackground
       />
+      {props.afterSidebarButton}
     </Stack.Toolbar>
   );
 }

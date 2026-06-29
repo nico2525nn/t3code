@@ -1,5 +1,5 @@
 import { SymbolView } from "expo-symbols";
-import { Pressable, StyleSheet } from "react-native";
+import { Pressable, StyleSheet, useColorScheme } from "react-native";
 
 import { useThemeColor } from "../../lib/useThemeColor";
 
@@ -13,6 +13,10 @@ export function SidebarFilterButton(props: {
 }) {
   const iconColor = useThemeColor("--color-icon-muted");
   const pressedBackgroundColor = useThemeColor("--color-subtle");
+  const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
+  const idleBackgroundColor =
+    colorScheme === "dark" ? "rgba(118,118,128,0.24)" : "rgba(255,255,255,0.72)";
+  const borderColor = colorScheme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
 
   return (
     <Pressable
@@ -21,7 +25,10 @@ export function SidebarFilterButton(props: {
       hitSlop={4}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: pressed ? pressedBackgroundColor : "transparent" },
+        {
+          backgroundColor: pressed ? pressedBackgroundColor : idleBackgroundColor,
+          borderColor,
+        },
       ]}
     >
       <SymbolView name={props.icon} size={18} tintColor={iconColor} type="monochrome" />
@@ -33,7 +40,8 @@ const styles = StyleSheet.create({
   button: {
     width: 44,
     height: 44,
-    borderRadius: 12,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
     cursor: "pointer",

@@ -77,6 +77,8 @@ export function ThreadGitControls(props: {
   readonly canOpenFiles: boolean;
   readonly projectScripts: ReadonlyArray<ProjectScript>;
   readonly terminalSessions: ReadonlyArray<TerminalMenuSession>;
+  readonly showDirectFileControl?: boolean;
+  readonly showSearchSlot?: boolean;
   readonly onOpenFilesInspector?: () => void;
   readonly onOpenGitInspector?: () => void;
   readonly onOpenTerminal: (terminalId?: string | null) => void;
@@ -245,6 +247,21 @@ export function ThreadGitControls(props: {
           <Stack.Toolbar.Label>Open new terminal</Stack.Toolbar.Label>
         </Stack.Toolbar.MenuAction>
       </Stack.Toolbar.Menu>
+      {props.showDirectFileControl ? (
+        <Stack.Toolbar.Button
+          accessibilityLabel="Open files"
+          disabled={!props.canOpenFiles}
+          icon="folder"
+          onPress={() => {
+            if (props.onOpenFilesInspector) {
+              props.onOpenFilesInspector();
+              return;
+            }
+            router.push(buildThreadFilesNavigation({ environmentId, threadId }));
+          }}
+          separateBackground
+        />
+      ) : null}
       <Stack.Toolbar.Menu icon="point.topleft.down.curvedto.point.bottomright.up">
         <Stack.Toolbar.MenuAction
           icon="point.topleft.down.curvedto.point.bottomright.up"
@@ -301,6 +318,12 @@ export function ThreadGitControls(props: {
           <Stack.Toolbar.Label>More</Stack.Toolbar.Label>
         </Stack.Toolbar.MenuAction>
       </Stack.Toolbar.Menu>
+      {props.showSearchSlot ? (
+        <>
+          <Stack.Toolbar.Spacer width={10} sharesBackground={false} />
+          <Stack.Toolbar.SearchBarSlot />
+        </>
+      ) : null}
     </Stack.Toolbar>
   );
 }
