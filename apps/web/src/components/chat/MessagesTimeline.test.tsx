@@ -22,7 +22,16 @@ vi.mock("@legendapp/list/react", async () => {
     };
     contentInsetEndAdjustment?: number;
     className?: string;
-    maintainScrollAtEnd?: boolean;
+    maintainScrollAtEnd?:
+      | boolean
+      | {
+          animated?: boolean;
+          on?: {
+            dataChange?: boolean;
+            itemLayout?: boolean;
+            layout?: boolean;
+          };
+        };
     maintainVisibleContentPosition?:
       | boolean
       | {
@@ -45,7 +54,27 @@ vi.mock("@legendapp/list/react", async () => {
         data-anchor-on-ready={Boolean(props.anchoredEndSpace?.onReady)}
         data-content-inset-end={props.contentInsetEndAdjustment}
         data-class-name={props.className}
-        data-maintain-scroll-at-end={props.maintainScrollAtEnd}
+        data-maintain-scroll-at-end={props.maintainScrollAtEnd ? "enabled" : undefined}
+        data-maintain-scroll-at-end-animated={
+          typeof props.maintainScrollAtEnd === "object"
+            ? props.maintainScrollAtEnd.animated
+            : undefined
+        }
+        data-maintain-scroll-at-end-data-change={
+          typeof props.maintainScrollAtEnd === "object"
+            ? props.maintainScrollAtEnd.on?.dataChange
+            : undefined
+        }
+        data-maintain-scroll-at-end-item-layout={
+          typeof props.maintainScrollAtEnd === "object"
+            ? props.maintainScrollAtEnd.on?.itemLayout
+            : undefined
+        }
+        data-maintain-scroll-at-end-layout={
+          typeof props.maintainScrollAtEnd === "object"
+            ? props.maintainScrollAtEnd.on?.layout
+            : undefined
+        }
         data-maintain-visible-content-position={
           typeof props.maintainVisibleContentPosition === "object"
             ? "object"
@@ -162,6 +191,7 @@ function buildProps() {
     onAnchorSizeChanged: () => {},
     contentInsetEndAdjustment: 0,
     onIsAtEndChange: () => {},
+    onManualNavigation: () => {},
   };
 }
 
@@ -266,7 +296,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("data-anchor-max-size=");
     expect(markup).toContain('data-content-inset-end="144"');
     expect(markup).toContain("[overflow-anchor:none]");
-    expect(markup).not.toContain("data-maintain-scroll-at-end=");
+    expect(markup).not.toContain('data-maintain-scroll-at-end="enabled"');
     expect(markup).toContain('data-maintain-visible-content-position="object"');
     expect(markup).toContain('data-maintain-visible-content-position-data="true"');
     expect(markup).toContain('data-maintain-visible-content-position-size="false"');
@@ -285,6 +315,11 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Show full message");
+    expect(markup).toContain('data-maintain-scroll-at-end="enabled"');
+    expect(markup).toContain('data-maintain-scroll-at-end-animated="false"');
+    expect(markup).toContain('data-maintain-scroll-at-end-data-change="true"');
+    expect(markup).toContain('data-maintain-scroll-at-end-item-layout="true"');
+    expect(markup).toContain('data-maintain-scroll-at-end-layout="true"');
     expect(markup).toContain('data-user-message-collapsed="true"');
     expect(markup).toContain('data-user-message-fade="true"');
     expect(markup).toContain('data-user-message-footer="true"');
