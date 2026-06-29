@@ -74,9 +74,7 @@ export function HomeHeader(props: {
                     label: "",
                     onPress: props.onOpenSettings,
                     sharesBackground: true,
-                    tintColor: iconColor,
                     type: "button",
-                    variant: "prominent",
                     width: 58,
                   },
                 ]

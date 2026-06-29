@@ -238,7 +238,6 @@ function SidebarColumn(props: {
   const { colors } = props;
   const insets = useSafeAreaInsets();
   const compactTopInset = 18;
-  const headerButtonTint = colors.foreground;
 
   if (props.compact) {
     return (
@@ -280,13 +279,11 @@ function SidebarColumn(props: {
             headerRightBarButtonItems={
               [
                 {
-                  accessibilityLabel: "More",
-                  icon: { name: "ellipsis", type: "sfSymbol" },
-                  identifier: "rns-glass-more",
+                  accessibilityLabel: "Open settings",
+                  icon: { name: "gearshape", type: "sfSymbol" },
+                  identifier: "rns-glass-settings",
                   onPress: () => {},
-                  tintColor: headerButtonTint,
                   type: "button",
-                  variant: "prominent",
                 },
               ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerRightBarButtonItems"]
             }
@@ -309,7 +306,6 @@ function SidebarColumn(props: {
             hideShadow={false}
             largeTitle={false}
             navigationItemStyle="editor"
-            subtitle="t3code · Ready"
             title="Threads"
             titleColor={colors.foreground}
             titleFontSize={18}

@@ -1197,55 +1197,6 @@ index 3b384e03891e38e936f370372a682d73440e7ec2..9834a915b66c1c5172a2e9aa423599ac
  /**
   * Custom Screen Transition
   */
-diff --git a/node_modules/.bin/react-native b/node_modules/.bin/react-native
-new file mode 100755
-index 0000000000000000000000000000000000000000..bdc1e9183f552f93e05d5d5501116bc9e3539219
---- /dev/null
-+++ b/node_modules/.bin/react-native
-@@ -0,0 +1,43 @@
-+#!/bin/sh
-+basedir=$(dirname "$(echo "$0" | sed -e 's,\\,/,g')")
-+basedir_win="$basedir"
-+exe=""
-+msys=""
-+
-+case `uname -a` in
-+  *CYGWIN*|*MINGW*|*MSYS*)
-+    if command -v cygpath > /dev/null 2>&1; then
-+      basedir_win=`cygpath -w "$basedir"`
-+    fi
-+    exe=".exe"
-+    msys="true"
-+  ;;
-+  *WSL2*)
-+    if command -v wslpath > /dev/null 2>&1; then
-+      basedir_win="$(wslpath -w "$basedir" 2> /dev/null)"
-+      if [ $? -ne 0 ] || [ -z "$basedir_win" ]; then
-+        basedir_win="$basedir"
-+      else
-+        exe=".exe"
-+      fi
-+    fi
-+  ;;
-+esac
-+
-+if [ -z "$NODE_PATH" ]; then
-+  export NODE_PATH="/Users/julius/Developer/t3code/node_modules/.pnpm/react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.85.3_@babel+core@7._225d580d785074a01bfaff9454beedcb/node_modules/react-native/node_modules:/Users/julius/Developer/t3code/node_modules/.pnpm/react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.85.3_@babel+core@7._225d580d785074a01bfaff9454beedcb/node_modules:/Users/julius/Developer/t3code/node_modules/.pnpm/node_modules"
-+else
-+  export NODE_PATH="/Users/julius/Developer/t3code/node_modules/.pnpm/react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.85.3_@babel+core@7._225d580d785074a01bfaff9454beedcb/node_modules/react-native/node_modules:/Users/julius/Developer/t3code/node_modules/.pnpm/react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.85.3_@babel+core@7._225d580d785074a01bfaff9454beedcb/node_modules:/Users/julius/Developer/t3code/node_modules/.pnpm/node_modules:$NODE_PATH"
-+fi
-+if [ -n "$exe" ] && [ -x "$basedir/node.exe" ]; then
-+  exec "$basedir/node.exe"  "$basedir_win/../../../../../react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.85.3_@babel+core@7._225d580d785074a01bfaff9454beedcb/node_modules/react-native/cli.js" "$@"
-+elif [ -x "$basedir/node" ]; then
-+  exec "$basedir/node"  "$basedir/../../../../../react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.85.3_@babel+core@7._225d580d785074a01bfaff9454beedcb/node_modules/react-native/cli.js" "$@"
-+elif command -v node >/dev/null 2>&1; then
-+  exec node  "$basedir/../../../../../react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.85.3_@babel+core@7._225d580d785074a01bfaff9454beedcb/node_modules/react-native/cli.js" "$@"
-+elif [ -n "$exe" ] && command -v node.exe >/dev/null 2>&1; then
-+  exec node.exe  "$basedir_win/../../../../../react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.85.3_@babel+core@7._225d580d785074a01bfaff9454beedcb/node_modules/react-native/cli.js" "$@"
-+else
-+  exec node  "$basedir/../../../../../react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.85.3_@babel+core@7._225d580d785074a01bfaff9454beedcb/node_modules/react-native/cli.js" "$@"
-+fi
-+# cmd-shim-target=/Users/julius/Developer/t3code/node_modules/.pnpm/react-native@0.85.3_@babel+core@7.29.7_@react-native+metro-config@0.85.3_@babel+core@7._225d580d785074a01bfaff9454beedcb/node_modules/react-native/cli.js
 diff --git a/src/components/ScreenStackHeaderConfig.tsx b/src/components/ScreenStackHeaderConfig.tsx
 index 421b3c2545426ae957271bd6515bcf827437541c..4566c1be1825ccaf487d4b64e96bf461f5d4da86 100644
 --- a/src/components/ScreenStackHeaderConfig.tsx

@@ -603,9 +603,7 @@ export function HomeScreen(props: HomeScreenProps) {
                   identifier: "home-settings",
                   onPress: props.onOpenSettings,
                   sharesBackground: true,
-                  tintColor: foregroundColor,
                   type: "button",
-                  variant: "prominent",
                   width: 58,
                 },
               ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerRightBarButtonItems"]
