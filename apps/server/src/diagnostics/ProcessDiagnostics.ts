@@ -235,7 +235,8 @@ function normalizeWindowsProcessRow(value: unknown): Option.Option<ProcessRow> {
       pgid: null,
       status: Option.getOrElse(nonEmptyStringOption(record.Status), () => "Live"),
       cpuPercent:
-        typeof record.PercentProcessorTime === "number" && Number.isFinite(record.PercentProcessorTime)
+        typeof record.PercentProcessorTime === "number" &&
+        Number.isFinite(record.PercentProcessorTime)
           ? Math.max(0, record.PercentProcessorTime)
           : 0,
       rssBytes:
