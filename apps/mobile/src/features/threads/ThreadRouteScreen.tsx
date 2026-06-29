@@ -701,7 +701,7 @@ function ThreadRouteContent(
         projectScripts={selectedThreadProject?.scripts ?? []}
         terminalSessions={terminalMenuSessions}
         showDirectFileControl={layout.usesSplitView}
-        showSearchSlot={false}
+        showSearchSlot={layout.usesSplitView}
         onOpenTerminal={handleOpenTerminal}
         onOpenNewTerminal={handleOpenNewTerminal}
         onRunProjectScript={handleRunProjectScript}

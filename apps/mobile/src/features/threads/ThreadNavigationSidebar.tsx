@@ -491,6 +491,17 @@ export function ThreadNavigationSidebar(props: {
       require("react-native-screens") as typeof import("react-native-screens");
     const nativeHeaderRightBarButtonItems = [
       {
+        accessibilityLabel: "Open settings",
+        icon: { name: "gearshape", type: "sfSymbol" },
+        identifier: "thread-sidebar-settings",
+        onPress: props.onOpenSettings,
+        sharesBackground: true,
+        tintColor: foregroundColor,
+        type: "button",
+        variant: "prominent",
+        width: 58,
+      },
+      {
         accessibilityLabel: "Filter and sort threads",
         icon: { name: filterIcon, type: "sfSymbol" },
         identifier: "thread-sidebar-filter",
@@ -558,17 +569,6 @@ export function ThreadNavigationSidebar(props: {
         sharesBackground: true,
         tintColor: foregroundColor,
         type: "menu",
-        variant: "prominent",
-        width: 58,
-      },
-      {
-        accessibilityLabel: "Open settings",
-        icon: { name: "gearshape", type: "sfSymbol" },
-        identifier: "thread-sidebar-settings",
-        onPress: props.onOpenSettings,
-        sharesBackground: true,
-        tintColor: foregroundColor,
-        type: "button",
         variant: "prominent",
         width: 58,
       },
