@@ -43,7 +43,9 @@ interface AdaptiveWorkspaceContextValue {
   readonly layout: Layout;
   readonly panes: WorkspacePaneLayout;
   readonly fileInspector: FileInspectorPaneLayout;
+  readonly primarySidebarSearchQuery: string;
   readonly activateAuxiliaryPaneRole: (role: WorkspaceAuxiliaryPaneRole) => () => void;
+  readonly setPrimarySidebarSearchQuery: (query: string) => void;
   readonly showAuxiliaryPane: (role: WorkspaceAuxiliaryPaneRole) => void;
   readonly toggleAuxiliaryPane: () => void;
   readonly togglePrimarySidebar: () => void;
@@ -65,7 +67,9 @@ const AdaptiveWorkspaceContext = createContext<AdaptiveWorkspaceContextValue>({
   layout: compactLayout,
   panes: compactPanes,
   fileInspector: compactFileInspector,
+  primarySidebarSearchQuery: "",
   activateAuxiliaryPaneRole: () => () => undefined,
+  setPrimarySidebarSearchQuery: () => undefined,
   showAuxiliaryPane: () => undefined,
   toggleAuxiliaryPane: () => undefined,
   togglePrimarySidebar: () => undefined,
@@ -102,6 +106,7 @@ export function AdaptiveWorkspaceLayout(props: { readonly children: ReactNode })
   const [fileInspectorPreferredWidth, setFileInspectorPreferredWidth] = useState<number | null>(
     null,
   );
+  const [primarySidebarSearchQuery, setPrimarySidebarSearchQuery] = useState("");
   const [focusedAuxiliaryPaneRole, setFocusedAuxiliaryPaneRole] =
     useState<WorkspaceAuxiliaryPaneRole | null>(null);
   const params = useGlobalSearchParams<{
@@ -238,7 +243,9 @@ export function AdaptiveWorkspaceLayout(props: { readonly children: ReactNode })
       layout,
       panes,
       fileInspector,
+      primarySidebarSearchQuery,
       activateAuxiliaryPaneRole,
+      setPrimarySidebarSearchQuery,
       showAuxiliaryPane,
       toggleAuxiliaryPane,
       togglePrimarySidebar,
@@ -249,7 +256,9 @@ export function AdaptiveWorkspaceLayout(props: { readonly children: ReactNode })
       fileInspector,
       layout,
       panes,
+      primarySidebarSearchQuery,
       showAuxiliaryPane,
+      setPrimarySidebarSearchQuery,
       setAuxiliaryPaneWidth,
       toggleAuxiliaryPane,
       togglePrimarySidebar,
@@ -329,7 +338,9 @@ export function AdaptiveWorkspaceLayout(props: { readonly children: ReactNode })
                 selectedThreadKey={selectedThreadKey}
                 onOpenSettings={handleOpenSettings}
                 onSelectThread={handleSelectThread}
+                onSearchQueryChange={setPrimarySidebarSearchQuery}
                 onStartNewTask={handleStartNewTask}
+                searchQuery={primarySidebarSearchQuery}
               />
             </Animated.View>
           ) : null}

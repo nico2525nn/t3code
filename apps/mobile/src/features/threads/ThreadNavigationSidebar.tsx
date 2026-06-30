@@ -249,9 +249,11 @@ export function ThreadNavigationSidebar(props: {
   readonly visible: boolean;
   readonly selectedThreadKey: string | null;
   readonly onOpenSettings: () => void;
+  readonly onSearchQueryChange: (query: string) => void;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onStartNewTask: () => void;
   readonly onRequestVisibility: () => void;
+  readonly searchQuery: string;
 }) {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
@@ -260,7 +262,6 @@ export function ThreadNavigationSidebar(props: {
   const threads = useThreadShells();
   const { state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
-  const [searchQuery, setSearchQuery] = useState("");
   const [headerIsOverContent, setHeaderIsOverContent] = useState(false);
   const searchInputRef = useRef<TextInput>(null);
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
@@ -294,12 +295,12 @@ export function ThreadNavigationSidebar(props: {
         projects,
         threads,
         environmentId: options.selectedEnvironmentId,
-        searchQuery,
+        searchQuery: props.searchQuery,
         projectSortOrder: options.projectSortOrder,
         threadSortOrder: options.threadSortOrder,
         projectGroupingMode: options.projectGroupingMode,
       }),
-    [options, projects, searchQuery, threads],
+    [options, projects, props.searchQuery, threads],
   );
   const listItems = useMemo<ReadonlyArray<SidebarListItem>>(
     () =>
@@ -451,7 +452,7 @@ export function ThreadNavigationSidebar(props: {
   const selectedPressedBackgroundColor = "rgba(255,255,255,0.16)";
   const pressedBackgroundColor = useThemeColor("--color-subtle");
   const listThemeKey = `${colorScheme}:${String(backgroundColor)}:${String(selectedBackgroundColor)}`;
-  const listExtraData = `${listThemeKey}:${props.selectedThreadKey ?? ""}`;
+  const listExtraData = `${listThemeKey}:${props.selectedThreadKey ?? ""}:${props.searchQuery}`;
   const headerFadeColor = String(backgroundColor);
   const headerWashOpacity = SIDEBAR_HEADER_WASH_OPACITY[colorScheme];
   const usesNativeSidebarChrome = Platform.OS === "ios";
@@ -703,7 +704,7 @@ export function ThreadNavigationSidebar(props: {
                     <Text className="px-2 py-4 text-sm" style={{ color: mutedColor }}>
                       {catalogState.isLoadingConnections
                         ? "Loading threads…"
-                        : searchQuery.trim().length > 0
+                        : props.searchQuery.trim().length > 0
                           ? "No matching threads"
                           : "No threads yet"}
                     </Text>
@@ -772,7 +773,7 @@ export function ThreadNavigationSidebar(props: {
               <Text className="px-2 py-4 text-sm" style={{ color: mutedColor }}>
                 {catalogState.isLoadingConnections
                   ? "Loading threads…"
-                  : searchQuery.trim().length > 0
+                  : props.searchQuery.trim().length > 0
                     ? "No matching threads"
                     : "No threads yet"}
               </Text>
@@ -857,12 +858,12 @@ export function ThreadNavigationSidebar(props: {
             autoCapitalize="none"
             autoCorrect={false}
             clearButtonMode="while-editing"
-            onChangeText={setSearchQuery}
+            onChangeText={props.onSearchQueryChange}
             placeholder="Search"
             placeholderTextColor={placeholderColor}
             returnKeyType="search"
             style={[styles.searchInput, { color: foregroundColor }]}
-            value={searchQuery}
+            value={props.searchQuery}
           />
         </View>
 

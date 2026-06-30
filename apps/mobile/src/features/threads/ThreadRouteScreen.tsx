@@ -222,6 +222,7 @@ function ThreadRouteContent(
     fileInspector,
     layout,
     panes,
+    setPrimarySidebarSearchQuery,
     showAuxiliaryPane,
     toggleAuxiliaryPane,
     togglePrimarySidebar,
@@ -720,7 +721,15 @@ function ThreadRouteContent(
             ? {
                 ref: threadSearchBarRef,
                 allowToolbarIntegration: true,
+                autoCapitalize: "none",
                 hideNavigationBar: false,
+                obscureBackground: false,
+                onCancelButtonPress: () => {
+                  setPrimarySidebarSearchQuery("");
+                },
+                onChangeText: (event) => {
+                  setPrimarySidebarSearchQuery(event.nativeEvent.text);
+                },
                 placeholder: "Search",
                 placement: "integratedButton",
               }
