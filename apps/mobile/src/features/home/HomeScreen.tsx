@@ -26,9 +26,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Screen, ScreenStack, ScreenStackHeaderConfig } from "react-native-screens";
 import { useThemeColor } from "../../lib/useThemeColor";
-import { nativeTopScrollEdgeEffect } from "../../lib/native-scroll-edge-effect";
 
 import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
@@ -37,11 +35,7 @@ import type { WorkspaceState } from "../../state/workspaceModel";
 import type { SavedRemoteConnection } from "../../lib/connection";
 import { relativeTime } from "../../lib/time";
 import { threadStatusTone } from "../threads/threadPresentation";
-import {
-  buildHomeListFilterMenu,
-  type HomeListFilterMenuEnvironment,
-} from "./home-list-filter-menu";
-import { hasCustomHomeListOptions } from "./home-list-options";
+import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import { buildHomeThreadGroups, type HomeProjectSortOrder } from "./homeThreadList";
 import { ThreadSwipeable } from "./thread-swipe-actions";
 import { WorkspaceConnectionStatus } from "./WorkspaceConnectionStatus";
@@ -379,21 +373,6 @@ export function HomeScreen(props: HomeScreenProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const accentColor = useThemeColor("--color-icon-muted");
-  const foregroundColor = useThemeColor("--color-foreground");
-  const screenColor = useThemeColor("--color-screen");
-  const hasCustomListOptions = hasCustomHomeListOptions(props);
-  const filterMenu = buildHomeListFilterMenu({
-    environments: props.environments,
-    selectedEnvironmentId: props.selectedEnvironmentId,
-    projectSortOrder: props.projectSortOrder,
-    threadSortOrder: props.threadSortOrder,
-    projectGroupingMode: props.projectGroupingMode,
-    onEnvironmentChange: props.onEnvironmentChange,
-    onProjectSortOrderChange: props.onProjectSortOrderChange,
-    onThreadSortOrderChange: props.onThreadSortOrderChange,
-    onProjectGroupingModeChange: props.onProjectGroupingModeChange,
-    onOpenSettings: props.onOpenSettings,
-  });
   const toggleExpanded = useCallback((key: string) => {
     setExpandedProjects((prev) => {
       const next = new Set(prev);
@@ -572,75 +551,6 @@ export function HomeScreen(props: HomeScreenProps) {
       <WorkspaceConnectionStatus state={props.catalogState} onPress={props.onOpenEnvironments} />
     </View>
   ) : null;
-
-  if (Platform.OS === "ios") {
-    return (
-      <ScreenStack style={{ flex: 1 }}>
-        <Screen
-          activityState={2}
-          enabled
-          hasLargeHeader={false}
-          isNativeStack
-          screenId="home-native-mail"
-          scrollEdgeEffects={{
-            bottom: "automatic",
-            left: "hidden",
-            right: "hidden",
-            top: nativeTopScrollEdgeEffect(Platform.OS, Platform.Version),
-          }}
-          style={{ flex: 1, backgroundColor: screenColor }}
-        >
-          {scrollView}
-          {connectionStatus}
-          <ScreenStackHeaderConfig
-            backgroundColor="rgba(0,0,0,0)"
-            color={foregroundColor}
-            headerRightBarButtonItems={
-              [
-                {
-                  accessibilityLabel: "Open settings",
-                  icon: { name: "gearshape", type: "sfSymbol" },
-                  identifier: "home-settings",
-                  onPress: props.onOpenSettings,
-                  sharesBackground: true,
-                  type: "button",
-                  width: 58,
-                },
-              ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerRightBarButtonItems"]
-            }
-            headerToolbarItems={
-              [
-                {
-                  composeButtonId: "home-new-task",
-                  composeSystemImageName: "square.and.pencil",
-                  filterButtonId: "home-filter",
-                  filterMenu,
-                  filterSystemImageName: hasCustomListOptions
-                    ? "line.3.horizontal.decrease.circle.fill"
-                    : "line.3.horizontal.decrease",
-                  onComposePress: props.onStartNewTask,
-                  onSearchTextChange: props.onSearchQueryChange,
-                  placeholder: "Search",
-                  searchTextChangeId: "home-search-text",
-                  type: "mailSearchToolbar",
-                  useFallbackSearchField: true,
-                },
-              ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerToolbarItems"]
-            }
-            hideBackButton
-            hideShadow={false}
-            largeTitle={false}
-            navigationItemStyle="editor"
-            title="Threads"
-            titleColor={foregroundColor}
-            titleFontSize={18}
-            titleFontWeight="800"
-            translucent
-          />
-        </Screen>
-      </ScreenStack>
-    );
-  }
 
   return (
     <>

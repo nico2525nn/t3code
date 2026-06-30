@@ -2,7 +2,6 @@ import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { Stack, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Platform } from "react-native";
 
 import { useProjects, useThreadShells } from "../state/entities";
 import { useWorkspaceState } from "../state/workspace";
@@ -73,24 +72,20 @@ export default function HomeRouteScreen() {
 
   return (
     <>
-      {Platform.OS === "ios" ? (
-        <Stack.Screen options={{ headerShown: false }} />
-      ) : (
-        <HomeHeader
-          environments={environments}
-          selectedEnvironmentId={selectedEnvironmentId}
-          projectSortOrder={listOptions.projectSortOrder}
-          threadSortOrder={listOptions.threadSortOrder}
-          projectGroupingMode={listOptions.projectGroupingMode}
-          onEnvironmentChange={setSelectedEnvironmentId}
-          onOpenSettings={() => router.push("/settings")}
-          onProjectGroupingModeChange={setProjectGroupingMode}
-          onProjectSortOrderChange={setProjectSortOrder}
-          onSearchQueryChange={setSearchQuery}
-          onStartNewTask={() => router.push("/new")}
-          onThreadSortOrderChange={setThreadSortOrder}
-        />
-      )}
+      <HomeHeader
+        environments={environments}
+        selectedEnvironmentId={selectedEnvironmentId}
+        projectSortOrder={listOptions.projectSortOrder}
+        threadSortOrder={listOptions.threadSortOrder}
+        projectGroupingMode={listOptions.projectGroupingMode}
+        onEnvironmentChange={setSelectedEnvironmentId}
+        onOpenSettings={() => router.push("/settings")}
+        onProjectGroupingModeChange={setProjectGroupingMode}
+        onProjectSortOrderChange={setProjectSortOrder}
+        onSearchQueryChange={setSearchQuery}
+        onStartNewTask={() => router.push("/new")}
+        onThreadSortOrderChange={setThreadSortOrder}
+      />
 
       <HomeScreen
         catalogState={catalogState}

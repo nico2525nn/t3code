@@ -58,6 +58,8 @@ export function HomeHeader(props: {
           headerLargeTitle: false,
           headerStyle: { backgroundColor: "transparent" },
           headerTintColor: iconColor,
+          headerBackVisible: false,
+          headerBackTitle: "",
           headerTitle: "Threads",
           headerTitleStyle: {
             fontSize: 18,
@@ -86,27 +88,34 @@ export function HomeHeader(props: {
                     composeButtonId: "home-new-task",
                     composeSystemImageName: "square.and.pencil",
                     filterMenu,
+                    filterButtonId: "home-filter",
                     filterSystemImageName: hasCustomListOptions
                       ? "line.3.horizontal.decrease.circle.fill"
                       : "line.3.horizontal.decrease",
                     onComposePress: props.onStartNewTask,
+                    onSearchTextChange: props.onSearchQueryChange,
                     placeholder: "Search",
+                    searchTextChangeId: "home-search-text",
                     type: "mailSearchToolbar",
+                    useFallbackSearchField: true,
                   },
                 ]
               : undefined,
-          headerSearchBarOptions: {
-            ref: searchBarRef,
-            allowToolbarIntegration: true,
-            hideNavigationBar: false,
-            placeholder: "Search",
-            onCancelButtonPress: () => {
-              props.onSearchQueryChange("");
-            },
-            onChangeText: (event) => {
-              props.onSearchQueryChange(event.nativeEvent.text);
-            },
-          },
+          headerSearchBarOptions:
+            Platform.OS === "ios"
+              ? undefined
+              : {
+                  ref: searchBarRef,
+                  allowToolbarIntegration: true,
+                  hideNavigationBar: false,
+                  placeholder: "Search",
+                  onCancelButtonPress: () => {
+                    props.onSearchQueryChange("");
+                  },
+                  onChangeText: (event) => {
+                    props.onSearchQueryChange(event.nativeEvent.text);
+                  },
+                },
         }}
       />
 
