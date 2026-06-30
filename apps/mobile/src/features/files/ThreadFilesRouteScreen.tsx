@@ -665,6 +665,7 @@ export function ThreadFileScreen() {
   useAdaptiveWorkspacePaneRole("inspector");
   const router = useRouter();
   const { fileInspector, panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
+  const iconColor = useThemeColor("--color-icon");
   const params = useLocalSearchParams<{
     line?: string | string[];
     path?: string | string[];
@@ -758,7 +759,21 @@ export function ThreadFileScreen() {
     <ReviewHighlighterProvider>
       <View className="flex-1 bg-sheet">
         <Stack.Screen
-          options={{ headerTitle: basename(relativePath), title: basename(relativePath) }}
+          options={{
+            headerTitle: basename(relativePath),
+            headerTransparent: true,
+            headerShadowVisible: false,
+            headerStyle: { backgroundColor: "transparent" },
+            headerTintColor: iconColor,
+            scrollEdgeEffects: {
+              top: TOP_SCROLL_EDGE_EFFECT,
+              bottom: "hidden",
+              left: "hidden",
+              right: "hidden",
+            },
+            title: basename(relativePath),
+            unstable_navigationItemStyle: Platform.OS === "ios" ? "editor" : undefined,
+          }}
         />
         <WorkspaceSidebarToolbar>
           {fileInspector.supported ? (
