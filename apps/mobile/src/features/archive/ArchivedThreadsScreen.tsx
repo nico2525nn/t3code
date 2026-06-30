@@ -4,7 +4,7 @@ import type {
 } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { MenuAction } from "@react-native-menu/menu";
-import { Stack } from "expo-router";
+import { Stack } from "../../navigation/router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useMemo, useRef, type ComponentProps } from "react";
 import {

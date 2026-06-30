@@ -1,6 +1,6 @@
-import Stack from "expo-router/stack";
+import Stack from "../../navigation/router";
 import { SymbolView } from "expo-symbols";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "../../navigation/router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,

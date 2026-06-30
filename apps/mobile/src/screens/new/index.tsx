@@ -1,4 +1,4 @@
-import { Link, Stack, useRouter } from "expo-router";
+import { Link, Stack, useRouter } from "../../navigation/router";
 import { SymbolView } from "expo-symbols";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useMemo } from "react";

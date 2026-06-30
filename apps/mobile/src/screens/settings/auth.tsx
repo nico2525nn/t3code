@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/expo";
 import { AuthView, UserProfileView } from "@clerk/expo/native";
-import { Redirect, Stack } from "expo-router";
+import { Redirect, Stack } from "../../navigation/router";
 import { View } from "react-native";
 
 import { hasCloudPublicConfig } from "../../features/cloud/publicConfig";

@@ -1,4 +1,4 @@
-import { useGlobalSearchParams } from "expo-router";
+import { useGlobalSearchParams } from "../navigation/router";
 import { createContext, createElement, use, useMemo, useRef, type ReactNode } from "react";
 import {
   EnvironmentId,

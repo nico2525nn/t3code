@@ -1,6 +1,6 @@
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useRouter } from "../navigation/router";
 import { useMemo, useState } from "react";
 
 import { useProjects, useThreadShells } from "../state/entities";

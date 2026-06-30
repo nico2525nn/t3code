@@ -1,4 +1,4 @@
-import { Stack } from "expo-router";
+import { Stack } from "../../navigation/router";
 import type { ReactNode } from "react";
 
 import { useAdaptiveWorkspaceLayout } from "./AdaptiveWorkspaceLayout";

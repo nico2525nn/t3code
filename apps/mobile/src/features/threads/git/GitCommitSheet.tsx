@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useRouter } from "../../../navigation/router";
 import { useCallback, useState } from "react";
 import { Pressable, ScrollView, View, useColorScheme } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

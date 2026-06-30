@@ -1,6 +1,11 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useFocusEffect, useGlobalSearchParams, usePathname, useRouter } from "expo-router";
+import {
+  useFocusEffect,
+  useGlobalSearchParams,
+  usePathname,
+  useRouter,
+} from "../../navigation/router";
 import {
   createContext,
   use,

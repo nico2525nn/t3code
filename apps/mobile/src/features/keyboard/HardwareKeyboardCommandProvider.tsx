@@ -1,4 +1,4 @@
-import { usePathname, useRouter } from "expo-router";
+import { usePathname, useRouter } from "../../navigation/router";
 import { useCallback, useMemo, useSyncExternalStore, type PropsWithChildren } from "react";
 
 import {

@@ -5,7 +5,7 @@ import {
   requiresDefaultBranchConfirmation,
 } from "@t3tools/client-runtime/state/vcs";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "../../../navigation/router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, type ComponentProps } from "react";
 import { Alert, Platform, Pressable, ScrollView, View } from "react-native";

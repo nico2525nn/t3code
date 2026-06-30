@@ -1,4 +1,4 @@
-import type { Href, useRouter } from "expo-router";
+import type { Href, useRouter } from "../navigation/router";
 import { type EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 

@@ -1,5 +1,5 @@
 import { useAuth } from "@clerk/expo";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useRouter } from "../../navigation/router";
 import { SymbolView } from "expo-symbols";
 import {
   connectionStatusText,

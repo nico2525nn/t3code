@@ -1,7 +1,7 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useLocalSearchParams } from "expo-router";
-import { useHeaderHeight } from "expo-router/build/react-navigation/elements";
-import Stack from "expo-router/stack";
+import { useLocalSearchParams } from "../../navigation/router";
+import { useHeaderHeight } from "@react-navigation/elements";
+import Stack from "../../navigation/router";
 import { SymbolView } from "expo-symbols";
 import {
   memo,

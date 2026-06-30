@@ -1,6 +1,6 @@
 import { useAuth, useUser } from "@clerk/expo";
 import * as Notifications from "expo-notifications";
-import { Link, Stack, useRouter } from "expo-router";
+import { Link, Stack, useRouter } from "../../navigation/router";
 import { SymbolView } from "expo-symbols";
 import * as Effect from "effect/Effect";
 import { useCallback, useEffect, useMemo, useState } from "react";

@@ -1,5 +1,5 @@
 import { useAuth } from "@clerk/expo";
-import { Redirect, Stack, useFocusEffect, useRouter } from "expo-router";
+import { Redirect, Stack, useFocusEffect, useRouter } from "../../navigation/router";
 import { useCallback } from "react";
 import { ScrollView } from "react-native";
 

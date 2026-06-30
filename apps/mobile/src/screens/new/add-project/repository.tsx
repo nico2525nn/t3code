@@ -1,4 +1,4 @@
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams } from "../../../navigation/router";
 import { addProjectRemoteSourceLabel } from "@t3tools/client-runtime/operations/projects";
 
 import { AddProjectRepositoryScreen } from "../../../features/projects/AddProjectScreen";

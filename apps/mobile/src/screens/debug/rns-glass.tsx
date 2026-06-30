@@ -1,4 +1,4 @@
-import { Stack } from "expo-router";
+import { Stack } from "../../navigation/router";
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   Platform,

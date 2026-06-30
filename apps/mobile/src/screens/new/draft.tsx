@@ -1,4 +1,4 @@
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams } from "../../navigation/router";
 
 import { NewTaskDraftScreen } from "../../features/threads/NewTaskDraftScreen";
 

@@ -10,9 +10,8 @@ import {
   requiresDefaultBranchConfirmation,
   resolveQuickAction,
 } from "@t3tools/client-runtime/state/vcs";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import type { NativeStackNavigationOptions } from "expo-router/build/react-navigation/native-stack/types";
-import Stack from "expo-router/stack";
+import { useLocalSearchParams, useRouter } from "../../navigation/router";
+import Stack from "../../navigation/router";
 import { useCallback, useMemo } from "react";
 import { Alert } from "react-native";
 import { buildThreadFilesNavigation, buildThreadReviewRoutePath } from "../../lib/routes";
@@ -66,10 +65,8 @@ function compactMenuStatus(gitStatus: VcsStatusResult | null): string {
   return parts.join(" · ");
 }
 
-type HeaderItems = ReturnType<
-  NonNullable<NativeStackNavigationOptions["unstable_headerRightItems"]>
->;
-type HeaderItem = HeaderItems[number];
+type HeaderItem = Record<string, unknown>;
+type HeaderItems = HeaderItem[];
 type ThreadGitHeaderActionItems = {
   readonly terminal: HeaderItem;
   readonly files: HeaderItem;
@@ -330,7 +327,7 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
                 type: "sfSymbol",
               },
               label: compactMenuBranchLabel(model.currentBranchLabel),
-              onPress: () => {},
+              onPress: (): void => {},
               type: "action",
             },
             {
@@ -338,7 +335,7 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
               disabled: model.quickAction.disabled,
               icon: { name: model.quickActionIcon, type: "sfSymbol" },
               label: model.quickAction.label,
-              onPress: () => void model.runQuickAction(),
+              onPress: (): void => void model.runQuickAction(),
               type: "action",
             },
             {

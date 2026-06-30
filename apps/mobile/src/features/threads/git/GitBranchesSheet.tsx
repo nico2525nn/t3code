@@ -1,5 +1,5 @@
 import { sanitizeFeatureBranchName } from "@t3tools/shared/git";
-import { useRouter } from "expo-router";
+import { useRouter } from "../../../navigation/router";
 import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

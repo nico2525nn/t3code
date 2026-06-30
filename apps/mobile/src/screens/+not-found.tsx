@@ -1,4 +1,4 @@
-import { Link } from "expo-router";
+import { Link } from "../navigation/router";
 import { Pressable, ScrollView, StyleSheet } from "react-native";
 import { useResolveClassNames } from "uniwind";
 

@@ -1,5 +1,4 @@
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import type { NativeStackNavigationOptions } from "expo-router/build/react-navigation/native-stack/types";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "../../navigation/router";
 import {
   useCallback,
   useEffect,
@@ -99,9 +98,7 @@ interface ThreadInspectorSelection {
   readonly mode: ThreadInspectorMode;
 }
 
-type NativeHeaderItems = ReturnType<
-  NonNullable<NativeStackNavigationOptions["unstable_headerRightItems"]>
->;
+type NativeHeaderItems = ReadonlyArray<Record<string, unknown>>;
 type RnsHeaderItems = ComponentProps<typeof ScreenStackHeaderConfig>["headerRightBarButtonItems"];
 
 const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
