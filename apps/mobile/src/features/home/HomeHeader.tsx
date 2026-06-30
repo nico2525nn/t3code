@@ -71,13 +71,11 @@ export function HomeHeader(props: {
               ? () => [
                   {
                     accessibilityLabel: "Open settings",
-                    icon: { name: "gearshape", type: "sfSymbol" },
+                    icon: { name: "ellipsis", type: "sfSymbol" },
                     identifier: "home-settings",
                     label: "",
                     onPress: props.onOpenSettings,
-                    sharesBackground: true,
                     type: "button",
-                    width: 58,
                   },
                 ]
               : undefined,

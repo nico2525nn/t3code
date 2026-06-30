@@ -559,7 +559,7 @@ export function ThreadNavigationSidebar(props: {
     const nativeHeaderRightBarButtonItems = [
       {
         accessibilityLabel: "Open settings",
-        icon: { name: "gearshape", type: "sfSymbol" },
+        icon: { name: "ellipsis", type: "sfSymbol" },
         identifier: "thread-sidebar-settings",
         onPress: props.onOpenSettings,
         sharesBackground: true,
