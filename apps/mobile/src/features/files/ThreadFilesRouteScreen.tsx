@@ -39,6 +39,7 @@ import {
   useAdaptiveWorkspaceLayout,
   useAdaptiveWorkspacePaneRole,
 } from "../layout/AdaptiveWorkspaceLayout";
+import { createNativeMailSearchToolbarItem } from "../layout/native-mail-search-toolbar";
 import { WorkspaceSidebarToolbar } from "../layout/workspace-sidebar-toolbar";
 import { ReviewHighlighterProvider } from "../review/ReviewHighlighterProvider";
 import { ThreadRouteScreen } from "../threads/ThreadRouteScreen";
@@ -572,6 +573,8 @@ export function ThreadFilesTreeScreen() {
     );
   }
 
+  const usesCompactMailToolbar = Platform.OS === "ios" && !layout.usesSplitView;
+
   return (
     <View className="flex-1 bg-sheet">
       <Stack.Screen
@@ -589,42 +592,62 @@ export function ThreadFilesTreeScreen() {
             right: "hidden",
           },
           unstable_navigationItemStyle: Platform.OS === "ios" ? "editor" : undefined,
-          headerSearchBarOptions: {
-            allowToolbarIntegration: true,
-            autoCapitalize: "none",
-            hideNavigationBar: false,
-            placeholder: "Search files",
-            onChangeText: (event) => {
-              setSearchQuery(event.nativeEvent.text);
-            },
-            onCancelButtonPress: () => {
-              setSearchQuery("");
-            },
-          },
+          unstable_headerToolbarItems: usesCompactMailToolbar
+            ? () => [
+                createNativeMailSearchToolbarItem({
+                  composeButtonId: "files-refresh",
+                  composeSystemImageName: "arrow.clockwise",
+                  onComposePress: entriesQuery.refresh,
+                  onSearchTextChange: setSearchQuery,
+                  placeholder: "Search files",
+                  searchTextChangeId: "files-search-text",
+                }),
+              ]
+            : undefined,
+          headerSearchBarOptions: usesCompactMailToolbar
+            ? undefined
+            : {
+                allowToolbarIntegration: true,
+                autoCapitalize: "none",
+                hideNavigationBar: false,
+                placeholder: "Search files",
+                onChangeText: (event) => {
+                  setSearchQuery(event.nativeEvent.text);
+                },
+                onCancelButtonPress: () => {
+                  setSearchQuery("");
+                },
+              },
         }}
       />
-      <Stack.Toolbar placement="right">
-        {layout.usesSplitView ? (
-          <Stack.Toolbar.Button
-            accessibilityLabel={
-              panes.primarySidebarVisible ? "Maximize files" : "Show thread sidebar"
-            }
-            icon={
-              panes.primarySidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left"
-            }
-            onPress={togglePrimarySidebar}
-            separateBackground
-          />
-        ) : null}
-        <Stack.Toolbar.Button
-          accessibilityLabel="Refresh files"
-          icon="arrow.clockwise"
-          onPress={entriesQuery.refresh}
-        />
-      </Stack.Toolbar>
-      <Stack.Toolbar placement="bottom">
-        <Stack.Toolbar.SearchBarSlot />
-      </Stack.Toolbar>
+      {layout.usesSplitView || !usesCompactMailToolbar ? (
+        <Stack.Toolbar placement="right">
+          {layout.usesSplitView ? (
+            <Stack.Toolbar.Button
+              accessibilityLabel={
+                panes.primarySidebarVisible ? "Maximize files" : "Show thread sidebar"
+              }
+              icon={
+                panes.primarySidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left"
+              }
+              onPress={togglePrimarySidebar}
+              separateBackground
+            />
+          ) : null}
+          {!usesCompactMailToolbar ? (
+            <Stack.Toolbar.Button
+              accessibilityLabel="Refresh files"
+              icon="arrow.clockwise"
+              onPress={entriesQuery.refresh}
+            />
+          ) : null}
+        </Stack.Toolbar>
+      ) : null}
+      {usesCompactMailToolbar ? null : (
+        <Stack.Toolbar placement="bottom">
+          <Stack.Toolbar.SearchBarSlot />
+        </Stack.Toolbar>
+      )}
       <FileTreeBrowser
         entries={entriesData?.entries ?? []}
         error={entriesQuery.error}

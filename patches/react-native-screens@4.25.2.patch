@@ -255,9 +255,15 @@ index 5970e3e3a624b9498b8dedfc16831df03a274d0c..99a8bce383d46e0452eea857e84c7a2f
 +      glassView.layer.cornerRadius = 28.0;
 +      glassView.translatesAutoresizingMaskIntoConstraints = NO;
 +      [toolbarHost addSubview:glassView];
++      BOOL hasFilterButton =
++          mailSearchToolbarConfig[@"filterButtonId"] != nil || mailSearchToolbarConfig[@"filterMenu"] != nil;
++      BOOL hasComposeButton =
++          mailSearchToolbarConfig[@"composeButtonId"] != nil || mailSearchToolbarConfig[@"composeMenu"] != nil;
++      CGFloat glassLeadingInset = hasFilterButton ? 64.0 : 0.0;
++      CGFloat glassTrailingInset = hasComposeButton ? -64.0 : 0.0;
 +      [NSLayoutConstraint activateConstraints:@[
-+        [glassView.leadingAnchor constraintEqualToAnchor:toolbarHost.leadingAnchor constant:64.0],
-+        [glassView.trailingAnchor constraintEqualToAnchor:toolbarHost.trailingAnchor constant:-64.0],
++        [glassView.leadingAnchor constraintEqualToAnchor:toolbarHost.leadingAnchor constant:glassLeadingInset],
++        [glassView.trailingAnchor constraintEqualToAnchor:toolbarHost.trailingAnchor constant:glassTrailingInset],
 +        [glassView.centerYAnchor constraintEqualToAnchor:toolbarHost.centerYAnchor],
 +        [glassView.heightAnchor constraintEqualToConstant:56.0],
 +      ]];
@@ -353,31 +359,35 @@ index 5970e3e3a624b9498b8dedfc16831df03a274d0c..99a8bce383d46e0452eea857e84c7a2f
 +        ]];
 +      }
 +
-+      UIButton *filterButton = makeGlassButton(
-+          mailSearchToolbarConfig[@"filterSystemImageName"] ?: @"line.3.horizontal.decrease",
-+          mailSearchToolbarConfig[@"filterButtonId"],
-+          mailSearchToolbarConfig[@"filterMenu"]);
-+      filterButton.translatesAutoresizingMaskIntoConstraints = NO;
-+      [toolbarHost addSubview:filterButton];
-+      [NSLayoutConstraint activateConstraints:@[
-+        [filterButton.leadingAnchor constraintEqualToAnchor:toolbarHost.leadingAnchor],
-+        [filterButton.centerYAnchor constraintEqualToAnchor:toolbarHost.centerYAnchor],
-+        [filterButton.widthAnchor constraintEqualToConstant:56.0],
-+        [filterButton.heightAnchor constraintEqualToConstant:56.0],
-+      ]];
++      if (hasFilterButton) {
++        UIButton *filterButton = makeGlassButton(
++            mailSearchToolbarConfig[@"filterSystemImageName"] ?: @"line.3.horizontal.decrease",
++            mailSearchToolbarConfig[@"filterButtonId"],
++            mailSearchToolbarConfig[@"filterMenu"]);
++        filterButton.translatesAutoresizingMaskIntoConstraints = NO;
++        [toolbarHost addSubview:filterButton];
++        [NSLayoutConstraint activateConstraints:@[
++          [filterButton.leadingAnchor constraintEqualToAnchor:toolbarHost.leadingAnchor],
++          [filterButton.centerYAnchor constraintEqualToAnchor:toolbarHost.centerYAnchor],
++          [filterButton.widthAnchor constraintEqualToConstant:56.0],
++          [filterButton.heightAnchor constraintEqualToConstant:56.0],
++        ]];
++      }
 +
-+      UIButton *composeButton = makeGlassButton(
-+          mailSearchToolbarConfig[@"composeSystemImageName"] ?: @"square.and.pencil",
-+          mailSearchToolbarConfig[@"composeButtonId"],
-+          mailSearchToolbarConfig[@"composeMenu"]);
-+      composeButton.translatesAutoresizingMaskIntoConstraints = NO;
-+      [toolbarHost addSubview:composeButton];
-+      [NSLayoutConstraint activateConstraints:@[
-+        [composeButton.trailingAnchor constraintEqualToAnchor:toolbarHost.trailingAnchor],
-+        [composeButton.centerYAnchor constraintEqualToAnchor:toolbarHost.centerYAnchor],
-+        [composeButton.widthAnchor constraintEqualToConstant:56.0],
-+        [composeButton.heightAnchor constraintEqualToConstant:56.0],
-+      ]];
++      if (hasComposeButton) {
++        UIButton *composeButton = makeGlassButton(
++            mailSearchToolbarConfig[@"composeSystemImageName"] ?: @"square.and.pencil",
++            mailSearchToolbarConfig[@"composeButtonId"],
++            mailSearchToolbarConfig[@"composeMenu"]);
++        composeButton.translatesAutoresizingMaskIntoConstraints = NO;
++        [toolbarHost addSubview:composeButton];
++        [NSLayoutConstraint activateConstraints:@[
++          [composeButton.trailingAnchor constraintEqualToAnchor:toolbarHost.trailingAnchor],
++          [composeButton.centerYAnchor constraintEqualToAnchor:toolbarHost.centerYAnchor],
++          [composeButton.widthAnchor constraintEqualToConstant:56.0],
++          [composeButton.heightAnchor constraintEqualToConstant:56.0],
++        ]];
++      }
 +    }
 +#endif
 +  }
@@ -482,11 +492,16 @@ index 5970e3e3a624b9498b8dedfc16831df03a274d0c..99a8bce383d46e0452eea857e84c7a2f
 +          return button;
 +        };
 +
-+        UIButton *filterButton = makeGlassButton(
-+            dict[@"filterSystemImageName"] ?: @"line.3.horizontal.decrease",
-+            dict[@"filterButtonId"],
-+            dict[@"filterMenu"]);
-+        [stackView addArrangedSubview:filterButton];
++        BOOL hasFilterButton = dict[@"filterButtonId"] != nil || dict[@"filterMenu"] != nil;
++        BOOL hasComposeButton = dict[@"composeButtonId"] != nil || dict[@"composeMenu"] != nil;
++
++        if (hasFilterButton) {
++          UIButton *filterButton = makeGlassButton(
++              dict[@"filterSystemImageName"] ?: @"line.3.horizontal.decrease",
++              dict[@"filterButtonId"],
++              dict[@"filterMenu"]);
++          [stackView addArrangedSubview:filterButton];
++        }
 +
 +        UISearchBar *searchBar = navitem.searchController != nil ? navitem.searchController.searchBar : [UISearchBar new];
 +        NSString *placeholder = dict[@"placeholder"];
@@ -498,11 +513,13 @@ index 5970e3e3a624b9498b8dedfc16831df03a274d0c..99a8bce383d46e0452eea857e84c7a2f
 +        [searchBar.heightAnchor constraintEqualToConstant:50.0].active = YES;
 +        [stackView addArrangedSubview:searchBar];
 +
-+        UIButton *composeButton = makeGlassButton(
-+            dict[@"composeSystemImageName"] ?: @"square.and.pencil",
-+            dict[@"composeButtonId"],
-+            dict[@"composeMenu"]);
-+        [stackView addArrangedSubview:composeButton];
++        if (hasComposeButton) {
++          UIButton *composeButton = makeGlassButton(
++              dict[@"composeSystemImageName"] ?: @"square.and.pencil",
++              dict[@"composeButtonId"],
++              dict[@"composeMenu"]);
++          [stackView addArrangedSubview:composeButton];
++        }
 +
 +        UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithCustomView:container];
 +        [items addObject:item];
