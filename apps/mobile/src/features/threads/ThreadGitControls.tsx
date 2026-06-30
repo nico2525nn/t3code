@@ -66,7 +66,7 @@ function compactMenuStatus(gitStatus: VcsStatusResult | null): string {
   return parts.join(" · ");
 }
 
-type HeaderRightItems = ReturnType<
+type HeaderItems = ReturnType<
   NonNullable<NativeStackNavigationOptions["unstable_headerRightItems"]>
 >;
 type QuickActionIcon =
@@ -238,7 +238,7 @@ function useThreadGitControlModel(props: ThreadGitControlsProps) {
   };
 }
 
-export function useThreadGitRightHeaderItems(props: ThreadGitControlsProps): HeaderRightItems {
+function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): HeaderItems {
   const model = useThreadGitControlModel(props);
 
   return useMemo(
@@ -370,7 +370,7 @@ export function useThreadGitRightHeaderItems(props: ThreadGitControlsProps): Hea
           variant: "prominent",
           width: 58,
         },
-      ].toReversed() as HeaderRightItems,
+      ] as HeaderItems,
     [
       model.currentBranchLabel,
       model.isRepo,
@@ -392,6 +392,15 @@ export function useThreadGitRightHeaderItems(props: ThreadGitControlsProps): Hea
       props.terminalSessions,
     ],
   );
+}
+
+export function useThreadGitRightHeaderItems(props: ThreadGitControlsProps): HeaderItems {
+  const actionItems = useThreadGitHeaderActionItems(props);
+  return useMemo(() => actionItems.toReversed() as HeaderItems, [actionItems]);
+}
+
+export function useThreadGitCenterHeaderItems(props: ThreadGitControlsProps): HeaderItems {
+  return useThreadGitHeaderActionItems(props);
 }
 
 export function ThreadGitControls(props: ThreadGitControlsProps) {

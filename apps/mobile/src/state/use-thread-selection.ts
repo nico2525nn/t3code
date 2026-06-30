@@ -2,12 +2,16 @@ import { useGlobalSearchParams } from "expo-router";
 import { createContext, createElement, use, useMemo, useRef, type ReactNode } from "react";
 import {
   EnvironmentId,
+  type OrchestrationThread,
   ThreadId,
   type ScopedProjectRef,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import * as Option from "effect/Option";
 
 import { useProject, useThreadShell } from "../state/entities";
+import { useEnvironmentThread } from "../state/threads";
 import {
   useRemoteEnvironmentRuntime,
   useSavedRemoteConnection,
@@ -19,6 +23,43 @@ function firstRouteParam(value: string | string[] | undefined): string | null {
   }
 
   return value ?? null;
+}
+
+function latestUserMessageAt(thread: OrchestrationThread): OrchestrationThread["updatedAt"] | null {
+  for (let index = thread.messages.length - 1; index >= 0; index -= 1) {
+    const message = thread.messages[index];
+    if (message?.role === "user") {
+      return message.createdAt;
+    }
+  }
+
+  return null;
+}
+
+function threadDetailToShell(
+  environmentId: EnvironmentId,
+  thread: OrchestrationThread,
+): EnvironmentThreadShell {
+  return {
+    environmentId,
+    id: thread.id,
+    projectId: thread.projectId,
+    title: thread.title,
+    modelSelection: thread.modelSelection,
+    runtimeMode: thread.runtimeMode,
+    interactionMode: thread.interactionMode,
+    branch: thread.branch,
+    worktreePath: thread.worktreePath,
+    latestTurn: thread.latestTurn,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    archivedAt: thread.archivedAt,
+    session: thread.session,
+    latestUserMessageAt: latestUserMessageAt(thread),
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    hasActionableProposedPlan: false,
+  };
 }
 
 function useResolvedThreadSelection() {
@@ -43,7 +84,20 @@ function useResolvedThreadSelection() {
     lastRouteThreadRef.current = routeThreadRef;
   }
   const selectedThreadRef = routeThreadRef ?? lastRouteThreadRef.current;
-  const selectedThread = useThreadShell(selectedThreadRef);
+  const selectedThreadShell = useThreadShell(selectedThreadRef);
+  const selectedThreadDetailState = useEnvironmentThread(
+    selectedThreadRef?.environmentId ?? null,
+    selectedThreadRef?.threadId ?? null,
+  );
+  const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
+  const selectedThread = useMemo(
+    () =>
+      selectedThreadShell ??
+      (selectedThreadRef !== null && selectedThreadDetail !== null
+        ? threadDetailToShell(selectedThreadRef.environmentId, selectedThreadDetail)
+        : null),
+    [selectedThreadDetail, selectedThreadRef, selectedThreadShell],
+  );
   const selectedProjectRef = useMemo<ScopedProjectRef | null>(
     () =>
       selectedThread === null
