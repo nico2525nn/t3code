@@ -1165,6 +1165,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const insets = useSafeAreaInsets();
   const topContentInset = props.contentTopInset ?? insets.top + 44;
   const bottomContentInset = props.contentBottomInset ?? 18;
+  const usesNativeAutomaticInsets =
+    props.usesAutomaticContentInsets === true && Platform.OS === "ios";
 
   const iconSubtleColor = useThemeColor("--color-icon-subtle");
   const userBubbleColor = useThemeColor("--color-user-bubble");
@@ -1504,9 +1506,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             ref={props.listRef}
             key={props.threadId}
             style={{ flex: 1 }}
-            contentInsetAdjustmentBehavior="never"
-            automaticallyAdjustsScrollIndicatorInsets={false}
-            {...(props.usesAutomaticContentInsets
+            contentInsetAdjustmentBehavior={usesNativeAutomaticInsets ? "automatic" : "never"}
+            automaticallyAdjustsScrollIndicatorInsets={usesNativeAutomaticInsets}
+            {...(usesNativeAutomaticInsets
               ? {
                   contentInset: { top: topContentInset, left: 0, right: 0, bottom: 0 },
                   scrollIndicatorInsets: { top: 0, left: 0, right: 0, bottom: 0 },
@@ -1543,7 +1545,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             onScroll={handleScroll}
             scrollEventThrottle={16}
             ListHeaderComponent={
-              props.usesAutomaticContentInsets ? null : <View style={{ height: topContentInset }} />
+              usesNativeAutomaticInsets ? null : <View style={{ height: topContentInset }} />
             }
             contentContainerStyle={{
               paddingTop: 12,

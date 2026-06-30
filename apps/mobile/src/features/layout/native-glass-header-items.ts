@@ -6,8 +6,6 @@ type NativeGlassHeaderItem = {
   readonly width?: number;
 };
 
-export const NATIVE_GLASS_HEADER_BUTTON_WIDTH = 58;
-
 /**
  * iOS 26/27 Mail-style header controls need the native glass button
  * configuration when they are not part of a larger toolbar. Keep this
@@ -26,6 +24,8 @@ export function withNativeGlassHeaderItem<T extends NativeGlassHeaderItem>(
     glassEffect: item.glassEffect ?? true,
     sharesBackground: options.sharesBackground ?? item.sharesBackground ?? true,
     variant: item.variant ?? "prominent",
-    width: options.width ?? item.width ?? NATIVE_GLASS_HEADER_BUTTON_WIDTH,
+    ...(options.width !== undefined || item.width !== undefined
+      ? { width: options.width ?? item.width }
+      : {}),
   } as T;
 }

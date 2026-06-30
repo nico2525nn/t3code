@@ -303,7 +303,6 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
         sharesBackground: true,
         type: "menu",
         variant: "prominent",
-        width: 58,
       },
       files: {
         accessibilityLabel: "Open files",
@@ -315,7 +314,6 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
         sharesBackground: true,
         type: "button",
         variant: "prominent",
-        width: 58,
       },
       git: {
         accessibilityLabel: "Git actions",
@@ -372,7 +370,6 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
         sharesBackground: true,
         type: "menu",
         variant: "prominent",
-        width: 58,
       },
     }),
     [

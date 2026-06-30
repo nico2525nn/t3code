@@ -69,6 +69,7 @@ export interface ThreadDetailScreenProps {
   readonly selectedThreadQueueCount: number;
   readonly serverConfig: T3ServerConfig | null;
   readonly layoutVariant?: LayoutVariant;
+  readonly nativeHeaderContentTopInset?: number;
   readonly usesAutomaticContentInsets?: boolean;
   readonly onHeaderMaterialVisibilityChange?: (visible: boolean) => void;
   readonly onOpenDrawer: () => void;
@@ -237,6 +238,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const layoutVariant = props.layoutVariant ?? "compact";
   const isSplitLayout = layoutVariant === "split";
   const contentMaxWidth = isSplitLayout ? CHAT_CONTENT_MAX_WIDTH : undefined;
+  const nativeHeaderContentTopInset =
+    props.nativeHeaderContentTopInset ??
+    Math.max(headerHeight, insets.top + (isSplitLayout ? 88 : 92));
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
   useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
   const selectedProviderSkills = useMemo(
@@ -385,7 +389,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               freeze={freeze}
               anchorMessageId={anchorMessageId}
               contentInsetEndAdjustment={contentInsetEndAdjustment}
-              contentTopInset={props.usesAutomaticContentInsets ? headerHeight : 0}
+              contentTopInset={props.usesAutomaticContentInsets ? nativeHeaderContentTopInset : 0}
               contentBottomInset={estimatedOverlayHeight}
               contentMaxWidth={contentMaxWidth}
               layoutVariant={layoutVariant}

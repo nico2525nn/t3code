@@ -1,11 +1,33 @@
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import type { NativeStackNavigationOptions } from "expo-router/build/react-navigation/native-stack/types";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import * as Option from "effect/Option";
 import { EnvironmentId, ThreadId, type ProjectScript } from "@t3tools/contracts";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import { Platform, Pressable, ScrollView, Text as RNText, View } from "react-native";
-import type { SearchBarCommands } from "react-native-screens";
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  Text as RNText,
+  View,
+  type NativeSyntheticEvent,
+} from "react-native";
+import {
+  Screen,
+  ScreenStack,
+  ScreenStackHeaderConfig,
+  ScreenStackHeaderSearchBarView,
+  SearchBar,
+  type SearchBarCommands,
+} from "react-native-screens";
 import { useWorkspaceState } from "../../state/workspace";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { useEnvironmentQuery } from "../../state/query";
@@ -44,7 +66,11 @@ import {
 } from "../terminal/terminalLaunchContext";
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
-import { ThreadGitControls, useThreadGitCenterHeaderItems } from "./ThreadGitControls";
+import {
+  ThreadGitControls,
+  useThreadGitCenterHeaderItems,
+  useThreadGitRightHeaderItems,
+} from "./ThreadGitControls";
 import { GitOverviewSheet } from "./git/GitOverviewSheet";
 import { ThreadNavigationDrawer } from "./ThreadNavigationDrawer";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -76,8 +102,13 @@ interface ThreadInspectorSelection {
 type NativeHeaderItems = ReturnType<
   NonNullable<NativeStackNavigationOptions["unstable_headerRightItems"]>
 >;
+type RnsHeaderItems = ComponentProps<typeof ScreenStackHeaderConfig>["headerRightBarButtonItems"];
 
 const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
+
+function asRnsHeaderItems(items: NativeHeaderItems | undefined): RnsHeaderItems {
+  return items as unknown as RnsHeaderItems;
+}
 
 function InspectorPaneRoleActivation() {
   useAdaptiveWorkspacePaneRole("inspector");
@@ -632,6 +663,25 @@ function ThreadRouteContent(
     onRunAction: gitActions.onRunSelectedThreadGitAction,
   };
   const threadCenterHeaderItems = useThreadGitCenterHeaderItems(threadGitControlProps);
+  const compactRightHeaderItems = useThreadGitRightHeaderItems(threadGitControlProps);
+  const compactLeftHeaderItems = useMemo<NativeHeaderItems>(
+    () => [
+      withNativeGlassHeaderItem({
+        accessibilityLabel: "Back to threads",
+        icon: { name: "chevron.left", type: "sfSymbol" as const },
+        identifier: "thread-compact-back",
+        onPress: () => {
+          if (router.canGoBack()) {
+            router.back();
+            return;
+          }
+          router.replace("/");
+        },
+        type: "button" as const,
+      }),
+    ],
+    [router],
+  );
   const splitLeftHeaderItems = useMemo<NativeHeaderItems>(
     () => [
       {
@@ -690,6 +740,137 @@ function ThreadRouteContent(
     connectionState: routeConnectionState,
   });
   const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
+  const renderThreadRouteBody = (showActionControls: boolean) => (
+    <>
+      <ThreadGitControls {...threadGitControlProps} showActionControls={showActionControls} />
+
+      <GitActionProgressOverlay progress={gitActionProgress} onDismiss={dismissGitActionResult} />
+
+      <AdaptiveInspectorLayout renderInspector={activeInspectorRenderer}>
+        <View className="flex-1 bg-screen">
+          <ThreadDetailScreen
+            selectedThread={selectedThreadWithDraftSettings ?? selectedThread}
+            contentPresentation={contentPresentation}
+            screenTone={connectionTone(routeConnectionState)}
+            connectionError={routeConnectionError}
+            environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? null}
+            selectedThreadFeed={composer.selectedThreadFeed}
+            activeWorkStartedAt={composer.activeWorkStartedAt}
+            activePendingApproval={requests.activePendingApproval}
+            respondingApprovalId={requests.respondingApprovalId}
+            activePendingUserInput={requests.activePendingUserInput}
+            activePendingUserInputDrafts={requests.activePendingUserInputDrafts}
+            activePendingUserInputAnswers={requests.activePendingUserInputAnswers}
+            respondingUserInputId={requests.respondingUserInputId}
+            draftMessage={composer.draftMessage}
+            draftAttachments={composer.draftAttachments}
+            connectionStateLabel={routeConnectionState}
+            activeThreadBusy={composer.activeThreadBusy}
+            environmentId={selectedThread.environmentId}
+            projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
+            threadCwd={selectedThreadCwd}
+            selectedThreadQueueCount={composer.selectedThreadQueueCount}
+            layoutVariant={layout.variant}
+            usesAutomaticContentInsets={usesNativeHeaderGlass}
+            onOpenDrawer={handleOpenDrawer}
+            onOpenConnectionEditor={handleOpenConnectionEditor}
+            onChangeDraftMessage={composer.onChangeDraftMessage}
+            onPickDraftImages={composer.onPickDraftImages}
+            onNativePasteImages={composer.onNativePasteImages}
+            onRemoveDraftImage={composer.onRemoveDraftImage}
+            serverConfig={serverConfig}
+            onStopThread={handleStopThread}
+            onSendMessage={composer.onSendMessage}
+            onReconnectEnvironment={handleReconnectEnvironment}
+            onUpdateThreadModelSelection={composer.onUpdateModelSelection}
+            onUpdateThreadRuntimeMode={composer.onUpdateRuntimeMode}
+            onUpdateThreadInteractionMode={composer.onUpdateInteractionMode}
+            onRespondToApproval={requests.onRespondToApproval}
+            onSelectUserInputOption={requests.onSelectUserInputOption}
+            onChangeUserInputCustomAnswer={requests.onChangeUserInputCustomAnswer}
+            onSubmitUserInput={requests.onSubmitUserInput}
+          />
+
+          {layout.usesSplitView ? null : (
+            <ThreadNavigationDrawer
+              visible={drawerVisible}
+              selectedThreadKey={selectedThreadKey}
+              onClose={() => setDrawerVisible(false)}
+              onSelectThread={(thread) => {
+                router.replace(buildThreadRoutePath(thread));
+              }}
+              onStartNewTask={() => router.push("/new")}
+            />
+          )}
+        </View>
+      </AdaptiveInspectorLayout>
+    </>
+  );
+
+  if (usesNativeHeaderGlass) {
+    return (
+      <>
+        {activeInspectorRenderer ? <InspectorPaneRoleActivation /> : null}
+        <Stack.Screen options={{ headerShown: false }} />
+        <ScreenStack style={{ flex: 1 }}>
+          <Screen
+            activityState={2}
+            enabled
+            hasLargeHeader={false}
+            isNativeStack
+            screenId={`thread-detail-${selectedThreadKey}`}
+            scrollEdgeEffects={HEADER_SCROLL_EDGE_EFFECTS}
+            style={{ flex: 1, backgroundColor: screenBackgroundColor }}
+          >
+            {renderThreadRouteBody(false)}
+            <ScreenStackHeaderConfig
+              backgroundColor="rgba(0,0,0,0)"
+              color={iconColor}
+              headerCenterBarButtonItems={asRnsHeaderItems(
+                layout.usesSplitView ? threadCenterHeaderItems : undefined,
+              )}
+              headerLeftBarButtonItems={asRnsHeaderItems(
+                layout.usesSplitView ? splitLeftHeaderItems : compactLeftHeaderItems,
+              )}
+              headerRightBarButtonItems={asRnsHeaderItems(
+                layout.usesSplitView ? undefined : compactRightHeaderItems,
+              )}
+              hideBackButton
+              hideShadow={false}
+              navigationItemStyle="editor"
+              subtitle={headerSubtitle}
+              title={selectedThread.title}
+              titleColor={foregroundColor}
+              titleFontSize={17}
+              titleFontWeight="800"
+              translucent
+            >
+              {usesThreadSearchToolbar ? (
+                <ScreenStackHeaderSearchBarView>
+                  <SearchBar
+                    allowToolbarIntegration
+                    autoCapitalize="none"
+                    hideNavigationBar={false}
+                    obscureBackground={false}
+                    onCancelButtonPress={() => {
+                      setPrimarySidebarSearchQuery("");
+                    }}
+                    onChangeText={(event: NativeSyntheticEvent<{ readonly text?: string }>) => {
+                      setPrimarySidebarSearchQuery(event.nativeEvent.text ?? "");
+                    }}
+                    placement="integratedButton"
+                    placeholder="Search"
+                    textColor={foregroundColor}
+                    tintColor={iconColor}
+                  />
+                </ScreenStackHeaderSearchBarView>
+              ) : null}
+            </ScreenStackHeaderConfig>
+          </Screen>
+        </ScreenStack>
+      </>
+    );
+  }
 
   return (
     <>
@@ -756,68 +937,7 @@ function ThreadRouteContent(
         </Stack.Screen.Title>
       )}
 
-      <ThreadGitControls {...threadGitControlProps} showActionControls={!layout.usesSplitView} />
-
-      <GitActionProgressOverlay progress={gitActionProgress} onDismiss={dismissGitActionResult} />
-
-      <AdaptiveInspectorLayout renderInspector={activeInspectorRenderer}>
-        <View className="flex-1 bg-screen">
-          <ThreadDetailScreen
-            selectedThread={selectedThreadWithDraftSettings ?? selectedThread}
-            contentPresentation={contentPresentation}
-            screenTone={connectionTone(routeConnectionState)}
-            connectionError={routeConnectionError}
-            environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? null}
-            selectedThreadFeed={composer.selectedThreadFeed}
-            activeWorkStartedAt={composer.activeWorkStartedAt}
-            activePendingApproval={requests.activePendingApproval}
-            respondingApprovalId={requests.respondingApprovalId}
-            activePendingUserInput={requests.activePendingUserInput}
-            activePendingUserInputDrafts={requests.activePendingUserInputDrafts}
-            activePendingUserInputAnswers={requests.activePendingUserInputAnswers}
-            respondingUserInputId={requests.respondingUserInputId}
-            draftMessage={composer.draftMessage}
-            draftAttachments={composer.draftAttachments}
-            connectionStateLabel={routeConnectionState}
-            activeThreadBusy={composer.activeThreadBusy}
-            environmentId={selectedThread.environmentId}
-            projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
-            threadCwd={selectedThreadCwd}
-            selectedThreadQueueCount={composer.selectedThreadQueueCount}
-            layoutVariant={layout.variant}
-            usesAutomaticContentInsets={usesNativeHeaderGlass}
-            onOpenDrawer={handleOpenDrawer}
-            onOpenConnectionEditor={handleOpenConnectionEditor}
-            onChangeDraftMessage={composer.onChangeDraftMessage}
-            onPickDraftImages={composer.onPickDraftImages}
-            onNativePasteImages={composer.onNativePasteImages}
-            onRemoveDraftImage={composer.onRemoveDraftImage}
-            serverConfig={serverConfig}
-            onStopThread={handleStopThread}
-            onSendMessage={composer.onSendMessage}
-            onReconnectEnvironment={handleReconnectEnvironment}
-            onUpdateThreadModelSelection={composer.onUpdateModelSelection}
-            onUpdateThreadRuntimeMode={composer.onUpdateRuntimeMode}
-            onUpdateThreadInteractionMode={composer.onUpdateInteractionMode}
-            onRespondToApproval={requests.onRespondToApproval}
-            onSelectUserInputOption={requests.onSelectUserInputOption}
-            onChangeUserInputCustomAnswer={requests.onChangeUserInputCustomAnswer}
-            onSubmitUserInput={requests.onSubmitUserInput}
-          />
-
-          {layout.usesSplitView ? null : (
-            <ThreadNavigationDrawer
-              visible={drawerVisible}
-              selectedThreadKey={selectedThreadKey}
-              onClose={() => setDrawerVisible(false)}
-              onSelectThread={(thread) => {
-                router.replace(buildThreadRoutePath(thread));
-              }}
-              onStartNewTask={() => router.push("/new")}
-            />
-          )}
-        </View>
-      </AdaptiveInspectorLayout>
+      {renderThreadRouteBody(!layout.usesSplitView)}
     </>
   );
 }
