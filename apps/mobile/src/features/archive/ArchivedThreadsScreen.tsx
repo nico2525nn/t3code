@@ -64,7 +64,8 @@ function ArchivedThreadsHeader(props: {
 }) {
   const { width } = useWindowDimensions();
   const hasCustomFilter = props.selectedEnvironmentId !== null || props.sortOrder !== "newest";
-  const usesNativeMailToolbar = Platform.OS === "ios" && width < 700;
+  const usesNativeChrome = Platform.OS === "ios";
+  const usesCompactMailToolbar = Platform.OS === "ios" && width < 700;
   const archiveFilterMenu = {
     title: "Archived thread options",
     items: [
@@ -115,11 +116,11 @@ function ArchivedThreadsHeader(props: {
       <Stack.Screen
         options={{
           title: "Archived Threads",
-          headerTransparent: usesNativeMailToolbar,
-          headerStyle: usesNativeMailToolbar ? { backgroundColor: "transparent" } : undefined,
-          headerShadowVisible: usesNativeMailToolbar ? false : undefined,
-          unstable_navigationItemStyle: usesNativeMailToolbar ? "editor" : undefined,
-          unstable_headerToolbarItems: usesNativeMailToolbar
+          headerTransparent: usesNativeChrome,
+          headerStyle: usesNativeChrome ? { backgroundColor: "transparent" } : undefined,
+          headerShadowVisible: usesNativeChrome ? false : undefined,
+          unstable_navigationItemStyle: usesNativeChrome ? "editor" : undefined,
+          unstable_headerToolbarItems: usesCompactMailToolbar
             ? () => [
                 {
                   composeButtonId: "archived-refresh",
@@ -138,14 +139,21 @@ function ArchivedThreadsHeader(props: {
                 },
               ]
             : undefined,
-          headerSearchBarOptions: usesNativeMailToolbar
+          headerSearchBarOptions: usesCompactMailToolbar
             ? undefined
             : {
+                ...(usesNativeChrome
+                  ? {
+                      allowToolbarIntegration: true,
+                      placement: "integratedButton" as const,
+                    }
+                  : {
+                      placement: "stacked" as const,
+                    }),
                 autoCapitalize: "none",
                 hideNavigationBar: false,
                 obscureBackground: false,
                 placeholder: "Search archived threads",
-                placement: "stacked",
                 onChangeText: (event) => {
                   props.onSearchQueryChange(event.nativeEvent.text);
                 },
@@ -156,8 +164,16 @@ function ArchivedThreadsHeader(props: {
         }}
       />
 
-      {usesNativeMailToolbar ? null : (
+      {usesCompactMailToolbar ? null : (
         <Stack.Toolbar placement="right">
+          {usesNativeChrome ? (
+            <Stack.Toolbar.Button
+              accessibilityLabel="Refresh archived threads"
+              icon="arrow.clockwise"
+              onPress={props.onRefresh}
+              separateBackground
+            />
+          ) : null}
           <Stack.Toolbar.Menu
             accessibilityLabel="Filter and sort archived threads"
             icon={
