@@ -1,9 +1,17 @@
 import type { EnvironmentId, ProjectListEntriesResult } from "@t3tools/contracts";
 import { SymbolView } from "expo-symbols";
-import { useCallback, useState } from "react";
-import { Pressable, useColorScheme, View } from "react-native";
+import { useCallback, useMemo, useState, type ComponentProps } from "react";
+import { Platform, Pressable, useColorScheme, View, type NativeSyntheticEvent } from "react-native";
+import {
+  Screen,
+  ScreenStack,
+  ScreenStackHeaderConfig,
+  ScreenStackHeaderSearchBarView,
+  SearchBar,
+} from "react-native-screens";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { nativeTopScrollEdgeEffect } from "../../lib/native-scroll-edge-effect";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { projectEnvironment } from "../../state/projects";
 import { useEnvironmentQuery } from "../../state/query";
@@ -22,6 +30,9 @@ export function ThreadFileNavigatorPane(props: {
   const colorScheme = useColorScheme();
   const highlightTheme = colorScheme === "dark" ? "dark" : "light";
   const iconColor = String(useThemeColor("--color-icon-muted"));
+  const foregroundColor = String(useThemeColor("--color-foreground"));
+  const sheetColor = String(useThemeColor("--color-sheet"));
+  const topScrollEdgeEffect = nativeTopScrollEdgeEffect(Platform.OS, Platform.Version);
   const entriesQuery = useEnvironmentQuery(
     projectEnvironment.listEntries({
       environmentId: props.environmentId,
@@ -40,6 +51,94 @@ export function ThreadFileNavigatorPane(props: {
     },
     [highlightTheme, props.cwd, props.environmentId],
   );
+  const nativeHeaderRightBarButtonItems = useMemo(
+    () =>
+      [
+        {
+          accessibilityLabel: "Refresh files",
+          icon: { name: "arrow.clockwise", type: "sfSymbol" as const },
+          identifier: "thread-file-navigator-refresh",
+          onPress: entriesQuery.refresh,
+          sharesBackground: false,
+          tintColor: foregroundColor,
+          type: "button" as const,
+          width: 44,
+        },
+      ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerRightBarButtonItems"],
+    [entriesQuery.refresh, foregroundColor],
+  );
+
+  const fileTree = (
+    <FileTreeBrowser
+      entries={entriesData?.entries ?? []}
+      error={entriesQuery.error}
+      isPending={entriesQuery.isPending}
+      searchQuery={searchQuery}
+      selectedPath={props.selectedPath}
+      onPreviewFile={handlePreviewFile}
+      onRefresh={entriesQuery.refresh}
+      onSelectFile={props.onSelectFile}
+    />
+  );
+
+  if (Platform.OS === "ios") {
+    return (
+      <View className="flex-1 border-l border-border bg-sheet">
+        <ScreenStack style={{ flex: 1 }}>
+          <Screen
+            activityState={2}
+            enabled
+            isNativeStack
+            screenId="thread-file-navigator-native"
+            scrollEdgeEffects={{
+              bottom: "hidden",
+              left: "hidden",
+              right: "hidden",
+              top: topScrollEdgeEffect,
+            }}
+            style={{ backgroundColor: sheetColor, flex: 1 }}
+          >
+            {fileTree}
+            <ScreenStackHeaderConfig
+              backgroundColor="rgba(0,0,0,0)"
+              color={foregroundColor}
+              headerRightBarButtonItems={nativeHeaderRightBarButtonItems}
+              hideBackButton
+              hideShadow={false}
+              navigationItemStyle="editor"
+              subtitle={props.projectName}
+              title="Files"
+              titleColor={foregroundColor}
+              titleFontSize={17}
+              titleFontWeight="700"
+              translucent
+            >
+              <ScreenStackHeaderSearchBarView>
+                <SearchBar
+                  allowToolbarIntegration
+                  autoCapitalize="none"
+                  barTintColor={sheetColor}
+                  hideNavigationBar={false}
+                  hideWhenScrolling={false}
+                  obscureBackground={false}
+                  onCancelButtonPress={() => {
+                    setSearchQuery("");
+                  }}
+                  onChangeText={(event: NativeSyntheticEvent<{ readonly text?: string }>) => {
+                    setSearchQuery(event.nativeEvent.text ?? "");
+                  }}
+                  placement="integratedButton"
+                  placeholder="Search files"
+                  textColor={foregroundColor}
+                  tintColor={foregroundColor}
+                />
+              </ScreenStackHeaderSearchBarView>
+            </ScreenStackHeaderConfig>
+          </Screen>
+        </ScreenStack>
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 border-l border-border bg-sheet">
@@ -75,16 +174,7 @@ export function ThreadFileNavigatorPane(props: {
           />
         </View>
       </View>
-      <FileTreeBrowser
-        entries={entriesData?.entries ?? []}
-        error={entriesQuery.error}
-        isPending={entriesQuery.isPending}
-        searchQuery={searchQuery}
-        selectedPath={props.selectedPath}
-        onPreviewFile={handlePreviewFile}
-        onRefresh={entriesQuery.refresh}
-        onSelectFile={props.onSelectFile}
-      />
+      {fileTree}
     </View>
   );
 }
