@@ -13,8 +13,8 @@ export const DEFAULT_HTTP_READY_PROBE_TIMEOUT_MS = Duration.toMillis(
 );
 
 function normalizeDuration(input: {
-  readonly duration?: Duration.Input;
-  readonly durationMs?: number;
+  readonly duration: Duration.Input | undefined;
+  readonly durationMs: number | undefined;
   readonly fallback: Duration.Duration;
 }): Duration.Duration {
   return Option.getOrElse(
