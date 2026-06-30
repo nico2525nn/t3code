@@ -34,6 +34,7 @@ import {
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { useSelectedThreadDetail } from "../../state/use-thread-detail";
 import { EnvironmentConnectionNotice } from "../connection/EnvironmentConnectionNotice";
+import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { TerminalSurface } from "./NativeTerminalSurface";
 import { getPierreTerminalTheme } from "./terminalTheme";
 import { loadPreferences, savePreferencesPatch } from "../../lib/storage";
@@ -204,6 +205,7 @@ export function ThreadTerminalRouteScreen() {
   const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, "environment retry");
   const appearanceScheme = useColorScheme() === "light" ? "light" : "dark";
   const { state: workspaceState } = useWorkspaceState();
+  const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
   const params = useLocalSearchParams<{
     environmentId?: string | string[];
     threadId?: string | string[];
@@ -989,6 +991,19 @@ export function ThreadTerminalRouteScreen() {
           unstable_navigationItemStyle: usesNativeHeaderGlass ? "editor" : undefined,
         }}
       />
+
+      {layout.usesSplitView ? (
+        <Stack.Toolbar placement="left">
+          <Stack.Toolbar.Button
+            accessibilityLabel={panes.primarySidebarVisible ? "Maximize terminal" : "Show threads"}
+            icon={
+              panes.primarySidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left"
+            }
+            onPress={togglePrimarySidebar}
+            separateBackground
+          />
+        </Stack.Toolbar>
+      ) : null}
 
       {isEnvironmentReady ? (
         <Stack.Toolbar placement="right">
