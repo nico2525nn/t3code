@@ -7,12 +7,14 @@ import {
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
-import { useCallback, useEffect, useMemo } from "react";
-import { Alert, Pressable, ScrollView, View } from "react-native";
+import { useCallback, useEffect, useMemo, type ComponentProps } from "react";
+import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
+import { Screen, ScreenStack, ScreenStackHeaderConfig } from "react-native-screens";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../../lib/useThemeColor";
 
 import { AppText as Text } from "../../../components/AppText";
+import { nativeTopScrollEdgeEffect } from "../../../lib/native-scroll-edge-effect";
 import { tryOpenExternalUrl } from "../../../lib/openExternalUrl";
 import { buildThreadReviewRoutePath } from "../../../lib/routes";
 import { useEnvironmentQuery } from "../../../state/query";
@@ -22,6 +24,8 @@ import { useSelectedThreadGitState } from "../../../state/use-selected-thread-gi
 import { useSelectedThreadWorktree } from "../../../state/use-selected-thread-worktree";
 import { vcsEnvironment } from "../../../state/vcs";
 import { MetaCard, SheetListRow, menuItemIconName, statusSummary } from "./gitSheetComponents";
+
+const TOP_SCROLL_EDGE_EFFECT = nativeTopScrollEdgeEffect(Platform.OS, Platform.Version);
 
 export function GitOverviewSheet(
   props: {
@@ -44,6 +48,8 @@ export function GitOverviewSheet(
 
   const iconColor = useThemeColor("--color-icon");
   const borderColor = useThemeColor("--color-border");
+  const foregroundColor = String(useThemeColor("--color-foreground"));
+  const sheetColor = String(useThemeColor("--color-sheet"));
 
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
@@ -55,6 +61,7 @@ export function GitOverviewSheet(
   );
 
   const currentBranchLabel = gitStatus.data?.refName ?? selectedThread?.branch ?? "Detached HEAD";
+  const currentStatusSummary = statusSummary(gitStatus.data);
   const currentWorktreePath = selectedThreadWorktreePath;
   const gitOperationLabel = gitState.gitOperationLabel;
   const busy = gitOperationLabel !== null;
@@ -160,6 +167,136 @@ export function GitOverviewSheet(
     [environmentId, openExistingPr, router, runActionWithPrompt, threadId],
   );
 
+  const inspectorHeaderRightBarButtonItems = useMemo(
+    () =>
+      [
+        {
+          accessibilityLabel: "Refresh repository status",
+          disabled: busy,
+          icon: { name: "arrow.clockwise", type: "sfSymbol" as const },
+          identifier: "git-overview-refresh",
+          onPress: () => {
+            void gitActions.refreshSelectedThreadGitStatus();
+          },
+          sharesBackground: false,
+          tintColor: foregroundColor,
+          type: "button" as const,
+          width: 44,
+        },
+      ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerRightBarButtonItems"],
+    [busy, foregroundColor, gitActions],
+  );
+
+  const content = (
+    <ScrollView
+      contentInsetAdjustmentBehavior={isInspector && Platform.OS === "ios" ? "automatic" : "never"}
+      showsVerticalScrollIndicator={false}
+      style={{ flex: 1 }}
+      contentInset={{ bottom: Math.max(insets.bottom, 18) + 18 }}
+      contentContainerStyle={{
+        paddingHorizontal: isInspector ? 12 : 20,
+        paddingTop: 8,
+        gap: 14,
+      }}
+    >
+      <View
+        className={
+          isInspector
+            ? "overflow-hidden rounded-2xl border border-border bg-card px-3 py-1"
+            : "overflow-hidden rounded-[22px] border border-border bg-card px-4 py-1"
+        }
+      >
+        {sheetMenuItems.map(({ item, disabledReason }, index) => (
+          <View key={`${item.id}-${item.label}`}>
+            {index > 0 ? (
+              <View className="ml-12 h-px" style={{ backgroundColor: borderColor }} />
+            ) : null}
+            <SheetListRow
+              icon={menuItemIconName(item.icon)}
+              title={item.label}
+              subtitle={disabledReason}
+              disabled={item.disabled}
+              onPress={() => void onPressMenuItem(item)}
+            />
+          </View>
+        ))}
+        {(gitStatus.data?.behindCount ?? 0) > 0 ? (
+          <>
+            <View className="ml-12 h-px" style={{ backgroundColor: borderColor }} />
+            <SheetListRow
+              icon="arrow.down.circle"
+              title="Pull latest"
+              subtitle="Sync this branch with upstream"
+              disabled={busy || !isRepo}
+              onPress={() => void gitActions.onPullSelectedThreadBranch()}
+            />
+          </>
+        ) : null}
+        <View className="ml-12 h-px" style={{ backgroundColor: borderColor }} />
+        <SheetListRow
+          icon="text.bubble"
+          title="Review changes"
+          subtitle="Inspect turn diffs, worktree changes, and base branch diff"
+          disabled={busy || !isRepo}
+          onPress={() => router.push(buildThreadReviewRoutePath({ environmentId, threadId }))}
+        />
+        <View className="ml-12 h-px" style={{ backgroundColor: borderColor }} />
+        <SheetListRow
+          icon="point.topleft.down.curvedto.point.bottomright.up"
+          title="Branches & worktrees"
+          subtitle="Switch branch, create branch, or move to a worktree"
+          disabled={busy || !isRepo}
+          onPress={() =>
+            router.push({
+              pathname: "/threads/[environmentId]/[threadId]/git/branches",
+              params: { environmentId, threadId },
+            })
+          }
+        />
+      </View>
+
+      {currentWorktreePath ? <MetaCard label="Worktree" value={currentWorktreePath} /> : null}
+    </ScrollView>
+  );
+
+  if (isInspector && Platform.OS === "ios") {
+    return (
+      <View collapsable={false} className="flex-1 border-l border-border bg-sheet">
+        <ScreenStack style={{ flex: 1 }}>
+          <Screen
+            activityState={2}
+            enabled
+            isNativeStack
+            screenId="thread-git-inspector-native"
+            scrollEdgeEffects={{
+              bottom: "hidden",
+              left: "hidden",
+              right: "hidden",
+              top: TOP_SCROLL_EDGE_EFFECT,
+            }}
+            style={{ backgroundColor: sheetColor, flex: 1 }}
+          >
+            {content}
+            <ScreenStackHeaderConfig
+              backgroundColor="rgba(0,0,0,0)"
+              color={foregroundColor}
+              headerRightBarButtonItems={inspectorHeaderRightBarButtonItems}
+              hideBackButton
+              hideShadow={false}
+              navigationItemStyle="editor"
+              subtitle={currentStatusSummary}
+              title={currentBranchLabel}
+              titleColor={foregroundColor}
+              titleFontSize={17}
+              titleFontWeight="700"
+              translucent
+            />
+          </Screen>
+        </ScreenStack>
+      </View>
+    );
+  }
+
   return (
     <View
       collapsable={false}
@@ -203,78 +340,11 @@ export function GitOverviewSheet(
           {currentBranchLabel}
         </Text>
         <Text className="text-foreground-secondary text-sm font-medium leading-[19px]">
-          {statusSummary(gitStatus.data)}
+          {currentStatusSummary}
         </Text>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        style={{ flex: 1 }}
-        contentInset={{ bottom: Math.max(insets.bottom, 18) + 18 }}
-        contentContainerStyle={{
-          paddingHorizontal: isInspector ? 12 : 20,
-          paddingTop: 8,
-          gap: 14,
-        }}
-      >
-        <View
-          className={
-            isInspector
-              ? "overflow-hidden rounded-2xl border border-border bg-card px-3 py-1"
-              : "overflow-hidden rounded-[22px] border border-border bg-card px-4 py-1"
-          }
-        >
-          {sheetMenuItems.map(({ item, disabledReason }, index) => (
-            <View key={`${item.id}-${item.label}`}>
-              {index > 0 ? (
-                <View className="ml-12 h-px" style={{ backgroundColor: borderColor }} />
-              ) : null}
-              <SheetListRow
-                icon={menuItemIconName(item.icon)}
-                title={item.label}
-                subtitle={disabledReason}
-                disabled={item.disabled}
-                onPress={() => void onPressMenuItem(item)}
-              />
-            </View>
-          ))}
-          {(gitStatus.data?.behindCount ?? 0) > 0 ? (
-            <>
-              <View className="ml-12 h-px" style={{ backgroundColor: borderColor }} />
-              <SheetListRow
-                icon="arrow.down.circle"
-                title="Pull latest"
-                subtitle="Sync this branch with upstream"
-                disabled={busy || !isRepo}
-                onPress={() => void gitActions.onPullSelectedThreadBranch()}
-              />
-            </>
-          ) : null}
-          <View className="ml-12 h-px" style={{ backgroundColor: borderColor }} />
-          <SheetListRow
-            icon="text.bubble"
-            title="Review changes"
-            subtitle="Inspect turn diffs, worktree changes, and base branch diff"
-            disabled={busy || !isRepo}
-            onPress={() => router.push(buildThreadReviewRoutePath({ environmentId, threadId }))}
-          />
-          <View className="ml-12 h-px" style={{ backgroundColor: borderColor }} />
-          <SheetListRow
-            icon="point.topleft.down.curvedto.point.bottomright.up"
-            title="Branches & worktrees"
-            subtitle="Switch branch, create branch, or move to a worktree"
-            disabled={busy || !isRepo}
-            onPress={() =>
-              router.push({
-                pathname: "/threads/[environmentId]/[threadId]/git/branches",
-                params: { environmentId, threadId },
-              })
-            }
-          />
-        </View>
-
-        {currentWorktreePath ? <MetaCard label="Worktree" value={currentWorktreePath} /> : null}
-      </ScrollView>
+      {content}
     </View>
   );
 }
