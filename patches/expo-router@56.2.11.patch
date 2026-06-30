@@ -2,7 +2,7 @@ diff --git a/build/react-navigation/native-stack/types.d.ts b/build/react-naviga
 index 6de73e0c33cedbaaaffdcb092ba21fc9ff71862e..78929fe237b7f9d7808f8de2b844e822976e0d69 100644
 --- a/build/react-navigation/native-stack/types.d.ts
 +++ b/build/react-navigation/native-stack/types.d.ts
-@@ -306,6 +306,31 @@ export type NativeStackNavigationOptions = {
+@@ -306,6 +306,39 @@ export type NativeStackNavigationOptions = {
       * @platform ios
       */
      unstable_headerRightItems?: (props: NativeStackHeaderItemProps) => NativeStackHeaderItem[];
@@ -24,6 +24,14 @@ index 6de73e0c33cedbaaaffdcb092ba21fc9ff71862e..78929fe237b7f9d7808f8de2b844e822
 +     */
 +    unstable_headerToolbarItems?: (props: NativeStackHeaderItemProps) => NonNullable<ScreenStackHeaderConfigProps['headerToolbarItems']>;
 +    /**
++     * String displayed below the compact navigation title on iOS 26+.
++     *
++     * This is an unstable API and might change in the future.
++     *
++     * @platform ios
++     */
++    unstable_headerSubtitle?: ScreenStackHeaderConfigProps['subtitle'];
++    /**
 +     * Native iOS navigation item style to apply to the header.
 +     *
 +     * This is an unstable API and might change in the future.
@@ -34,7 +42,7 @@ index 6de73e0c33cedbaaaffdcb092ba21fc9ff71862e..78929fe237b7f9d7808f8de2b844e822
      /**
       * String or a function that returns a React Element to be used by the header.
       * Defaults to screen `title` or route name.
-@@ -1115,7 +1140,8 @@ export type NativeStackHeaderItemCustom = {
+@@ -1115,7 +1148,8 @@ export type NativeStackHeaderItemCustom = {
   * if the items don't fit the available space, they will be collapsed into a menu automatically.
   * Items with `type: 'custom'` will not be included in this automatic collapsing behavior.
   */
@@ -53,7 +61,7 @@ index 218c4291fdb57600a45d32fbcefe3707a520fe79..5fdbb2754755a27589ad1555eae892b5
      route: Route<string>;
  };
 -export declare function useHeaderConfigProps({ headerBackIcon, headerBackImageSource, headerBackButtonDisplayMode, headerBackButtonMenuEnabled, headerBackTitle, headerBackTitleStyle, headerBackVisible, headerShadowVisible, headerLargeStyle, headerLargeTitle: headerLargeTitleDeprecated, headerLargeTitleEnabled, headerLargeTitleShadowVisible, headerLargeTitleStyle, headerBackground, headerLeft, headerRight, headerShown, headerStyle, headerBlurEffect, headerTintColor, headerTitle, headerTitleAlign, headerTitleStyle, headerTransparent, headerSearchBarOptions, headerTopInsetEnabled, headerBack, route, title, unstable_headerLeftItems: headerLeftItems, unstable_headerRightItems: headerRightItems, }: Props): ScreenStackHeaderConfigProps;
-+export declare function useHeaderConfigProps({ headerBackIcon, headerBackImageSource, headerBackButtonDisplayMode, headerBackButtonMenuEnabled, headerBackTitle, headerBackTitleStyle, headerBackVisible, headerShadowVisible, headerLargeStyle, headerLargeTitle: headerLargeTitleDeprecated, headerLargeTitleEnabled, headerLargeTitleShadowVisible, headerLargeTitleStyle, headerBackground, headerLeft, headerRight, headerShown, headerStyle, headerBlurEffect, headerTintColor, headerTitle, headerTitleAlign, headerTitleStyle, headerTransparent, headerSearchBarOptions, headerTopInsetEnabled, headerBack, route, title, unstable_headerLeftItems: headerLeftItems, unstable_headerRightItems: headerRightItems, unstable_headerCenterItems: headerCenterItems, unstable_headerToolbarItems: headerToolbarItems, unstable_navigationItemStyle: navigationItemStyle, }: Props): ScreenStackHeaderConfigProps;
++export declare function useHeaderConfigProps({ headerBackIcon, headerBackImageSource, headerBackButtonDisplayMode, headerBackButtonMenuEnabled, headerBackTitle, headerBackTitleStyle, headerBackVisible, headerShadowVisible, headerLargeStyle, headerLargeTitle: headerLargeTitleDeprecated, headerLargeTitleEnabled, headerLargeTitleShadowVisible, headerLargeTitleStyle, headerBackground, headerLeft, headerRight, headerShown, headerStyle, headerBlurEffect, headerTintColor, headerTitle, headerTitleAlign, headerTitleStyle, headerTransparent, headerSearchBarOptions, headerTopInsetEnabled, headerBack, route, title, unstable_headerLeftItems: headerLeftItems, unstable_headerRightItems: headerRightItems, unstable_headerCenterItems: headerCenterItems, unstable_headerToolbarItems: headerToolbarItems, unstable_headerSubtitle: headerSubtitle, unstable_navigationItemStyle: navigationItemStyle, }: Props): ScreenStackHeaderConfigProps;
  export {};
  //# sourceMappingURL=useHeaderConfigProps.d.ts.map
 diff --git a/build/react-navigation/native-stack/views/useHeaderConfigProps.js b/build/react-navigation/native-stack/views/useHeaderConfigProps.js
@@ -75,11 +83,11 @@ index 2de6d160cedffb4ffb124adf7cd10979ec6ee778..9d839442e00e136204630663f207a45c
      };
  };
 -function useHeaderConfigProps({ headerBackIcon, headerBackImageSource, headerBackButtonDisplayMode, headerBackButtonMenuEnabled, headerBackTitle, headerBackTitleStyle, headerBackVisible, headerShadowVisible, headerLargeStyle, headerLargeTitle: headerLargeTitleDeprecated, headerLargeTitleEnabled = headerLargeTitleDeprecated, headerLargeTitleShadowVisible, headerLargeTitleStyle, headerBackground, headerLeft, headerRight, headerShown, headerStyle, headerBlurEffect, headerTintColor, headerTitle, headerTitleAlign, headerTitleStyle, headerTransparent, headerSearchBarOptions, headerTopInsetEnabled, headerBack, route, title, unstable_headerLeftItems: headerLeftItems, unstable_headerRightItems: headerRightItems, }) {
-+function useHeaderConfigProps({ headerBackIcon, headerBackImageSource, headerBackButtonDisplayMode, headerBackButtonMenuEnabled, headerBackTitle, headerBackTitleStyle, headerBackVisible, headerShadowVisible, headerLargeStyle, headerLargeTitle: headerLargeTitleDeprecated, headerLargeTitleEnabled = headerLargeTitleDeprecated, headerLargeTitleShadowVisible, headerLargeTitleStyle, headerBackground, headerLeft, headerRight, headerShown, headerStyle, headerBlurEffect, headerTintColor, headerTitle, headerTitleAlign, headerTitleStyle, headerTransparent, headerSearchBarOptions, headerTopInsetEnabled, headerBack, route, title, unstable_headerLeftItems: headerLeftItems, unstable_headerRightItems: headerRightItems, unstable_headerCenterItems: headerCenterItems, unstable_headerToolbarItems: headerToolbarItems, unstable_navigationItemStyle: navigationItemStyle, }) {
++function useHeaderConfigProps({ headerBackIcon, headerBackImageSource, headerBackButtonDisplayMode, headerBackButtonMenuEnabled, headerBackTitle, headerBackTitleStyle, headerBackVisible, headerShadowVisible, headerLargeStyle, headerLargeTitle: headerLargeTitleDeprecated, headerLargeTitleEnabled = headerLargeTitleDeprecated, headerLargeTitleShadowVisible, headerLargeTitleStyle, headerBackground, headerLeft, headerRight, headerShown, headerStyle, headerBlurEffect, headerTintColor, headerTitle, headerTitleAlign, headerTitleStyle, headerTransparent, headerSearchBarOptions, headerTopInsetEnabled, headerBack, route, title, unstable_headerLeftItems: headerLeftItems, unstable_headerRightItems: headerRightItems, unstable_headerCenterItems: headerCenterItems, unstable_headerToolbarItems: headerToolbarItems, unstable_headerSubtitle: headerSubtitle, unstable_navigationItemStyle: navigationItemStyle, }) {
      const { direction } = (0, native_1.useLocale)();
      const { colors, fonts, dark } = (0, native_1.useTheme)();
      const tintColor = headerTintColor ?? (react_native_1.Platform.OS === 'ios' ? colors.primary : colors.text);
-@@ -216,6 +219,10 @@ function useHeaderConfigProps({ headerBackIcon, headerBackImageSource, headerBac
+@@ -216,6 +219,14 @@ function useHeaderConfigProps({ headerBackIcon, headerBackImageSource, headerBac
          tintColor,
          canGoBack,
      });
@@ -87,15 +95,20 @@ index 2de6d160cedffb4ffb124adf7cd10979ec6ee778..9d839442e00e136204630663f207a45c
 +        tintColor,
 +        canGoBack,
 +    });
++    const toolbarItems = headerToolbarItems?.({
++        tintColor,
++        canGoBack,
++    });
      if (rightItems) {
          // iOS renders right items in reverse order
          // So we need to reverse them here to match the order
-@@ -270,6 +277,9 @@ function useHeaderConfigProps({ headerBackIcon, headerBackImageSource, headerBac
+@@ -270,6 +281,10 @@ function useHeaderConfigProps({ headerBackIcon, headerBackImageSource, headerBac
          children,
          headerLeftBarButtonItems: processBarButtonItems(leftItems, colors, fonts),
          headerRightBarButtonItems: processBarButtonItems(rightItems, colors, fonts),
++        subtitle: headerSubtitle,
 +        headerCenterBarButtonItems: processBarButtonItems(centerItems, colors, fonts),
-+        headerToolbarItems,
++        headerToolbarItems: toolbarItems,
 +        navigationItemStyle,
          experimental_userInterfaceStyle: dark ? 'dark' : 'light',
      };

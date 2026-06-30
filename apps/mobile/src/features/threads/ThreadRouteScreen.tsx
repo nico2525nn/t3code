@@ -674,20 +674,8 @@ function ThreadRouteContent(
         type: "button" as const,
         width: 58,
       },
-      {
-        flexible: true,
-        spacing: 0,
-        type: "spacing" as const,
-      },
-      ...threadCenterHeaderItems,
     ],
-    [
-      panes.primarySidebarVisible,
-      props.onReturnToThread,
-      router,
-      threadCenterHeaderItems,
-      togglePrimarySidebar,
-    ],
+    [panes.primarySidebarVisible, props.onReturnToThread, router, togglePrimarySidebar],
   );
 
   if (!environmentId || !threadId) {
@@ -749,11 +737,17 @@ function ThreadRouteContent(
             : undefined,
           unstable_headerLeftItems:
             layout.usesSplitView && Platform.OS === "ios" ? () => splitLeftHeaderItems : undefined,
+          unstable_headerCenterItems:
+            layout.usesSplitView && Platform.OS === "ios"
+              ? () => threadCenterHeaderItems
+              : undefined,
+          unstable_headerSubtitle:
+            usesNativeHeaderGlass && !layout.usesSplitView ? headerSubtitle : undefined,
           unstable_navigationItemStyle: usesNativeHeaderGlass ? "editor" : undefined,
         }}
       />
 
-      {layout.usesSplitView ? null : (
+      {layout.usesSplitView || usesNativeHeaderGlass ? null : (
         <Stack.Screen.Title asChild>
           <ThreadHeaderTitle
             foregroundColor={foregroundColor}
