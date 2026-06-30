@@ -8,6 +8,7 @@ import { useCallback, useRef } from "react";
 import { Platform } from "react-native";
 import type { SearchBarCommands } from "react-native-screens";
 
+import { nativeHeaderScrollEdgeEffects } from "../../lib/native-scroll-edge-effect";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { createNativeMailSearchToolbarItem } from "../layout/native-mail-search-toolbar";
@@ -24,6 +25,7 @@ import {
 } from "./home-list-options";
 
 export type HomeHeaderEnvironment = HomeListFilterMenuEnvironment;
+const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 
 export function HomeHeader(props: {
   readonly environments: ReadonlyArray<HomeHeaderEnvironment>;
@@ -59,6 +61,7 @@ export function HomeHeader(props: {
           headerLargeTitle: false,
           headerStyle: { backgroundColor: "transparent" },
           headerTintColor: iconColor,
+          scrollEdgeEffects: Platform.OS === "ios" ? HEADER_SCROLL_EDGE_EFFECTS : undefined,
           headerBackVisible: false,
           headerBackTitle: "",
           headerTitle: "Threads",

@@ -23,11 +23,14 @@ import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { EmptyState } from "../../components/EmptyState";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
+import { nativeHeaderScrollEdgeEffects } from "../../lib/native-scroll-edge-effect";
 import { relativeTime } from "../../lib/time";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { createNativeMailSearchToolbarItem } from "../layout/native-mail-search-toolbar";
 import type { ArchivedThreadGroup, ArchivedThreadSortOrder } from "./archivedThreadList";
+
+const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 
 export interface ArchivedThreadsHeaderEnvironment {
   readonly environmentId: EnvironmentId;
@@ -114,6 +117,7 @@ function ArchivedThreadsHeader(props: {
           headerTransparent: usesNativeChrome,
           headerStyle: usesNativeChrome ? { backgroundColor: "transparent" } : undefined,
           headerShadowVisible: usesNativeChrome ? false : undefined,
+          scrollEdgeEffects: usesNativeChrome ? HEADER_SCROLL_EDGE_EFFECTS : undefined,
           unstable_navigationItemStyle: usesNativeChrome ? "editor" : undefined,
           unstable_headerToolbarItems: usesCompactMailToolbar
             ? () => [
