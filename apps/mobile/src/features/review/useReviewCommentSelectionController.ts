@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { NativeSyntheticEvent } from "react-native";
-import { useRouter } from "../../navigation/router";
+import { useAppNavigation } from "../../navigation/native-stack-header";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Result from "effect/Result";
@@ -34,7 +34,7 @@ export function useReviewCommentSelectionController(input: {
   readonly nativeReviewDiffData: NativeReviewDiffData;
 }) {
   const { environmentId, nativeReviewDiffData, selectedSection, threadId } = input;
-  const { push } = useRouter();
+  const { push } = useAppNavigation();
   const activeCommentTarget = useReviewCommentTarget();
   const [pendingNativeCommentSelection, setPendingNativeCommentSelection] =
     useState<PendingNativeCommentSelection | null>(null);
@@ -45,7 +45,7 @@ export function useReviewCommentSelectionController(input: {
     }
 
     push({
-      pathname: "/threads/[environmentId]/[threadId]/review-comment",
+      name: "ThreadReviewComment",
       params: { environmentId, threadId },
     });
   }, [environmentId, push, threadId]);

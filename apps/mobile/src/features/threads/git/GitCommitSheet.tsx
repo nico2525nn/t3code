@@ -1,4 +1,4 @@
-import { useRouter } from "../../../navigation/router";
+import { useAppNavigation } from "../../../navigation/native-stack-header";
 import { useCallback, useState } from "react";
 import { Pressable, ScrollView, View, useColorScheme } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,7 +14,7 @@ import { vcsEnvironment } from "../../../state/vcs";
 import { SheetActionButton } from "./gitSheetComponents";
 
 export function GitCommitSheet() {
-  const router = useRouter();
+  const router = useAppNavigation();
   const insets = useSafeAreaInsets();
   const isDarkMode = useColorScheme() === "dark";
   const { selectedThread } = useThreadSelection();

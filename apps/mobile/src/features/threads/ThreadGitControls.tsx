@@ -10,8 +10,8 @@ import {
   requiresDefaultBranchConfirmation,
   resolveQuickAction,
 } from "@t3tools/client-runtime/state/vcs";
-import { useLocalSearchParams, useRouter } from "../../navigation/router";
-import Stack from "../../navigation/router";
+import { useRouteParams, useAppNavigation } from "../../navigation/native-stack-header";
+import { NativeHeaderToolbar } from "../../navigation/native-stack-header";
 import { useCallback, useMemo } from "react";
 import { Alert } from "react-native";
 import { buildThreadFilesNavigation, buildThreadReviewRoutePath } from "../../lib/routes";
@@ -102,8 +102,8 @@ type ThreadGitControlsProps = {
 };
 
 function useThreadGitControlModel(props: ThreadGitControlsProps) {
-  const router = useRouter();
-  const { environmentId, threadId } = useLocalSearchParams<{
+  const router = useAppNavigation();
+  const { environmentId, threadId } = useRouteParams<{
     environmentId: EnvironmentId;
     threadId: ThreadId;
   }>();
@@ -171,7 +171,7 @@ function useThreadGitControlModel(props: ThreadGitControlsProps) {
         requiresDefaultBranchConfirmation(input.action, isDefaultRef)
       ) {
         router.push({
-          pathname: "/threads/[environmentId]/[threadId]/git-confirm",
+          name: "GitConfirm",
           params: {
             environmentId,
             threadId,
@@ -222,7 +222,7 @@ function useThreadGitControlModel(props: ThreadGitControlsProps) {
       return;
     }
     router.push({
-      pathname: "/threads/[environmentId]/[threadId]/git",
+      name: "GitOverview",
       params: { environmentId, threadId },
     });
   }, [environmentId, props.onOpenGitInspector, router, threadId]);
@@ -417,9 +417,9 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
   }
 
   return (
-    <Stack.Toolbar placement="right">
+    <NativeHeaderToolbar placement="right">
       {showActionControls && props.auxiliaryPaneControl ? (
-        <Stack.Toolbar.Button
+        <NativeHeaderToolbar.Button
           accessibilityLabel={props.auxiliaryPaneControl.accessibilityLabel}
           icon="sidebar.right"
           onPress={props.auxiliaryPaneControl.onPress}
@@ -427,30 +427,36 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
         />
       ) : null}
       {showActionControls ? (
-        <Stack.Toolbar.Menu icon="terminal" disabled={!props.canOpenTerminal} separateBackground>
+        <NativeHeaderToolbar.Menu
+          icon="terminal"
+          disabled={!props.canOpenTerminal}
+          separateBackground
+        >
           {props.projectScripts.length > 0 ? (
             props.projectScripts.map((script) => (
-              <Stack.Toolbar.MenuAction
+              <NativeHeaderToolbar.MenuAction
                 key={script.id}
                 icon={projectScriptMenuIcon(script.icon)}
                 onPress={() => void props.onRunProjectScript(script)}
                 subtitle={script.command}
               >
-                <Stack.Toolbar.Label>{projectScriptMenuLabel(script)}</Stack.Toolbar.Label>
-              </Stack.Toolbar.MenuAction>
+                <NativeHeaderToolbar.Label>
+                  {projectScriptMenuLabel(script)}
+                </NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
             ))
           ) : (
-            <Stack.Toolbar.MenuAction
+            <NativeHeaderToolbar.MenuAction
               icon="play"
               disabled
               onPress={() => {}}
               subtitle="This project has no saved scripts yet"
             >
-              <Stack.Toolbar.Label>No project scripts</Stack.Toolbar.Label>
-            </Stack.Toolbar.MenuAction>
+              <NativeHeaderToolbar.Label>No project scripts</NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
           )}
           {props.terminalSessions.map((session) => (
-            <Stack.Toolbar.MenuAction
+            <NativeHeaderToolbar.MenuAction
               key={session.terminalId}
               icon="terminal"
               onPress={() => props.onOpenTerminal(session.terminalId)}
@@ -464,20 +470,20 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
                 .filter(Boolean)
                 .join(" · ")}
             >
-              <Stack.Toolbar.Label>{session.displayLabel}</Stack.Toolbar.Label>
-            </Stack.Toolbar.MenuAction>
+              <NativeHeaderToolbar.Label>{session.displayLabel}</NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
           ))}
-          <Stack.Toolbar.MenuAction
+          <NativeHeaderToolbar.MenuAction
             icon="plus"
             onPress={props.onOpenNewTerminal}
             subtitle="Start another shell for this thread"
           >
-            <Stack.Toolbar.Label>Open new terminal</Stack.Toolbar.Label>
-          </Stack.Toolbar.MenuAction>
-        </Stack.Toolbar.Menu>
+            <NativeHeaderToolbar.Label>Open new terminal</NativeHeaderToolbar.Label>
+          </NativeHeaderToolbar.MenuAction>
+        </NativeHeaderToolbar.Menu>
       ) : null}
       {showActionControls && props.showDirectFileControl ? (
-        <Stack.Toolbar.Button
+        <NativeHeaderToolbar.Button
           accessibilityLabel="Open files"
           disabled={!props.canOpenFiles}
           icon="folder"
@@ -486,50 +492,50 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
         />
       ) : null}
       {showActionControls ? (
-        <Stack.Toolbar.Menu icon="point.topleft.down.curvedto.point.bottomright.up">
-          <Stack.Toolbar.MenuAction
+        <NativeHeaderToolbar.Menu icon="point.topleft.down.curvedto.point.bottomright.up">
+          <NativeHeaderToolbar.MenuAction
             icon="point.topleft.down.curvedto.point.bottomright.up"
             disabled
             onPress={() => {}}
             subtitle={compactMenuStatus(props.gitStatus)}
           >
-            <Stack.Toolbar.Label>
+            <NativeHeaderToolbar.Label>
               {compactMenuBranchLabel(model.currentBranchLabel)}
-            </Stack.Toolbar.Label>
-          </Stack.Toolbar.MenuAction>
-          <Stack.Toolbar.MenuAction
+            </NativeHeaderToolbar.Label>
+          </NativeHeaderToolbar.MenuAction>
+          <NativeHeaderToolbar.MenuAction
             icon={model.quickActionIcon}
             disabled={model.quickAction.disabled}
             onPress={() => void model.runQuickAction()}
             subtitle={model.quickActionHint ?? undefined}
           >
-            <Stack.Toolbar.Label>{model.quickAction.label}</Stack.Toolbar.Label>
-          </Stack.Toolbar.MenuAction>
-          <Stack.Toolbar.MenuAction
+            <NativeHeaderToolbar.Label>{model.quickAction.label}</NativeHeaderToolbar.Label>
+          </NativeHeaderToolbar.MenuAction>
+          <NativeHeaderToolbar.MenuAction
             icon="text.bubble"
             disabled={!model.isRepo}
             onPress={model.openReview}
             subtitle="Turn diffs and worktree changes"
           >
-            <Stack.Toolbar.Label>Review changes</Stack.Toolbar.Label>
-          </Stack.Toolbar.MenuAction>
-          <Stack.Toolbar.MenuAction
+            <NativeHeaderToolbar.Label>Review changes</NativeHeaderToolbar.Label>
+          </NativeHeaderToolbar.MenuAction>
+          <NativeHeaderToolbar.MenuAction
             icon="folder"
             disabled={!props.canOpenFiles}
             onPress={model.openFiles}
             subtitle="Browse this workspace"
           >
-            <Stack.Toolbar.Label>Files</Stack.Toolbar.Label>
-          </Stack.Toolbar.MenuAction>
-          <Stack.Toolbar.MenuAction
+            <NativeHeaderToolbar.Label>Files</NativeHeaderToolbar.Label>
+          </NativeHeaderToolbar.MenuAction>
+          <NativeHeaderToolbar.MenuAction
             icon="ellipsis.circle"
             onPress={model.openGitInspector}
             subtitle="Commit, files, branches"
           >
-            <Stack.Toolbar.Label>More</Stack.Toolbar.Label>
-          </Stack.Toolbar.MenuAction>
-        </Stack.Toolbar.Menu>
+            <NativeHeaderToolbar.Label>More</NativeHeaderToolbar.Label>
+          </NativeHeaderToolbar.MenuAction>
+        </NativeHeaderToolbar.Menu>
       ) : null}
-    </Stack.Toolbar>
+    </NativeHeaderToolbar>
   );
 }

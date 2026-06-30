@@ -63,6 +63,7 @@ export type AppStackParamList = {
 
 export type AppHref =
   | string
+  | AppNavigationTarget
   | {
       readonly pathname: string;
       readonly params?: RouteParams;
@@ -148,6 +149,9 @@ function mergeParams(
 
 export function resolveNavigationTarget(href: AppHref): AppNavigationTarget {
   if (typeof href !== "string") {
+    if ("name" in href) {
+      return withParams(href.name, href.params);
+    }
     return resolveNavigationObject(href.pathname, href.params);
   }
 

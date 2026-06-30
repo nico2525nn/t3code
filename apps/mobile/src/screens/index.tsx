@@ -1,6 +1,10 @@
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
-import { Stack, useRouter } from "../navigation/router";
+import {
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+  useAppNavigation,
+} from "../navigation/native-stack-header";
 import { useMemo, useState } from "react";
 
 import { useProjects, useThreadShells } from "../state/entities";
@@ -23,7 +27,7 @@ export default function HomeRouteScreen() {
   const threads = useThreadShells();
   const { state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
-  const router = useRouter();
+  const router = useAppNavigation();
   const [searchQuery, setSearchQuery] = useState("");
   const { archiveThread, confirmDeleteThread } = useThreadListActions();
   const environments = useMemo(
@@ -56,7 +60,7 @@ export default function HomeRouteScreen() {
   if (layout.usesSplitView) {
     return (
       <>
-        <Stack.Screen
+        <NativeStackScreenOptions
           options={{
             headerShown: true,
             headerTransparent: true,
@@ -66,7 +70,7 @@ export default function HomeRouteScreen() {
         />
         <WorkspaceSidebarToolbar
           afterSidebarButton={
-            <Stack.Toolbar.Button
+            <NativeHeaderToolbar.Button
               accessibilityLabel="Start new task"
               icon="square.and.pencil"
               onPress={() => router.push("/new")}

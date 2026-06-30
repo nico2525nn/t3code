@@ -1,4 +1,4 @@
-import { Stack } from "../../navigation/router";
+import { NativeHeaderToolbar } from "../../navigation/native-stack-header";
 import type { ReactNode } from "react";
 
 import { useAdaptiveWorkspaceLayout } from "./AdaptiveWorkspaceLayout";
@@ -16,9 +16,9 @@ export function WorkspaceSidebarToolbar(
   }
 
   return (
-    <Stack.Toolbar placement="left">
+    <NativeHeaderToolbar placement="left">
       {props.children}
-      <Stack.Toolbar.Button
+      <NativeHeaderToolbar.Button
         accessibilityLabel={
           panes.primarySidebarVisible ? "Maximize content" : "Show thread sidebar"
         }
@@ -26,6 +26,6 @@ export function WorkspaceSidebarToolbar(
         onPress={togglePrimarySidebar}
       />
       {props.afterSidebarButton}
-    </Stack.Toolbar>
+    </NativeHeaderToolbar>
   );
 }

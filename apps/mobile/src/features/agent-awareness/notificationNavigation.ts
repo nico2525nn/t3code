@@ -1,12 +1,12 @@
 import { useEffect, useRef } from "react";
 import * as Notifications from "expo-notifications";
-import { useRouter } from "../../navigation/router";
+import { useAppNavigation } from "../../navigation/native-stack-header";
 
 import { routeAgentNotificationResponseOnce } from "./notificationPayload";
 import { consumeLastAgentNotificationResponse } from "./notificationResponseConsumer";
 
 export function useAgentNotificationNavigation(): void {
-  const router = useRouter();
+  const router = useAppNavigation();
   const handledResponseIds = useRef(new Set<string>());
 
   useEffect(() => {

@@ -1,6 +1,9 @@
-import Stack from "../../navigation/router";
+import {
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+} from "../../navigation/native-stack-header";
 import { SymbolView } from "expo-symbols";
-import { useLocalSearchParams, useRouter } from "../../navigation/router";
+import { useRouteParams, useAppNavigation } from "../../navigation/native-stack-header";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -355,7 +358,7 @@ function FileContent(props: {
 }
 
 function useThreadFilesWorkspace() {
-  const params = useLocalSearchParams<{
+  const params = useRouteParams<{
     environmentId?: string | string[];
     threadId?: string | string[];
   }>();
@@ -385,7 +388,7 @@ function useThreadFilesWorkspace() {
 function FilesUnavailable() {
   return (
     <View className="flex-1 items-center justify-center bg-sheet px-6">
-      <Stack.Screen options={{ title: "Files" }} />
+      <NativeStackScreenOptions options={{ title: "Files" }} />
       <EmptyState
         title="Files unavailable"
         detail="This thread does not have an active workspace path."
@@ -465,7 +468,7 @@ function FilesToolbarBottomFade() {
 
 export function ThreadFilesTreeScreen() {
   useAdaptiveWorkspacePaneRole("inspector");
-  const router = useRouter();
+  const router = useAppNavigation();
   const { fileInspector, layout, panes, showAuxiliaryPane, togglePrimarySidebar } =
     useAdaptiveWorkspaceLayout();
   const [searchQuery, setSearchQuery] = useState("");
@@ -577,7 +580,7 @@ export function ThreadFilesTreeScreen() {
 
   return (
     <View className="flex-1 bg-sheet">
-      <Stack.Screen
+      <NativeStackScreenOptions
         options={{
           title: "Files",
           headerShown: true,
@@ -616,8 +619,8 @@ export function ThreadFilesTreeScreen() {
         }}
       />
       {layout.usesSplitView ? (
-        <Stack.Toolbar placement="left">
-          <Stack.Toolbar.Button
+        <NativeHeaderToolbar placement="left">
+          <NativeHeaderToolbar.Button
             accessibilityLabel={panes.primarySidebarVisible ? "Maximize files" : "Show threads"}
             icon={
               panes.primarySidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left"
@@ -625,21 +628,21 @@ export function ThreadFilesTreeScreen() {
             onPress={togglePrimarySidebar}
             separateBackground
           />
-        </Stack.Toolbar>
+        </NativeHeaderToolbar>
       ) : null}
       {!usesCompactMailToolbar ? (
-        <Stack.Toolbar placement="right">
-          <Stack.Toolbar.Button
+        <NativeHeaderToolbar placement="right">
+          <NativeHeaderToolbar.Button
             accessibilityLabel="Refresh files"
             icon="arrow.clockwise"
             onPress={entriesQuery.refresh}
           />
-        </Stack.Toolbar>
+        </NativeHeaderToolbar>
       ) : null}
       {usesCompactMailToolbar ? null : (
-        <Stack.Toolbar placement="bottom">
-          <Stack.Toolbar.SearchBarSlot />
-        </Stack.Toolbar>
+        <NativeHeaderToolbar placement="bottom">
+          <NativeHeaderToolbar.SearchBarSlot />
+        </NativeHeaderToolbar>
       )}
       <FileTreeBrowser
         entries={entriesData?.entries ?? []}
@@ -658,10 +661,10 @@ export function ThreadFilesTreeScreen() {
 
 export function ThreadFileScreen() {
   useAdaptiveWorkspacePaneRole("inspector");
-  const router = useRouter();
+  const router = useAppNavigation();
   const { fileInspector, panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const iconColor = useThemeColor("--color-icon");
-  const params = useLocalSearchParams<{
+  const params = useRouteParams<{
     line?: string | string[];
     path?: string | string[];
   }>();
@@ -744,7 +747,7 @@ export function ThreadFileScreen() {
   if (relativePath === null) {
     return (
       <View className="flex-1 items-center justify-center bg-sheet px-6">
-        <Stack.Screen options={{ title: "Files" }} />
+        <NativeStackScreenOptions options={{ title: "Files" }} />
         <EmptyState title="File unavailable" detail="This file path is invalid." />
       </View>
     );
@@ -753,7 +756,7 @@ export function ThreadFileScreen() {
   return (
     <ReviewHighlighterProvider>
       <View className="flex-1 bg-sheet">
-        <Stack.Screen
+        <NativeStackScreenOptions
           options={{
             headerTitle: basename(relativePath),
             headerTransparent: true,
@@ -767,7 +770,7 @@ export function ThreadFileScreen() {
         />
         <WorkspaceSidebarToolbar>
           {fileInspector.supported ? (
-            <Stack.Toolbar.Button
+            <NativeHeaderToolbar.Button
               accessibilityLabel="Return to chat"
               icon="chevron.left"
               onPress={() => {
@@ -776,9 +779,9 @@ export function ThreadFileScreen() {
             />
           ) : null}
         </WorkspaceSidebarToolbar>
-        <Stack.Toolbar placement="right">
+        <NativeHeaderToolbar placement="right">
           {fileInspector.supported ? (
-            <Stack.Toolbar.Button
+            <NativeHeaderToolbar.Button
               accessibilityLabel={
                 panes.auxiliaryPaneVisible ? "Hide file navigator" : "Show file navigator"
               }
@@ -787,7 +790,7 @@ export function ThreadFileScreen() {
               separateBackground
             />
           ) : null}
-          <Stack.Toolbar.Button
+          <NativeHeaderToolbar.Button
             accessibilityLabel="Refresh file"
             icon="arrow.clockwise"
             onPress={() => {
@@ -798,7 +801,7 @@ export function ThreadFileScreen() {
               fileQuery.refresh();
             }}
           />
-        </Stack.Toolbar>
+        </NativeHeaderToolbar>
         <AdaptiveInspectorLayout
           renderInspector={fileInspector.supported ? () => renderInspector(0) : undefined}
         >

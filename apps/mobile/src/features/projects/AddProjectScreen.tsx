@@ -22,7 +22,7 @@ import {
   isFilesystemBrowseQuery,
 } from "@t3tools/client-runtime/state/projects";
 import { CommandId, type EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { useLocalSearchParams, useRouter } from "../../navigation/router";
+import { useRouteParams, useAppNavigation } from "../../navigation/native-stack-header";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
@@ -250,8 +250,8 @@ function useSelectedEnvironment(): {
   readonly selectedEnvironment: EnvironmentOption | null;
   readonly setSelectedEnvironmentId: (environmentId: EnvironmentId) => void;
 } {
-  const router = useRouter();
-  const params = useLocalSearchParams<{ environmentId?: string }>();
+  const router = useAppNavigation();
+  const params = useRouteParams<{ environmentId?: string }>();
   const environmentOptions = useEnvironmentOptions();
   const requestedEnvironmentId = stringParam(params.environmentId) as EnvironmentId | null;
   const selectedEnvironment =
@@ -269,7 +269,7 @@ function useSelectedEnvironment(): {
 }
 
 function EmptyEnvironmentState() {
-  const router = useRouter();
+  const router = useAppNavigation();
 
   return (
     <View className="items-center gap-3 rounded-2xl bg-card px-5 py-8">
@@ -294,7 +294,7 @@ function SourceControlRow(props: {
   readonly hint: string;
   readonly isFirst: boolean;
 }) {
-  const router = useRouter();
+  const router = useAppNavigation();
   const iconColor = useThemeColor("--color-icon");
   const title =
     props.source === "url" ? "Git URL" : `${addProjectRemoteSourceLabel(props.source)} repository`;
@@ -323,7 +323,7 @@ function SourceControlRow(props: {
       isFirst={props.isFirst}
       onPress={() =>
         router.push({
-          pathname: "/new/add-project/repository",
+          name: "AddProjectRepository",
           params: {
             environmentId: props.selectedEnvironmentId,
             source: props.source,
@@ -335,7 +335,7 @@ function SourceControlRow(props: {
 }
 
 export function AddProjectSourceScreen() {
-  const router = useRouter();
+  const router = useAppNavigation();
   const accentColor = useThemeColor("--color-icon-muted");
   const iconColor = useThemeColor("--color-icon");
   const { environmentOptions, selectedEnvironment, setSelectedEnvironmentId } =
@@ -410,7 +410,7 @@ export function AddProjectSourceScreen() {
               isFirst
               onPress={() =>
                 router.push({
-                  pathname: "/new/add-project/local",
+                  name: "AddProjectLocal",
                   params: { environmentId: selectedEnvironment.environmentId },
                 })
               }
@@ -440,7 +440,7 @@ export function AddProjectSourceScreen() {
 }
 
 function useCreateProject(environment: EnvironmentOption | null) {
-  const router = useRouter();
+  const router = useAppNavigation();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const projects = useProjects();
 
@@ -456,7 +456,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
       if (existing) {
         Alert.alert("Project already exists", existing.title);
         router.replace({
-          pathname: "/new/draft",
+          name: "NewTaskDraft",
           params: {
             environmentId: existing.environmentId,
             projectId: existing.id,
@@ -481,7 +481,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
         return result;
       }
       router.replace({
-        pathname: "/new/draft",
+        name: "NewTaskDraft",
         params: {
           environmentId: environment.environmentId,
           projectId,
@@ -495,7 +495,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
 }
 
 function useEnvironmentFromParam(): EnvironmentOption | null {
-  const params = useLocalSearchParams<{ environmentId?: string }>();
+  const params = useRouteParams<{ environmentId?: string }>();
   const environmentOptions = useEnvironmentOptions();
   const environmentId = stringParam(params.environmentId) as EnvironmentId | null;
   return (
@@ -509,8 +509,8 @@ export function AddProjectRepositoryScreen() {
   const lookupRepositoryQuery = useAtomQueryRunner(sourceControlEnvironment.repository, {
     reportFailure: false,
   });
-  const router = useRouter();
-  const params = useLocalSearchParams<{ environmentId?: string; source?: string }>();
+  const router = useAppNavigation();
+  const params = useRouteParams<{ environmentId?: string; source?: string }>();
   const environment = useEnvironmentFromParam();
   const source = sourceFromParam(params.source);
   const [repositoryInput, setRepositoryInput] = useState("");
@@ -525,7 +525,7 @@ export function AddProjectRepositoryScreen() {
     if (!provider) {
       const remoteUrl = repositoryInput.trim();
       router.push({
-        pathname: "/new/add-project/destination",
+        name: "AddProjectDestination",
         params: {
           environmentId: environment.environmentId,
           source,
@@ -549,7 +549,7 @@ export function AddProjectRepositoryScreen() {
     } else {
       const repository = result.value;
       router.push({
-        pathname: "/new/add-project/destination",
+        name: "AddProjectDestination",
         params: {
           environmentId: environment.environmentId,
           source,
@@ -749,7 +749,7 @@ export function AddProjectDestinationScreen() {
   const cloneRepository = useAtomCommand(sourceControlEnvironment.cloneRepository, {
     reportFailure: false,
   });
-  const params = useLocalSearchParams<{
+  const params = useRouteParams<{
     environmentId?: string;
     remoteUrl?: string;
     repositoryTitle?: string;

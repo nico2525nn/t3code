@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from "../../navigation/router";
+import { useRouteParams, useAppNavigation } from "../../navigation/native-stack-header";
 import { SymbolView } from "expo-symbols";
 import { TextInputWrapper } from "expo-paste-input";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
@@ -41,13 +41,13 @@ import {
 const REVIEW_COMMENT_PREVIEW_MAX_LINES = 5;
 
 export function ReviewCommentComposerSheet() {
-  const router = useRouter();
+  const router = useAppNavigation();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const colorScheme = useColorScheme();
   const iconTint = String(useThemeColor("--color-icon"));
   const target = useReviewCommentTarget();
-  const { environmentId, threadId } = useLocalSearchParams<{
+  const { environmentId, threadId } = useRouteParams<{
     environmentId: EnvironmentId;
     threadId: ThreadId;
   }>();

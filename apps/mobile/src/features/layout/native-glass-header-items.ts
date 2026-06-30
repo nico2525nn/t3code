@@ -9,7 +9,7 @@ type NativeGlassHeaderItem = {
 /**
  * iOS 26/27 Mail-style header controls need the native glass button
  * configuration when they are not part of a larger toolbar. Keep this
- * centralized so Expo Router screens and plain react-native-screens demos
+ * centralized so native-stack screens and plain react-native-screens demos
  * don't drift apart.
  */
 export function withNativeGlassHeaderItem<T extends NativeGlassHeaderItem>(

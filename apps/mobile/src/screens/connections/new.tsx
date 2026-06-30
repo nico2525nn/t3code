@@ -1,5 +1,10 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { Stack, useLocalSearchParams, useRouter } from "../../navigation/router";
+import {
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+  useRouteParams,
+  useAppNavigation,
+} from "../../navigation/native-stack-header";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, ScrollView, View } from "react-native";
@@ -21,8 +26,8 @@ export default function ConnectionsNewRouteScreen() {
     onConnectPress,
     pairingConnectionError,
   } = useRemoteConnections();
-  const router = useRouter();
-  const params = useLocalSearchParams<{ mode?: string }>();
+  const router = useAppNavigation();
+  const params = useRouteParams<{ mode?: string }>();
   const insets = useSafeAreaInsets();
   const [hostInput, setHostInput] = useState("");
   const [codeInput, setCodeInput] = useState("");
@@ -124,13 +129,13 @@ export default function ConnectionsNewRouteScreen() {
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
-      <Stack.Screen
+      <NativeStackScreenOptions
         options={{
           title: showScanner ? "Scan QR Code" : "Add Environment",
         }}
       />
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
+      <NativeHeaderToolbar placement="right">
+        <NativeHeaderToolbar.Button
           icon={showScanner ? "xmark" : "qrcode.viewfinder"}
           onPress={() => {
             if (showScanner) {
@@ -141,7 +146,7 @@ export default function ConnectionsNewRouteScreen() {
           }}
           separateBackground
         />
-      </Stack.Toolbar>
+      </NativeHeaderToolbar>
 
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"

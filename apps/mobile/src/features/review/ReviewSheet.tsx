@@ -1,7 +1,10 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useLocalSearchParams } from "../../navigation/router";
+import { useRouteParams } from "../../navigation/native-stack-header";
 import { useHeaderHeight } from "@react-navigation/elements";
-import Stack from "../../navigation/router";
+import {
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+} from "../../navigation/native-stack-header";
 import { SymbolView } from "expo-symbols";
 import {
   memo,
@@ -395,7 +398,7 @@ export function ReviewSheet() {
   const headerForeground = String(useThemeColor("--color-foreground"));
   const headerMuted = String(useThemeColor("--color-foreground-muted"));
   const headerIcon = String(useThemeColor("--color-icon"));
-  const { environmentId, threadId } = useLocalSearchParams<{
+  const { environmentId, threadId } = useRouteParams<{
     environmentId: EnvironmentId;
     threadId: ThreadId;
   }>();
@@ -584,7 +587,7 @@ export function ReviewSheet() {
 
   return (
     <>
-      <Stack.Screen
+      <NativeStackScreenOptions
         options={{
           headerTransparent: true,
           headerShadowVisible: false,
@@ -599,8 +602,8 @@ export function ReviewSheet() {
       />
 
       {layout.usesSplitView ? (
-        <Stack.Toolbar placement="left">
-          <Stack.Toolbar.Button
+        <NativeHeaderToolbar placement="left">
+          <NativeHeaderToolbar.Button
             accessibilityLabel={panes.primarySidebarVisible ? "Maximize review" : "Show threads"}
             icon={
               panes.primarySidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left"
@@ -608,13 +611,13 @@ export function ReviewSheet() {
             onPress={togglePrimarySidebar}
             separateBackground
           />
-        </Stack.Toolbar>
+        </NativeHeaderToolbar>
       ) : null}
 
       {showSectionToolbar || panes.supportsAuxiliaryPane ? (
-        <Stack.Toolbar placement="right">
+        <NativeHeaderToolbar placement="right">
           {panes.supportsAuxiliaryPane ? (
-            <Stack.Toolbar.Button
+            <NativeHeaderToolbar.Button
               accessibilityLabel={
                 panes.auxiliaryPaneVisible ? "Hide changed files" : "Show changed files"
               }
@@ -624,9 +627,9 @@ export function ReviewSheet() {
             />
           ) : null}
           {showSectionToolbar ? (
-            <Stack.Toolbar.Menu icon="ellipsis.circle" title="Select diff" separateBackground>
-              <Stack.Toolbar.Menu inline>
-                <Stack.Toolbar.MenuAction
+            <NativeHeaderToolbar.Menu icon="ellipsis.circle" title="Select diff" separateBackground>
+              <NativeHeaderToolbar.Menu inline>
+                <NativeHeaderToolbar.MenuAction
                   disabled={sectionMenu.workingTree === null}
                   isOn={selectedSection?.id === sectionMenu.workingTree?.id}
                   onPress={() => {
@@ -635,9 +638,9 @@ export function ReviewSheet() {
                     }
                   }}
                 >
-                  <Stack.Toolbar.Label>Working tree</Stack.Toolbar.Label>
-                </Stack.Toolbar.MenuAction>
-                <Stack.Toolbar.MenuAction
+                  <NativeHeaderToolbar.Label>Working tree</NativeHeaderToolbar.Label>
+                </NativeHeaderToolbar.MenuAction>
+                <NativeHeaderToolbar.MenuAction
                   disabled={sectionMenu.branchChanges === null}
                   isOn={selectedSection?.id === sectionMenu.branchChanges?.id}
                   onPress={() => {
@@ -646,9 +649,9 @@ export function ReviewSheet() {
                     }
                   }}
                 >
-                  <Stack.Toolbar.Label>Branch changes</Stack.Toolbar.Label>
-                </Stack.Toolbar.MenuAction>
-                <Stack.Toolbar.MenuAction
+                  <NativeHeaderToolbar.Label>Branch changes</NativeHeaderToolbar.Label>
+                </NativeHeaderToolbar.MenuAction>
+                <NativeHeaderToolbar.MenuAction
                   disabled={sectionMenu.latestTurn === null}
                   isOn={selectedSection?.id === sectionMenu.latestTurn?.id}
                   onPress={() => {
@@ -657,24 +660,24 @@ export function ReviewSheet() {
                     }
                   }}
                 >
-                  <Stack.Toolbar.Label>Latest turn</Stack.Toolbar.Label>
-                </Stack.Toolbar.MenuAction>
+                  <NativeHeaderToolbar.Label>Latest turn</NativeHeaderToolbar.Label>
+                </NativeHeaderToolbar.MenuAction>
                 {sectionMenu.turns.length > 0 ? (
-                  <Stack.Toolbar.Menu title="Turn">
+                  <NativeHeaderToolbar.Menu title="Turn">
                     {sectionMenu.turns.map((section) => (
-                      <Stack.Toolbar.MenuAction
+                      <NativeHeaderToolbar.MenuAction
                         key={section.id}
                         isOn={section.id === selectedSection?.id}
                         onPress={() => selectSection(section.id)}
                         subtitle={section.subtitle ?? undefined}
                       >
-                        <Stack.Toolbar.Label>{section.title}</Stack.Toolbar.Label>
-                      </Stack.Toolbar.MenuAction>
+                        <NativeHeaderToolbar.Label>{section.title}</NativeHeaderToolbar.Label>
+                      </NativeHeaderToolbar.MenuAction>
                     ))}
-                  </Stack.Toolbar.Menu>
+                  </NativeHeaderToolbar.Menu>
                 ) : null}
-              </Stack.Toolbar.Menu>
-              <Stack.Toolbar.MenuAction
+              </NativeHeaderToolbar.Menu>
+              <NativeHeaderToolbar.MenuAction
                 icon="arrow.clockwise"
                 disabled={
                   loadingGitDiffs ||
@@ -683,11 +686,11 @@ export function ReviewSheet() {
                 onPress={() => void refreshSelectedSection()}
                 subtitle="Reload current diff"
               >
-                <Stack.Toolbar.Label>Refresh</Stack.Toolbar.Label>
-              </Stack.Toolbar.MenuAction>
-            </Stack.Toolbar.Menu>
+                <NativeHeaderToolbar.Label>Refresh</NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
+            </NativeHeaderToolbar.Menu>
           ) : null}
-        </Stack.Toolbar>
+        </NativeHeaderToolbar>
       ) : null}
 
       <View className="flex-1 bg-sheet">

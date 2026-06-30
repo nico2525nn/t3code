@@ -1,4 +1,4 @@
-import { useGlobalSearchParams } from "../navigation/router";
+import { useCurrentRouteParams } from "../navigation/native-stack-header";
 import { createContext, createElement, use, useMemo, useRef, type ReactNode } from "react";
 import {
   EnvironmentId,
@@ -63,7 +63,7 @@ function threadDetailToShell(
 }
 
 function useResolvedThreadSelection() {
-  const params = useGlobalSearchParams<{
+  const params = useCurrentRouteParams<{
     environmentId?: string | string[];
     threadId?: string | string[];
   }>();

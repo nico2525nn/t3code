@@ -1,4 +1,4 @@
-import { usePathname, useRouter } from "../../navigation/router";
+import { useCurrentPathname, useAppNavigation } from "../../navigation/native-stack-header";
 import { useCallback, useMemo, useSyncExternalStore, type PropsWithChildren } from "react";
 
 import {
@@ -18,8 +18,8 @@ import {
 } from "./hardwareKeyboardCommands";
 
 export function HardwareKeyboardCommandProvider({ children }: PropsWithChildren) {
-  const pathname = usePathname();
-  const router = useRouter();
+  const pathname = useCurrentPathname();
+  const router = useAppNavigation();
   const registrationVersion = useSyncExternalStore(
     subscribeToHardwareKeyboardCommandRegistrations,
     getHardwareKeyboardCommandRegistrationVersion,

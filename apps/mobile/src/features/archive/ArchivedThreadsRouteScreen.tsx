@@ -1,7 +1,7 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
-import { useFocusEffect } from "../../navigation/router";
+import { useFocusEffect } from "../../navigation/native-stack-header";
 import { useCallback, useMemo, useState } from "react";
 
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";

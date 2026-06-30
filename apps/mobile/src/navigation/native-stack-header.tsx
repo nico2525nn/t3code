@@ -1,13 +1,9 @@
 import {
-  CommonActions,
-  StackActions,
   useFocusEffect,
   useNavigation,
   useRoute,
-  type NavigationContainerRef,
   type ParamListBase,
 } from "@react-navigation/native";
-import type { ColorValue } from "react-native";
 import type {
   NativeStackHeaderItem,
   NativeStackHeaderItemMenu,
@@ -17,29 +13,24 @@ import type {
 import {
   Children,
   cloneElement,
-  createContext,
   createElement,
   Fragment,
   isValidElement,
-  use,
   useEffect,
   useMemo,
   type ReactElement,
   type ReactNode,
 } from "react";
+import type { ColorValue } from "react-native";
 
-import {
-  buildPathFromRoute,
-  resolveNavigationTarget,
-  type AppHref,
-  type AppStackParamList,
-  type AppFocusedRoute,
-  type RouteParams,
-} from "./route-model";
+import { useAppNavigation } from "./app-navigation";
+import type { AppHref, RouteParams } from "./route-model";
 
 export { useFocusEffect };
-export type Href = AppHref;
-type CompatNativeStackNavigationOptions = Omit<
+export { useAppNavigation, useCurrentPathname, useCurrentRouteParams } from "./app-navigation";
+export type { AppHref };
+
+export type AppNativeStackNavigationOptions = Omit<
   NativeStackNavigationOptions,
   "headerTintColor" | "unstable_headerLeftItems" | "unstable_headerRightItems"
 > & {
@@ -52,131 +43,9 @@ type CompatNativeStackNavigationOptions = Omit<
   readonly unstable_navigationItemStyle?: unknown;
 };
 
-export type { CompatNativeStackNavigationOptions as NativeStackNavigationOptions };
-
-type RouterLike = {
-  readonly push: (href: AppHref) => void;
-  readonly replace: (href: AppHref) => void;
-  readonly back: () => void;
-  readonly dismiss: () => void;
-  readonly dismissAll: () => void;
-  readonly canGoBack: () => boolean;
-  readonly setParams: (params: RouteParams) => void;
-};
-
-type NavigationContextValue = {
-  readonly navigationRef: React.RefObject<NavigationContainerRef<AppStackParamList> | null>;
-  readonly pathname: string;
-  readonly params: RouteParams;
-  readonly router: RouterLike;
-};
-
-export const AppNavigationContext = createContext<NavigationContextValue | null>(null);
-
-export function useRouter(): RouterLike {
-  const context = use(AppNavigationContext);
-  if (context === null) {
-    throw new Error("useRouter must be used within AppNavigationProvider");
-  }
-  return context.router;
-}
-
-export function usePathname(): string {
-  const context = use(AppNavigationContext);
-  if (context === null) {
-    throw new Error("usePathname must be used within AppNavigationProvider");
-  }
-  return context.pathname;
-}
-
-export function useLocalSearchParams<T extends RouteParams = RouteParams>(): T {
+export function useRouteParams<T extends RouteParams = RouteParams>(): T {
   const route = useRoute();
   return (route.params ?? {}) as RouteParams as T;
-}
-
-export function useGlobalSearchParams<T extends RouteParams = RouteParams>(): T {
-  const context = use(AppNavigationContext);
-  if (context === null) {
-    throw new Error("useGlobalSearchParams must be used within AppNavigationProvider");
-  }
-  return context.params as T;
-}
-
-export function createRouter(
-  navigationRef: React.RefObject<NavigationContainerRef<AppStackParamList> | null>,
-): RouterLike {
-  const navigateWithAction = (href: AppHref, action: "push" | "replace" | "navigate"): void => {
-    const target = resolveNavigationTarget(href);
-    const navigation = navigationRef.current;
-    if (!navigation) {
-      return;
-    }
-
-    if (action === "push") {
-      navigation.dispatch(StackActions.push(target.name, target.params));
-      return;
-    }
-    if (action === "replace") {
-      navigation.dispatch(StackActions.replace(target.name, target.params));
-      return;
-    }
-    navigation.dispatch(
-      CommonActions.navigate({
-        name: target.name,
-        params: target.params,
-      }),
-    );
-  };
-
-  return {
-    push: (href) => navigateWithAction(href, "push"),
-    replace: (href) => navigateWithAction(href, "replace"),
-    back: () => {
-      const navigation = navigationRef.current;
-      if (!navigation) return;
-      if (navigation.canGoBack()) {
-        navigation.goBack();
-        return;
-      }
-      navigation.dispatch(StackActions.replace("Home"));
-    },
-    dismiss: () => {
-      const navigation = navigationRef.current;
-      if (!navigation) return;
-      if (navigation.canGoBack()) {
-        navigation.goBack();
-        return;
-      }
-      navigation.dispatch(StackActions.replace("Home"));
-    },
-    dismissAll: () => {
-      const navigation = navigationRef.current;
-      if (!navigation) return;
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: "Home" }],
-        }),
-      );
-    },
-    canGoBack: () => navigationRef.current?.canGoBack() ?? false,
-    setParams: (params) => {
-      navigationRef.current?.dispatch(CommonActions.setParams(params));
-    },
-  };
-}
-
-export function deriveNavigationContextValue(input: {
-  readonly navigationRef: React.RefObject<NavigationContainerRef<AppStackParamList> | null>;
-  readonly pathname: string;
-  readonly params: RouteParams;
-}): NavigationContextValue {
-  return {
-    navigationRef: input.navigationRef,
-    pathname: input.pathname,
-    params: input.params,
-    router: createRouter(input.navigationRef),
-  };
 }
 
 function useNativeStackNavigation(): NativeStackNavigationProp<ParamListBase> | null {
@@ -188,7 +57,7 @@ function useNativeStackNavigation(): NativeStackNavigationProp<ParamListBase> | 
 }
 
 function normalizeScreenOptions(
-  options: CompatNativeStackNavigationOptions | undefined,
+  options: AppNativeStackNavigationOptions | undefined,
 ): NativeStackNavigationOptions | undefined {
   if (!options) {
     return options;
@@ -213,8 +82,8 @@ function normalizeScreenOptions(
   return normalized as NativeStackNavigationOptions;
 }
 
-function StackScreen(props: {
-  readonly options?: CompatNativeStackNavigationOptions;
+export function NativeStackScreenOptions(props: {
+  readonly options?: AppNativeStackNavigationOptions;
   readonly listeners?: Record<string, (event: never) => void>;
   readonly name?: string;
 }) {
@@ -282,7 +151,7 @@ function convertMenuAction(
   element: ReactElement<ToolbarElementProps>,
 ): NativeStackHeaderItemMenu["menu"]["items"][number] | null {
   const typeName = elementTypeName(element);
-  if (typeName === "ToolbarMenuAction") {
+  if (typeName === "NativeHeaderToolbarMenuAction") {
     const label = labelFromChildren(element.props.children);
     return {
       type: "action",
@@ -303,7 +172,7 @@ function convertMenuAction(
     };
   }
 
-  if (typeName === "ToolbarMenu") {
+  if (typeName === "NativeHeaderToolbarMenu") {
     return {
       type: "submenu",
       label:
@@ -341,7 +210,7 @@ function convertToolbarChild(child: ReactNode): NativeStackHeaderItem | null {
   }
 
   const typeName = elementTypeName(child);
-  if (typeName === "ToolbarButton") {
+  if (typeName === "NativeHeaderToolbarButton") {
     return {
       type: "button",
       label: "",
@@ -360,7 +229,7 @@ function convertToolbarChild(child: ReactNode): NativeStackHeaderItem | null {
     };
   }
 
-  if (typeName === "ToolbarMenu") {
+  if (typeName === "NativeHeaderToolbarMenu") {
     return {
       type: "menu",
       label: typeof child.props.title === "string" ? child.props.title : "",
@@ -379,7 +248,7 @@ function convertToolbarChild(child: ReactNode): NativeStackHeaderItem | null {
     };
   }
 
-  if (typeName === "ToolbarSpacer") {
+  if (typeName === "NativeHeaderToolbarSpacer") {
     return {
       type: "spacing",
       spacing: typeof child.props.width === "number" ? child.props.width : 8,
@@ -400,7 +269,7 @@ function collectToolbarItems(children: ReactNode): NativeStackHeaderItem[] {
   return items;
 }
 
-function Toolbar(props: {
+function NativeHeaderToolbarRoot(props: {
   readonly placement?: "left" | "right" | "bottom";
   readonly children?: ReactNode;
 }) {
@@ -421,7 +290,7 @@ function Toolbar(props: {
   return null;
 }
 
-function ToolbarButton(_props: {
+function NativeHeaderToolbarButton(_props: {
   readonly accessibilityLabel?: string;
   readonly disabled?: boolean;
   readonly icon?: string;
@@ -430,9 +299,9 @@ function ToolbarButton(_props: {
 }) {
   return null;
 }
-ToolbarButton.displayName = "ToolbarButton";
+NativeHeaderToolbarButton.displayName = "NativeHeaderToolbarButton";
 
-function ToolbarMenu(_props: {
+function NativeHeaderToolbarMenu(_props: {
   readonly accessibilityLabel?: string;
   readonly children?: ReactNode;
   readonly disabled?: boolean;
@@ -443,9 +312,9 @@ function ToolbarMenu(_props: {
 }) {
   return null;
 }
-ToolbarMenu.displayName = "ToolbarMenu";
+NativeHeaderToolbarMenu.displayName = "NativeHeaderToolbarMenu";
 
-function ToolbarMenuAction(_props: {
+function NativeHeaderToolbarMenuAction(_props: {
   readonly children?: ReactNode;
   readonly destructive?: boolean;
   readonly disabled?: boolean;
@@ -457,80 +326,70 @@ function ToolbarMenuAction(_props: {
 }) {
   return null;
 }
-ToolbarMenuAction.displayName = "ToolbarMenuAction";
+NativeHeaderToolbarMenuAction.displayName = "NativeHeaderToolbarMenuAction";
 
-function ToolbarLabel(_props: { readonly children?: ReactNode }) {
+function NativeHeaderToolbarLabel(_props: { readonly children?: ReactNode }) {
   return null;
 }
-ToolbarLabel.displayName = "ToolbarLabel";
+NativeHeaderToolbarLabel.displayName = "NativeHeaderToolbarLabel";
 
-function ToolbarSpacer(_props: { readonly sharesBackground?: boolean; readonly width?: number }) {
+function NativeHeaderToolbarSpacer(_props: {
+  readonly sharesBackground?: boolean;
+  readonly width?: number;
+}) {
   return null;
 }
-ToolbarSpacer.displayName = "ToolbarSpacer";
+NativeHeaderToolbarSpacer.displayName = "NativeHeaderToolbarSpacer";
 
-function ToolbarSearchBarSlot() {
+function NativeHeaderToolbarSearchBarSlot() {
   return null;
 }
-ToolbarSearchBarSlot.displayName = "ToolbarSearchBarSlot";
+NativeHeaderToolbarSearchBarSlot.displayName = "NativeHeaderToolbarSearchBarSlot";
 
-function StackScreenTitle(_props: { readonly asChild?: boolean; readonly children?: ReactNode }) {
+export const NativeHeaderToolbar = Object.assign(NativeHeaderToolbarRoot, {
+  Button: NativeHeaderToolbarButton,
+  Label: NativeHeaderToolbarLabel,
+  Menu: Object.assign(NativeHeaderToolbarMenu, {
+    Action: NativeHeaderToolbarMenuAction,
+  }),
+  MenuAction: NativeHeaderToolbarMenuAction,
+  SearchBarSlot: NativeHeaderToolbarSearchBarSlot,
+  Spacer: NativeHeaderToolbarSpacer,
+});
+
+function NativeStackScreenTitle(_props: {
+  readonly asChild?: boolean;
+  readonly children?: ReactNode;
+}) {
   return null;
 }
 
-StackScreen.Title = StackScreenTitle;
+NativeStackScreenOptions.Title = NativeStackScreenTitle;
 
-export const Stack = Object.assign(
-  function StackCompat(props: { readonly children?: ReactNode }) {
-    return createElement(Fragment, null, props.children);
-  },
-  {
-    Screen: StackScreen,
-    Toolbar: Object.assign(Toolbar, {
-      Button: ToolbarButton,
-      Label: ToolbarLabel,
-      Menu: Object.assign(ToolbarMenu, {
-        Action: ToolbarMenuAction,
-      }),
-      MenuAction: ToolbarMenuAction,
-      SearchBarSlot: ToolbarSearchBarSlot,
-      Spacer: ToolbarSpacer,
-    }),
-  },
-);
-
-export default Stack;
-
-export function Redirect(props: { readonly href: AppHref }) {
-  const router = useRouter();
+export function NavigateTo(props: { readonly href: AppHref }) {
+  const navigation = useAppNavigation();
   useEffect(() => {
-    router.replace(props.href);
-  }, [props.href, router]);
+    navigation.replace(props.href);
+  }, [navigation, props.href]);
   return null;
 }
 
-export function Link(props: {
+export function NavigationLink(props: {
   readonly href: AppHref;
   readonly asChild?: boolean;
   readonly children?: ReactNode;
 }) {
-  const router = useRouter();
+  const navigation = useAppNavigation();
   if (props.asChild && isValidElement<{ onPress?: () => void }>(props.children)) {
     return cloneElement(props.children, {
-      onPress: () => router.push(props.href),
+      onPress: () => navigation.push(props.href),
     });
   }
   return null;
 }
 
-export function pathAndParamsFromCurrentRoute(route: {
-  readonly name: string;
-  readonly params?: object;
-}): { readonly pathname: string; readonly params: RouteParams } {
-  return {
-    pathname: buildPathFromRoute(route as AppFocusedRoute),
-    params: (route.params ?? {}) as RouteParams,
-  };
-}
-
-export type Router = RouterLike;
+export const NativeStackFragment = function NativeStackFragment(props: {
+  readonly children?: ReactNode;
+}) {
+  return createElement(Fragment, null, props.children);
+};

@@ -1,5 +1,9 @@
 import { useAuth } from "@clerk/expo";
-import { Stack, useRouter } from "../../navigation/router";
+import {
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+  useAppNavigation,
+} from "../../navigation/native-stack-header";
 import { SymbolView } from "expo-symbols";
 import {
   connectionStatusText,
@@ -41,7 +45,7 @@ export default function SettingsEnvironmentsRouteScreen() {
     onRemoveEnvironmentPress,
     onUpdateEnvironment,
   } = useRemoteConnections();
-  const router = useRouter();
+  const router = useAppNavigation();
   const insets = useSafeAreaInsets();
   const { localEnvironments, connectedCloudEnvironments } = splitEnvironmentSections({
     connectedEnvironments,
@@ -57,18 +61,18 @@ export default function SettingsEnvironmentsRouteScreen() {
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
-      <Stack.Screen
+      <NativeStackScreenOptions
         options={{
           title: "Environments",
         }}
       />
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
+      <NativeHeaderToolbar placement="right">
+        <NativeHeaderToolbar.Button
           icon="plus"
           onPress={() => router.push("/settings/environment-new")}
           separateBackground
         />
-      </Stack.Toolbar>
+      </NativeHeaderToolbar>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}

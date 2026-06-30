@@ -1,4 +1,4 @@
-import { Link } from "../navigation/router";
+import { NavigationLink } from "../navigation/native-stack-header";
 import { Pressable, ScrollView, StyleSheet } from "react-native";
 import { useResolveClassNames } from "uniwind";
 
@@ -32,11 +32,11 @@ export default function NotFoundRoute() {
       <Text className="text-3xl font-t3-bold text-foreground" selectable>
         Route not found
       </Text>
-      <Link href="/" asChild>
+      <NavigationLink href="/" asChild>
         <Pressable style={returnHomeButtonStyle}>
           <Text className="text-base font-t3-bold text-primary-foreground">Return home</Text>
         </Pressable>
-      </Link>
+      </NavigationLink>
     </ScrollView>
   );
 }

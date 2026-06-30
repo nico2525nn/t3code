@@ -5,7 +5,7 @@ import {
   requiresDefaultBranchConfirmation,
 } from "@t3tools/client-runtime/state/vcs";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useLocalSearchParams, useRouter } from "../../../navigation/router";
+import { useRouteParams, useAppNavigation } from "../../../navigation/native-stack-header";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, type ComponentProps } from "react";
 import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
@@ -33,11 +33,11 @@ export function GitOverviewSheet(
     readonly presentation?: "sheet" | "inspector";
   } = {},
 ) {
-  const router = useRouter();
+  const router = useAppNavigation();
   const insets = useSafeAreaInsets();
   const presentation = props.presentation ?? "sheet";
   const isInspector = presentation === "inspector";
-  const { environmentId, threadId } = useLocalSearchParams<{
+  const { environmentId, threadId } = useRouteParams<{
     environmentId: EnvironmentId;
     threadId: ThreadId;
   }>();
@@ -120,7 +120,7 @@ export function GitOverviewSheet(
         requiresDefaultBranchConfirmation(input.action, isDefaultRef)
       ) {
         router.push({
-          pathname: "/threads/[environmentId]/[threadId]/git-confirm",
+          name: "GitConfirm",
           params: {
             environmentId,
             threadId,
@@ -151,7 +151,7 @@ export function GitOverviewSheet(
       }
       if (item.dialogAction === "commit") {
         router.push({
-          pathname: "/threads/[environmentId]/[threadId]/git/commit",
+          name: "GitCommit",
           params: { environmentId, threadId },
         });
         return;
@@ -248,7 +248,7 @@ export function GitOverviewSheet(
           disabled={busy || !isRepo}
           onPress={() =>
             router.push({
-              pathname: "/threads/[environmentId]/[threadId]/git/branches",
+              name: "GitBranches",
               params: { environmentId, threadId },
             })
           }

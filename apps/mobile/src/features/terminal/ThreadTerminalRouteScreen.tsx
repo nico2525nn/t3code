@@ -1,7 +1,12 @@
 import { DEFAULT_TERMINAL_ID, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { type KnownTerminalSession } from "@t3tools/client-runtime/state/terminal";
 import { SymbolView } from "expo-symbols";
-import { Stack, useLocalSearchParams, useRouter } from "../../navigation/router";
+import {
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+  useRouteParams,
+  useAppNavigation,
+} from "../../navigation/native-stack-header";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, Text as RNText, View, useColorScheme } from "react-native";
 import {
@@ -198,7 +203,7 @@ function pickRunningTerminalSessionForBootstrap(
 }
 
 export function ThreadTerminalRouteScreen() {
-  const router = useRouter();
+  const router = useAppNavigation();
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
   const resizeTerminal = useAtomCommand(terminalEnvironment.resize, "terminal resize");
   const clearTerminal = useAtomCommand(terminalEnvironment.clear, "terminal clear");
@@ -206,7 +211,7 @@ export function ThreadTerminalRouteScreen() {
   const appearanceScheme = useColorScheme() === "light" ? "light" : "dark";
   const { state: workspaceState } = useWorkspaceState();
   const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
-  const params = useLocalSearchParams<{
+  const params = useRouteParams<{
     environmentId?: string | string[];
     threadId?: string | string[];
     terminalId?: string | string[];
@@ -960,7 +965,7 @@ export function ThreadTerminalRouteScreen() {
 
   return (
     <>
-      <Stack.Screen
+      <NativeStackScreenOptions
         options={{
           headerShown: true,
           headerBackButtonDisplayMode: "minimal",
@@ -986,8 +991,8 @@ export function ThreadTerminalRouteScreen() {
       />
 
       {layout.usesSplitView ? (
-        <Stack.Toolbar placement="left">
-          <Stack.Toolbar.Button
+        <NativeHeaderToolbar placement="left">
+          <NativeHeaderToolbar.Button
             accessibilityLabel={panes.primarySidebarVisible ? "Maximize terminal" : "Show threads"}
             icon={
               panes.primarySidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left"
@@ -995,37 +1000,37 @@ export function ThreadTerminalRouteScreen() {
             onPress={togglePrimarySidebar}
             separateBackground
           />
-        </Stack.Toolbar>
+        </NativeHeaderToolbar>
       ) : null}
 
       {isEnvironmentReady ? (
-        <Stack.Toolbar placement="right">
-          <Stack.Toolbar.Menu icon="terminal" title="Terminal options" separateBackground>
-            <Stack.Toolbar.Label>
+        <NativeHeaderToolbar placement="right">
+          <NativeHeaderToolbar.Menu icon="terminal" title="Terminal options" separateBackground>
+            <NativeHeaderToolbar.Label>
               {getTerminalStatusLabel({
                 status: terminal.status,
                 hasRunningSubprocess: terminal.hasRunningSubprocess,
               })}
-            </Stack.Toolbar.Label>
-            <Stack.Toolbar.Menu icon="textformat.size" inline title="Text size">
-              <Stack.Toolbar.Label>Text size</Stack.Toolbar.Label>
-              <Stack.Toolbar.MenuAction
+            </NativeHeaderToolbar.Label>
+            <NativeHeaderToolbar.Menu icon="textformat.size" inline title="Text size">
+              <NativeHeaderToolbar.Label>Text size</NativeHeaderToolbar.Label>
+              <NativeHeaderToolbar.MenuAction
                 disabled={fontSize <= MIN_TERMINAL_FONT_SIZE}
                 discoverabilityLabel="Decrease terminal text size"
                 onPress={handleDecreaseFontSize}
               >
-                <Stack.Toolbar.Label>{`A- ${Math.max(MIN_TERMINAL_FONT_SIZE, fontSize - TERMINAL_FONT_SIZE_STEP).toFixed(1)} pt`}</Stack.Toolbar.Label>
-              </Stack.Toolbar.MenuAction>
-              <Stack.Toolbar.MenuAction
+                <NativeHeaderToolbar.Label>{`A- ${Math.max(MIN_TERMINAL_FONT_SIZE, fontSize - TERMINAL_FONT_SIZE_STEP).toFixed(1)} pt`}</NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
+              <NativeHeaderToolbar.MenuAction
                 disabled={fontSize >= MAX_TERMINAL_FONT_SIZE}
                 discoverabilityLabel="Increase terminal text size"
                 onPress={handleIncreaseFontSize}
               >
-                <Stack.Toolbar.Label>{`A+ ${Math.min(MAX_TERMINAL_FONT_SIZE, fontSize + TERMINAL_FONT_SIZE_STEP).toFixed(1)} pt`}</Stack.Toolbar.Label>
-              </Stack.Toolbar.MenuAction>
-            </Stack.Toolbar.Menu>
+                <NativeHeaderToolbar.Label>{`A+ ${Math.min(MAX_TERMINAL_FONT_SIZE, fontSize + TERMINAL_FONT_SIZE_STEP).toFixed(1)} pt`}</NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
+            </NativeHeaderToolbar.Menu>
             {terminalMenuSessions.map((session) => (
-              <Stack.Toolbar.MenuAction
+              <NativeHeaderToolbar.MenuAction
                 key={session.terminalId}
                 icon={session.terminalId === terminalId ? "checkmark" : "terminal"}
                 onPress={() => handleSelectTerminal(session.terminalId)}
@@ -1036,18 +1041,18 @@ export function ThreadTerminalRouteScreen() {
                   .filter(Boolean)
                   .join(" · ")}
               >
-                <Stack.Toolbar.Label>{session.displayLabel}</Stack.Toolbar.Label>
-              </Stack.Toolbar.MenuAction>
+                <NativeHeaderToolbar.Label>{session.displayLabel}</NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
             ))}
-            <Stack.Toolbar.MenuAction
+            <NativeHeaderToolbar.MenuAction
               icon="plus"
               onPress={handleOpenNewTerminal}
               subtitle={`Start another shell in ${basename(selectedThreadProject.workspaceRoot) ?? "this workspace"}`}
             >
-              <Stack.Toolbar.Label>Open new terminal</Stack.Toolbar.Label>
-            </Stack.Toolbar.MenuAction>
-          </Stack.Toolbar.Menu>
-        </Stack.Toolbar>
+              <NativeHeaderToolbar.Label>Open new terminal</NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
+          </NativeHeaderToolbar.Menu>
+        </NativeHeaderToolbar>
       ) : null}
 
       <View style={{ flex: 1, backgroundColor: terminalTheme.background }}>

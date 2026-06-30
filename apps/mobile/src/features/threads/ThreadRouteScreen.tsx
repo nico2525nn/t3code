@@ -1,4 +1,9 @@
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "../../navigation/router";
+import {
+  NativeStackScreenOptions,
+  useFocusEffect,
+  useRouteParams,
+  useAppNavigation,
+} from "../../navigation/native-stack-header";
 import {
   useCallback,
   useEffect,
@@ -153,7 +158,7 @@ export function ThreadRouteScreen(props: ThreadRouteScreenProps = {}) {
   const { state: workspaceState } = useWorkspaceState();
   const { connectionState } = useRemoteConnectionStatus();
   const { selectedThread } = useThreadSelection();
-  const params = useLocalSearchParams<{
+  const params = useRouteParams<{
     environmentId?: string | string[];
     threadId?: string | string[];
   }>();
@@ -268,8 +273,8 @@ function ThreadRouteContent(
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
-  const router = useRouter();
-  const params = useLocalSearchParams<{
+  const router = useAppNavigation();
+  const params = useRouteParams<{
     environmentId?: string | string[];
     threadId?: string | string[];
   }>();
@@ -808,7 +813,7 @@ function ThreadRouteContent(
     return (
       <>
         {activeInspectorRenderer ? <InspectorPaneRoleActivation /> : null}
-        <Stack.Screen options={{ headerShown: false }} />
+        <NativeStackScreenOptions options={{ headerShown: false }} />
         <ScreenStack style={{ flex: 1 }}>
           <Screen
             activityState={2}
@@ -872,7 +877,7 @@ function ThreadRouteContent(
   return (
     <>
       {activeInspectorRenderer ? <InspectorPaneRoleActivation /> : null}
-      <Stack.Screen
+      <NativeStackScreenOptions
         options={{
           headerShown: true,
           headerTransparent: usesNativeHeaderGlass,
@@ -924,14 +929,14 @@ function ThreadRouteContent(
       />
 
       {layout.usesSplitView || usesNativeHeaderGlass ? null : (
-        <Stack.Screen.Title asChild>
+        <NativeStackScreenOptions.Title asChild>
           <ThreadHeaderTitle
             foregroundColor={foregroundColor}
             secondaryForegroundColor={secondaryFg}
             subtitle={headerSubtitle}
             title={selectedThread.title}
           />
-        </Stack.Screen.Title>
+        </NativeStackScreenOptions.Title>
       )}
 
       {renderThreadRouteBody(!layout.usesSplitView)}

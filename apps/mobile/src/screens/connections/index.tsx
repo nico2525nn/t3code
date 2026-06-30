@@ -1,4 +1,8 @@
-import { Stack, useRouter } from "../../navigation/router";
+import {
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+  useAppNavigation,
+} from "../../navigation/native-stack-header";
 import { SymbolView } from "expo-symbols";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useCallback, useState } from "react";
@@ -18,7 +22,7 @@ export default function ConnectionsRouteScreen() {
     onRemoveEnvironmentPress,
     onUpdateEnvironment,
   } = useRemoteConnections();
-  const router = useRouter();
+  const router = useAppNavigation();
   const insets = useSafeAreaInsets();
   const hasEnvironments = connectedEnvironments.length > 0;
   const [expandedId, setExpandedId] = useState<EnvironmentId | null>(null);
@@ -31,18 +35,18 @@ export default function ConnectionsRouteScreen() {
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
-      <Stack.Screen
+      <NativeStackScreenOptions
         options={{
           title: "Environments",
         }}
       />
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
+      <NativeHeaderToolbar placement="right">
+        <NativeHeaderToolbar.Button
           icon="plus"
           onPress={() => router.push("/connections/new")}
           separateBackground
         />
-      </Stack.Toolbar>
+      </NativeHeaderToolbar>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}

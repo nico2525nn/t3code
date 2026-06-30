@@ -23,7 +23,7 @@ describe("thread file routes", () => {
 
   it("builds typed navigation params for a file and source line", () => {
     expect(buildThreadFilesNavigation(thread, "src/main.ts", 42)).toEqual({
-      pathname: "/threads/[environmentId]/[threadId]/files/[...path]",
+      name: "ThreadFile",
       params: {
         environmentId: "environment-1",
         threadId: "thread-1",
@@ -35,7 +35,7 @@ describe("thread file routes", () => {
 
   it("targets the files index when no file path is provided", () => {
     expect(buildThreadFilesNavigation(thread)).toEqual({
-      pathname: "/threads/[environmentId]/[threadId]/files",
+      name: "ThreadFiles",
       params: {
         environmentId: "environment-1",
         threadId: "thread-1",

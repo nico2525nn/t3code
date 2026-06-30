@@ -1,5 +1,10 @@
 import { useAuth } from "@clerk/expo";
-import { Redirect, Stack, useFocusEffect, useRouter } from "../../navigation/router";
+import {
+  NavigateTo,
+  NativeStackScreenOptions,
+  useFocusEffect,
+  useAppNavigation,
+} from "../../navigation/native-stack-header";
 import { useCallback } from "react";
 import { ScrollView } from "react-native";
 
@@ -11,14 +16,14 @@ export default function SettingsWaitlistRouteScreen() {
   return hasCloudPublicConfig() ? (
     <ConfiguredSettingsWaitlistRouteScreen />
   ) : (
-    <Redirect href="/settings" />
+    <NavigateTo href="/settings" />
   );
 }
 
 function ConfiguredSettingsWaitlistRouteScreen() {
   const { isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
   const { expand } = useClerkSettingsSheetDetent();
-  const router = useRouter();
+  const router = useAppNavigation();
 
   useFocusEffect(
     useCallback(() => {
@@ -30,7 +35,7 @@ function ConfiguredSettingsWaitlistRouteScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: "Join the waitlist" }} />
+      <NativeStackScreenOptions options={{ title: "Join the waitlist" }} />
       <ScrollView
         automaticallyAdjustKeyboardInsets
         contentContainerStyle={{

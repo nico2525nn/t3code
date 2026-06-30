@@ -1,5 +1,5 @@
 import { sanitizeFeatureBranchName } from "@t3tools/shared/git";
-import { useRouter } from "../../../navigation/router";
+import { useAppNavigation } from "../../../navigation/native-stack-header";
 import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,7 +15,7 @@ import { vcsEnvironment } from "../../../state/vcs";
 import { SheetActionButton } from "./gitSheetComponents";
 
 export function GitBranchesSheet() {
-  const router = useRouter();
+  const router = useAppNavigation();
   const insets = useSafeAreaInsets();
   const { selectedThread } = useThreadSelection();
   const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadWorktree();

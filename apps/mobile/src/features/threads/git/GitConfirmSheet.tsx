@@ -2,7 +2,7 @@ import { resolveDefaultBranchActionDialogCopy } from "@t3tools/client-runtime/st
 import { resolveAutoFeatureBranchName } from "@t3tools/shared/git";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
-import { useLocalSearchParams, useRouter } from "../../../navigation/router";
+import { useRouteParams, useAppNavigation } from "../../../navigation/native-stack-header";
 import { useCallback, useMemo } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,12 +13,12 @@ import { useSelectedThreadGitState } from "../../../state/use-selected-thread-gi
 import { SheetActionButton } from "./gitSheetComponents";
 
 export function GitConfirmSheet() {
-  const router = useRouter();
+  const router = useAppNavigation();
   const insets = useSafeAreaInsets();
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
 
-  const params = useLocalSearchParams<{
+  const params = useRouteParams<{
     confirmAction?: string;
     branchName?: string;
     includesCommit?: string;

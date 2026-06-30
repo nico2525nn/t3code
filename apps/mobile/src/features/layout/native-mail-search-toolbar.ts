@@ -10,7 +10,8 @@ type NativeMailSearchToolbarInput = Omit<
  *
  * Keeping this behind an app-level helper makes the iOS-only RNS patch an
  * explicit layout primitive instead of a per-screen object literal. Android can
- * keep using Expo Router toolbar primitives without depending on this helper.
+ * keep using platform-specific header/search primitives without depending on
+ * this helper.
  */
 export function createNativeMailSearchToolbarItem(
   input: NativeMailSearchToolbarInput,

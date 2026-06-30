@@ -4,7 +4,10 @@ import type {
 } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { MenuAction } from "@react-native-menu/menu";
-import { Stack } from "../../navigation/router";
+import {
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+} from "../../navigation/native-stack-header";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useMemo, useRef, type ComponentProps } from "react";
 import {
@@ -111,7 +114,7 @@ function ArchivedThreadsHeader(props: {
 
   return (
     <>
-      <Stack.Screen
+      <NativeStackScreenOptions
         options={{
           title: "Archived Threads",
           headerTransparent: usesNativeChrome,
@@ -162,16 +165,16 @@ function ArchivedThreadsHeader(props: {
       />
 
       {usesCompactMailToolbar ? null : (
-        <Stack.Toolbar placement="right">
+        <NativeHeaderToolbar placement="right">
           {usesNativeChrome ? (
-            <Stack.Toolbar.Button
+            <NativeHeaderToolbar.Button
               accessibilityLabel="Refresh archived threads"
               icon="arrow.clockwise"
               onPress={props.onRefresh}
               separateBackground
             />
           ) : null}
-          <Stack.Toolbar.Menu
+          <NativeHeaderToolbar.Menu
             accessibilityLabel="Filter and sort archived threads"
             icon={
               hasCustomFilter
@@ -181,42 +184,42 @@ function ArchivedThreadsHeader(props: {
             separateBackground
             title="Archived thread options"
           >
-            <Stack.Toolbar.Menu title="Environment">
-              <Stack.Toolbar.Label>Environment</Stack.Toolbar.Label>
-              <Stack.Toolbar.MenuAction
+            <NativeHeaderToolbar.Menu title="Environment">
+              <NativeHeaderToolbar.Label>Environment</NativeHeaderToolbar.Label>
+              <NativeHeaderToolbar.MenuAction
                 isOn={props.selectedEnvironmentId === null}
                 onPress={() => props.onEnvironmentChange(null)}
               >
-                <Stack.Toolbar.Label>All environments</Stack.Toolbar.Label>
-              </Stack.Toolbar.MenuAction>
+                <NativeHeaderToolbar.Label>All environments</NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
               {props.environments.map((environment) => (
-                <Stack.Toolbar.MenuAction
+                <NativeHeaderToolbar.MenuAction
                   key={environment.environmentId}
                   isOn={props.selectedEnvironmentId === environment.environmentId}
                   onPress={() => props.onEnvironmentChange(environment.environmentId)}
                 >
-                  <Stack.Toolbar.Label>{environment.label}</Stack.Toolbar.Label>
-                </Stack.Toolbar.MenuAction>
+                  <NativeHeaderToolbar.Label>{environment.label}</NativeHeaderToolbar.Label>
+                </NativeHeaderToolbar.MenuAction>
               ))}
-            </Stack.Toolbar.Menu>
+            </NativeHeaderToolbar.Menu>
 
-            <Stack.Toolbar.Menu title="Sort by archived date">
-              <Stack.Toolbar.Label>Sort by archived date</Stack.Toolbar.Label>
-              <Stack.Toolbar.MenuAction
+            <NativeHeaderToolbar.Menu title="Sort by archived date">
+              <NativeHeaderToolbar.Label>Sort by archived date</NativeHeaderToolbar.Label>
+              <NativeHeaderToolbar.MenuAction
                 isOn={props.sortOrder === "newest"}
                 onPress={() => props.onSortOrderChange("newest")}
               >
-                <Stack.Toolbar.Label>Newest first</Stack.Toolbar.Label>
-              </Stack.Toolbar.MenuAction>
-              <Stack.Toolbar.MenuAction
+                <NativeHeaderToolbar.Label>Newest first</NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
+              <NativeHeaderToolbar.MenuAction
                 isOn={props.sortOrder === "oldest"}
                 onPress={() => props.onSortOrderChange("oldest")}
               >
-                <Stack.Toolbar.Label>Oldest first</Stack.Toolbar.Label>
-              </Stack.Toolbar.MenuAction>
-            </Stack.Toolbar.Menu>
-          </Stack.Toolbar.Menu>
-        </Stack.Toolbar>
+                <NativeHeaderToolbar.Label>Oldest first</NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
+            </NativeHeaderToolbar.Menu>
+          </NativeHeaderToolbar.Menu>
+        </NativeHeaderToolbar>
       )}
     </>
   );

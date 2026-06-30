@@ -1,9 +1,9 @@
-import { Stack, useLocalSearchParams } from "../../navigation/router";
+import { NativeStackScreenOptions, useRouteParams } from "../../navigation/native-stack-header";
 
 import { NewTaskDraftScreen } from "../../features/threads/NewTaskDraftScreen";
 
 export default function NewTaskDraftRoute() {
-  const params = useLocalSearchParams<{
+  const params = useRouteParams<{
     environmentId?: string | string[];
     projectId?: string | string[];
     title?: string | string[];
@@ -11,7 +11,7 @@ export default function NewTaskDraftRoute() {
 
   return (
     <>
-      <Stack.Screen
+      <NativeStackScreenOptions
         options={{
           title: Array.isArray(params.title) ? params.title[0] : (params.title ?? "New task"),
         }}

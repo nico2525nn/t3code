@@ -1,4 +1,4 @@
-import { Stack, useRouter } from "../../navigation/router";
+import { NativeStackScreenOptions, useAppNavigation } from "../../navigation/native-stack-header";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Alert, InteractionManager, View, useColorScheme } from "react-native";
 import { KeyboardAvoidingView, useKeyboardState } from "react-native-keyboard-controller";
@@ -58,7 +58,7 @@ export function NewTaskDraftScreen(props: {
   const projects = useProjects();
   const createProjectThread = useCreateProjectThread();
   const flow = useNewTaskFlow();
-  const router = useRouter();
+  const router = useAppNavigation();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
@@ -435,14 +435,14 @@ export function NewTaskDraftScreen(props: {
   if (!selectedProject) {
     return (
       <View className="flex-1 bg-sheet">
-        <Stack.Screen options={{ title: "Loading task" }} />
+        <NativeStackScreenOptions options={{ title: "Loading task" }} />
       </View>
     );
   }
 
   return (
     <View className="flex-1 bg-sheet">
-      <Stack.Screen options={{ title: selectedProject.title }} />
+      <NativeStackScreenOptions options={{ title: selectedProject.title }} />
 
       <KeyboardAvoidingView automaticOffset behavior="padding" style={{ flex: 1 }}>
         <View style={{ flex: 1, minHeight: 0, paddingHorizontal: 20, paddingTop: 8 }}>

@@ -1,6 +1,11 @@
 import { useAuth, useUser } from "@clerk/expo";
 import * as Notifications from "expo-notifications";
-import { Link, Stack, useRouter } from "../../navigation/router";
+import {
+  NavigationLink,
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+  useAppNavigation,
+} from "../../navigation/native-stack-header";
 import { SymbolView } from "expo-symbols";
 import * as Effect from "effect/Effect";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -36,21 +41,21 @@ type NotificationStatus = "checking" | "enabled" | "disabled" | "unsupported";
 type LiveActivityStatus = "checking" | "enabled" | "disabled" | "signed-out" | "linking";
 
 export default function SettingsRouteScreen() {
-  const router = useRouter();
+  const router = useAppNavigation();
   const { layout } = useAdaptiveWorkspaceLayout();
 
   return (
     <>
       <WorkspaceSidebarToolbar />
       {layout.usesSplitView ? (
-        <Stack.Toolbar placement="right">
-          <Stack.Toolbar.Button
+        <NativeHeaderToolbar placement="right">
+          <NativeHeaderToolbar.Button
             accessibilityLabel="Close settings"
             icon="xmark"
             onPress={() => router.back()}
             separateBackground
           />
-        </Stack.Toolbar>
+        </NativeHeaderToolbar>
       ) : null}
       {hasCloudPublicConfig() ? <ConfiguredSettingsRouteScreen /> : <LocalSettingsRouteScreen />}
     </>
@@ -64,7 +69,7 @@ function LocalSettingsRouteScreen() {
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
-      <Stack.Screen options={{ title: "Settings" }} />
+      <NativeStackScreenOptions options={{ title: "Settings" }} />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -95,7 +100,7 @@ function LocalSettingsRouteScreen() {
 
 function ConfiguredSettingsRouteScreen() {
   const insets = useSafeAreaInsets();
-  const { push } = useRouter();
+  const { push } = useAppNavigation();
   const { expand: expandClerkSheet } = useClerkSettingsSheetDetent();
   const { getToken, isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
   const { user } = useUser();
@@ -345,7 +350,7 @@ function ConfiguredSettingsRouteScreen() {
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
-      <Stack.Screen options={{ title: "Settings" }} />
+      <NativeStackScreenOptions options={{ title: "Settings" }} />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -490,11 +495,11 @@ function SettingsRow(props: {
 
   if (props.href) {
     return (
-      <Link href={props.href} asChild>
+      <NavigationLink href={props.href} asChild>
         <Pressable accessibilityLabel={props.label} accessibilityRole="button">
           {content}
         </Pressable>
-      </Link>
+      </NavigationLink>
     );
   }
 

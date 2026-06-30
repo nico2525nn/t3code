@@ -2,10 +2,10 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
   useFocusEffect,
-  useGlobalSearchParams,
-  usePathname,
-  useRouter,
-} from "../../navigation/router";
+  useCurrentRouteParams,
+  useCurrentPathname,
+  useAppNavigation,
+} from "../../navigation/native-stack-header";
 import {
   createContext,
   use,
@@ -99,8 +99,8 @@ export function useAdaptiveWorkspacePaneRole(role: WorkspaceAuxiliaryPaneRole) {
 
 export function AdaptiveWorkspaceLayout(props: { readonly children: ReactNode }) {
   const { width, height } = useWindowDimensions();
-  const pathname = usePathname();
-  const router = useRouter();
+  const pathname = useCurrentPathname();
+  const router = useAppNavigation();
   const activeRoleOwner = useRef<symbol | null>(null);
   const [primarySidebarPreferredVisible, setPrimarySidebarPreferredVisible] = useState(true);
   const [supplementaryPanePreferredVisible, setSupplementaryPanePreferredVisible] = useState(true);
@@ -114,7 +114,7 @@ export function AdaptiveWorkspaceLayout(props: { readonly children: ReactNode })
   const [primarySidebarSearchQuery, setPrimarySidebarSearchQuery] = useState("");
   const [focusedAuxiliaryPaneRole, setFocusedAuxiliaryPaneRole] =
     useState<WorkspaceAuxiliaryPaneRole | null>(null);
-  const params = useGlobalSearchParams<{
+  const params = useCurrentRouteParams<{
     environmentId?: string | string[];
     threadId?: string | string[];
   }>();

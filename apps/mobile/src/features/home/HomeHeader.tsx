@@ -3,7 +3,10 @@ import type {
   SidebarProjectGroupingMode,
   SidebarThreadSortOrder,
 } from "@t3tools/contracts";
-import { Stack } from "../../navigation/router";
+import {
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+} from "../../navigation/native-stack-header";
 import { useCallback, useRef } from "react";
 import { Platform } from "react-native";
 import type { SearchBarCommands } from "react-native-screens";
@@ -54,7 +57,7 @@ export function HomeHeader(props: {
 
   return (
     <>
-      <Stack.Screen
+      <NativeStackScreenOptions
         options={{
           headerShown: true,
           headerTransparent: true,
@@ -121,19 +124,19 @@ export function HomeHeader(props: {
       />
 
       {Platform.OS === "ios" ? null : (
-        <Stack.Toolbar placement="right">
-          <Stack.Toolbar.Button
+        <NativeHeaderToolbar placement="right">
+          <NativeHeaderToolbar.Button
             accessibilityLabel="Open settings"
             icon="gearshape"
             onPress={props.onOpenSettings}
             separateBackground
           />
-        </Stack.Toolbar>
+        </NativeHeaderToolbar>
       )}
 
       {Platform.OS === "ios" ? null : (
-        <Stack.Toolbar placement="bottom">
-          <Stack.Toolbar.Menu
+        <NativeHeaderToolbar placement="bottom">
+          <NativeHeaderToolbar.Menu
             accessibilityLabel="Filter and sort threads"
             icon={
               hasCustomListOptions
@@ -143,80 +146,80 @@ export function HomeHeader(props: {
             title="Thread list options"
             separateBackground
           >
-            <Stack.Toolbar.MenuAction onPress={props.onOpenSettings}>
-              <Stack.Toolbar.Label>Settings</Stack.Toolbar.Label>
-            </Stack.Toolbar.MenuAction>
+            <NativeHeaderToolbar.MenuAction onPress={props.onOpenSettings}>
+              <NativeHeaderToolbar.Label>Settings</NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
 
-            <Stack.Toolbar.Menu title="Environment">
-              <Stack.Toolbar.Label>Environment</Stack.Toolbar.Label>
-              <Stack.Toolbar.MenuAction
+            <NativeHeaderToolbar.Menu title="Environment">
+              <NativeHeaderToolbar.Label>Environment</NativeHeaderToolbar.Label>
+              <NativeHeaderToolbar.MenuAction
                 isOn={props.selectedEnvironmentId === null}
                 onPress={() => props.onEnvironmentChange(null)}
                 subtitle="Show threads from every environment"
               >
-                <Stack.Toolbar.Label>All environments</Stack.Toolbar.Label>
-              </Stack.Toolbar.MenuAction>
+                <NativeHeaderToolbar.Label>All environments</NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
               {props.environments.map((environment) => (
-                <Stack.Toolbar.MenuAction
+                <NativeHeaderToolbar.MenuAction
                   key={environment.environmentId}
                   isOn={props.selectedEnvironmentId === environment.environmentId}
                   onPress={() => props.onEnvironmentChange(environment.environmentId)}
                 >
-                  <Stack.Toolbar.Label>{environment.label}</Stack.Toolbar.Label>
-                </Stack.Toolbar.MenuAction>
+                  <NativeHeaderToolbar.Label>{environment.label}</NativeHeaderToolbar.Label>
+                </NativeHeaderToolbar.MenuAction>
               ))}
-            </Stack.Toolbar.Menu>
+            </NativeHeaderToolbar.Menu>
 
-            <Stack.Toolbar.Menu title="Sort projects">
-              <Stack.Toolbar.Label>Sort projects</Stack.Toolbar.Label>
+            <NativeHeaderToolbar.Menu title="Sort projects">
+              <NativeHeaderToolbar.Label>Sort projects</NativeHeaderToolbar.Label>
               {PROJECT_SORT_OPTIONS.map((option) => (
-                <Stack.Toolbar.MenuAction
+                <NativeHeaderToolbar.MenuAction
                   key={option.value}
                   isOn={props.projectSortOrder === option.value}
                   onPress={() => props.onProjectSortOrderChange(option.value)}
                 >
-                  <Stack.Toolbar.Label>{option.label}</Stack.Toolbar.Label>
-                </Stack.Toolbar.MenuAction>
+                  <NativeHeaderToolbar.Label>{option.label}</NativeHeaderToolbar.Label>
+                </NativeHeaderToolbar.MenuAction>
               ))}
-            </Stack.Toolbar.Menu>
+            </NativeHeaderToolbar.Menu>
 
-            <Stack.Toolbar.Menu title="Sort threads">
-              <Stack.Toolbar.Label>Sort threads</Stack.Toolbar.Label>
+            <NativeHeaderToolbar.Menu title="Sort threads">
+              <NativeHeaderToolbar.Label>Sort threads</NativeHeaderToolbar.Label>
               {THREAD_SORT_OPTIONS.map((option) => (
-                <Stack.Toolbar.MenuAction
+                <NativeHeaderToolbar.MenuAction
                   key={option.value}
                   isOn={props.threadSortOrder === option.value}
                   onPress={() => props.onThreadSortOrderChange(option.value)}
                 >
-                  <Stack.Toolbar.Label>{option.label}</Stack.Toolbar.Label>
-                </Stack.Toolbar.MenuAction>
+                  <NativeHeaderToolbar.Label>{option.label}</NativeHeaderToolbar.Label>
+                </NativeHeaderToolbar.MenuAction>
               ))}
-            </Stack.Toolbar.Menu>
+            </NativeHeaderToolbar.Menu>
 
-            <Stack.Toolbar.Menu title="Group projects">
-              <Stack.Toolbar.Label>Group projects</Stack.Toolbar.Label>
+            <NativeHeaderToolbar.Menu title="Group projects">
+              <NativeHeaderToolbar.Label>Group projects</NativeHeaderToolbar.Label>
               {PROJECT_GROUPING_OPTIONS.map((option) => (
-                <Stack.Toolbar.MenuAction
+                <NativeHeaderToolbar.MenuAction
                   key={option.value}
                   isOn={props.projectGroupingMode === option.value}
                   onPress={() => props.onProjectGroupingModeChange(option.value)}
                   subtitle={option.subtitle}
                 >
-                  <Stack.Toolbar.Label>{option.label}</Stack.Toolbar.Label>
-                </Stack.Toolbar.MenuAction>
+                  <NativeHeaderToolbar.Label>{option.label}</NativeHeaderToolbar.Label>
+                </NativeHeaderToolbar.MenuAction>
               ))}
-            </Stack.Toolbar.Menu>
-          </Stack.Toolbar.Menu>
-          <Stack.Toolbar.Spacer width={8} sharesBackground={false} />
-          <Stack.Toolbar.SearchBarSlot />
-          <Stack.Toolbar.Spacer width={8} sharesBackground={false} />
-          <Stack.Toolbar.Button
+            </NativeHeaderToolbar.Menu>
+          </NativeHeaderToolbar.Menu>
+          <NativeHeaderToolbar.Spacer width={8} sharesBackground={false} />
+          <NativeHeaderToolbar.SearchBarSlot />
+          <NativeHeaderToolbar.Spacer width={8} sharesBackground={false} />
+          <NativeHeaderToolbar.Button
             accessibilityLabel="New task"
             icon="square.and.pencil"
             onPress={props.onStartNewTask}
             separateBackground
           />
-        </Stack.Toolbar>
+        </NativeHeaderToolbar>
       )}
     </>
   );

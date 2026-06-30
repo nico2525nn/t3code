@@ -1,10 +1,11 @@
-import type { Href, useRouter } from "../navigation/router";
 import { type EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
+import type { AppNavigation } from "../navigation/app-navigation";
+import type { AppNavigationTarget } from "../navigation/route-model";
 import type { SelectedThreadRef } from "../state/remote-runtime-types";
 
-type Router = ReturnType<typeof useRouter>;
+type Router = AppNavigation;
 
 type ThreadRouteInput =
   | Pick<SelectedThreadRef, "environmentId" | "threadId">
@@ -65,15 +66,10 @@ export function buildThreadTerminalRoutePath(
   return `${basePath}?terminalId=${encodeURIComponent(terminalId)}`;
 }
 
-/**
- * Prefer this over {@link buildThreadTerminalRoutePath} with `router.push(string)` — Expo Router
- * often does not merge query strings into `useLocalSearchParams`, which breaks terminal bootstrap
- * (`requestedTerminalId` stays null while the UI assumes `default`).
- */
 export function buildThreadTerminalNavigation(
   input: ThreadRouteInput | PlainThreadRouteInput,
   terminalId?: string | null,
-): Href {
+): AppNavigationTarget {
   const environmentId = String(input.environmentId);
   const threadId = String("threadId" in input ? input.threadId : input.id);
 
@@ -87,7 +83,7 @@ export function buildThreadTerminalNavigation(
   }
 
   return {
-    pathname: "/threads/[environmentId]/[threadId]/terminal",
+    name: "ThreadTerminal",
     params,
   };
 }
@@ -96,14 +92,14 @@ export function buildThreadFilesNavigation(
   input: ThreadRouteInput | PlainThreadRouteInput,
   relativePath?: string | null,
   line?: number | null,
-): Href {
+): AppNavigationTarget {
   const environmentId = String(input.environmentId);
   const threadId = String("threadId" in input ? input.threadId : input.id);
   const path = relativePath?.split("/").filter((segment) => segment.length > 0) ?? [];
 
   if (path.length === 0) {
     return {
-      pathname: "/threads/[environmentId]/[threadId]/files",
+      name: "ThreadFiles",
       params: { environmentId, threadId },
     };
   }
@@ -119,7 +115,7 @@ export function buildThreadFilesNavigation(
   }
 
   return {
-    pathname: "/threads/[environmentId]/[threadId]/files/[...path]",
+    name: "ThreadFile",
     params,
   };
 }

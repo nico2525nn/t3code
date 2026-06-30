@@ -4,7 +4,7 @@ import { type LegendListRef } from "@legendapp/list/react-native";
 import type { EnvironmentId, MessageId, ThreadId, TurnId } from "@t3tools/contracts";
 import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
 import { SymbolView } from "expo-symbols";
-import { useRouter } from "../../navigation/router";
+import { useAppNavigation } from "../../navigation/native-stack-header";
 import {
   memo,
   useCallback,
@@ -1125,7 +1125,7 @@ function ThreadFeedPlaceholder(props: {
 }
 
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
-  const router = useRouter();
+  const router = useAppNavigation();
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const foldSettleFrameRef = useRef<number | null>(null);
   const foldSettleSecondFrameRef = useRef<number | null>(null);

@@ -1,4 +1,9 @@
-import { Link, Stack, useRouter } from "../../navigation/router";
+import {
+  NavigationLink,
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+  useAppNavigation,
+} from "../../navigation/native-stack-header";
 import { SymbolView } from "expo-symbols";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useMemo } from "react";
@@ -73,7 +78,7 @@ export default function NewTaskRoute() {
   const projects = useProjects();
   const threads = useThreadShells();
   const { state: catalogState } = useWorkspaceState();
-  const router = useRouter();
+  const router = useAppNavigation();
   const { layout } = useAdaptiveWorkspaceLayout();
   const insets = useSafeAreaInsets();
   const chevronColor = useThemeColor("--color-chevron");
@@ -110,22 +115,22 @@ export default function NewTaskRoute() {
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
-      <Stack.Screen options={{ title: "Choose project" }} />
-      <Stack.Toolbar placement="right">
+      <NativeStackScreenOptions options={{ title: "Choose project" }} />
+      <NativeHeaderToolbar placement="right">
         {layout.usesSplitView ? (
-          <Stack.Toolbar.Button
+          <NativeHeaderToolbar.Button
             accessibilityLabel="Close new task"
             icon="xmark"
             onPress={() => router.dismiss()}
             separateBackground
           />
         ) : null}
-        <Stack.Toolbar.Button
+        <NativeHeaderToolbar.Button
           icon="plus"
           onPress={() => router.push("/new/add-project")}
           separateBackground
         />
-      </Stack.Toolbar>
+      </NativeHeaderToolbar>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -172,10 +177,10 @@ export default function NewTaskRoute() {
               const isLast = index === items.length - 1;
 
               return (
-                <Link
+                <NavigationLink
                   key={item.key}
                   href={{
-                    pathname: "/new/draft",
+                    name: "NewTaskDraft",
                     params: {
                       environmentId: item.environmentId,
                       projectId: item.id,
@@ -217,7 +222,7 @@ export default function NewTaskRoute() {
                       />
                     </View>
                   </Pressable>
-                </Link>
+                </NavigationLink>
               );
             })}
           </View>

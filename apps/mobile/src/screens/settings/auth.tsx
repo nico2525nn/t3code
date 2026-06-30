@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/expo";
 import { AuthView, UserProfileView } from "@clerk/expo/native";
-import { Redirect, Stack } from "../../navigation/router";
+import { NavigateTo, NativeStackScreenOptions } from "../../navigation/native-stack-header";
 import { View } from "react-native";
 
 import { hasCloudPublicConfig } from "../../features/cloud/publicConfig";
@@ -9,7 +9,7 @@ export default function SettingsAuthRouteScreen() {
   return hasCloudPublicConfig() ? (
     <ConfiguredSettingsAuthRouteScreen />
   ) : (
-    <Redirect href="/settings" />
+    <NavigateTo href="/settings" />
   );
 }
 
@@ -18,7 +18,7 @@ function ConfiguredSettingsAuthRouteScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: isSignedIn ? "Account" : "Sign in" }} />
+      <NativeStackScreenOptions options={{ title: isSignedIn ? "Account" : "Sign in" }} />
       <View collapsable={false} className="flex-1 overflow-hidden bg-sheet">
         {isLoaded ? (
           isSignedIn ? (

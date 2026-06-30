@@ -2,7 +2,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell
 import { LegendList } from "@legendapp/list/react-native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { SymbolView } from "expo-symbols";
-import { useRouter } from "../../navigation/router";
+import { useAppNavigation } from "../../navigation/native-stack-header";
 import { memo, useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
 import type { ColorValue, NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { Platform, Pressable, StyleSheet, TextInput, View, useColorScheme } from "react-native";
@@ -257,7 +257,7 @@ export function ThreadNavigationSidebar(props: {
 }) {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
-  const router = useRouter();
+  const router = useAppNavigation();
   const projects = useProjects();
   const threads = useThreadShells();
   const { state: catalogState } = useWorkspaceState();

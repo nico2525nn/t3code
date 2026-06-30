@@ -1,4 +1,4 @@
-import { Stack } from "../../navigation/router";
+import { NativeStackScreenOptions } from "../../navigation/native-stack-header";
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   Platform,
@@ -24,7 +24,7 @@ import {
 const CODE_LINES = [
   "# Native RNS glass debug route",
   "",
-  "This screen intentionally avoids Expo Router headers.",
+  "This screen intentionally avoids app-level header wrappers.",
   "The native header below is owned by react-native-screens.",
   "",
   "Expected iOS 26 behavior:",
@@ -198,7 +198,7 @@ export default function RnsGlassDebugRoute() {
 
   return (
     <>
-      <Stack.Screen options={{ headerShown: false }} />
+      <NativeStackScreenOptions options={{ headerShown: false }} />
       <View style={[styles.host, { backgroundColor: background }]}>
         {usesWideSplit ? (
           <MailWideSplitDemo
