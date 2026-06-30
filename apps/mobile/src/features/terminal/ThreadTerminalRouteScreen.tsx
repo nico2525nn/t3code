@@ -3,7 +3,7 @@ import { type KnownTerminalSession } from "@t3tools/client-runtime/state/termina
 import { SymbolView } from "expo-symbols";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, Text as RNText, View, useColorScheme } from "react-native";
+import { Platform, Pressable, Text as RNText, View, useColorScheme } from "react-native";
 import {
   KeyboardController,
   KeyboardEvents,
@@ -25,6 +25,7 @@ import { terminalEnvironment } from "../../state/terminal";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useWorkspaceState } from "../../state/workspace";
 import { buildThreadTerminalNavigation } from "../../lib/routes";
+import { nativeTopScrollEdgeEffect } from "../../lib/native-scroll-edge-effect";
 import { MOBILE_TYPOGRAPHY } from "../../lib/typography";
 import {
   useAttachedTerminalSession,
@@ -72,6 +73,7 @@ import {
 const DEFAULT_TERMINAL_COLS = 80;
 const DEFAULT_TERMINAL_ROWS = 24;
 const TERMINAL_ACCESSORY_HEIGHT = 52;
+const TOP_SCROLL_EDGE_EFFECT = nativeTopScrollEdgeEffect(Platform.OS, Platform.Version);
 
 type PendingModifier = "ctrl" | "meta";
 type HostPlatform = "mac" | "linux" | "windows" | "unknown";
@@ -85,6 +87,47 @@ type TerminalToolbarAction =
       readonly label: string;
       readonly modifier: PendingModifier;
     };
+
+function TerminalHeaderTitle(props: {
+  readonly topLine: string;
+  readonly bottomLine: string;
+  readonly foreground: string;
+  readonly mutedForeground: string;
+}) {
+  return (
+    <View
+      style={{
+        alignItems: "center",
+        gap: 1,
+        maxWidth: 240,
+      }}
+    >
+      <RNText
+        numberOfLines={1}
+        style={{
+          color: props.foreground,
+          fontFamily: "DMSans_700Bold",
+          fontSize: MOBILE_TYPOGRAPHY.footnote.fontSize,
+          lineHeight: 16,
+        }}
+      >
+        {props.topLine}
+      </RNText>
+      <RNText
+        ellipsizeMode="middle"
+        numberOfLines={1}
+        style={{
+          color: props.mutedForeground,
+          fontFamily: "Menlo",
+          fontSize: MOBILE_TYPOGRAPHY.caption.fontSize,
+          lineHeight: 14,
+        }}
+      >
+        {props.bottomLine}
+      </RNText>
+    </View>
+  );
+}
 
 function firstRouteParam(value: string | string[] | undefined): string | null {
   if (Array.isArray(value)) {
@@ -404,6 +447,7 @@ export function ThreadTerminalRouteScreen() {
   );
 
   const terminalTheme = getPierreTerminalTheme(appearanceScheme);
+  const usesNativeHeaderGlass = Platform.OS === "ios";
   const pendingModifier =
     pendingModifierState.terminalId === terminalId ? pendingModifierState.value : null;
   const headerTitle = useMemo(() => {
@@ -422,6 +466,22 @@ export function ThreadTerminalRouteScreen() {
     selectedThreadProject?.title,
     selectedThreadProject?.workspaceRoot,
   ]);
+  const renderTerminalHeaderTitle = useCallback(
+    () => (
+      <TerminalHeaderTitle
+        topLine={headerTitle.topLine}
+        bottomLine={headerTitle.bottomLine}
+        foreground={terminalTheme.foreground}
+        mutedForeground={terminalTheme.mutedForeground}
+      />
+    ),
+    [
+      headerTitle.bottomLine,
+      headerTitle.topLine,
+      terminalTheme.foreground,
+      terminalTheme.mutedForeground,
+    ],
+  );
   const terminalToolbarActions = useMemo<ReadonlyArray<TerminalToolbarAction>>(() => {
     const modifierActions: ReadonlyArray<TerminalToolbarAction> =
       hostPlatform === "mac"
@@ -903,44 +963,30 @@ export function ThreadTerminalRouteScreen() {
           headerShown: true,
           headerBackButtonDisplayMode: "minimal",
           headerBackTitle: "",
+          headerTransparent: usesNativeHeaderGlass,
           headerShadowVisible: false,
-          headerStyle: { backgroundColor: terminalTheme.background },
+          headerStyle: {
+            backgroundColor: usesNativeHeaderGlass ? "transparent" : terminalTheme.background,
+          },
           headerTintColor: terminalTheme.foreground,
           headerTitleAlign: "center",
-          title: "",
-          headerTitle: () => (
-            <View
-              style={{
-                alignItems: "center",
-                gap: 1,
-                maxWidth: 240,
-              }}
-            >
-              <RNText
-                numberOfLines={1}
-                style={{
-                  color: terminalTheme.foreground,
-                  fontFamily: "DMSans_700Bold",
-                  fontSize: MOBILE_TYPOGRAPHY.footnote.fontSize,
-                  lineHeight: 16,
-                }}
-              >
-                {headerTitle.topLine}
-              </RNText>
-              <RNText
-                ellipsizeMode="middle"
-                numberOfLines={1}
-                style={{
-                  color: terminalTheme.mutedForeground,
-                  fontFamily: "Menlo",
-                  fontSize: MOBILE_TYPOGRAPHY.caption.fontSize,
-                  lineHeight: 14,
-                }}
-              >
-                {headerTitle.bottomLine}
-              </RNText>
-            </View>
-          ),
+          headerTitle: usesNativeHeaderGlass ? headerTitle.topLine : renderTerminalHeaderTitle,
+          headerTitleStyle: usesNativeHeaderGlass
+            ? {
+                fontSize: 17,
+                fontWeight: "800",
+              }
+            : undefined,
+          scrollEdgeEffects: usesNativeHeaderGlass
+            ? {
+                top: TOP_SCROLL_EDGE_EFFECT,
+                bottom: "hidden",
+                left: "hidden",
+                right: "hidden",
+              }
+            : undefined,
+          title: headerTitle.topLine,
+          unstable_navigationItemStyle: usesNativeHeaderGlass ? "editor" : undefined,
         }}
       />
 
