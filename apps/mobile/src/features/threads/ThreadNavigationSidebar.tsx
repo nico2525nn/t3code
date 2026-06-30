@@ -72,6 +72,9 @@ const ThreadNavigationRow = memo(function ThreadNavigationRow(props: {
   readonly pressedBackgroundColor: ColorValue;
   readonly selected: boolean;
   readonly selectedBackgroundColor: ColorValue;
+  readonly selectedForegroundColor: ColorValue;
+  readonly selectedMutedColor: ColorValue;
+  readonly selectedPressedBackgroundColor: ColorValue;
   readonly simultaneousSwipeGesture?: ComponentProps<
     typeof ThreadSwipeable
   >["simultaneousWithExternalGesture"];
@@ -93,10 +96,18 @@ const ThreadNavigationRow = memo(function ThreadNavigationRow(props: {
     pressedBackgroundColor,
     selected,
     selectedBackgroundColor,
+    selectedForegroundColor,
+    selectedMutedColor,
+    selectedPressedBackgroundColor,
     simultaneousSwipeGesture,
     thread,
     environmentLabel,
   } = props;
+  const effectiveForegroundColor = selected ? selectedForegroundColor : foregroundColor;
+  const effectiveMutedColor = selected ? selectedMutedColor : mutedColor;
+  const effectivePressedBackgroundColor = selected
+    ? selectedPressedBackgroundColor
+    : pressedBackgroundColor;
   const handleArchive = useCallback(() => {
     onArchiveThread(thread);
   }, [onArchiveThread, thread]);
@@ -162,7 +173,8 @@ const ThreadNavigationRow = memo(function ThreadNavigationRow(props: {
             style={({ pressed }) => [
               styles.threadSelectionTarget,
               {
-                backgroundColor: pressed || hovered ? pressedBackgroundColor : "transparent",
+                backgroundColor:
+                  pressed || hovered ? effectivePressedBackgroundColor : "transparent",
                 cursor: "pointer",
               },
             ]}
@@ -171,7 +183,7 @@ const ThreadNavigationRow = memo(function ThreadNavigationRow(props: {
               <Text
                 className="text-base font-t3-medium"
                 numberOfLines={1}
-                style={{ color: foregroundColor }}
+                style={{ color: effectiveForegroundColor }}
               >
                 {thread.title}
               </Text>
@@ -180,12 +192,12 @@ const ThreadNavigationRow = memo(function ThreadNavigationRow(props: {
                   <Text
                     className="min-w-0 flex-1 text-xs"
                     numberOfLines={1}
-                    style={{ color: mutedColor }}
+                    style={{ color: effectiveMutedColor }}
                   >
                     {subtitle.join(" · ")}
                   </Text>
                 ) : null}
-                <Text className="text-xs" numberOfLines={1} style={{ color: mutedColor }}>
+                <Text className="text-xs" numberOfLines={1} style={{ color: effectiveMutedColor }}>
                   {relativeTime(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt)}
                 </Text>
               </View>
@@ -199,10 +211,15 @@ const ThreadNavigationRow = memo(function ThreadNavigationRow(props: {
               hitSlop={6}
               style={({ pressed }) => [
                 styles.moreButton,
-                { backgroundColor: pressed ? pressedBackgroundColor : "transparent" },
+                { backgroundColor: pressed ? effectivePressedBackgroundColor : "transparent" },
               ]}
             >
-              <SymbolView name="ellipsis" size={15} tintColor={iconColor} type="monochrome" />
+              <SymbolView
+                name="ellipsis"
+                size={15}
+                tintColor={selected ? effectiveMutedColor : iconColor}
+                type="monochrome"
+              />
             </Pressable>
           </ControlPillMenu>
         </View>
@@ -420,8 +437,10 @@ export function ThreadNavigationSidebar(props: {
   const placeholderColor = useThemeColor("--color-placeholder");
   const searchBackgroundColor =
     colorScheme === "dark" ? IOS_SEARCH_FILL_DARK : IOS_SEARCH_FILL_LIGHT;
-  const selectedBackgroundColor =
-    colorScheme === "dark" ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)";
+  const selectedBackgroundColor = useThemeColor("--color-user-bubble");
+  const selectedForegroundColor = useThemeColor("--color-user-bubble-foreground");
+  const selectedMutedColor = useThemeColor("--color-user-bubble-foreground-muted");
+  const selectedPressedBackgroundColor = "rgba(255,255,255,0.16)";
   const pressedBackgroundColor = useThemeColor("--color-subtle");
   const listThemeKey = `${colorScheme}:${String(backgroundColor)}:${String(selectedBackgroundColor)}`;
   const listExtraData = `${listThemeKey}:${props.selectedThreadKey ?? ""}`;
@@ -501,6 +520,9 @@ export function ThreadNavigationSidebar(props: {
             pressedBackgroundColor={pressedBackgroundColor}
             selected={item.key === props.selectedThreadKey}
             selectedBackgroundColor={selectedBackgroundColor}
+            selectedForegroundColor={selectedForegroundColor}
+            selectedMutedColor={selectedMutedColor}
+            selectedPressedBackgroundColor={selectedPressedBackgroundColor}
             simultaneousSwipeGesture={sidebarScrollGesture}
             thread={thread}
             environmentLabel={savedConnectionsById[thread.environmentId]?.environmentLabel ?? null}
@@ -521,6 +543,9 @@ export function ThreadNavigationSidebar(props: {
       props.width,
       savedConnectionsById,
       selectedBackgroundColor,
+      selectedForegroundColor,
+      selectedMutedColor,
+      selectedPressedBackgroundColor,
       listThemeKey,
       mutedColor,
     ],
