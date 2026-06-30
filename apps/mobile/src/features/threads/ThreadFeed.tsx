@@ -69,7 +69,7 @@ import {
 import { buildReviewParsedDiff } from "../review/reviewModel";
 import { cn } from "../../lib/cn";
 import { deriveCenteredContentHorizontalPadding, type LayoutVariant } from "../../lib/layout";
-import { nativeTopScrollEdgeEffect } from "../../lib/native-scroll-edge-effect";
+import { nativeHeaderScrollEdgeEffects } from "../../lib/native-scroll-edge-effect";
 import { buildThreadFilesNavigation } from "../../lib/routes";
 import { MOBILE_CODE_SURFACE, MOBILE_TYPOGRAPHY } from "../../lib/typography";
 import { markdownFileIconSource } from "@t3tools/mobile-markdown-text/file-icons";
@@ -88,7 +88,7 @@ const MESSAGE_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
 });
-const TOP_SCROLL_EDGE_EFFECT = nativeTopScrollEdgeEffect(Platform.OS, Platform.Version);
+const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 
 function formatMessageTime(input: string): string {
   const timestamp = Date.parse(input);
@@ -1499,15 +1499,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   return (
     <>
       <View style={{ flex: 1 }} onLayout={handleViewportLayout}>
-        <ScrollViewMarker
-          style={{ flex: 1 }}
-          scrollEdgeEffects={{
-            top: TOP_SCROLL_EDGE_EFFECT,
-            right: "hidden",
-            bottom: "hidden",
-            left: "hidden",
-          }}
-        >
+        <ScrollViewMarker style={{ flex: 1 }} scrollEdgeEffects={HEADER_SCROLL_EDGE_EFFECTS}>
           <KeyboardAwareLegendList
             ref={props.listRef}
             key={props.threadId}

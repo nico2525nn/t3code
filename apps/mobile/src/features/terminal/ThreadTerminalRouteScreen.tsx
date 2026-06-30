@@ -25,7 +25,7 @@ import { terminalEnvironment } from "../../state/terminal";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useWorkspaceState } from "../../state/workspace";
 import { buildThreadTerminalNavigation } from "../../lib/routes";
-import { nativeTopScrollEdgeEffect } from "../../lib/native-scroll-edge-effect";
+import { nativeHeaderScrollEdgeEffects } from "../../lib/native-scroll-edge-effect";
 import { MOBILE_TYPOGRAPHY } from "../../lib/typography";
 import {
   useAttachedTerminalSession,
@@ -74,7 +74,7 @@ import {
 const DEFAULT_TERMINAL_COLS = 80;
 const DEFAULT_TERMINAL_ROWS = 24;
 const TERMINAL_ACCESSORY_HEIGHT = 52;
-const TOP_SCROLL_EDGE_EFFECT = nativeTopScrollEdgeEffect(Platform.OS, Platform.Version);
+const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 
 type PendingModifier = "ctrl" | "meta";
 type HostPlatform = "mac" | "linux" | "windows" | "unknown";
@@ -979,14 +979,7 @@ export function ThreadTerminalRouteScreen() {
                 fontWeight: "800",
               }
             : undefined,
-          scrollEdgeEffects: usesNativeHeaderGlass
-            ? {
-                top: TOP_SCROLL_EDGE_EFFECT,
-                bottom: "hidden",
-                left: "hidden",
-                right: "hidden",
-              }
-            : undefined,
+          scrollEdgeEffects: usesNativeHeaderGlass ? HEADER_SCROLL_EDGE_EFFECTS : undefined,
           title: headerTitle.topLine,
           unstable_navigationItemStyle: usesNativeHeaderGlass ? "editor" : undefined,
         }}

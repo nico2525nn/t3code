@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../../lib/useThemeColor";
 
 import { AppText as Text } from "../../../components/AppText";
-import { nativeTopScrollEdgeEffect } from "../../../lib/native-scroll-edge-effect";
+import { nativeHeaderScrollEdgeEffects } from "../../../lib/native-scroll-edge-effect";
 import { tryOpenExternalUrl } from "../../../lib/openExternalUrl";
 import { buildThreadReviewRoutePath } from "../../../lib/routes";
 import { useEnvironmentQuery } from "../../../state/query";
@@ -25,7 +25,7 @@ import { useSelectedThreadWorktree } from "../../../state/use-selected-thread-wo
 import { vcsEnvironment } from "../../../state/vcs";
 import { MetaCard, SheetListRow, menuItemIconName, statusSummary } from "./gitSheetComponents";
 
-const TOP_SCROLL_EDGE_EFFECT = nativeTopScrollEdgeEffect(Platform.OS, Platform.Version);
+const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 
 export function GitOverviewSheet(
   props: {
@@ -268,12 +268,7 @@ export function GitOverviewSheet(
             enabled
             isNativeStack
             screenId="thread-git-inspector-native"
-            scrollEdgeEffects={{
-              bottom: "hidden",
-              left: "hidden",
-              right: "hidden",
-              top: TOP_SCROLL_EDGE_EFFECT,
-            }}
+            scrollEdgeEffects={HEADER_SCROLL_EDGE_EFFECTS}
             style={{ backgroundColor: sheetColor, flex: 1 }}
           >
             {content}

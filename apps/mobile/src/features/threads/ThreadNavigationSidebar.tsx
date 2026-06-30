@@ -14,7 +14,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { StatusPill } from "../../components/StatusPill";
-import { nativeTopScrollEdgeEffect } from "../../lib/native-scroll-edge-effect";
+import { nativeHeaderScrollEdgeEffects } from "../../lib/native-scroll-edge-effect";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { relativeTime } from "../../lib/time";
 import { useThemeColor } from "../../lib/useThemeColor";
@@ -41,7 +41,7 @@ import { threadStatusTone } from "./threadPresentation";
 
 const SIDEBAR_STICKY_HEADER_HEIGHT = 106;
 const SIDEBAR_STICKY_HEADER_FADE_HEIGHT = 44;
-const TOP_SCROLL_EDGE_EFFECT = nativeTopScrollEdgeEffect(Platform.OS, Platform.Version);
+const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 const IOS_SEARCH_FILL_DARK = "rgba(118, 118, 128, 0.24)";
 const IOS_SEARCH_FILL_LIGHT = "rgba(118, 118, 128, 0.12)";
 const SIDEBAR_HEADER_WASH_OPACITY = {
@@ -667,12 +667,7 @@ export function ThreadNavigationSidebar(props: {
             enabled
             isNativeStack
             screenId="thread-navigation-sidebar-native"
-            scrollEdgeEffects={{
-              bottom: "hidden",
-              left: "hidden",
-              right: "hidden",
-              top: TOP_SCROLL_EDGE_EFFECT,
-            }}
+            scrollEdgeEffects={HEADER_SCROLL_EDGE_EFFECTS}
             style={[styles.container, { backgroundColor }]}
           >
             <View style={{ flex: 1, paddingBottom: insets.bottom }}>

@@ -1,4 +1,10 @@
 export type NativeTopScrollEdgeEffect = "automatic" | "soft";
+export type NativeHeaderScrollEdgeEffects = {
+  readonly top: NativeTopScrollEdgeEffect;
+  readonly bottom: "hidden";
+  readonly left: "hidden";
+  readonly right: "hidden";
+};
 
 function majorVersion(version: number | string): number {
   if (typeof version === "number") {
@@ -19,4 +25,16 @@ export function nativeTopScrollEdgeEffect(
   version: number | string,
 ): NativeTopScrollEdgeEffect {
   return os === "ios" && majorVersion(version) >= 27 ? "soft" : "automatic";
+}
+
+export function nativeHeaderScrollEdgeEffects(
+  os: string,
+  version: number | string,
+): NativeHeaderScrollEdgeEffects {
+  return {
+    top: nativeTopScrollEdgeEffect(os, version),
+    bottom: "hidden",
+    left: "hidden",
+    right: "hidden",
+  };
 }

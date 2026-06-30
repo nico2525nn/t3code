@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { nativeTopScrollEdgeEffect } from "./native-scroll-edge-effect";
+import {
+  nativeHeaderScrollEdgeEffects,
+  nativeTopScrollEdgeEffect,
+} from "./native-scroll-edge-effect";
 
 describe("nativeTopScrollEdgeEffect", () => {
   it("keeps the automatic native treatment on iOS 26", () => {
@@ -14,5 +17,16 @@ describe("nativeTopScrollEdgeEffect", () => {
 
   it("does not apply the iOS workaround to other platforms", () => {
     expect(nativeTopScrollEdgeEffect("android", 27)).toBe("automatic");
+  });
+});
+
+describe("nativeHeaderScrollEdgeEffects", () => {
+  it("keeps non-top header edges hidden while applying the platform top effect", () => {
+    expect(nativeHeaderScrollEdgeEffects("ios", "27.0")).toEqual({
+      top: "soft",
+      bottom: "hidden",
+      left: "hidden",
+      right: "hidden",
+    });
   });
 });

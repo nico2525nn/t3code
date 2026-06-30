@@ -22,7 +22,7 @@ import {
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { MOBILE_TYPOGRAPHY } from "../../lib/typography";
 import { connectionTone } from "../connection/connectionTone";
-import { nativeTopScrollEdgeEffect } from "../../lib/native-scroll-edge-effect";
+import { nativeHeaderScrollEdgeEffects } from "../../lib/native-scroll-edge-effect";
 
 import {
   useRemoteConnections,
@@ -76,7 +76,7 @@ type NativeHeaderItems = ReturnType<
   NonNullable<NativeStackNavigationOptions["unstable_headerRightItems"]>
 >;
 
-const TOP_SCROLL_EDGE_EFFECT = nativeTopScrollEdgeEffect(Platform.OS, Platform.Version);
+const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 
 function InspectorPaneRoleActivation() {
   useAdaptiveWorkspacePaneRole("inspector");
@@ -721,12 +721,7 @@ function ThreadRouteContent(
           title: layout.usesSplitView ? "" : selectedThread.title,
           headerBackVisible: !layout.usesSplitView,
           headerBackTitle: "",
-          scrollEdgeEffects: {
-            top: TOP_SCROLL_EDGE_EFFECT,
-            bottom: "hidden",
-            left: "hidden",
-            right: "hidden",
-          },
+          scrollEdgeEffects: HEADER_SCROLL_EDGE_EFFECTS,
           headerSearchBarOptions: usesThreadSearchToolbar
             ? {
                 ref: threadSearchBarRef,

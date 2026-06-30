@@ -11,7 +11,7 @@ import {
 } from "react-native-screens";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
-import { nativeTopScrollEdgeEffect } from "../../lib/native-scroll-edge-effect";
+import { nativeHeaderScrollEdgeEffects } from "../../lib/native-scroll-edge-effect";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { projectEnvironment } from "../../state/projects";
 import { useEnvironmentQuery } from "../../state/query";
@@ -32,7 +32,7 @@ export function ThreadFileNavigatorPane(props: {
   const iconColor = String(useThemeColor("--color-icon-muted"));
   const foregroundColor = String(useThemeColor("--color-foreground"));
   const sheetColor = String(useThemeColor("--color-sheet"));
-  const topScrollEdgeEffect = nativeTopScrollEdgeEffect(Platform.OS, Platform.Version);
+  const headerScrollEdgeEffects = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
   const entriesQuery = useEnvironmentQuery(
     projectEnvironment.listEntries({
       environmentId: props.environmentId,
@@ -90,12 +90,7 @@ export function ThreadFileNavigatorPane(props: {
             enabled
             isNativeStack
             screenId="thread-file-navigator-native"
-            scrollEdgeEffects={{
-              bottom: "hidden",
-              left: "hidden",
-              right: "hidden",
-              top: topScrollEdgeEffect,
-            }}
+            scrollEdgeEffects={headerScrollEdgeEffects}
             style={{ backgroundColor: sheetColor, flex: 1 }}
           >
             {fileTree}
