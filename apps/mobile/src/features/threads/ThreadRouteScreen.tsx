@@ -632,6 +632,12 @@ function ThreadRouteContent(
   const threadCenterHeaderItems = useThreadGitCenterHeaderItems(threadGitControlProps);
   const splitLeftHeaderItems = useMemo<NativeHeaderItems>(
     () => [
+      {
+        // Match Mail's split-view detail toolbar: the first detail action sits
+        // inside the content pane, not flush against the sidebar divider.
+        spacing: 18,
+        type: "spacing" as const,
+      },
       ...(props.onReturnToThread
         ? [
             {
