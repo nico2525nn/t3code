@@ -3,6 +3,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -11,6 +12,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as ProcessDiagnostics from "./ProcessDiagnostics.ts";
 
 const encoder = new TextEncoder();
+const encodeJsonFixture = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 function mockHandle(result: {
   readonly stdout?: string;
@@ -70,7 +72,7 @@ describe("ProcessDiagnostics", () => {
   it.effect("parses Windows CIM JSON arrays with command fallback defaults", () =>
     Effect.sync(() => {
       const rows = ProcessDiagnostics.parseWindowsProcessRows(
-        JSON.stringify([
+        encodeJsonFixture([
           {
             ProcessId: 10,
             ParentProcessId: 1,
@@ -117,7 +119,7 @@ describe("ProcessDiagnostics", () => {
   it.effect("parses single Windows CIM JSON objects", () =>
     Effect.sync(() => {
       const rows = ProcessDiagnostics.parseWindowsProcessRows(
-        JSON.stringify({
+        encodeJsonFixture({
           ProcessId: 20,
           ParentProcessId: 10,
           CommandLine: "codex app-server",
@@ -146,7 +148,7 @@ describe("ProcessDiagnostics", () => {
       assert.deepEqual(ProcessDiagnostics.parseWindowsProcessRows("{not-json"), []);
       assert.deepEqual(
         ProcessDiagnostics.parseWindowsProcessRows(
-          JSON.stringify([
+          encodeJsonFixture([
             { ProcessId: 0, ParentProcessId: 1, CommandLine: "missing-pid" },
             { ProcessId: 30, ParentProcessId: -1, CommandLine: "missing-parent" },
             { ProcessId: 31, ParentProcessId: 1, CommandLine: "" },
