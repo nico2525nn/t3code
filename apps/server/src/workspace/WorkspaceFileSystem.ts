@@ -131,20 +131,22 @@ export const make = Effect.gen(function* () {
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
 
-  const operationError = (
-    input: ProjectReadFileInput | ProjectWriteFileInput,
-    resolvedPath: string,
-    operationPath: string,
-    operation: WorkspaceFileSystemOperationError["operation"],
-  ) => (cause: unknown) =>
-    new WorkspaceFileSystemOperationError({
-      workspaceRoot: input.cwd,
-      relativePath: input.relativePath,
-      resolvedPath,
-      operationPath,
-      operation,
-      cause,
-    });
+  const operationError =
+    (
+      input: ProjectReadFileInput | ProjectWriteFileInput,
+      resolvedPath: string,
+      operationPath: string,
+      operation: WorkspaceFileSystemOperationError["operation"],
+    ) =>
+    (cause: unknown) =>
+      new WorkspaceFileSystemOperationError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedPath,
+        operationPath,
+        operation,
+        cause,
+      });
 
   const readFile: WorkspaceFileSystem["Service"]["readFile"] = Effect.fn(
     "WorkspaceFileSystem.readFile",
@@ -203,10 +205,12 @@ export const make = Effect.gen(function* () {
         const fileBytes =
           bytesToRead === 0
             ? new Uint8Array()
-            : yield* file.readAlloc(bytesToRead).pipe(
-                Effect.map(Option.getOrElse(() => new Uint8Array())),
-                Effect.mapError(operationError(input, realTargetPath, realTargetPath, "read")),
-              );
+            : yield* file
+                .readAlloc(bytesToRead)
+                .pipe(
+                  Effect.map(Option.getOrElse(() => new Uint8Array())),
+                  Effect.mapError(operationError(input, realTargetPath, realTargetPath, "read")),
+                );
         if (fileBytes.includes(0)) {
           return yield* new WorkspaceBinaryFileError({
             workspaceRoot: input.cwd,
@@ -237,12 +241,21 @@ export const make = Effect.gen(function* () {
       .makeDirectory(path.dirname(target.absolutePath), { recursive: true })
       .pipe(
         Effect.mapError(
-          operationError(input, target.absolutePath, path.dirname(target.absolutePath), "make-directory"),
+          operationError(
+            input,
+            target.absolutePath,
+            path.dirname(target.absolutePath),
+            "make-directory",
+          ),
         ),
       );
-    yield* fileSystem.writeFileString(target.absolutePath, input.contents).pipe(
-      Effect.mapError(operationError(input, target.absolutePath, target.absolutePath, "write-file")),
-    );
+    yield* fileSystem
+      .writeFileString(target.absolutePath, input.contents)
+      .pipe(
+        Effect.mapError(
+          operationError(input, target.absolutePath, target.absolutePath, "write-file"),
+        ),
+      );
     yield* workspaceEntries.refresh(input.cwd);
     return { relativePath: target.relativePath };
   });

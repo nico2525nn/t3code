@@ -132,7 +132,9 @@ const WindowsCimProcessRecord = Schema.Struct({
 });
 type WindowsCimProcessRecord = typeof WindowsCimProcessRecord.Type;
 const decodeWindowsCimProcessRecord = Schema.decodeUnknownOption(WindowsCimProcessRecord);
-const decodeWindowsCimProcessJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
+const decodeWindowsCimProcessJson = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Unknown),
+);
 
 function parsePositiveInt(value: string): number | null {
   const parsed = Number.parseInt(value, 10);
@@ -257,7 +259,7 @@ export function parseWindowsProcessRows(output: string): ReadonlyArray<ProcessRo
     onNone: () => [],
     onSome: (parsed) => {
       const rows: ProcessRow[] = [];
-    const records = Array.isArray(parsed) ? parsed : [parsed];
+      const records = Array.isArray(parsed) ? parsed : [parsed];
       for (const record of records) {
         const row = normalizeWindowsProcessRow(record);
         if (Option.isSome(row)) rows.push(row.value);
