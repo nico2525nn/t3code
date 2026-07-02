@@ -101,6 +101,7 @@ function createProviderServiceHarness() {
     startSession: () => unsupported(),
     sendTurn: () => unsupported(),
     interruptTurn: () => unsupported(),
+    stopTask: () => unsupported(),
     respondToRequest: () => unsupported(),
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),
@@ -3059,5 +3060,187 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("runtime still processed");
+  });
+
+  it("projects a plain task.progress (no workflowProgress) into a single activity", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "task.progress",
+      eventId: asEventId("evt-plain-progress"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-plain-progress"),
+      payload: {
+        taskId: "task-plain-1",
+        description: "thinking through the patch",
+        summary: "thinking through the patch",
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-plain-progress",
+      ),
+    );
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-plain-progress",
+    );
+    expect(progress?.kind).toBe("task.progress");
+    expect(
+      thread.activities.filter((activity: ProviderRuntimeTestActivity) =>
+        activity.id.startsWith("workflow:"),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("projects a workflow task.progress into a per-tick row plus a stable workflow snapshot", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const workflowProgress = [
+      { type: "workflow_phase", index: 0, title: "Plan" },
+      { type: "workflow_agent", index: 0, state: "start", phaseIndex: 0 },
+      { type: "workflow_log", message: "kicked off" },
+    ];
+
+    harness.emit({
+      type: "task.progress",
+      eventId: asEventId("evt-workflow-progress"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-workflow-progress"),
+      payload: {
+        taskId: "task-wf-1",
+        description: "spec workflow",
+        workflowProgress,
+        usage: { total_tokens: 100 },
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "workflow:task-wf-1",
+      ),
+    );
+
+    const perTick = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-workflow-progress",
+    );
+    expect(perTick?.kind).toBe("task.progress");
+
+    const snapshot = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "workflow:task-wf-1",
+    );
+    expect(snapshot?.kind).toBe("task.workflow-updated");
+    const payload =
+      snapshot?.payload && typeof snapshot.payload === "object"
+        ? (snapshot.payload as Record<string, unknown>)
+        : undefined;
+    expect(payload?.taskId).toBe("task-wf-1");
+    expect(payload?.workflowProgress).toEqual(workflowProgress);
+  });
+
+  it("projects task.workflowMeta into a stable workflow-meta activity", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "task.workflowMeta",
+      eventId: asEventId("evt-workflow-meta"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-workflow-meta"),
+      payload: {
+        taskId: "task-wf-meta",
+        runId: "wf_abc",
+        workflowName: "spec",
+        scriptPath: "/x/s.js",
+        transcriptDir: "/x/t",
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "workflow-meta:task-wf-meta",
+      ),
+    );
+    const meta = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "workflow-meta:task-wf-meta",
+    );
+    expect(meta?.kind).toBe("task.workflow-meta");
+    const payload =
+      meta?.payload && typeof meta.payload === "object"
+        ? (meta.payload as Record<string, unknown>)
+        : undefined;
+    expect(payload).toMatchObject({
+      taskId: "task-wf-meta",
+      runId: "wf_abc",
+      workflowName: "spec",
+      scriptPath: "/x/s.js",
+      transcriptDir: "/x/t",
+    });
+  });
+
+  it("upserts successive workflow snapshots under the same stable activity id", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "task.progress",
+      eventId: asEventId("evt-workflow-progress-1"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-workflow-upsert"),
+      payload: {
+        taskId: "task-wf-2",
+        description: "spec workflow",
+        workflowProgress: [{ type: "workflow_agent", index: 0, state: "start" }],
+      },
+    });
+    harness.emit({
+      type: "task.progress",
+      eventId: asEventId("evt-workflow-progress-2"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-workflow-upsert"),
+      payload: {
+        taskId: "task-wf-2",
+        description: "spec workflow",
+        workflowProgress: [{ type: "workflow_agent", index: 0, state: "done" }],
+      },
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-workflow-progress-2",
+      ),
+    );
+    await harness.drain();
+    const drained = await harness.readModel();
+    const drainedThread = drained.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+
+    const snapshots = drainedThread?.activities.filter(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "workflow:task-wf-2",
+    );
+    expect(snapshots).toHaveLength(1);
+    const payload =
+      snapshots?.[0]?.payload && typeof snapshots[0].payload === "object"
+        ? (snapshots[0].payload as Record<string, unknown>)
+        : undefined;
+    expect(payload?.workflowProgress).toEqual([
+      { type: "workflow_agent", index: 0, state: "done" },
+    ]);
+    // Per-tick rows remain distinct (one per progress event).
+    expect(
+      thread.activities.filter(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "task.progress",
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
   });
 });

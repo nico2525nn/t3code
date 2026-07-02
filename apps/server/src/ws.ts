@@ -89,6 +89,7 @@ import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import * as WorkflowInspection from "./workflow/WorkflowInspectionService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
@@ -313,6 +314,9 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.gitResolvePullRequest, AuthOrchestrationOperateScope],
   [WS_METHODS.gitPreparePullRequestThread, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsListRefs, AuthOrchestrationReadScope],
+  [WS_METHODS.workflowReadScript, AuthOrchestrationReadScope],
+  [WS_METHODS.workflowReadJournal, AuthOrchestrationReadScope],
+  [WS_METHODS.workflowReadAgentTranscript, AuthOrchestrationReadScope],
   [WS_METHODS.vcsCreateWorktree, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsRemoveWorktree, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsCreateRef, AuthOrchestrationOperateScope],
@@ -399,6 +403,7 @@ const makeWsRpcLayer = (
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
+      const workflowInspection = yield* WorkflowInspection.WorkflowInspectionService;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -1559,6 +1564,20 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.reviewGetDiffPreview, review.getDiffPreview(input), {
             "rpc.aggregate": "review",
           }),
+        [WS_METHODS.workflowReadScript]: (input) =>
+          observeRpcEffect(WS_METHODS.workflowReadScript, workflowInspection.readScript(input), {
+            "rpc.aggregate": "workflow",
+          }),
+        [WS_METHODS.workflowReadJournal]: (input) =>
+          observeRpcEffect(WS_METHODS.workflowReadJournal, workflowInspection.readJournal(input), {
+            "rpc.aggregate": "workflow",
+          }),
+        [WS_METHODS.workflowReadAgentTranscript]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.workflowReadAgentTranscript,
+            workflowInspection.readAgentTranscript(input),
+            { "rpc.aggregate": "workflow" },
+          ),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
             "rpc.aggregate": "terminal",

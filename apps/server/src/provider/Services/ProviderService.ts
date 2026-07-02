@@ -13,6 +13,7 @@
  */
 import type {
   ProviderInterruptTurnInput,
+  ProviderStopTaskInput,
   ProviderInstanceId,
   ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
@@ -71,6 +72,11 @@ export interface ProviderServiceShape {
   readonly respondToUserInput: (
     input: ProviderRespondToUserInputInput,
   ) => Effect.Effect<void, ProviderServiceError>;
+
+  /**
+   * Stop one background task inside an active provider session.
+   */
+  readonly stopTask: (input: ProviderStopTaskInput) => Effect.Effect<void, ProviderServiceError>;
 
   /**
    * Stop a provider session.

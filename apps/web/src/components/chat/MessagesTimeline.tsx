@@ -112,6 +112,7 @@ import {
   parseReviewCommentMessageSegments,
   type ReviewCommentContext,
 } from "../../reviewCommentContext";
+import { WorkflowRunCard } from "../workflow/WorkflowRunCard";
 
 // ---------------------------------------------------------------------------
 // Context — shared state consumed by every row component via Context.
@@ -134,6 +135,8 @@ interface TimelineRowSharedState {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
   onToggleWorkGroup: (groupId: string, anchorElement?: HTMLElement) => void;
+  onOpenWorkflowDetails: (taskId: string) => void;
+  onStopWorkflowTask: ((taskId: string) => void) | null;
 }
 
 interface TimelineRowActivityState {
@@ -173,6 +176,8 @@ interface MessagesTimelineProps {
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
+  onOpenWorkflowDetails: (taskId: string) => void;
+  onStopWorkflowTask: ((taskId: string) => void) | null;
   anchorMessageId: MessageId | null;
   onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
   onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
@@ -206,6 +211,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
   skills = EMPTY_TIMELINE_SKILLS,
+  onOpenWorkflowDetails,
+  onStopWorkflowTask,
   anchorMessageId,
   onAnchorReady,
   onAnchorSizeChanged,
@@ -421,6 +428,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenTurnDiff,
       onToggleTurnFold,
       onToggleWorkGroup,
+      onOpenWorkflowDetails,
+      onStopWorkflowTask,
     }),
     [
       timestampFormat,
@@ -435,6 +444,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenTurnDiff,
       onToggleTurnFold,
       onToggleWorkGroup,
+      onOpenWorkflowDetails,
+      onStopWorkflowTask,
     ],
   );
   const activityState = useMemo<TimelineRowActivityState>(
@@ -820,10 +831,29 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         <AssistantTimelineRow row={row} />
       ) : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
+      {row.kind === "workflow" ? <WorkflowTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
     </div>
   );
 });
+
+function WorkflowTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workflow" }> }) {
+  const ctx = use(TimelineRowCtx);
+  const run = row.workflowRun;
+  const onOpenDetails = useCallback(() => {
+    ctx.onOpenWorkflowDetails(run.taskId);
+  }, [ctx, run.taskId]);
+  const stopHandler = ctx.onStopWorkflowTask;
+  const onStop = useMemo(() => {
+    if (run.status !== "running" || stopHandler === null) {
+      return undefined;
+    }
+    return () => {
+      stopHandler(run.taskId);
+    };
+  }, [run.status, run.taskId, stopHandler]);
+  return <WorkflowRunCard workflowRun={run} onOpenDetails={onOpenDetails} onStop={onStop} />;
+}
 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);

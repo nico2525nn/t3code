@@ -21,6 +21,7 @@ import type {
   ThreadSession,
   TurnDiffSummary,
 } from "./types";
+import { collectWorkflowTaskIds, type WorkflowRun } from "./workflow-logic.ts";
 
 export type ProviderPickerKind = ProviderDriverKind;
 
@@ -137,6 +138,12 @@ export type TimelineEntry =
       kind: "work";
       createdAt: string;
       entry: WorkLogEntry;
+    }
+  | {
+      id: string;
+      kind: "workflow";
+      createdAt: string;
+      workflowRun: WorkflowRun;
     };
 
 export function workLogEntryIsToolLike(entry: WorkLogEntry): boolean {
@@ -624,15 +631,36 @@ export function hasActionableProposedPlan(
   return proposedPlan !== null && proposedPlan.implementedAt === null;
 }
 
+function activityBelongsToWorkflow(
+  activity: OrchestrationThreadActivity,
+  workflowTaskIds: ReadonlySet<string>,
+): boolean {
+  const payload = activity.payload as Record<string, unknown> | null | undefined;
+  const taskId = payload && typeof payload === "object" ? payload["taskId"] : undefined;
+  return typeof taskId === "string" && workflowTaskIds.has(taskId);
+}
+
 export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): WorkLogEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  const workflowTaskIds = collectWorkflowTaskIds(activities);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
     if (activity.kind === "tool.started") continue;
     if (activity.kind === "task.started") continue;
     if (activity.kind === "context-window.updated") continue;
+    // Workflow runs render as dedicated timeline cards; their snapshot
+    // activities and per-tick task rows would duplicate that surface.
+    if (activity.kind === "task.workflow-updated") continue;
+    if (activity.kind === "task.workflow-meta") continue;
+    if (
+      (activity.kind === "task.progress" || activity.kind === "task.completed") &&
+      workflowTaskIds.size > 0 &&
+      activityBelongsToWorkflow(activity, workflowTaskIds)
+    ) {
+      continue;
+    }
     if (activity.summary === "Checkpoint captured") continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     entries.push(toDerivedWorkLogEntry(activity));
@@ -1341,6 +1369,7 @@ export function deriveTimelineEntries(
   messages: ReadonlyArray<ChatMessage>,
   proposedPlans: ReadonlyArray<ProposedPlan>,
   workEntries: ReadonlyArray<WorkLogEntry>,
+  workflowRuns: ReadonlyArray<WorkflowRun> = [],
 ): TimelineEntry[] {
   const messageRows: TimelineEntry[] = messages.map((message) => ({
     id: message.id,
@@ -1360,7 +1389,13 @@ export function deriveTimelineEntries(
     createdAt: entry.createdAt,
     entry,
   }));
-  return [...messageRows, ...proposedPlanRows, ...workRows].toSorted((a, b) =>
+  const workflowRows: TimelineEntry[] = workflowRuns.map((workflowRun) => ({
+    id: `workflow:${workflowRun.taskId}`,
+    kind: "workflow",
+    createdAt: workflowRun.createdAt,
+    workflowRun,
+  }));
+  return [...messageRows, ...proposedPlanRows, ...workRows, ...workflowRows].toSorted((a, b) =>
     a.createdAt.localeCompare(b.createdAt),
   );
 }

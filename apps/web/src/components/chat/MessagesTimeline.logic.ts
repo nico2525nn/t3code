@@ -6,6 +6,7 @@ import {
   type TimelineEntry,
   type WorkLogEntry,
 } from "../../session-logic";
+import type { WorkflowRun } from "../../workflow-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import { type MessageId, type OrchestrationLatestTurn, type TurnId } from "@t3tools/contracts";
 
@@ -135,6 +136,12 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       proposedPlan: ProposedPlan;
+    }
+  | {
+      kind: "workflow";
+      id: string;
+      createdAt: string;
+      workflowRun: WorkflowRun;
     }
   | { kind: "working"; id: string; createdAt: string | null };
 
@@ -488,6 +495,16 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (timelineEntry.kind === "workflow") {
+      nextRows.push({
+        kind: "workflow",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        workflowRun: timelineEntry.workflowRun,
+      });
+      continue;
+    }
+
     const assistantTurnStillInProgress =
       timelineEntry.message.role === "assistant" &&
       unsettledTurnId !== null &&
@@ -570,6 +587,17 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
+
+    case "workflow": {
+      const bw = b as typeof a;
+      // WorkflowRun view models are rebuilt per derivation; compare the
+      // fields that drive rendering so unchanged runs keep row identity.
+      return (
+        a.createdAt === bw.createdAt &&
+        a.workflowRun.status === bw.workflowRun.status &&
+        a.workflowRun.updatedAt === bw.workflowRun.updatedAt
+      );
+    }
 
     case "work":
       return Equal.equals(a.groupedEntries, (b as typeof a).groupedEntries);

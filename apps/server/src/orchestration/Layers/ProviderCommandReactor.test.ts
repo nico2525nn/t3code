@@ -239,6 +239,7 @@ describe("ProviderCommandReactor", () => {
         }
       }),
     );
+    const stopTask = vi.fn<ProviderServiceShape["stopTask"]>(() => Effect.void);
     const renameBranch = vi.fn((input: unknown) =>
       Effect.succeed({
         branch:
@@ -301,6 +302,7 @@ describe("ProviderCommandReactor", () => {
       respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
       stopSession: stopSession as ProviderServiceShape["stopSession"],
+      stopTask: stopTask as ProviderServiceShape["stopTask"],
       listSessions: () => Effect.succeed(runtimeSessions),
       getCapabilities: (_provider) =>
         Effect.succeed({
@@ -417,6 +419,7 @@ describe("ProviderCommandReactor", () => {
       respondToRequest,
       respondToUserInput,
       stopSession,
+      stopTask,
       renameBranch,
       refreshStatus,
       generateBranchName,
@@ -2094,4 +2097,80 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.providerInstanceId).toBe(ProviderInstanceId.make("codex_work"));
     expect(thread?.session?.activeTurnId).toBeNull();
   });
+
+  effectIt.effect(
+    "reacts to thread.task.stop by stopping the background task on the active session",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const now = "2026-01-01T00:00:00.000Z";
+
+        yield* harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("cmd-session-set-for-task-stop"),
+          threadId: ThreadId.make("thread-1"),
+          session: {
+            threadId: ThreadId.make("thread-1"),
+            status: "running",
+            providerName: "claudeAgent",
+            runtimeMode: "approval-required",
+            activeTurnId: asTurnId("turn-1"),
+            lastError: null,
+            updatedAt: now,
+          },
+          createdAt: now,
+        });
+
+        yield* harness.engine.dispatch({
+          type: "thread.task.stop",
+          commandId: CommandId.make("cmd-task-stop"),
+          threadId: ThreadId.make("thread-1"),
+          taskId: "task-9",
+          createdAt: now,
+        });
+
+        yield* Effect.promise(() => waitFor(() => harness.stopTask.mock.calls.length === 1));
+        expect(harness.stopTask.mock.calls[0]?.[0]).toEqual({
+          threadId: "thread-1",
+          taskId: "task-9",
+        });
+      }),
+  );
+
+  effectIt.effect("appends a task-stop failure activity when no active session is bound", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const now = "2026-01-01T00:00:00.000Z";
+
+      yield* harness.engine.dispatch({
+        type: "thread.task.stop",
+        commandId: CommandId.make("cmd-task-stop-no-session"),
+        threadId: ThreadId.make("thread-1"),
+        taskId: "task-9",
+        createdAt: now,
+      });
+
+      yield* Effect.promise(() =>
+        waitFor(async () => {
+          const readModel = await harness.readModel();
+          const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+          return (
+            thread?.activities.some((activity) => activity.kind === "provider.task.stop.failed") ??
+            false
+          );
+        }),
+      );
+
+      expect(harness.stopTask).not.toHaveBeenCalled();
+      const readModel = yield* Effect.promise(() => harness.readModel());
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+      expect(
+        thread?.activities.find((activity) => activity.kind === "provider.task.stop.failed"),
+      ).toMatchObject({
+        payload: {
+          detail: expect.stringContaining("No active provider session"),
+        },
+      });
+    }),
+  );
 });

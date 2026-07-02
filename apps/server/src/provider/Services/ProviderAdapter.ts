@@ -69,6 +69,13 @@ export interface ProviderAdapterShape<TError> {
   readonly interruptTurn: (threadId: ThreadId, turnId?: TurnId) => Effect.Effect<void, TError>;
 
   /**
+   * Stop one background task (e.g. a running workflow) inside an active
+   * session. Optional: adapters whose provider has no background-task
+   * runtime omit it, and callers surface an "unsupported" error.
+   */
+  readonly stopTask?: (threadId: ThreadId, taskId: string) => Effect.Effect<void, TError>;
+
+  /**
    * Respond to an interactive approval request.
    */
   readonly respondToRequest: (

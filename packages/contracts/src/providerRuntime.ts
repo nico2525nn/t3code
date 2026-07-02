@@ -14,6 +14,7 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
+import { WorkflowProgressEntry, WorkflowRunHandles } from "./workflow.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
@@ -177,6 +178,7 @@ const ProviderRuntimeEventType = Schema.Literals([
   "task.started",
   "task.progress",
   "task.completed",
+  "task.workflowMeta",
   "hook.started",
   "hook.progress",
   "hook.completed",
@@ -227,6 +229,7 @@ const UserInputResolvedType = Schema.Literal("user-input.resolved");
 const TaskStartedType = Schema.Literal("task.started");
 const TaskProgressType = Schema.Literal("task.progress");
 const TaskCompletedType = Schema.Literal("task.completed");
+const TaskWorkflowMetaType = Schema.Literal("task.workflowMeta");
 const HookStartedType = Schema.Literal("hook.started");
 const HookProgressType = Schema.Literal("hook.progress");
 const HookCompletedType = Schema.Literal("hook.completed");
@@ -463,6 +466,9 @@ const TaskStartedPayload = Schema.Struct({
   taskId: RuntimeTaskId,
   description: Schema.optional(TrimmedNonEmptyStringSchema),
   taskType: Schema.optional(TrimmedNonEmptyStringSchema),
+  toolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
+  /** meta.name from the workflow script; set when taskType is "local_workflow". */
+  workflowName: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type TaskStartedPayload = typeof TaskStartedPayload.Type;
 
@@ -472,8 +478,21 @@ const TaskProgressPayload = Schema.Struct({
   summary: Schema.optional(TrimmedNonEmptyStringSchema),
   usage: Schema.optional(Schema.Unknown),
   lastToolName: Schema.optional(TrimmedNonEmptyStringSchema),
+  /**
+   * Cumulative workflow snapshot (phases, agents, narration) for
+   * `local_workflow` tasks. Normalized and size-capped by the adapter.
+   */
+  workflowProgress: Schema.optional(Schema.Array(WorkflowProgressEntry)),
 });
 export type TaskProgressPayload = typeof TaskProgressPayload.Type;
+
+/**
+ * Emitted once per workflow run when the Workflow tool result is observed —
+ * carries the run handles (script path, transcript dir, run id) that the
+ * progress stream does not repeat.
+ */
+const TaskWorkflowMetaPayload = WorkflowRunHandles;
+export type TaskWorkflowMetaPayload = WorkflowRunHandles;
 
 const TaskCompletedPayload = Schema.Struct({
   taskId: RuntimeTaskId,
@@ -842,6 +861,13 @@ const ProviderRuntimeTaskCompletedEvent = Schema.Struct({
 });
 export type ProviderRuntimeTaskCompletedEvent = typeof ProviderRuntimeTaskCompletedEvent.Type;
 
+const ProviderRuntimeTaskWorkflowMetaEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: TaskWorkflowMetaType,
+  payload: TaskWorkflowMetaPayload,
+});
+export type ProviderRuntimeTaskWorkflowMetaEvent = typeof ProviderRuntimeTaskWorkflowMetaEvent.Type;
+
 const ProviderRuntimeHookStartedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: HookStartedType,
@@ -996,6 +1022,7 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeTaskStartedEvent,
   ProviderRuntimeTaskProgressEvent,
   ProviderRuntimeTaskCompletedEvent,
+  ProviderRuntimeTaskWorkflowMetaEvent,
   ProviderRuntimeHookStartedEvent,
   ProviderRuntimeHookProgressEvent,
   ProviderRuntimeHookCompletedEvent,

@@ -45,6 +45,11 @@ import {
   ThreadId,
   TurnId,
   type UserInputQuestion,
+  type WorkflowAgentProgressEntry,
+  type WorkflowLogProgressEntry,
+  type WorkflowPhaseProgressEntry,
+  type WorkflowProgressEntry,
+  type WorkflowRunHandles,
 } from "@t3tools/contracts";
 import {
   applyClaudePromptEffortPrefix,
@@ -204,6 +209,7 @@ interface ClaudeSessionContext {
 
 interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly interrupt: () => Promise<void>;
+  readonly stopTask?: (taskId: string) => Promise<void>;
   readonly setModel: (model?: string) => Promise<void>;
   readonly setPermissionMode: (mode: PermissionMode) => Promise<void>;
   readonly setMaxThinkingTokens: (maxThinkingTokens: number | null) => Promise<void>;
@@ -712,6 +718,212 @@ function readStringArray(value: unknown): Array<string> {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
     : [];
+}
+
+const WORKFLOW_TOOL_NAME = "Workflow";
+const MAX_WORKFLOW_AGENT_ENTRIES = 300;
+const MAX_WORKFLOW_PHASE_ENTRIES = 50;
+const MAX_WORKFLOW_LOG_ENTRIES = 40;
+const MAX_WORKFLOW_PREVIEW_CHARS = 240;
+const MAX_WORKFLOW_RESULT_PREVIEW_CHARS = 400;
+
+function workflowString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function workflowClippedString(value: unknown, limit: number): string | undefined {
+  const text = workflowString(value);
+  if (text === undefined) {
+    return undefined;
+  }
+  return text.length > limit ? `${text.slice(0, limit)}\u2026` : text;
+}
+
+function workflowFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeWorkflowAgentEntry(
+  entry: Record<string, unknown>,
+): WorkflowAgentProgressEntry | undefined {
+  const index = workflowFiniteNumber(entry.index);
+  const state = workflowString(entry.state);
+  if (index === undefined || state === undefined) {
+    return undefined;
+  }
+  const isolation =
+    entry.isolation === "worktree" || entry.isolation === "remote" ? entry.isolation : undefined;
+  return {
+    type: "workflow_agent",
+    index,
+    state,
+    ...(workflowString(entry.label) !== undefined ? { label: workflowString(entry.label) } : {}),
+    ...(workflowFiniteNumber(entry.phaseIndex) !== undefined
+      ? { phaseIndex: workflowFiniteNumber(entry.phaseIndex) }
+      : {}),
+    ...(workflowString(entry.phaseTitle) !== undefined
+      ? { phaseTitle: workflowString(entry.phaseTitle) }
+      : {}),
+    ...(workflowString(entry.agentId) !== undefined
+      ? { agentId: workflowString(entry.agentId) }
+      : {}),
+    ...(workflowString(entry.agentType) !== undefined
+      ? { agentType: workflowString(entry.agentType) }
+      : {}),
+    ...(workflowString(entry.model) !== undefined ? { model: workflowString(entry.model) } : {}),
+    ...(workflowString(entry.fallbackModel) !== undefined
+      ? { fallbackModel: workflowString(entry.fallbackModel) }
+      : {}),
+    ...(isolation !== undefined ? { isolation } : {}),
+    ...(workflowFiniteNumber(entry.attempt) !== undefined
+      ? { attempt: workflowFiniteNumber(entry.attempt) }
+      : {}),
+    ...(workflowFiniteNumber(entry.queuedAt) !== undefined
+      ? { queuedAt: workflowFiniteNumber(entry.queuedAt) }
+      : {}),
+    ...(workflowFiniteNumber(entry.startedAt) !== undefined
+      ? { startedAt: workflowFiniteNumber(entry.startedAt) }
+      : {}),
+    ...(workflowFiniteNumber(entry.lastProgressAt) !== undefined
+      ? { lastProgressAt: workflowFiniteNumber(entry.lastProgressAt) }
+      : {}),
+    ...(entry.cached === true ? { cached: true } : {}),
+    ...(workflowString(entry.remoteSessionId) !== undefined
+      ? { remoteSessionId: workflowString(entry.remoteSessionId) }
+      : {}),
+    ...(workflowString(entry.lastToolName) !== undefined
+      ? { lastToolName: workflowString(entry.lastToolName) }
+      : {}),
+    ...(workflowClippedString(entry.lastToolSummary, MAX_WORKFLOW_PREVIEW_CHARS) !== undefined
+      ? {
+          lastToolSummary: workflowClippedString(entry.lastToolSummary, MAX_WORKFLOW_PREVIEW_CHARS),
+        }
+      : {}),
+    ...(workflowClippedString(entry.promptPreview, MAX_WORKFLOW_PREVIEW_CHARS) !== undefined
+      ? { promptPreview: workflowClippedString(entry.promptPreview, MAX_WORKFLOW_PREVIEW_CHARS) }
+      : {}),
+    ...(workflowClippedString(entry.resultPreview, MAX_WORKFLOW_RESULT_PREVIEW_CHARS) !== undefined
+      ? {
+          resultPreview: workflowClippedString(
+            entry.resultPreview,
+            MAX_WORKFLOW_RESULT_PREVIEW_CHARS,
+          ),
+        }
+      : {}),
+    ...(workflowClippedString(entry.error, MAX_WORKFLOW_PREVIEW_CHARS) !== undefined
+      ? { error: workflowClippedString(entry.error, MAX_WORKFLOW_PREVIEW_CHARS) }
+      : {}),
+  };
+}
+
+/**
+ * Normalize the Claude Agent SDK's `workflow_progress` snapshot.
+ *
+ * The field is deliberate wire surface (the CLI's own /workflows view renders
+ * it) but is absent from the published SDK types, so every read is defensive:
+ * malformed entries and unknown entry types are dropped, previews are
+ * clipped, and entry counts are capped before the snapshot enters the
+ * runtime-event contract.
+ */
+function normalizeWorkflowProgress(
+  value: unknown,
+): ReadonlyArray<WorkflowProgressEntry> | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+  const agents: Array<WorkflowAgentProgressEntry> = [];
+  const phases: Array<WorkflowPhaseProgressEntry> = [];
+  const logs: Array<WorkflowLogProgressEntry> = [];
+  for (const raw of value) {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      continue;
+    }
+    const entry = raw as Record<string, unknown>;
+    switch (entry.type) {
+      case "workflow_agent": {
+        const agent = normalizeWorkflowAgentEntry(entry);
+        if (agent && agents.length < MAX_WORKFLOW_AGENT_ENTRIES) {
+          agents.push(agent);
+        }
+        break;
+      }
+      case "workflow_phase": {
+        const index = workflowFiniteNumber(entry.index);
+        const title = workflowString(entry.title);
+        if (
+          index !== undefined &&
+          title !== undefined &&
+          phases.length < MAX_WORKFLOW_PHASE_ENTRIES
+        ) {
+          phases.push({
+            type: "workflow_phase",
+            index,
+            title,
+            ...(workflowString(entry.kind) !== undefined
+              ? { kind: workflowString(entry.kind) }
+              : {}),
+          });
+        }
+        break;
+      }
+      case "workflow_log": {
+        const logMessage = workflowClippedString(entry.message, MAX_WORKFLOW_RESULT_PREVIEW_CHARS);
+        if (logMessage !== undefined) {
+          logs.push({ type: "workflow_log", message: logMessage });
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  // Narration is append-only upstream; keep the newest lines when clipping.
+  const clippedLogs =
+    logs.length > MAX_WORKFLOW_LOG_ENTRIES ? logs.slice(-MAX_WORKFLOW_LOG_ENTRIES) : logs;
+  const entries = [...phases, ...agents, ...clippedLogs];
+  return entries.length > 0 ? entries : undefined;
+}
+
+function readClaudeWorkflowProgress(
+  message: SDKMessage,
+): ReadonlyArray<WorkflowProgressEntry> | undefined {
+  // `workflow_progress` is not yet declared on SDKTaskProgressMessage — this
+  // cast is the single place the undocumented field is read.
+  const raw = (message as { readonly workflow_progress?: unknown }).workflow_progress;
+  return normalizeWorkflowProgress(raw);
+}
+
+function normalizeWorkflowRunHandles(
+  toolUseResult: Record<string, unknown>,
+): WorkflowRunHandles | undefined {
+  const taskId = workflowString(toolUseResult.taskId);
+  if (taskId === undefined) {
+    return undefined;
+  }
+  return {
+    taskId,
+    ...(workflowString(toolUseResult.runId) !== undefined
+      ? { runId: workflowString(toolUseResult.runId) }
+      : {}),
+    ...(workflowString(toolUseResult.workflowName) !== undefined
+      ? { workflowName: workflowString(toolUseResult.workflowName) }
+      : {}),
+    ...(workflowString(toolUseResult.taskType) !== undefined
+      ? { taskType: workflowString(toolUseResult.taskType) }
+      : {}),
+    ...(workflowString(toolUseResult.scriptPath) !== undefined
+      ? { scriptPath: workflowString(toolUseResult.scriptPath) }
+      : {}),
+    ...(workflowString(toolUseResult.transcriptDir) !== undefined
+      ? { transcriptDir: workflowString(toolUseResult.transcriptDir) }
+      : {}),
+    ...(workflowString(toolUseResult.sessionUrl) !== undefined
+      ? { sessionUrl: workflowString(toolUseResult.sessionUrl) }
+      : {}),
+    ...(workflowString(toolUseResult.warning) !== undefined
+      ? { warning: workflowString(toolUseResult.warning) }
+      : {}),
+  };
 }
 
 function readClaudeToolUseResult(message: SDKMessage): Record<string, unknown> | undefined {
@@ -2451,6 +2663,30 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         });
       }
 
+      if (!toolResult.isError && tool.toolName === WORKFLOW_TOOL_NAME && toolUseResult) {
+        const workflowHandles = normalizeWorkflowRunHandles(toolUseResult);
+        if (workflowHandles) {
+          const workflowMetaStamp = yield* makeEventStamp();
+          yield* offerRuntimeEvent({
+            type: "task.workflowMeta",
+            eventId: workflowMetaStamp.eventId,
+            provider: PROVIDER,
+            createdAt: workflowMetaStamp.createdAt,
+            threadId: context.session.threadId,
+            ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
+            payload: workflowHandles,
+            providerRefs: nativeProviderRefs(context, {
+              providerItemId: tool.itemId,
+            }),
+            raw: {
+              source: "claude.sdk.message",
+              method: "claude/user",
+              payload: message,
+            },
+          });
+        }
+      }
+
       context.inFlightTools.delete(index);
     }
   });
@@ -2673,10 +2909,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             taskId: RuntimeTaskId.make(message.task_id),
             description: message.description,
             ...(message.task_type ? { taskType: message.task_type } : {}),
+            ...(message.tool_use_id ? { toolUseId: message.tool_use_id } : {}),
+            ...(message.workflow_name ? { workflowName: message.workflow_name } : {}),
           },
         });
         return;
-      case "task_progress":
+      case "task_progress": {
+        const workflowProgress = readClaudeWorkflowProgress(message);
         yield* emitThreadTokenUsage(
           context,
           normalizeClaudeTaskProgressTokenUsage(message.usage, context),
@@ -2694,8 +2933,17 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             ...(message.summary ? { summary: message.summary } : {}),
             ...(message.usage ? { usage: message.usage } : {}),
             ...(message.last_tool_name ? { lastToolName: message.last_tool_name } : {}),
+            ...(workflowProgress !== undefined ? { workflowProgress } : {}),
           },
         });
+        return;
+      }
+      case "task_updated":
+        // Task status patches (pause/background/description edits). The
+        // canonical lifecycle events above already carry everything the
+        // runtime-event model consumes; swallow these instead of routing
+        // them to the unknown-subtype warning path, which would fire on
+        // every workflow status transition.
         return;
       case "task_notification":
         yield* emitThreadTokenUsage(
@@ -3751,6 +3999,24 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     },
   );
 
+  const stopTask: NonNullable<ClaudeAdapterShape["stopTask"]> = Effect.fn("stopTask")(
+    function* (threadId, taskId) {
+      const context = yield* requireSession(threadId);
+      const stop = context.query.stopTask;
+      if (stop === undefined) {
+        return yield* toRequestError(
+          threadId,
+          "task/stop",
+          new Error("The Claude SDK runtime for this session does not expose stopTask."),
+        );
+      }
+      yield* Effect.tryPromise({
+        try: () => stop(taskId),
+        catch: (cause) => toRequestError(threadId, "task/stop", cause),
+      });
+    },
+  );
+
   const readThread: ClaudeAdapterShape["readThread"] = Effect.fn("readThread")(
     function* (threadId) {
       const context = yield* requireSession(threadId);
@@ -3854,6 +4120,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     startSession,
     sendTurn,
     interruptTurn,
+    stopTask,
     readThread,
     rollbackThread,
     respondToRequest,

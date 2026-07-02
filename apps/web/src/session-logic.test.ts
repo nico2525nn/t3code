@@ -22,6 +22,7 @@ import {
   workEntryIndicatesToolNeutralStatus,
   workEntryIndicatesToolSuccess,
 } from "./session-logic";
+import { deriveWorkflowRuns } from "./workflow-logic.ts";
 
 let nextActivityId = 0;
 
@@ -1490,6 +1491,72 @@ describe("deriveWorkLogEntries", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.id).toBe("a-complete-same-timestamp");
   });
+
+  it("suppresses workflow task rows and snapshot activities while keeping plain task rows", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      // Plain task: its progress/completed rows must survive.
+      makeActivity({
+        id: "plain-progress",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.progress",
+        summary: "Reasoning update",
+        tone: "info",
+        payload: { taskId: "plain-1", summary: "thinking about it" },
+      }),
+      makeActivity({
+        id: "plain-complete",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "task.completed",
+        summary: "Task completed",
+        tone: "info",
+        payload: { taskId: "plain-1", status: "completed", detail: "plain done" },
+      }),
+      // Workflow task: every row below belongs to the dedicated workflow card.
+      makeActivity({
+        id: "wf-start",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "task.started",
+        summary: "local_workflow task started",
+        tone: "info",
+        payload: { taskId: "wf-1", taskType: "local_workflow", workflowName: "spec" },
+      }),
+      makeActivity({
+        id: "wf-progress",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        kind: "task.progress",
+        summary: "Reasoning update",
+        tone: "info",
+        payload: { taskId: "wf-1", summary: "workflow ticking" },
+      }),
+      makeActivity({
+        id: "wf-updated",
+        createdAt: "2026-02-23T00:00:05.000Z",
+        kind: "task.workflow-updated",
+        summary: "spec workflow",
+        tone: "info",
+        payload: { taskId: "wf-1", description: "spec", workflowProgress: [] },
+      }),
+      makeActivity({
+        id: "wf-meta",
+        createdAt: "2026-02-23T00:00:06.000Z",
+        kind: "task.workflow-meta",
+        summary: "Workflow launched",
+        tone: "info",
+        payload: { taskId: "wf-1", runId: "wf_abc" },
+      }),
+      makeActivity({
+        id: "wf-complete",
+        createdAt: "2026-02-23T00:00:07.000Z",
+        kind: "task.completed",
+        summary: "Task completed",
+        tone: "info",
+        payload: { taskId: "wf-1", status: "completed" },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+    expect(entries.map((entry) => entry.id)).toEqual(["plain-progress", "plain-complete"]);
+  });
 });
 
 describe("deriveTimelineEntries", () => {
@@ -1535,6 +1602,54 @@ describe("deriveTimelineEntries", () => {
         implementedAt: null,
         implementationThreadId: null,
       },
+    });
+  });
+
+  it("emits a workflow entry sorted chronologically among messages", () => {
+    const workflowRuns = deriveWorkflowRuns([
+      makeActivity({
+        id: "wf-start",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "task.started",
+        summary: "local_workflow task started",
+        tone: "info",
+        payload: { taskId: "task-wf", taskType: "local_workflow", workflowName: "spec" },
+      }),
+    ]);
+    expect(workflowRuns).toHaveLength(1);
+
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.make("message-before"),
+          role: "user",
+          text: "kick it off",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          turnId: null,
+          updatedAt: "2026-02-23T00:00:01.000Z",
+          streaming: false,
+        },
+        {
+          id: MessageId.make("message-after"),
+          role: "assistant",
+          text: "done",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          turnId: null,
+          updatedAt: "2026-02-23T00:00:03.000Z",
+          streaming: false,
+        },
+      ],
+      [],
+      [],
+      workflowRuns,
+    );
+
+    expect(entries.map((entry) => entry.kind)).toEqual(["message", "workflow", "message"]);
+    const workflowEntry = entries[1];
+    expect(workflowEntry).toMatchObject({
+      kind: "workflow",
+      id: "workflow:task-wf",
+      workflowRun: { taskId: "task-wf", name: "spec" },
     });
   });
 });

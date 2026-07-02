@@ -143,6 +143,15 @@ import {
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
+import {
+  WorkflowInspectionError,
+  WorkflowReadAgentTranscriptInput,
+  WorkflowReadAgentTranscriptResult,
+  WorkflowReadJournalInput,
+  WorkflowReadJournalResult,
+  WorkflowReadScriptInput,
+  WorkflowReadScriptResult,
+} from "./workflow.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -178,6 +187,11 @@ export const WS_METHODS = {
 
   // Review methods
   reviewGetDiffPreview: "review.getDiffPreview",
+
+  // Workflow inspection methods (Claude Agent SDK workflow runs)
+  workflowReadScript: "workflow.readScript",
+  workflowReadJournal: "workflow.readJournal",
+  workflowReadAgentTranscript: "workflow.readAgentTranscript",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -478,6 +492,24 @@ export const WsReviewGetDiffPreviewRpc = Rpc.make(WS_METHODS.reviewGetDiffPrevie
   error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
 });
 
+export const WsWorkflowReadScriptRpc = Rpc.make(WS_METHODS.workflowReadScript, {
+  payload: WorkflowReadScriptInput,
+  success: WorkflowReadScriptResult,
+  error: Schema.Union([WorkflowInspectionError, EnvironmentAuthorizationError]),
+});
+
+export const WsWorkflowReadJournalRpc = Rpc.make(WS_METHODS.workflowReadJournal, {
+  payload: WorkflowReadJournalInput,
+  success: WorkflowReadJournalResult,
+  error: Schema.Union([WorkflowInspectionError, EnvironmentAuthorizationError]),
+});
+
+export const WsWorkflowReadAgentTranscriptRpc = Rpc.make(WS_METHODS.workflowReadAgentTranscript, {
+  payload: WorkflowReadAgentTranscriptInput,
+  success: WorkflowReadAgentTranscriptResult,
+  error: Schema.Union([WorkflowInspectionError, EnvironmentAuthorizationError]),
+});
+
 export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -719,6 +751,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsSwitchRefRpc,
   WsVcsInitRpc,
   WsReviewGetDiffPreviewRpc,
+  WsWorkflowReadScriptRpc,
+  WsWorkflowReadJournalRpc,
+  WsWorkflowReadAgentTranscriptRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalWriteRpc,

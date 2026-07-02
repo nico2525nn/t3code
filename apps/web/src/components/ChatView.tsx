@@ -249,6 +249,8 @@ import {
   resolveServerConfigVersionMismatch,
 } from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
+import { deriveWorkflowRuns } from "../workflow-logic";
+import { WorkflowPanel } from "./workflow/WorkflowPanel";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -1012,6 +1014,7 @@ function ChatViewContent(props: ChatViewProps) {
     reportFailure: false,
   });
   const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
+  const stopThreadTask = useAtomCommand(threadEnvironment.stopTask, { reportFailure: true });
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
@@ -1727,6 +1730,38 @@ function ChatViewContent(props: ChatViewProps) {
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  const workflowRuns = useMemo(() => deriveWorkflowRuns(threadActivities), [threadActivities]);
+  const activeWorkflowSurface =
+    activeRightPanelSurface?.kind === "workflow" ? activeRightPanelSurface : null;
+  const activeWorkflowRun = useMemo(
+    () =>
+      activeWorkflowSurface
+        ? (workflowRuns.find((run) => run.taskId === activeWorkflowSurface.taskId) ?? null)
+        : null,
+    [activeWorkflowSurface, workflowRuns],
+  );
+  const onOpenWorkflowDetails = useCallback(
+    (taskId: string) => {
+      if (!activeThreadRef) {
+        return;
+      }
+      useRightPanelStore.getState().openWorkflow(activeThreadRef, taskId);
+    },
+    [activeThreadRef],
+  );
+  const onStopWorkflowTask = useMemo(() => {
+    if (!activeThread || activeThread.session?.status === "stopped") {
+      return null;
+    }
+    const threadId = activeThread.id;
+    const threadEnvironmentId = activeThread.environmentId;
+    return (taskId: string) => {
+      void stopThreadTask({
+        environmentId: threadEnvironmentId,
+        input: { threadId, taskId },
+      });
+    };
+  }, [activeThread, stopThreadTask]);
   const pendingApprovals = useMemo(
     () => derivePendingApprovals(threadActivities),
     [threadActivities],
@@ -2060,8 +2095,13 @@ function ChatViewContent(props: ChatViewProps) {
   }, [attachmentPreviewHandoffByMessageId, displayServerMessages, optimisticUserMessages]);
   const timelineEntries = useMemo(
     () =>
-      deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
-    [activeThread?.proposedPlans, timelineMessages, workLogEntries],
+      deriveTimelineEntries(
+        timelineMessages,
+        activeThread?.proposedPlans ?? [],
+        workLogEntries,
+        workflowRuns,
+      ),
+    [activeThread?.proposedPlans, timelineMessages, workLogEntries, workflowRuns],
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
@@ -4970,6 +5010,16 @@ function ChatViewContent(props: ChatViewProps) {
       <Suspense fallback={null}>
         <DiffPanel mode="embedded" composerDraftTarget={composerDraftTarget} />
       </Suspense>
+    ) : activeRightPanelSurface?.kind === "workflow" ? (
+      <WorkflowPanel
+        workflowRun={activeWorkflowRun}
+        environmentId={environmentId}
+        onStop={
+          activeWorkflowRun?.status === "running" && onStopWorkflowTask !== null
+            ? () => onStopWorkflowTask(activeWorkflowRun.taskId)
+            : undefined
+        }
+      />
     ) : activeRightPanelSurface?.kind === "plan" ? (
       <PlanSidebar
         activePlan={activePlan}
@@ -5095,6 +5145,8 @@ function ChatViewContent(props: ChatViewProps) {
                 timestampFormat={timestampFormat}
                 workspaceRoot={activeWorkspaceRoot}
                 skills={activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS}
+                onOpenWorkflowDetails={onOpenWorkflowDetails}
+                onStopWorkflowTask={onStopWorkflowTask}
                 anchorMessageId={timelineAnchorMessageId}
                 onAnchorReady={onTimelineAnchorReady}
                 onAnchorSizeChanged={onTimelineAnchorSizeChanged}

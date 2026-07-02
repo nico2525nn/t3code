@@ -237,6 +237,10 @@ function deriveWorkLogEntries(
   for (const activity of ordered) {
     if (activity.kind === "tool.started") continue;
     if (activity.kind === "task.started") continue;
+    // Workflow snapshot/meta activities back the desktop workflow card; on
+    // mobile they would render as ever-mutating raw rows, so skip them.
+    if (activity.kind === "task.workflow-updated") continue;
+    if (activity.kind === "task.workflow-meta") continue;
     if (activity.kind === "context-window.updated") continue;
     if (activity.summary === "Checkpoint captured") continue;
     if (isPlanBoundaryToolActivity(activity)) continue;

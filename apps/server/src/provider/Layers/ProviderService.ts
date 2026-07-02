@@ -19,6 +19,7 @@ import {
   ProviderSendTurnInput,
   ProviderSessionStartInput,
   ProviderStopSessionInput,
+  ProviderStopTaskInput,
   type ProviderInstanceId,
   type ProviderDriverKind,
   type ProviderRuntimeEvent,
@@ -754,6 +755,36 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  const stopTask: ProviderServiceMethod<"stopTask"> = Effect.fn("stopTask")(function* (rawInput) {
+    const input = yield* decodeInputOrValidationError({
+      operation: "ProviderService.stopTask",
+      schema: ProviderStopTaskInput,
+      payload: rawInput,
+    });
+    const routed = yield* resolveRoutableSession({
+      threadId: input.threadId,
+      operation: "ProviderService.stopTask",
+      allowRecovery: true,
+    });
+    yield* Effect.annotateCurrentSpan({
+      "provider.operation": "stop-task",
+      "provider.kind": routed.adapter.provider,
+      "provider.thread_id": input.threadId,
+      "provider.task_id": input.taskId,
+    });
+    const adapterStopTask = routed.adapter.stopTask;
+    if (adapterStopTask === undefined) {
+      return yield* toValidationError(
+        "ProviderService.stopTask",
+        `Provider '${routed.adapter.provider}' does not support stopping background tasks.`,
+      );
+    }
+    yield* adapterStopTask(routed.threadId, input.taskId);
+    yield* analytics.record("provider.task.stopped", {
+      provider: routed.adapter.provider,
+    });
+  });
+
   const respondToRequest: ProviderServiceMethod<"respondToRequest"> = Effect.fn("respondToRequest")(
     function* (rawInput) {
       const input = yield* decodeInputOrValidationError({
@@ -1075,6 +1106,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     respondToRequest,
     respondToUserInput,
     stopSession,
+    stopTask,
     listSessions,
     getCapabilities,
     getInstanceInfo,

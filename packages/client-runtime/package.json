@@ -130,6 +130,10 @@
     "./state/vcs": {
       "types": "./src/state/vcs.ts",
       "default": "./src/state/vcs.ts"
+    },
+    "./state/workflow": {
+      "types": "./src/state/workflow.ts",
+      "default": "./src/state/workflow.ts"
     }
   },
   "scripts": {

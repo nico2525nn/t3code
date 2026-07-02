@@ -58,6 +58,7 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   public readonly setModelCalls: Array<string | undefined> = [];
   public readonly setPermissionModeCalls: Array<string> = [];
   public readonly setMaxThinkingTokensCalls: Array<number | null> = [];
+  public readonly stopTaskCalls: Array<string> = [];
   public closeCalls = 0;
 
   emit(message: SDKMessage): void {
@@ -108,6 +109,10 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
 
   readonly setMaxThinkingTokens = async (maxThinkingTokens: number | null): Promise<void> => {
     this.setMaxThinkingTokensCalls.push(maxThinkingTokens);
+  };
+
+  readonly stopTask = async (taskId: string): Promise<void> => {
+    this.stopTaskCalls.push(taskId);
   };
 
   readonly close = (): void => {
@@ -3781,6 +3786,227 @@ describe("ClaudeAdapterLive", () => {
         nativeThreadIds.every((threadId) => threadId === String(THREAD_ID)),
         true,
       );
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect(
+    "normalizes workflow_progress on task progress, clipping previews and dropping malformed entries",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+
+        const runtimeEventsFiber = yield* Stream.takeUntil(
+          adapter.streamEvents,
+          (event) => event.type === "task.progress",
+        ).pipe(Stream.runCollect, Effect.forkChild);
+
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          runtimeMode: "full-access",
+        });
+
+        const longPreview = "x".repeat(300);
+        harness.query.emit({
+          type: "system",
+          subtype: "task_progress",
+          task_id: "task-wf-1",
+          description: "spec workflow",
+          workflow_progress: [
+            { type: "workflow_phase", index: 0, title: "Plan" },
+            { type: "workflow_agent", index: 0, state: "start", promptPreview: longPreview },
+            { type: "workflow_log", message: "kicked off" },
+            { type: "workflow_agent", state: "start" }, // missing index -> dropped
+            { type: "workflow_mystery", index: 9 }, // unknown type -> dropped
+          ],
+          session_id: "sdk-session-workflow-progress",
+          uuid: "task-workflow-progress-1",
+        } as unknown as SDKMessage);
+
+        const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+        const progress = runtimeEvents.find((event) => event.type === "task.progress");
+        assert.equal(progress?.type, "task.progress");
+        if (progress?.type === "task.progress") {
+          const workflowProgress = progress.payload.workflowProgress;
+          // Only the three well-formed entries survive; order is phases, agents, logs.
+          assert.equal(workflowProgress?.length, 3);
+          assert.equal(workflowProgress?.[0]?.type, "workflow_phase");
+          assert.equal(workflowProgress?.[1]?.type, "workflow_agent");
+          assert.equal(workflowProgress?.[2]?.type, "workflow_log");
+          const agent = workflowProgress?.[1];
+          if (agent?.type === "workflow_agent") {
+            // 240-char clip + a trailing ellipsis.
+            assert.equal(agent.promptPreview?.length, 241);
+            assert.equal(agent.promptPreview?.endsWith("…"), true);
+          }
+        }
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
+  it.effect("forwards workflow tool_use_id and workflow_name on task started", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const runtimeEventsFiber = yield* Stream.takeUntil(
+        adapter.streamEvents,
+        (event) => event.type === "task.started",
+      ).pipe(Stream.runCollect, Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-wf-1",
+        description: "spec workflow",
+        task_type: "local_workflow",
+        tool_use_id: "tool-wf-1",
+        workflow_name: "spec",
+        session_id: "sdk-session-workflow-started",
+        uuid: "task-workflow-started-1",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const started = runtimeEvents.find((event) => event.type === "task.started");
+      assert.equal(started?.type, "task.started");
+      if (started?.type === "task.started") {
+        assert.equal(started.payload.toolUseId, "tool-wf-1");
+        assert.equal(started.payload.workflowName, "spec");
+        assert.equal(started.payload.taskType, "local_workflow");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("emits task.workflowMeta from a Workflow tool result", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const runtimeEventsFiber = yield* Stream.takeUntil(
+        adapter.streamEvents,
+        (event) => event.type === "task.workflowMeta",
+      ).pipe(Stream.runCollect, Effect.forkChild);
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "run the workflow",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-workflow-tool",
+        uuid: "stream-workflow-start",
+        parent_tool_use_id: null,
+        event: {
+          type: "content_block_start",
+          index: 1,
+          content_block: {
+            type: "tool_use",
+            id: "tool-wf-1",
+            name: "Workflow",
+            input: {},
+          },
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-workflow-tool",
+        uuid: "stream-workflow-stop",
+        parent_tool_use_id: null,
+        event: {
+          type: "content_block_stop",
+          index: 1,
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "user",
+        session_id: "sdk-session-workflow-tool",
+        uuid: "user-workflow-result",
+        parent_tool_use_id: null,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool-wf-1",
+              content: "workflow launched",
+            },
+          ],
+        },
+        tool_use_result: {
+          taskId: "task-1",
+          runId: "wf_abc",
+          workflowName: "spec",
+          scriptPath: "/x/s.js",
+          transcriptDir: "/x/t",
+          taskType: "local_workflow",
+        },
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const meta = runtimeEvents.find((event) => event.type === "task.workflowMeta");
+      assert.equal(meta?.type, "task.workflowMeta");
+      if (meta?.type === "task.workflowMeta") {
+        assert.deepEqual(meta.payload, {
+          taskId: "task-1",
+          runId: "wf_abc",
+          workflowName: "spec",
+          taskType: "local_workflow",
+          scriptPath: "/x/s.js",
+          transcriptDir: "/x/t",
+        });
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("forwards stopTask to the Claude query runtime", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      yield* adapter.streamEvents.pipe(Stream.runDrain, Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      const stopTask = adapter.stopTask;
+      if (stopTask === undefined) {
+        throw new Error("Expected the Claude adapter to expose stopTask.");
+      }
+      yield* stopTask(THREAD_ID, "task-9");
+
+      assert.deepEqual(harness.query.stopTaskCalls, ["task-9"]);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
