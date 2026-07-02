@@ -88,19 +88,6 @@ export function agentDisplayLabel(agent: WorkflowRunAgent): string {
   return agent.label ?? agent.agentType ?? `agent ${agent.index}`;
 }
 
-export function agentPreviewText(agent: WorkflowRunAgent): string | undefined {
-  switch (agent.status) {
-    case "error":
-      return agent.error ?? agent.resultPreview;
-    case "done":
-      return agent.resultPreview;
-    case "running":
-      return agent.lastToolSummary ?? agent.promptPreview;
-    default:
-      return agent.promptPreview;
-  }
-}
-
 function AgentMetaBadges({ agent }: { agent: WorkflowRunAgent }): ReactElement | null {
   const badges: string[] = [];
   if (agent.cached) {
@@ -127,7 +114,10 @@ function AgentMetaBadges({ agent }: { agent: WorkflowRunAgent }): ReactElement |
 }
 
 /** "94.2k tok · 47 tools · 7m 03s" — cumulative per-agent stats from the
- * SDK snapshot; duration is shown once the agent settles. */
+ * SDK snapshot. Tokens and tool counts update on every progress tick; the
+ * duration is the reported total once the agent settles, and the elapsed
+ * time between start and the latest tick while it runs (tick-driven, so no
+ * client timer is needed). */
 export function agentStatsLabel(agent: WorkflowRunAgent): string | undefined {
   const parts: string[] = [];
   if (agent.tokens !== undefined && agent.tokens > 0) {
@@ -136,18 +126,23 @@ export function agentStatsLabel(agent: WorkflowRunAgent): string | undefined {
   if (agent.toolCalls !== undefined && agent.toolCalls > 0) {
     parts.push(`${agent.toolCalls} ${agent.toolCalls === 1 ? "tool" : "tools"}`);
   }
-  if (
-    agent.durationMs !== undefined &&
-    agent.durationMs > 0 &&
-    (agent.status === "done" || agent.status === "error")
-  ) {
+  const settled = agent.status === "done" || agent.status === "error";
+  if (settled && agent.durationMs !== undefined && agent.durationMs > 0) {
     parts.push(formatWorkflowDuration(agent.durationMs));
+  } else if (
+    !settled &&
+    agent.startedAt !== undefined &&
+    agent.lastProgressAt !== undefined &&
+    agent.lastProgressAt > agent.startedAt
+  ) {
+    parts.push(formatWorkflowDuration(agent.lastProgressAt - agent.startedAt));
   }
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
-/** The shared inner content of an agent row: dot, label, badges, dimmed
- * preview, right-aligned model + stats. */
+/** The shared inner content of an agent row: dot, label, badges,
+ * right-aligned model + stats. Error text is the only inline content —
+ * routine previews live in the expandable transcript, not the row. */
 export function AgentRowContent({
   agent,
   leading,
@@ -155,8 +150,8 @@ export function AgentRowContent({
   agent: WorkflowRunAgent;
   leading?: ReactNode;
 }): ReactElement {
-  const preview = agentPreviewText(agent);
   const stats = agentStatsLabel(agent);
+  const errorText = agent.status === "error" ? agent.error : undefined;
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-[12px] leading-5">
       {leading}
@@ -170,10 +165,11 @@ export function AgentRowContent({
         {agentDisplayLabel(agent)}
       </span>
       <AgentMetaBadges agent={agent} />
-      {preview !== undefined && (
-        <span className="min-w-0 flex-1 truncate text-muted-foreground/70">{preview}</span>
+      {errorText !== undefined ? (
+        <span className="min-w-0 flex-1 truncate text-destructive/70">{errorText}</span>
+      ) : (
+        <span className="min-w-0 flex-1" />
       )}
-      {preview === undefined && <span className="min-w-0 flex-1" />}
       {agent.model !== undefined && (
         <span className="hidden shrink-0 text-[11px] text-muted-foreground/55 sm:inline">
           {agent.model}
