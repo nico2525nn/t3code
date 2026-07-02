@@ -140,9 +140,12 @@ export function agentStatsLabel(agent: WorkflowRunAgent): string | undefined {
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
-/** The shared inner content of an agent row: dot, label, badges,
- * right-aligned model + stats. Error text is the only inline content —
- * routine previews live in the expandable transcript, not the row. */
+/**
+ * The shared inner content of an agent row. Two-line layout: the label owns
+ * the first line and wraps freely (long workflow labels are common), and
+ * model / stats / badges / error text sit on a muted meta line beneath —
+ * nothing competes for horizontal space, so nothing clips.
+ */
 export function AgentRowContent({
   agent,
   leading,
@@ -152,32 +155,34 @@ export function AgentRowContent({
 }): ReactElement {
   const stats = agentStatsLabel(agent);
   const errorText = agent.status === "error" ? agent.error : undefined;
+  const metaLabel = [agent.model, stats].filter((part) => part !== undefined).join(" · ");
+  const hasBadges = agent.cached === true || (agent.attempt !== undefined && agent.attempt > 1);
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-[12px] leading-5">
-      {leading}
-      <AgentStatusDot status={agent.status} />
-      <span
-        className={cn(
-          "shrink-0 truncate font-medium",
-          agent.status === "error" ? "text-destructive" : "text-foreground/82",
-        )}
-      >
-        {agentDisplayLabel(agent)}
+    <div className="flex min-w-0 items-start gap-1.5 text-[12px] leading-5">
+      {/* Fixed line-height boxes center the affordances on the first text line. */}
+      {leading !== undefined && <span className="flex h-5 shrink-0 items-center">{leading}</span>}
+      <span className="flex h-5 shrink-0 items-center">
+        <AgentStatusDot status={agent.status} />
       </span>
-      <AgentMetaBadges agent={agent} />
-      {errorText !== undefined ? (
-        <span className="min-w-0 flex-1 truncate text-destructive/70">{errorText}</span>
-      ) : (
-        <span className="min-w-0 flex-1" />
-      )}
-      {agent.model !== undefined && (
-        <span className="hidden shrink-0 text-[11px] text-muted-foreground/55 sm:inline">
-          {agent.model}
-        </span>
-      )}
-      {stats !== undefined && (
-        <span className="shrink-0 text-[11px] text-muted-foreground/70 tabular-nums">{stats}</span>
-      )}
+      <div className="min-w-0 flex-1">
+        <div
+          className={cn(
+            "break-words font-medium",
+            agent.status === "error" ? "text-destructive" : "text-foreground/82",
+          )}
+        >
+          {agentDisplayLabel(agent)}
+        </div>
+        {(metaLabel.length > 0 || hasBadges || errorText !== undefined) && (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground/60 leading-4">
+            {metaLabel.length > 0 && <span className="tabular-nums">{metaLabel}</span>}
+            <AgentMetaBadges agent={agent} />
+            {errorText !== undefined && (
+              <span className="min-w-0 break-words text-destructive/75">{errorText}</span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
