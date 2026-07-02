@@ -1,5 +1,6 @@
 import Stack from "expo-router/stack";
 import { useResolveClassNames } from "uniwind";
+import { pushScreenAnimation } from "../../lib/pushScreenAnimation";
 import { useThemeColor } from "../../lib/useThemeColor";
 
 export const unstable_settings = {
@@ -23,7 +24,7 @@ export default function ConnectionsLayout() {
       }}
     >
       <Stack.Screen name="index" options={{ animation: "none" }} />
-      <Stack.Screen name="new" options={{ animation: "slide_from_right" }} />
+      <Stack.Screen name="new" options={{ animation: pushScreenAnimation }} />
     </Stack>
   );
 }

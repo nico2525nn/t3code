@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { useResolveClassNames } from "uniwind";
 
 import { useClerkSettingsSheetDetent } from "../../features/cloud/ClerkSettingsSheetDetent";
+import { pushScreenAnimation } from "../../lib/pushScreenAnimation";
 import { useThemeColor } from "../../lib/useThemeColor";
 
 export const unstable_settings = {
@@ -37,25 +38,25 @@ export default function SettingsLayout() {
       <Stack.Screen name="index" options={{ animation: "none", title: "Settings" }} />
       <Stack.Screen
         name="environments"
-        options={{ animation: "slide_from_right", title: "Environments" }}
+        options={{ animation: pushScreenAnimation, title: "Environments" }}
       />
       <Stack.Screen
         name="environment-new"
-        options={{ animation: "slide_from_right", title: "Add Environment" }}
+        options={{ animation: pushScreenAnimation, title: "Add Environment" }}
       />
       <Stack.Screen
         name="waitlist"
-        options={{ animation: "slide_from_right", title: "Join the waitlist" }}
+        options={{ animation: pushScreenAnimation, title: "Join the waitlist" }}
       />
       <Stack.Screen
         name="archive"
         listeners={{ transitionEnd: handleExpandedRouteTransitionEnd }}
-        options={{ animation: "slide_from_right", title: "Archived Threads" }}
+        options={{ animation: pushScreenAnimation, title: "Archived Threads" }}
       />
       <Stack.Screen
         name="auth"
         listeners={{ transitionEnd: handleExpandedRouteTransitionEnd }}
-        options={{ animation: "slide_from_right", title: "Sign in" }}
+        options={{ animation: pushScreenAnimation, title: "Sign in" }}
       />
     </Stack>
   );

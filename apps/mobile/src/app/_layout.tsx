@@ -8,7 +8,7 @@ import {
 import { usePathname } from "expo-router";
 import Stack from "expo-router/stack";
 import { useCallback } from "react";
-import { Platform, StatusBar, useColorScheme } from "react-native";
+import { StatusBar, useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -26,6 +26,7 @@ import {
   useClerkSettingsSheetDetent,
 } from "../features/cloud/ClerkSettingsSheetDetent";
 import { useAgentNotificationNavigation } from "../features/agent-awareness/notificationNavigation";
+import { pushScreenAnimation } from "../lib/pushScreenAnimation";
 import { useHeaderBlurEffect } from "../lib/useHeaderBlurEffect";
 import { useThemeColor } from "../lib/useThemeColor";
 
@@ -99,7 +100,7 @@ function AppNavigatorContent() {
         <Stack.Screen
           name="index"
           options={{
-            contentStyle: { backgroundColor: String(screenColor) },
+            contentStyle: { backgroundColor: screenColor },
             headerShown: true,
             headerTransparent: true,
             headerBlurEffect,
@@ -116,11 +117,8 @@ function AppNavigatorContent() {
         <Stack.Screen
           name="threads/[environmentId]/[threadId]"
           options={{
-            // iOS keeps the default push animation: forcing slide_from_right
-            // switches react-native-screens to its custom swipe animator,
-            // which leaves a black void behind the screen during swipe-back.
-            animation: Platform.OS === "ios" ? "default" : "slide_from_right",
-            contentStyle: { backgroundColor: String(screenColor) },
+            animation: pushScreenAnimation,
+            contentStyle: { backgroundColor: screenColor },
             gestureEnabled: true,
             fullScreenGestureEnabled: true,
             headerShown: false,

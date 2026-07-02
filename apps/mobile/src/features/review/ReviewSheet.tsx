@@ -19,6 +19,7 @@ import { AppText as Text } from "../../components/AppText";
 import { environmentCatalog } from "../../connection/catalog";
 import { useEnvironmentPresentation } from "../../state/presentation";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useHeaderBlurEffect } from "../../lib/useHeaderBlurEffect";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { MOBILE_TYPOGRAPHY } from "../../lib/typography";
 import { useThreadDraftForThread } from "../../state/use-thread-composer-state";
@@ -113,6 +114,7 @@ function ReviewSelectionActionBar(props: {
 export function ReviewSheet() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
+  const headerBlurEffect = useHeaderBlurEffect();
   const headerForeground = String(useThemeColor("--color-foreground"));
   const headerMuted = String(useThemeColor("--color-foreground-muted"));
   const headerIcon = String(useThemeColor("--color-icon"));
@@ -241,6 +243,7 @@ export function ReviewSheet() {
       <Stack.Screen
         options={{
           headerTransparent: true,
+          headerBlurEffect,
           headerShadowVisible: false,
           headerTintColor: headerIcon,
           headerStyle: {

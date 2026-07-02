@@ -2,6 +2,8 @@ import Stack from "expo-router/stack";
 import { StyleSheet } from "react-native";
 import { useResolveClassNames } from "uniwind";
 
+import { pushScreenAnimation } from "../../../../../lib/pushScreenAnimation";
+
 export const unstable_settings = {
   anchor: "index",
 };
@@ -23,7 +25,7 @@ export default function GitSheetLayout() {
       <Stack.Screen
         name="commit"
         options={{
-          animation: "slide_from_right",
+          animation: pushScreenAnimation,
           headerShown: true,
           headerTitle: "Commit changes",
           headerBackTitle: "",
@@ -34,7 +36,7 @@ export default function GitSheetLayout() {
       <Stack.Screen
         name="branches"
         options={{
-          animation: "slide_from_right",
+          animation: pushScreenAnimation,
           headerShown: true,
           headerTitle: "Branches & worktrees",
           headerBackTitle: "",
@@ -45,7 +47,7 @@ export default function GitSheetLayout() {
       <Stack.Screen
         name="review"
         options={{
-          animation: "slide_from_right",
+          animation: pushScreenAnimation,
           headerShown: true,
           headerTitle: "Review changes",
           headerBackTitle: "",

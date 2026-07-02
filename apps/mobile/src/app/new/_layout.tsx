@@ -2,6 +2,7 @@ import Stack from "expo-router/stack";
 import { useResolveClassNames } from "uniwind";
 
 import { NewTaskFlowProvider } from "../../features/threads/new-task-flow-provider";
+import { pushScreenAnimation } from "../../lib/pushScreenAnimation";
 import { useThemeColor } from "../../lib/useThemeColor";
 
 export const unstable_settings = {
@@ -29,21 +30,21 @@ export default function NewTaskLayout() {
         <Stack.Screen name="index" options={{ animation: "none", title: "Choose project" }} />
         <Stack.Screen
           name="add-project/index"
-          options={{ animation: "slide_from_right", title: "New project" }}
+          options={{ animation: pushScreenAnimation, title: "New project" }}
         />
         <Stack.Screen
           name="add-project/repository"
-          options={{ animation: "slide_from_right", title: "Repository" }}
+          options={{ animation: pushScreenAnimation, title: "Repository" }}
         />
         <Stack.Screen
           name="add-project/destination"
-          options={{ animation: "slide_from_right", title: "Clone destination" }}
+          options={{ animation: pushScreenAnimation, title: "Clone destination" }}
         />
         <Stack.Screen
           name="add-project/local"
-          options={{ animation: "slide_from_right", title: "Local folder" }}
+          options={{ animation: pushScreenAnimation, title: "Local folder" }}
         />
-        <Stack.Screen name="draft" options={{ animation: "slide_from_right", title: "New task" }} />
+        <Stack.Screen name="draft" options={{ animation: pushScreenAnimation, title: "New task" }} />
       </Stack>
     </NewTaskFlowProvider>
   );

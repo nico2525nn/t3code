@@ -19,6 +19,7 @@ import { cn } from "../../lib/cn";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { buildThreadFilesNavigation } from "../../lib/routes";
 import { MOBILE_TYPOGRAPHY } from "../../lib/typography";
+import { useHeaderBlurEffect } from "../../lib/useHeaderBlurEffect";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
@@ -444,6 +445,7 @@ function FilesToolbarBottomFade() {
 
 export function ThreadFilesTreeScreen() {
   const router = useRouter();
+  const headerBlurEffect = useHeaderBlurEffect();
   const [searchQuery, setSearchQuery] = useState("");
   const { cwd, environmentId, projectName, selectedThread, threadId } = useThreadFilesWorkspace();
   const entriesQuery = useEnvironmentQuery(
@@ -481,6 +483,7 @@ export function ThreadFilesTreeScreen() {
           title: "Files",
           headerShown: true,
           headerTransparent: true,
+          headerBlurEffect,
           headerStyle: { backgroundColor: "transparent" },
           headerShadowVisible: false,
           headerTitle: () => <FilesHeaderTitle projectName={projectName} />,

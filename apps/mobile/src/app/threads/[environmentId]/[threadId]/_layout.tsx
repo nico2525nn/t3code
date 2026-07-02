@@ -1,13 +1,9 @@
 import Stack from "expo-router/stack";
-import { Platform, StyleSheet } from "react-native";
+import { StyleSheet } from "react-native";
 import { useResolveClassNames } from "uniwind";
 
+import { pushScreenAnimation } from "../../../../lib/pushScreenAnimation";
 import { useHeaderBlurEffect } from "../../../../lib/useHeaderBlurEffect";
-
-// iOS keeps the default push animation: forcing slide_from_right switches
-// react-native-screens to its custom swipe animator, which paints a black
-// void behind the outgoing screen during interactive swipe-back.
-const pushAnimation = Platform.OS === "ios" ? ("default" as const) : ("slide_from_right" as const);
 
 export default function ThreadLayout() {
   const headerBlurEffect = useHeaderBlurEffect();
@@ -54,7 +50,7 @@ export default function ThreadLayout() {
       <Stack.Screen
         name="review"
         options={{
-          animation: pushAnimation,
+          animation: pushScreenAnimation,
           contentStyle: sheetStyle,
           fullScreenGestureEnabled: true,
           headerBackButtonDisplayMode: "minimal",
@@ -68,7 +64,7 @@ export default function ThreadLayout() {
       <Stack.Screen
         name="files/index"
         options={{
-          animation: pushAnimation,
+          animation: pushScreenAnimation,
           contentStyle: sheetStyle,
           fullScreenGestureEnabled: true,
           headerBackButtonDisplayMode: "minimal",
@@ -82,7 +78,7 @@ export default function ThreadLayout() {
       <Stack.Screen
         name="files/[...path]"
         options={{
-          animation: pushAnimation,
+          animation: pushScreenAnimation,
           contentStyle: sheetStyle,
           fullScreenGestureEnabled: true,
           headerBackButtonDisplayMode: "minimal",
@@ -107,8 +103,11 @@ export default function ThreadLayout() {
       <Stack.Screen
         name="terminal"
         options={{
-          animation: pushAnimation,
+          animation: pushScreenAnimation,
           contentStyle: { backgroundColor: "#050505" },
+          // No fullScreenGestureEnabled here: the terminal consumes
+          // horizontal pans (readline editing, mouse reporting), so
+          // back-swipe stays confined to the screen edge.
           headerBackButtonDisplayMode: "minimal",
           headerShown: true,
           headerShadowVisible: false,
