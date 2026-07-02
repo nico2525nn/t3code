@@ -1030,9 +1030,15 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
         entry.result.outcome !== null &&
         "outcome" in entry.result.outcome &&
         entry.result.outcome.outcome === "cancelled";
-      yield* waitForJsonLogMatch(requestLogPath, (entry) => entry.method === "session/cancel");
+      // Assert each condition against the snapshot its own wait resolved on:
+      // the two log appends are independent, so a snapshot that satisfies one
+      // predicate can miss (or tear) the other line under load.
+      const cancelRequests = yield* waitForJsonLogMatch(
+        requestLogPath,
+        (entry) => entry.method === "session/cancel",
+      );
+      assert.isTrue(cancelRequests.some((entry) => entry.method === "session/cancel"));
       const requests = yield* waitForJsonLogMatch(requestLogPath, isCancelledApprovalResponse);
-      assert.isTrue(requests.some((entry) => entry.method === "session/cancel"));
       assert.isTrue(requests.some(isCancelledApprovalResponse));
 
       yield* adapter.stopSession(threadId);
