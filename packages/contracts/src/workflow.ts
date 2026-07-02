@@ -96,6 +96,9 @@ export class WorkflowInspectionError extends Schema.TaggedErrorClass<WorkflowIns
     operation: Schema.String,
     reason: Schema.Literals(["invalid-path", "not-found", "read-failed", "unsupported"]),
     detail: Schema.String,
+    /** Underlying failure for read-failed/not-found wraps; absent for pure
+     * validation reasons. Matches the GitCommandError convention. */
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {

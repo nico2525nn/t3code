@@ -116,6 +116,7 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
             operation,
             reason: isEnoent(cause) ? "not-found" : "read-failed",
             detail: "Failed to resolve the workflow projects root.",
+            cause,
           }),
       });
 
@@ -126,6 +127,7 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
             operation,
             reason: isEnoent(cause) ? "not-found" : "read-failed",
             detail: "Failed to resolve the requested path.",
+            cause,
           }),
       });
 
@@ -160,6 +162,7 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
               operation,
               reason: isNotFoundPlatformError(cause) ? "not-found" : "read-failed",
               detail: "Failed to read the workflow script.",
+              cause,
             }),
         ),
       );
@@ -189,6 +192,7 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
               operation,
               reason: isNotFoundPlatformError(cause) ? "not-found" : "read-failed",
               detail: "Failed to read the workflow journal.",
+              cause,
             }),
         ),
       );
@@ -275,6 +279,7 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
                 operation,
                 reason: isNotFoundPlatformError(cause) ? "not-found" : "read-failed",
                 detail: "Failed to read the agent transcript.",
+                cause,
               }),
           ),
         );
