@@ -31,6 +31,7 @@ import {
 } from "~/workflow-logic";
 import { Button } from "../ui/button";
 import { AgentRowContent, PhaseHeader, WorkflowStatusChip } from "./workflowUi";
+import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 
 type WorkflowTabId = "run" | "script" | "logs";
 
@@ -165,32 +166,18 @@ function CopyResumeButton({
   scriptPath: string;
   runId: string;
 }): ReactElement {
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-      }
-    },
-    [],
-  );
+  const { copyToClipboard, isCopied } = useCopyToClipboard({
+    timeout: 1200,
+    target: "workflow resume command",
+  });
 
   const handleCopy = useCallback(() => {
-    const command = `Workflow({ scriptPath: "${scriptPath}", resumeFromRunId: "${runId}" })`;
-    void navigator.clipboard.writeText(command).then(() => {
-      setCopied(true);
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-      }
-      timerRef.current = setTimeout(() => setCopied(false), 1200);
-    });
-  }, [runId, scriptPath]);
+    copyToClipboard(`Workflow({ scriptPath: "${scriptPath}", resumeFromRunId: "${runId}" })`);
+  }, [copyToClipboard, runId, scriptPath]);
 
   return (
     <Button type="button" size="xs" variant="outline" onClick={handleCopy}>
-      {copied ? <CheckIcon /> : <CopyIcon />}
+      {isCopied ? <CheckIcon /> : <CopyIcon />}
       Copy resume command
     </Button>
   );
@@ -395,7 +382,9 @@ function AgentTranscriptView({
   const loadingRef = useRef(false);
 
   const loadMore = useCallback(async () => {
-    if (loadingRef.current || completeRef.current) {
+    // `complete` only means the last read caught up to end-of-file; a live
+    // run keeps appending, so polling must keep re-reading past prior EOF.
+    if (loadingRef.current) {
       return;
     }
     loadingRef.current = true;

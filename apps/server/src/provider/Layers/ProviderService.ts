@@ -761,10 +761,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       schema: ProviderStopTaskInput,
       payload: rawInput,
     });
+    // No recovery: a background task cannot be running without a live
+    // in-process session, so resurrecting one just to stop a task would be
+    // wasted work (and would resume the session as a side effect).
     const routed = yield* resolveRoutableSession({
       threadId: input.threadId,
       operation: "ProviderService.stopTask",
-      allowRecovery: true,
+      allowRecovery: false,
     });
     yield* Effect.annotateCurrentSpan({
       "provider.operation": "stop-task",
@@ -772,6 +775,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       "provider.thread_id": input.threadId,
       "provider.task_id": input.taskId,
     });
+    if (!routed.isActive) {
+      return yield* toValidationError(
+        "ProviderService.stopTask",
+        "No active provider session is running for this thread.",
+      );
+    }
     const adapterStopTask = routed.adapter.stopTask;
     if (adapterStopTask === undefined) {
       return yield* toValidationError(

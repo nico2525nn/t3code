@@ -185,6 +185,25 @@ describe("WorkflowInspectionService", () => {
       }).pipe(Effect.provide(NodeServices.layer)),
     );
 
+    it.effect("rejects a journal.jsonl symlink that escapes the root as invalid-path", () =>
+      Effect.gen(function* () {
+        const { fs, service, layout } = yield* setup;
+        const outside = yield* fs.makeTempDirectoryScoped({ prefix: "t3-workflow-outside-" });
+        const secret = NodePath.join(outside, "secret.jsonl");
+        yield* fs.writeFileString(secret, JSON.stringify({ type: "started", agentId: "leak" }));
+
+        const escapeDir = NodePath.join(layout.transcriptDir, "..", "wf_journal_escape");
+        yield* fs.makeDirectory(escapeDir, { recursive: true });
+        yield* Effect.promise(() =>
+          NodeFSP.symlink(secret, NodePath.join(escapeDir, "journal.jsonl")),
+        );
+
+        const error = yield* service.readJournal({ transcriptDir: escapeDir }).pipe(Effect.flip);
+        assert.equal(error._tag, "WorkflowInspectionError");
+        assert.equal(error.reason, "invalid-path");
+      }).pipe(Effect.provide(NodeServices.layer)),
+    );
+
     it.effect("rejects a transcript dir outside the root as invalid-path", () =>
       Effect.gen(function* () {
         const { fs, service } = yield* setup;
@@ -292,6 +311,27 @@ describe("WorkflowInspectionService", () => {
         assert.equal(second.nextLine, 500);
         assert.isTrue(second.complete);
         assert.equal(second.lines[99], "line-499");
+      }).pipe(Effect.provide(NodeServices.layer)),
+    );
+
+    it.effect("rejects an agent transcript symlink that escapes the root as invalid-path", () =>
+      Effect.gen(function* () {
+        const { fs, service, layout } = yield* setup;
+        const outside = yield* fs.makeTempDirectoryScoped({ prefix: "t3-workflow-outside-" });
+        const secret = NodePath.join(outside, "secret.txt");
+        yield* fs.writeFileString(secret, "root:x:0:0::/root:/bin/bash");
+
+        const escapeDir = NodePath.join(layout.transcriptDir, "..", "wf_transcript_escape");
+        yield* fs.makeDirectory(escapeDir, { recursive: true });
+        yield* Effect.promise(() =>
+          NodeFSP.symlink(secret, NodePath.join(escapeDir, "agent-leak.jsonl")),
+        );
+
+        const error = yield* service
+          .readAgentTranscript({ transcriptDir: escapeDir, agentId: "leak" })
+          .pipe(Effect.flip);
+        assert.equal(error._tag, "WorkflowInspectionError");
+        assert.equal(error.reason, "invalid-path");
       }).pipe(Effect.provide(NodeServices.layer)),
     );
 

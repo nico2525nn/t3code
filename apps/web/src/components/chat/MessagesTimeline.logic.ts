@@ -590,12 +590,14 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "workflow": {
       const bw = b as typeof a;
-      // WorkflowRun view models are rebuilt per derivation; compare the
-      // fields that drive rendering so unchanged runs keep row identity.
+      // WorkflowRun view models are rebuilt per derivation; `revision` is a
+      // deterministic per-run change counter, so equal revisions (and status,
+      // which sessionActive can flip without a new activity) mean identical
+      // content.
       return (
         a.createdAt === bw.createdAt &&
         a.workflowRun.status === bw.workflowRun.status &&
-        a.workflowRun.updatedAt === bw.workflowRun.updatedAt
+        a.workflowRun.revision === bw.workflowRun.revision
       );
     }
 

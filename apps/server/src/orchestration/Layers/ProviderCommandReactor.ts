@@ -1023,10 +1023,23 @@ const make = Effect.gen(function* () {
       });
     }
 
-    yield* providerService.stopTask({
-      threadId: event.payload.threadId,
-      taskId: event.payload.taskId,
-    });
+    yield* providerService
+      .stopTask({
+        threadId: event.payload.threadId,
+        taskId: event.payload.taskId,
+      })
+      .pipe(
+        Effect.catchCause((cause) =>
+          appendProviderFailureActivity({
+            threadId: event.payload.threadId,
+            kind: "provider.task.stop.failed",
+            summary: "Background task stop failed",
+            detail: Cause.pretty(cause),
+            turnId: null,
+            createdAt: event.payload.createdAt,
+          }),
+        ),
+      );
   });
 
   const processDomainEvent = Effect.fn("processDomainEvent")(function* (

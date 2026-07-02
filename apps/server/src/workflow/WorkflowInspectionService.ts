@@ -116,7 +116,6 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
             operation,
             reason: isEnoent(cause) ? "not-found" : "read-failed",
             detail: "Failed to resolve the workflow projects root.",
-            cause,
           }),
       });
 
@@ -127,7 +126,6 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
             operation,
             reason: isEnoent(cause) ? "not-found" : "read-failed",
             detail: "Failed to resolve the requested path.",
-            cause,
           }),
       });
 
@@ -162,7 +160,6 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
               operation,
               reason: isNotFoundPlatformError(cause) ? "not-found" : "read-failed",
               detail: "Failed to read the workflow script.",
-              cause,
             }),
         ),
       );
@@ -179,7 +176,12 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
     ) {
       const operation = "WorkflowInspectionService.readJournal";
       const realDir = yield* resolveContained(operation, input.transcriptDir);
-      const journalPath = NodePath.join(realDir, "journal.jsonl");
+      // Re-contain the joined leaf: a symlink named journal.jsonl inside a
+      // valid directory must not escape the projects root.
+      const journalPath = yield* resolveContained(
+        operation,
+        NodePath.join(realDir, "journal.jsonl"),
+      );
       const raw = yield* fs.readFileString(journalPath).pipe(
         Effect.mapError(
           (cause) =>
@@ -187,7 +189,6 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
               operation,
               reason: isNotFoundPlatformError(cause) ? "not-found" : "read-failed",
               detail: "Failed to read the workflow journal.",
-              cause,
             }),
         ),
       );
@@ -259,7 +260,12 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
         }
 
         const realDir = yield* resolveContained(operation, input.transcriptDir);
-        const transcriptPath = NodePath.join(realDir, `agent-${input.agentId}.jsonl`);
+        // Re-contain the joined leaf: a symlink named agent-<id>.jsonl inside
+        // a valid directory must not escape the projects root.
+        const transcriptPath = yield* resolveContained(
+          operation,
+          NodePath.join(realDir, `agent-${input.agentId}.jsonl`),
+        );
         // v1 reads the whole file per page; acceptable for current transcript
         // sizes. Revisit with a streaming/seek reader if transcripts grow large.
         const raw = yield* fs.readFileString(transcriptPath).pipe(
@@ -269,7 +275,6 @@ export const make = (options?: { readonly projectsRoot?: string }) =>
                 operation,
                 reason: isNotFoundPlatformError(cause) ? "not-found" : "read-failed",
                 detail: "Failed to read the agent transcript.",
-                cause,
               }),
           ),
         );

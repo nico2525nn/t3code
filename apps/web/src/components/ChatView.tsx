@@ -1730,7 +1730,15 @@ function ChatViewContent(props: ChatViewProps) {
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
-  const workflowRuns = useMemo(() => deriveWorkflowRuns(threadActivities), [threadActivities]);
+  const workflowSessionActive =
+    activeThread?.session !== null &&
+    activeThread?.session !== undefined &&
+    activeThread.session.status !== "stopped" &&
+    activeThread.session.status !== "error";
+  const workflowRuns = useMemo(
+    () => deriveWorkflowRuns(threadActivities, { sessionActive: workflowSessionActive }),
+    [threadActivities, workflowSessionActive],
+  );
   const activeWorkflowSurface =
     activeRightPanelSurface?.kind === "workflow" ? activeRightPanelSurface : null;
   const activeWorkflowRun = useMemo(

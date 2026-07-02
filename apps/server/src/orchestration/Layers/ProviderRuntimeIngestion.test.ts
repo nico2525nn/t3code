@@ -3122,7 +3122,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     const thread = await waitForThread(harness.readModel, (entry) =>
       entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === "workflow:task-wf-1",
+        (activity: ProviderRuntimeTestActivity) => activity.id === "workflow:thread-1:task-wf-1",
       ),
     );
 
@@ -3132,7 +3132,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(perTick?.kind).toBe("task.progress");
 
     const snapshot = thread.activities.find(
-      (activity: ProviderRuntimeTestActivity) => activity.id === "workflow:task-wf-1",
+      (activity: ProviderRuntimeTestActivity) => activity.id === "workflow:thread-1:task-wf-1",
     );
     expect(snapshot?.kind).toBe("task.workflow-updated");
     const payload =
@@ -3165,11 +3165,11 @@ describe("ProviderRuntimeIngestion", () => {
 
     const thread = await waitForThread(harness.readModel, (entry) =>
       entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === "workflow-meta:task-wf-meta",
+        (activity: ProviderRuntimeTestActivity) => activity.id === "workflow-meta:thread-1:task-wf-meta",
       ),
     );
     const meta = thread.activities.find(
-      (activity: ProviderRuntimeTestActivity) => activity.id === "workflow-meta:task-wf-meta",
+      (activity: ProviderRuntimeTestActivity) => activity.id === "workflow-meta:thread-1:task-wf-meta",
     );
     expect(meta?.kind).toBe("task.workflow-meta");
     const payload =
@@ -3226,7 +3226,7 @@ describe("ProviderRuntimeIngestion", () => {
     const drainedThread = drained.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
 
     const snapshots = drainedThread?.activities.filter(
-      (activity: ProviderRuntimeTestActivity) => activity.id === "workflow:task-wf-2",
+      (activity: ProviderRuntimeTestActivity) => activity.id === "workflow:thread-1:task-wf-2",
     );
     expect(snapshots).toHaveLength(1);
     const payload =

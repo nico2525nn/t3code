@@ -96,7 +96,6 @@ export class WorkflowInspectionError extends Schema.TaggedErrorClass<WorkflowIns
     operation: Schema.String,
     reason: Schema.Literals(["invalid-path", "not-found", "read-failed", "unsupported"]),
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {

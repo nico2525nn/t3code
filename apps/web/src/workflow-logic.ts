@@ -69,6 +69,10 @@ export interface WorkflowRun {
   status: WorkflowRunStatus;
   createdAt: string;
   updatedAt: string;
+  /** Monotonic per-derivation change counter — bumped on every applied
+   * workflow activity so renderers can cheaply detect content changes even
+   * when timestamps collide at millisecond precision. */
+  revision: number;
   turnId: TurnId | null;
   name?: string | undefined;
   description?: string | undefined;
@@ -300,6 +304,7 @@ export function collectWorkflowTaskIds(
 
 export function deriveWorkflowRuns(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
+  options?: { readonly sessionActive?: boolean | undefined },
 ): WorkflowRun[] {
   const ordered = [...activities].toSorted(
     (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
@@ -317,6 +322,7 @@ export function deriveWorkflowRuns(
       createdAt: activity.createdAt,
       updatedAt: activity.createdAt,
       turnId: activity.turnId,
+      revision: 0,
       phases: [],
       logs: [],
       agentCounts: { total: 0, queued: 0, running: 0, done: 0, error: 0 },
@@ -342,6 +348,7 @@ export function deriveWorkflowRuns(
           break;
         }
         const run = ensureRun(taskId, activity);
+        run.revision += 1;
         run.hasStartedActivity = true;
         run.createdAt = activity.createdAt;
         run.turnId = activity.turnId;
@@ -357,6 +364,7 @@ export function deriveWorkflowRuns(
       }
       case "task.workflow-updated": {
         const run = ensureRun(taskId, activity);
+        run.revision += 1;
         run.updatedAt = activity.createdAt;
         const description = asString(payload.description);
         if (description !== undefined && run.description === undefined) {
@@ -380,6 +388,7 @@ export function deriveWorkflowRuns(
       }
       case "task.workflow-meta": {
         const run = ensureRun(taskId, activity);
+        run.revision += 1;
         run.updatedAt = activity.createdAt;
         const name = asString(payload.workflowName);
         if (name !== undefined) {
@@ -410,6 +419,7 @@ export function deriveWorkflowRuns(
         if (!run) {
           break;
         }
+        run.revision += 1;
         run.updatedAt = activity.createdAt;
         run.status =
           payload.status === "failed"
@@ -428,8 +438,15 @@ export function deriveWorkflowRuns(
     }
   }
 
+  // A workflow cannot outlive its provider session: when the session is gone
+  // and no task_notification ever arrived (crash, interrupt, app restart),
+  // surface the run as stopped instead of running forever.
+  const sessionActive = options?.sessionActive ?? true;
   return [...runs.values()]
     .map(({ hasStartedActivity: _hasStartedActivity, ...run }) => run)
+    .map((run) =>
+      run.status === "running" && !sessionActive ? { ...run, status: "stopped" as const } : run,
+    )
     .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt) || a.taskId.localeCompare(b.taskId));
 }
 
