@@ -270,9 +270,7 @@ export function groupWorkflowAgentsByPhase(parsed: {
     .toSorted((a, b) => a.index - b.index);
 }
 
-interface MutableWorkflowRun extends WorkflowRun {
-  hasStartedActivity: boolean;
-}
+type MutableWorkflowRun = WorkflowRun;
 
 function isWorkflowTaskStartedPayload(payload: Record<string, unknown>): boolean {
   return payload.taskType === "local_workflow" || asString(payload.workflowName) !== undefined;
@@ -326,7 +324,6 @@ export function deriveWorkflowRuns(
       phases: [],
       logs: [],
       agentCounts: { total: 0, queued: 0, running: 0, done: 0, error: 0 },
-      hasStartedActivity: false,
     };
     runs.set(taskId, run);
     return run;
@@ -349,7 +346,6 @@ export function deriveWorkflowRuns(
         }
         const run = ensureRun(taskId, activity);
         run.revision += 1;
-        run.hasStartedActivity = true;
         run.createdAt = activity.createdAt;
         run.turnId = activity.turnId;
         const name = asString(payload.workflowName);
@@ -440,14 +436,41 @@ export function deriveWorkflowRuns(
 
   // A workflow cannot outlive its provider session: when the session is gone
   // and no task_notification ever arrived (crash, interrupt, app restart),
-  // surface the run as stopped instead of running forever.
+  // surface the run as stopped instead of running forever. Runs derived only
+  // from snapshot/meta activities (no task.started — e.g. after a checkpoint
+  // revert trimmed it) are kept intentionally: partial history still renders.
   const sessionActive = options?.sessionActive ?? true;
   return [...runs.values()]
-    .map(({ hasStartedActivity: _hasStartedActivity, ...run }) => run)
     .map((run) =>
-      run.status === "running" && !sessionActive ? { ...run, status: "stopped" as const } : run,
+      run.status === "running" && !sessionActive ? terminalizeInterruptedRun(run) : run,
     )
     .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt) || a.taskId.localeCompare(b.taskId));
+}
+
+/**
+ * Settle a run whose session died before a terminal task notification:
+ * the run becomes "stopped" and its in-flight agents settle to "error" so
+ * nothing keeps rendering (or polling) as live work.
+ */
+function terminalizeInterruptedRun(run: WorkflowRun): WorkflowRun {
+  const settleAgent = (agent: WorkflowRunAgent): WorkflowRunAgent =>
+    agent.status === "running" || agent.status === "queued"
+      ? { ...agent, status: "error", error: agent.error ?? "Interrupted before completion" }
+      : agent;
+  const phases = run.phases.map((phase) => ({ ...phase, agents: phase.agents.map(settleAgent) }));
+  const agents = phases.flatMap((phase) => phase.agents);
+  return {
+    ...run,
+    status: "stopped",
+    phases,
+    agentCounts: {
+      total: agents.length,
+      queued: agents.filter((agent) => agent.status === "queued").length,
+      running: agents.filter((agent) => agent.status === "running").length,
+      done: agents.filter((agent) => agent.status === "done").length,
+      error: agents.filter((agent) => agent.status === "error").length,
+    },
+  };
 }
 
 export function isRemoteWorkflowRun(run: WorkflowRun): boolean {

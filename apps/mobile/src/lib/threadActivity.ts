@@ -229,18 +229,68 @@ function resolvePendingUserInputAnswer(
   return normalizeDraftAnswer(draft?.selectedOptionLabel);
 }
 
+/**
+ * Task ids owned by a workflow run. Mirrors the desktop derivation in
+ * apps/web/src/workflow-logic.ts (collectWorkflowTaskIds) — mobile has no
+ * workflow card yet, so all rows for those tasks are suppressed rather than
+ * rendered as per-tick noise.
+ */
+function collectWorkflowTaskIds(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): Set<string> {
+  const taskIds = new Set<string>();
+  for (const activity of activities) {
+    const payload = activity.payload as Record<string, unknown> | null | undefined;
+    const taskId =
+      payload && typeof payload === "object" && typeof payload["taskId"] === "string"
+        ? payload["taskId"]
+        : undefined;
+    if (!taskId) continue;
+    const workflowName =
+      payload && typeof payload === "object" ? payload["workflowName"] : undefined;
+    const taskType = payload && typeof payload === "object" ? payload["taskType"] : undefined;
+    if (
+      activity.kind === "task.workflow-updated" ||
+      activity.kind === "task.workflow-meta" ||
+      (activity.kind === "task.started" &&
+        (taskType === "local_workflow" || typeof workflowName === "string"))
+    ) {
+      taskIds.add(taskId);
+    }
+  }
+  return taskIds;
+}
+
+function activityBelongsToWorkflow(
+  activity: OrchestrationThreadActivity,
+  workflowTaskIds: ReadonlySet<string>,
+): boolean {
+  const payload = activity.payload as Record<string, unknown> | null | undefined;
+  const taskId = payload && typeof payload === "object" ? payload["taskId"] : undefined;
+  return typeof taskId === "string" && workflowTaskIds.has(taskId);
+}
+
 function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): DerivedWorkLogEntry[] {
   const ordered = Arr.sort(activities, activityOrder);
+  const workflowTaskIds = collectWorkflowTaskIds(activities);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
     if (activity.kind === "tool.started") continue;
     if (activity.kind === "task.started") continue;
     // Workflow snapshot/meta activities back the desktop workflow card; on
-    // mobile they would render as ever-mutating raw rows, so skip them.
+    // mobile they would render as ever-mutating raw rows, so skip them —
+    // along with the per-tick task rows the workflow owns.
     if (activity.kind === "task.workflow-updated") continue;
     if (activity.kind === "task.workflow-meta") continue;
+    if (
+      (activity.kind === "task.progress" || activity.kind === "task.completed") &&
+      workflowTaskIds.size > 0 &&
+      activityBelongsToWorkflow(activity, workflowTaskIds)
+    ) {
+      continue;
+    }
     if (activity.kind === "context-window.updated") continue;
     if (activity.summary === "Checkpoint captured") continue;
     if (isPlanBoundaryToolActivity(activity)) continue;

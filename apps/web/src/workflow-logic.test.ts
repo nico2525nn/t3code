@@ -256,6 +256,40 @@ describe("deriveWorkflowRuns", () => {
     expect(runs).toEqual([]);
   });
 
+  it("terminalizes a still-running run and settles in-flight agents when the session is gone", () => {
+    const runs = deriveWorkflowRuns(
+      [
+        workflowStartedActivity("task-1"),
+        workflowUpdatedActivity("task-1", [
+          { type: "workflow_agent", index: 0, state: "done" },
+          { type: "workflow_agent", index: 1, state: "start", startedAt: 1000 },
+          { type: "workflow_agent", index: 2, state: "start" },
+        ]),
+      ],
+      { sessionActive: false },
+    );
+    const run = runs[0];
+    expect(run?.status).toBe("stopped");
+    const agents = run?.phases.flatMap((phase) => phase.agents) ?? [];
+    expect(agents.map((agent) => agent.status)).toEqual(["done", "error", "error"]);
+    expect(agents[1]?.error).toBe("Interrupted before completion");
+    expect(run?.agentCounts).toEqual({ total: 3, queued: 0, running: 0, done: 1, error: 2 });
+  });
+
+  it("keeps a running run untouched while the session is active", () => {
+    const runs = deriveWorkflowRuns(
+      [
+        workflowStartedActivity("task-1"),
+        workflowUpdatedActivity("task-1", [
+          { type: "workflow_agent", index: 0, state: "start", startedAt: 1000 },
+        ]),
+      ],
+      { sessionActive: true },
+    );
+    expect(runs[0]?.status).toBe("running");
+    expect(runs[0]?.phases.flatMap((phase) => phase.agents)[0]?.status).toBe("running");
+  });
+
   it("detects remote runs from session handles", () => {
     const runs = deriveWorkflowRuns([
       workflowStartedActivity("task-remote"),

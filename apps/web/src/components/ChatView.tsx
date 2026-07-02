@@ -1730,11 +1730,9 @@ function ChatViewContent(props: ChatViewProps) {
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
-  const workflowSessionActive =
-    activeThread?.session !== null &&
-    activeThread?.session !== undefined &&
-    activeThread.session.status !== "stopped" &&
-    activeThread.session.status !== "error";
+  // Mirrors derivePhase: interrupted/stopped/error sessions are all
+  // disconnected, and a workflow cannot still be running under any of them.
+  const workflowSessionActive = phase !== "disconnected";
   const workflowRuns = useMemo(
     () => deriveWorkflowRuns(threadActivities, { sessionActive: workflowSessionActive }),
     [threadActivities, workflowSessionActive],

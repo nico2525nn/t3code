@@ -425,9 +425,12 @@ function AgentTranscriptView({
     };
   }, [loadMore]);
 
-  // Keep polling for new lines while the run is live.
+  // Keep polling for new lines while the run is live; when the run settles
+  // (or the row opens on an already-terminal run), fetch once more so lines
+  // appended after the last poll tick are not lost.
   useEffect(() => {
     if (runStatus !== "running") {
+      void loadMore();
       return;
     }
     const id = setInterval(() => {
