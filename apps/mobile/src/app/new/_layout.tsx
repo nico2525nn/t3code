@@ -44,7 +44,10 @@ export default function NewTaskLayout() {
           name="add-project/local"
           options={{ animation: pushScreenAnimation, title: "Local folder" }}
         />
-        <Stack.Screen name="draft" options={{ animation: pushScreenAnimation, title: "New task" }} />
+        <Stack.Screen
+          name="draft"
+          options={{ animation: pushScreenAnimation, title: "New task" }}
+        />
       </Stack>
     </NewTaskFlowProvider>
   );
