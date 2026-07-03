@@ -154,12 +154,12 @@ export const make = Effect.gen(function* () {
           cause,
         });
 
-    const realWorkspaceRoot = yield* fileSystem.realPath(input.cwd).pipe(
-      Effect.mapError(toOperationError("realpath-workspace-root", input.cwd)),
-    );
-    const realTargetPath = yield* fileSystem.realPath(target.absolutePath).pipe(
-      Effect.mapError(toOperationError("realpath-target", target.absolutePath)),
-    );
+    const realWorkspaceRoot = yield* fileSystem
+      .realPath(input.cwd)
+      .pipe(Effect.mapError(toOperationError("realpath-workspace-root", input.cwd)));
+    const realTargetPath = yield* fileSystem
+      .realPath(target.absolutePath)
+      .pipe(Effect.mapError(toOperationError("realpath-target", target.absolutePath)));
     const relativeRealPath = path.relative(realWorkspaceRoot, realTargetPath);
     if (
       relativeRealPath.startsWith(`..${path.sep}`) ||
@@ -176,9 +176,9 @@ export const make = Effect.gen(function* () {
 
     return yield* Effect.scoped(
       Effect.gen(function* () {
-        const file = yield* fileSystem.open(realTargetPath, { flag: "r" }).pipe(
-          Effect.mapError(toOperationError("open", realTargetPath, realTargetPath)),
-        );
+        const file = yield* fileSystem
+          .open(realTargetPath, { flag: "r" })
+          .pipe(Effect.mapError(toOperationError("open", realTargetPath, realTargetPath)));
         const stat = yield* file.stat.pipe(
           Effect.mapError(toOperationError("stat", realTargetPath, realTargetPath)),
         );
@@ -197,9 +197,9 @@ export const make = Effect.gen(function* () {
           bytesToRead === 0
             ? new Uint8Array()
             : Option.getOrElse(
-                yield* file.readAlloc(bytesToRead).pipe(
-                  Effect.mapError(toOperationError("read", realTargetPath, realTargetPath)),
-                ),
+                yield* file
+                  .readAlloc(bytesToRead)
+                  .pipe(Effect.mapError(toOperationError("read", realTargetPath, realTargetPath))),
                 () => new Uint8Array(),
               );
         if (fileBytes.includes(0)) {
