@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildModelPickerSearchText, scoreModelPickerSearch } from "./modelPickerSearch";
+import {
+  buildModelPickerSearchText,
+  normalizeModelPickerSearchQuery,
+  scoreModelPickerSearch,
+} from "./modelPickerSearch";
 
 describe("buildModelPickerSearchText", () => {
   it("builds provider-agnostic search text from generic fields", () => {
@@ -12,6 +16,12 @@ describe("buildModelPickerSearchText", () => {
         subProvider: "GitHub Copilot",
       }),
     ).toBe("claude opus 4.7 github copilot opencode opencode");
+  });
+});
+
+describe("normalizeModelPickerSearchQuery", () => {
+  it("normalizes casing and redundant whitespace before publishing picker searches", () => {
+    expect(normalizeModelPickerSearchQuery("  GPT   Codex  ")).toBe("gpt codex");
   });
 });
 

@@ -17,6 +17,13 @@ type ModelPickerSearchableModel = {
 
 const MODEL_PICKER_FAVORITE_SCORE_BOOST = 24;
 
+export function normalizeModelPickerSearchQuery(query: string): string {
+  return normalizeSearchQuery(query)
+    .split(/\s+/u)
+    .filter((token) => token.length > 0)
+    .join(" ");
+}
+
 function getModelPickerSearchFields(model: ModelPickerSearchableModel): string[] {
   return [
     normalizeSearchQuery(model.name),
@@ -56,9 +63,7 @@ export function scoreModelPickerSearch(
   model: ModelPickerSearchableModel,
   query: string,
 ): number | null {
-  const tokens = normalizeSearchQuery(query)
-    .split(/\s+/u)
-    .filter((token) => token.length > 0);
+  const tokens = normalizeModelPickerSearchQuery(query).split(/\s+/u).filter(Boolean);
 
   if (tokens.length === 0) {
     return 0;
