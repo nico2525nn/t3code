@@ -1,9 +1,10 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { it, describe, expect } from "@effect/vitest";
+import { assert, it, describe, expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
 
 import * as ServerConfig from "../config.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -28,6 +29,34 @@ const TestLayer = Layer.empty.pipe(
     }),
   ),
   Layer.provideMerge(NodeServices.layer),
+);
+
+const OpenFailureFileSystemLayer = Layer.effect(
+  FileSystem.FileSystem,
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+
+    return {
+      ...fileSystem,
+      open: (path, options) =>
+        Effect.fail(
+          PlatformError.systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method: "open",
+            pathOrDescriptor: String(path),
+            description: `open intercepted by FileSystem test layer (options: ${String(Boolean(options))})`,
+          }),
+        ),
+    } satisfies FileSystem.FileSystem;
+  }),
+).pipe(Layer.provide(NodeServices.layer));
+
+const WorkspaceFileSystemOpenFailureLayer = WorkspaceFileSystem.layer.pipe(
+  Layer.provide(WorkspacePaths.layer),
+  Layer.provide(Layer.mock(WorkspaceEntries.WorkspaceEntries)({})),
+  Layer.provideMerge(OpenFailureFileSystemLayer),
+  Layer.provide(Path.layer),
 );
 
 const makeTempDir = Effect.gen(function* () {
@@ -185,9 +214,29 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           operationPath: resolvedPath,
           operation: "realpath-target",
         });
-        expect(error.cause).toBeInstanceOf(Error);
-        expect((error.cause as NodeJS.ErrnoException).code).toBe("ENOENT");
+        expect(error.cause).toBeInstanceOf(PlatformError.PlatformError);
+        expect((error.cause as PlatformError.PlatformError).reason._tag).toBe("NotFound");
       }),
+    );
+
+    it.effect("opens files through the injected FileSystem service", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "src/index.ts", "export const answer = 42;\n");
+        const fileSystem = yield* FileSystem.FileSystem;
+        const resolvedPath = yield* fileSystem.realPath(`${cwd}/src/index.ts`);
+
+        const error = yield* workspaceFileSystem
+          .readFile({ cwd, relativePath: "src/index.ts" })
+          .pipe(Effect.flip);
+
+        assert.instanceOf(error, WorkspaceFileSystem.WorkspaceFileSystemOperationError);
+        assert.equal(error.operation, "open");
+        assert.equal(error.operationPath, resolvedPath);
+        assert.instanceOf(error.cause, PlatformError.PlatformError);
+        assert.equal((error.cause as PlatformError.PlatformError).reason._tag, "PermissionDenied");
+      }).pipe(Effect.provide(WorkspaceFileSystemOpenFailureLayer)),
     );
   });
 
