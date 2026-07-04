@@ -1,4 +1,4 @@
-import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -13,12 +13,17 @@ import {
 } from "../Services/ProviderSessionReaper.ts";
 import { ProviderService } from "../Services/ProviderService.ts";
 
-const DEFAULT_INACTIVITY_THRESHOLD_MS = 30 * 60 * 1000;
-const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+const MINIMUM_DURATION = Duration.millis(1);
+const DEFAULT_INACTIVITY_THRESHOLD = Duration.minutes(30);
+const DEFAULT_SWEEP_INTERVAL = Duration.minutes(5);
 
 export interface ProviderSessionReaperLiveOptions {
-  readonly inactivityThresholdMs?: number;
-  readonly sweepIntervalMs?: number;
+  readonly inactivityThreshold?: Duration.Input;
+  readonly sweepInterval?: Duration.Input;
+}
+
+function normalizeDuration(input: Duration.Input | undefined, fallback: Duration.Duration) {
+  return Duration.max(Duration.fromInputUnsafe(input ?? fallback), MINIMUM_DURATION);
 }
 
 const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =>
@@ -27,15 +32,15 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
     const directory = yield* ProviderSessionDirectory;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
-    const inactivityThresholdMs = Math.max(
-      1,
-      options?.inactivityThresholdMs ?? DEFAULT_INACTIVITY_THRESHOLD_MS,
+    const inactivityThreshold = normalizeDuration(
+      options?.inactivityThreshold,
+      DEFAULT_INACTIVITY_THRESHOLD,
     );
-    const sweepIntervalMs = Math.max(1, options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS);
+    const sweepInterval = normalizeDuration(options?.sweepInterval, DEFAULT_SWEEP_INTERVAL);
 
     const sweep = Effect.gen(function* () {
       const bindings = yield* directory.listBindings();
-      const now = yield* Clock.currentTimeMillis;
+      const now = yield* DateTime.now;
       let reapedCount = 0;
 
       for (const binding of bindings) {
@@ -43,8 +48,8 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
           continue;
         }
 
-        const lastSeenMs = Date.parse(binding.lastSeenAt);
-        if (Number.isNaN(lastSeenMs)) {
+        const lastSeen = DateTime.make(binding.lastSeenAt);
+        if (Option.isNone(lastSeen)) {
           yield* Effect.logWarning("provider.session.reaper.invalid-last-seen", {
             threadId: binding.threadId,
             provider: binding.provider,
@@ -53,8 +58,9 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
           continue;
         }
 
-        const idleDurationMs = now - lastSeenMs;
-        if (idleDurationMs < inactivityThresholdMs) {
+        const idleDuration = DateTime.distance(lastSeen.value, now);
+        const idleDurationMs = Duration.toMillis(idleDuration);
+        if (Duration.isLessThan(idleDuration, inactivityThreshold)) {
           continue;
         }
 
@@ -117,13 +123,13 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
                 defect,
               }),
             ),
-            Effect.repeat(Schedule.spaced(Duration.millis(sweepIntervalMs))),
+            Effect.repeat(Schedule.spaced(sweepInterval)),
           ),
         );
 
         yield* Effect.logInfo("provider.session.reaper.started", {
-          inactivityThresholdMs,
-          sweepIntervalMs,
+          inactivityThresholdMs: Duration.toMillis(inactivityThreshold),
+          sweepIntervalMs: Duration.toMillis(sweepInterval),
         });
       });
 
