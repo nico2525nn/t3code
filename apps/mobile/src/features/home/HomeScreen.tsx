@@ -172,12 +172,11 @@ function deriveEmptyState(props: {
 function ProjectGroupLabel(props: {
   readonly project: EnvironmentProject;
   readonly title: string;
-  readonly totalThreadCount: number;
+  readonly hiddenCount: number;
   readonly isExpanded: boolean;
   readonly onToggleExpand: () => void;
   readonly onNewThread: () => void;
 }) {
-  const hiddenCount = props.totalThreadCount - COLLAPSED_THREAD_LIMIT;
   const iconMutedColor = useThemeColor("--color-icon-muted");
 
   return (
@@ -212,13 +211,13 @@ function ProjectGroupLabel(props: {
         />
       </Pressable>
 
-      {hiddenCount > 0 ? (
+      {props.hiddenCount > 0 ? (
         <Pressable onPress={props.onToggleExpand} hitSlop={8}>
           <Text
             className="text-xs font-t3-medium text-foreground-muted"
             style={{ letterSpacing: 0.4 }}
           >
-            {props.isExpanded ? "Show less" : `${hiddenCount} more`}
+            {props.isExpanded ? "Show less" : `${props.hiddenCount} more`}
           </Text>
         </Pressable>
       ) : null}
@@ -568,9 +567,10 @@ export function HomeScreen(props: HomeScreenProps) {
         ) : (
           projectGroups.map((group) => {
             const isExpanded = expandedProjects.has(group.key);
-            const visibleThreads = isExpanded
-              ? group.threads
-              : group.threads.slice(0, COLLAPSED_THREAD_LIMIT);
+            // Collapsed shows recent threads only; expanding reveals full history.
+            const collapsedThreads = group.recentThreads.slice(0, COLLAPSED_THREAD_LIMIT);
+            const visibleThreads = isExpanded ? group.threads : collapsedThreads;
+            const hiddenCount = group.threads.length - collapsedThreads.length;
 
             return (
               <Animated.View
@@ -586,7 +586,7 @@ export function HomeScreen(props: HomeScreenProps) {
                   onToggleExpand={() => toggleExpanded(group.key)}
                   project={group.representative}
                   title={group.title}
-                  totalThreadCount={group.threads.length}
+                  hiddenCount={hiddenCount}
                 />
                 <View
                   className="overflow-hidden rounded-[20px] bg-card"

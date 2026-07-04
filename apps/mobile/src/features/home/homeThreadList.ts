@@ -20,12 +20,23 @@ import { scopedProjectKey } from "../../lib/scopedEntities";
 
 export type HomeProjectSortOrder = Exclude<SidebarProjectSortOrder, "manual">;
 
+/**
+ * Default home view only surfaces threads active within this window, to keep the
+ * screen compact while keeping recent work visible.
+ */
+const RECENT_THREAD_WINDOW_MS = 5 * 24 * 60 * 60 * 1000;
+/** Fallback when a project has no threads inside the recency window. */
+const RECENT_THREAD_FALLBACK_COUNT = 3;
+
 export interface HomeThreadGroup {
   readonly key: string;
   readonly title: string;
   readonly representative: EnvironmentProject;
   readonly projects: ReadonlyArray<EnvironmentProject>;
+  /** Full sorted thread history for the group (revealed when expanded / searching). */
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  /** Subset shown by default: threads from the last few days, or the most recent few. */
+  readonly recentThreads: ReadonlyArray<EnvironmentThreadShell>;
 }
 
 interface MutableHomeThreadGroup {
@@ -41,6 +52,24 @@ function groupSortTimestamp(group: HomeThreadGroup, sortOrder: HomeProjectSortOr
   );
 }
 
+/**
+ * Trims a group's threads to recent activity for the default home view.
+ * `sortedThreads` must already be ordered newest-first for `threadSortOrder`.
+ * Keeps threads within {@link RECENT_THREAD_WINDOW_MS}; when none qualify, keeps
+ * the most recent {@link RECENT_THREAD_FALLBACK_COUNT} so a project never vanishes.
+ */
+function selectRecentThreads(
+  sortedThreads: ReadonlyArray<EnvironmentThreadShell>,
+  threadSortOrder: SidebarThreadSortOrder,
+  now: number,
+): ReadonlyArray<EnvironmentThreadShell> {
+  const cutoff = now - RECENT_THREAD_WINDOW_MS;
+  const recent = sortedThreads.filter(
+    (thread) => getThreadSortTimestamp(thread, threadSortOrder) >= cutoff,
+  );
+  return recent.length > 0 ? recent : sortedThreads.slice(0, RECENT_THREAD_FALLBACK_COUNT);
+}
+
 export function buildHomeThreadGroups(input: {
   readonly projects: ReadonlyArray<EnvironmentProject>;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
@@ -49,7 +78,10 @@ export function buildHomeThreadGroups(input: {
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
+  /** Current time used for the recency window; defaults to now. Injectable for tests. */
+  readonly now?: number;
 }): ReadonlyArray<HomeThreadGroup> {
+  const now = input.now ?? Date.now();
   const groups = new Map<string, MutableHomeThreadGroup>();
   const groupKeyByProjectKey = new Map<string, string>();
 
@@ -113,12 +145,21 @@ export function buildHomeThreadGroups(input: {
       continue;
     }
 
+    const sortedThreads = sortThreads(matchingThreads, input.threadSortOrder);
+    // An active search should reach the full history, so the recency window
+    // only trims the default (no-query) view.
+    const recentThreads =
+      query.length === 0
+        ? selectRecentThreads(sortedThreads, input.threadSortOrder, now)
+        : sortedThreads;
+
     result.push({
       key: group.key,
       title,
       representative,
       projects: group.projects,
-      threads: sortThreads(matchingThreads, input.threadSortOrder),
+      threads: sortedThreads,
+      recentThreads,
     });
   }
 

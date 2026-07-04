@@ -44,6 +44,8 @@ function makeThread(
   };
 }
 
+const NOW = Date.parse("2026-06-29T00:00:00.000Z");
+
 function buildGroups(
   projects: ReadonlyArray<EnvironmentProject>,
   threads: ReadonlyArray<EnvironmentThreadShell>,
@@ -57,6 +59,7 @@ function buildGroups(
     projectSortOrder: "updated_at",
     threadSortOrder: "updated_at",
     projectGroupingMode: "repository",
+    now: NOW,
     ...overrides,
   });
 }
@@ -219,5 +222,96 @@ describe("buildHomeThreadGroups", () => {
       2,
     );
     expect(buildGroups(projects, threads, { projectGroupingMode: "separate" })).toHaveLength(2);
+  });
+
+  it("default view shows only threads from the last 5 days", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const project = makeProject({
+      environmentId,
+      id: ProjectId.make("project-1"),
+      title: "T3 Code",
+    });
+    const threads = [
+      makeThread({
+        environmentId,
+        id: ThreadId.make("recent-1"),
+        projectId: project.id,
+        title: "Today",
+        updatedAt: "2026-06-28T00:00:00.000Z",
+      }),
+      makeThread({
+        environmentId,
+        id: ThreadId.make("recent-2"),
+        projectId: project.id,
+        title: "Within window",
+        updatedAt: "2026-06-25T00:00:00.000Z",
+      }),
+      makeThread({
+        environmentId,
+        id: ThreadId.make("old"),
+        projectId: project.id,
+        title: "Two weeks ago",
+        updatedAt: "2026-06-14T00:00:00.000Z",
+      }),
+    ];
+
+    const group = buildGroups([project], threads)[0];
+    // Default view trims to recent threads...
+    expect(group?.recentThreads.map((thread) => thread.id)).toEqual(["recent-1", "recent-2"]);
+    // ...while full history stays available for the expanded view.
+    expect(group?.threads.map((thread) => thread.id)).toEqual(["recent-1", "recent-2", "old"]);
+  });
+
+  it("falls back to the most recent 3 threads when none are within 5 days", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const project = makeProject({
+      environmentId,
+      id: ProjectId.make("project-1"),
+      title: "T3 Code",
+    });
+    const threads = ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05"].map(
+      (day, index) =>
+        makeThread({
+          environmentId,
+          id: ThreadId.make(`thread-${index}`),
+          projectId: project.id,
+          title: `Thread ${index}`,
+          updatedAt: `${day}T00:00:00.000Z`,
+        }),
+    );
+
+    const group = buildGroups([project], threads)[0];
+    expect(group?.recentThreads.map((thread) => thread.id)).toEqual([
+      "thread-4",
+      "thread-3",
+      "thread-2",
+    ]);
+    expect(group?.threads).toHaveLength(5);
+  });
+
+  it("does not apply the recency window while searching", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const project = makeProject({
+      environmentId,
+      id: ProjectId.make("project-1"),
+      title: "T3 Code",
+    });
+    const threads = ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05"].map(
+      (day, index) =>
+        makeThread({
+          environmentId,
+          id: ThreadId.make(`thread-${index}`),
+          projectId: project.id,
+          title: `Thread ${index}`,
+          updatedAt: `${day}T00:00:00.000Z`,
+        }),
+    );
+
+    const group = buildGroups([project], threads, { searchQuery: "T3 Code" })[0];
+    // Search reaches the full history rather than the 3-thread fallback.
+    expect(group?.recentThreads).toHaveLength(5);
+    expect(group?.recentThreads.map((thread) => thread.id)).toEqual(
+      group?.threads.map((thread) => thread.id),
+    );
   });
 });
