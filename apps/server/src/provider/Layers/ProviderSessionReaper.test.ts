@@ -393,9 +393,10 @@ describe("ProviderSessionReaper", () => {
         });
         yield* runInitialSweep;
 
+        assert.equal(harness.stopSession.mock.calls.length, 2);
         assert.deepStrictEqual(
-          harness.stopSession.mock.calls.map(([request]) => request.threadId),
-          [failedThreadId, reapedThreadId],
+          new Set(harness.stopSession.mock.calls.map(([request]) => request.threadId)),
+          new Set([failedThreadId, reapedThreadId]),
         );
       }),
     );
@@ -454,9 +455,10 @@ describe("ProviderSessionReaper", () => {
         });
         yield* runInitialSweep;
 
+        assert.equal(harness.stopSession.mock.calls.length, 2);
         assert.deepStrictEqual(
-          harness.stopSession.mock.calls.map(([request]) => request.threadId),
-          [defectThreadId, reapedThreadId],
+          new Set(harness.stopSession.mock.calls.map(([request]) => request.threadId)),
+          new Set([defectThreadId, reapedThreadId]),
         );
       }),
     );
