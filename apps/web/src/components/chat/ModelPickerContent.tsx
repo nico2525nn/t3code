@@ -78,7 +78,7 @@ function splitInstanceModelKey(key: string): { instanceId: ProviderInstanceId; s
 const ModelPickerSearchInput = memo(function ModelPickerSearchInput(props: {
   inputRef: RefObject<HTMLInputElement | null>;
   onNormalizedQueryChange: (query: string) => void;
-  onRequestClose?: () => void;
+  onRequestClose: (() => void) | undefined;
   onHighlightedModelSelect: () => boolean;
 }) {
   const { inputRef, onHighlightedModelSelect, onNormalizedQueryChange, onRequestClose } = props;
