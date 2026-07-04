@@ -81,7 +81,7 @@ export const ThreadListGroupHeader = memo(function ThreadListGroupHeader(props: 
         className={
           compact ? "flex-1 flex-row items-center gap-2.5" : "flex-1 flex-row items-center gap-2"
         }
-        hitSlop={verticalHitSlop}
+        hitSlop={{ ...verticalHitSlop, left: compact ? 20 : 12 }}
         onPress={handleToggle}
       >
         <ProjectFavicon
