@@ -250,9 +250,13 @@ export function HomeScreen(props: HomeScreenProps) {
               groupKey={item.group.key}
               onGroupAction={updateGroupDisplay}
               // Aggregated groups (same repo across machines) have no single
-              // target project, so the quick new-thread button is single-project only.
+              // target project, and `pending-project:` groups hold a placeholder
+              // built from queued-task metadata rather than a real project shell,
+              // so the quick new-thread button is single-real-project only.
               onNewThread={
-                item.group.projects.length === 1 ? props.onNewThreadInProject : undefined
+                item.group.projects.length === 1 && !item.group.key.startsWith("pending-project:")
+                  ? props.onNewThreadInProject
+                  : undefined
               }
               project={item.group.representative}
               threadCount={item.group.threads.length + item.group.pendingTasks.length}

@@ -279,19 +279,33 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
 
   // Only offer machines that actually host the currently selected repository, so
   // switching computers moves the same repo across machines instead of jumping to
-  // whatever unrelated project happens to be first on the other machine.
+  // whatever unrelated project happens to be first on the other machine. Repository
+  // identity is the primary signal; projects that haven't reported one yet (still
+  // indexing) fall back to workspace basename / title so a valid host isn't hidden.
   const selectedRepositoryKey = selectedProject?.repositoryIdentity?.canonicalKey ?? null;
+  const selectedWorkspaceBasename = selectedProject?.workspaceRoot.split("/").at(-1) ?? null;
+  const selectedProjectTitle = selectedProject?.title ?? null;
   const environments = useMemo(() => {
     const seen = new Set<EnvironmentId>();
     const result: Array<{
       readonly environmentId: EnvironmentId;
       readonly environmentLabel: string;
     }> = [];
+    const hostsSelectedRepository = (project: EnvironmentProject) => {
+      if (selectedRepositoryKey === null && selectedWorkspaceBasename === null) {
+        return true;
+      }
+      const projectKey = project.repositoryIdentity?.canonicalKey ?? null;
+      if (selectedRepositoryKey !== null && projectKey !== null) {
+        return projectKey === selectedRepositoryKey;
+      }
+      return (
+        project.workspaceRoot.split("/").at(-1) === selectedWorkspaceBasename ||
+        (selectedProjectTitle !== null && project.title === selectedProjectTitle)
+      );
+    };
     for (const project of projects) {
-      if (
-        selectedRepositoryKey !== null &&
-        (project.repositoryIdentity?.canonicalKey ?? null) !== selectedRepositoryKey
-      ) {
+      if (!hostsSelectedRepository(project)) {
         continue;
       }
       if (seen.has(project.environmentId)) {
@@ -308,7 +322,13 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       });
     }
     return result;
-  }, [projects, savedConnectionsById, selectedRepositoryKey]);
+  }, [
+    projects,
+    savedConnectionsById,
+    selectedRepositoryKey,
+    selectedWorkspaceBasename,
+    selectedProjectTitle,
+  ]);
 
   const selectedEnvironmentServerConfig = useEnvironmentServerConfig(
     selectedProject?.environmentId ?? null,

@@ -1,5 +1,10 @@
 import { NativeStackScreenOptions } from "../../native/StackHeader";
-import { useFocusEffect, useNavigation, type StaticScreenProps } from "@react-navigation/native";
+import {
+  StackActions,
+  useFocusEffect,
+  useNavigation,
+  type StaticScreenProps,
+} from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Option from "effect/Option";
 import { EnvironmentId, ThreadId, type ProjectScript } from "@t3tools/contracts";
@@ -636,6 +641,22 @@ function ThreadRouteContent(
     ],
     [panes.primarySidebarVisible, props.onReturnToThread, navigation, togglePrimarySidebar],
   );
+  // Deep links / cold starts land with Thread as the ONLY route, where the
+  // native back button does not render. Provide an explicit Home escape for
+  // that case; when history exists the native back button is used instead.
+  const canGoBack = navigation.canGoBack();
+  const compactHomeHeaderItems = useMemo<NativeHeaderItems>(
+    () => [
+      withNativeGlassHeaderItem({
+        accessibilityLabel: "Go to threads list",
+        icon: { name: "list.bullet", type: "sfSymbol" as const },
+        identifier: "thread-left-home",
+        onPress: () => navigation.dispatch(StackActions.replace("Home")),
+        type: "button" as const,
+      }),
+    ],
+    [navigation],
+  );
 
   if (!environmentId || !threadId) {
     return <OpeningThreadLoadingScreen />;
@@ -720,11 +741,17 @@ function ThreadRouteContent(
             : undefined,
           title: selectedThread.title,
           headerBackVisible: !layout.usesSplitView,
-          // Compact uses the NATIVE back button (Thread lives flat in the root
-          // stack now, so a real previous route exists); only split view needs
-          // custom left items.
+          // Compact uses the NATIVE back button when a previous route exists;
+          // deep links / cold starts get an explicit Home button instead.
+          // Split view always uses its custom left items.
           unstable_headerLeftItems:
-            Platform.OS === "ios" && layout.usesSplitView ? () => splitLeftHeaderItems : undefined,
+            Platform.OS === "ios"
+              ? layout.usesSplitView
+                ? () => splitLeftHeaderItems
+                : canGoBack
+                  ? undefined
+                  : () => compactHomeHeaderItems
+              : undefined,
           // Search lives in the persistent sidebar, so the split header keeps
           // the git controls on the RIGHT (no center items — center space is
           // reserved for future breadcrumbs/status).
