@@ -19,7 +19,7 @@ import { useHeaderHeight } from "expo-router/build/react-navigation/elements";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { View, type GestureResponderEvent } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { KeyboardStickyView } from "react-native-keyboard-controller";
+import { KeyboardController, KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { runOnJS } from "react-native-reanimated";
 
@@ -291,16 +291,31 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         return;
       }
       lastScrolledAnchorMessageIdRef.current = anchorMessageId;
-      void scrollMessageToEnd({ animated: true, closeKeyboard: false }).catch(() => {
-        if (
-          selectedThreadKeyRef.current !== targetThreadKey ||
-          lastScrolledAnchorMessageIdRef.current !== anchorMessageId
-        ) {
-          return;
-        }
-        lastScrolledAnchorMessageIdRef.current = null;
-        freeze.set(false);
-      });
+      // Wait for the keyboard dismissal (started by blur() on send) to finish
+      // before scrolling: scrollMessageToEnd freezes keyboard-driven inset
+      // updates while it runs, and a close event swallowed by that freeze
+      // leaves the keyboard padding permanently applied — overshooting the
+      // anchor and leaving a phantom bottom inset once the reply streams in.
+      void KeyboardController.dismiss()
+        .then(() => {
+          if (
+            selectedThreadKeyRef.current !== targetThreadKey ||
+            lastScrolledAnchorMessageIdRef.current !== anchorMessageId
+          ) {
+            return;
+          }
+          return scrollMessageToEnd({ animated: true, closeKeyboard: false });
+        })
+        .catch(() => {
+          if (
+            selectedThreadKeyRef.current !== targetThreadKey ||
+            lastScrolledAnchorMessageIdRef.current !== anchorMessageId
+          ) {
+            return;
+          }
+          lastScrolledAnchorMessageIdRef.current = null;
+          freeze.set(false);
+        });
     });
     return () => cancelAnimationFrame(frame);
   }, [
