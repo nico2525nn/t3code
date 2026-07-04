@@ -249,7 +249,11 @@ export function HomeScreen(props: HomeScreenProps) {
               isFirst={item.isFirst}
               groupKey={item.group.key}
               onGroupAction={updateGroupDisplay}
-              onNewThread={props.onNewThreadInProject}
+              // Aggregated groups (same repo across machines) have no single
+              // target project, so the quick new-thread button is single-project only.
+              onNewThread={
+                item.group.projects.length === 1 ? props.onNewThreadInProject : undefined
+              }
               project={item.group.representative}
               threadCount={item.group.threads.length + item.group.pendingTasks.length}
               title={item.group.title}

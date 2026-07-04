@@ -55,22 +55,27 @@ export const ThreadListGroupHeader = memo(function ThreadListGroupHeader(props: 
   );
   const handleNewThread = useCallback(() => onNewThread?.(project), [onNewThread, project]);
 
+  // The new-thread button is a SIBLING of the collapse toggle, not a child:
+  // nested touchables are unreachable to VoiceOver/TalkBack (the parent
+  // swallows focus), so the row is a plain View with two adjacent pressables.
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ expanded: !props.collapsed }}
-      accessibilityLabel={`${props.title}, ${props.threadCount} threads`}
-      accessibilityHint={props.collapsed ? "Expands the project" : "Collapses the project"}
-      className={compact ? "bg-screen" : undefined}
-      onPress={handleToggle}
+    <View
+      className={
+        compact
+          ? `flex-row items-center gap-2.5 bg-screen px-5 pb-3 ${props.isFirst ? "pt-2" : "pt-6"}`
+          : `flex-row items-center gap-2 px-3 pb-2 ${props.isFirst ? "pt-1" : "pt-5"}`
+      }
+      style={{ minHeight: compact ? 44 : 36 }}
     >
-      <View
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: !props.collapsed }}
+        accessibilityLabel={`${props.title}, ${props.threadCount} threads`}
+        accessibilityHint={props.collapsed ? "Expands the project" : "Collapses the project"}
         className={
-          compact
-            ? `flex-row items-center gap-2.5 px-5 pb-3 ${props.isFirst ? "pt-2" : "pt-6"}`
-            : `flex-row items-center gap-2 px-3 pb-2 ${props.isFirst ? "pt-1" : "pt-5"}`
+          compact ? "flex-1 flex-row items-center gap-2.5" : "flex-1 flex-row items-center gap-2"
         }
-        style={{ minHeight: compact ? 44 : 36 }}
+        onPress={handleToggle}
       >
         <ProjectFavicon
           environmentId={props.project.environmentId}
@@ -98,23 +103,25 @@ export const ThreadListGroupHeader = memo(function ThreadListGroupHeader(props: 
         >
           {props.threadCount}
         </Text>
-        {onNewThread ? (
-          <Pressable
-            accessibilityLabel={`Create new thread in ${props.title}`}
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={handleNewThread}
-            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, marginRight: compact ? 10 : 8 })}
-          >
-            <SymbolView
-              name="square.and.pencil"
-              size={compact ? 16 : 14}
-              tintColor={iconMutedColor}
-              type="monochrome"
-              weight="medium"
-            />
-          </Pressable>
-        ) : null}
+      </Pressable>
+      {onNewThread ? (
+        <Pressable
+          accessibilityLabel={`Create new thread in ${props.title}`}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={handleNewThread}
+          style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, marginRight: compact ? 10 : 8 })}
+        >
+          <SymbolView
+            name="square.and.pencil"
+            size={compact ? 16 : 14}
+            tintColor={iconMutedColor}
+            type="monochrome"
+            weight="medium"
+          />
+        </Pressable>
+      ) : null}
+      <Pressable accessible={false} hitSlop={8} onPress={handleToggle}>
         <SymbolView
           name={props.collapsed ? "chevron.right" : "chevron.down"}
           size={compact ? 13 : 11}
@@ -122,8 +129,8 @@ export const ThreadListGroupHeader = memo(function ThreadListGroupHeader(props: 
           type="monochrome"
           weight="semibold"
         />
-      </View>
-    </Pressable>
+      </Pressable>
+    </View>
   );
 });
 

@@ -195,7 +195,10 @@ export function buildHomeListLayout(input: {
         key: `show-more:${group.key}`,
         groupKey: group.key,
         hiddenCount,
-        canShowLess: visibleCount > HOME_INITIAL_VISIBLE_THREADS,
+        // Compare against the group's own baseline, not the global page size:
+        // stale projects start below HOME_INITIAL_VISIBLE_THREADS, and "Show
+        // less" must be offered as soon as anything beyond the baseline shows.
+        canShowLess: visibleCount > baselineCount,
       });
     }
   }

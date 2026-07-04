@@ -482,19 +482,33 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
 
   const selectEnvironment = useCallback(
     (environmentId: EnvironmentId) => {
+      const projectsOnTarget = projects.filter(
+        (project) => project.environmentId === environmentId,
+      );
       const repositoryKey = selectedProject?.repositoryIdentity?.canonicalKey ?? null;
+      // Prefer the repository identity; projects without one (e.g. not yet
+      // indexed) fall back to workspace basename, then title, so switching
+      // computers still follows the same repo instead of resetting to
+      // whatever project is first on the target machine.
+      const workspaceBasename = selectedProject?.workspaceRoot.split("/").at(-1) ?? null;
       const match =
-        repositoryKey === null
-          ? undefined
-          : projects.find(
-              (project) =>
-                project.environmentId === environmentId &&
-                (project.repositoryIdentity?.canonicalKey ?? null) === repositoryKey,
-            );
+        (repositoryKey !== null
+          ? projectsOnTarget.find(
+              (project) => (project.repositoryIdentity?.canonicalKey ?? null) === repositoryKey,
+            )
+          : undefined) ??
+        (workspaceBasename !== null
+          ? projectsOnTarget.find(
+              (project) => project.workspaceRoot.split("/").at(-1) === workspaceBasename,
+            )
+          : undefined) ??
+        (selectedProject !== null
+          ? projectsOnTarget.find((project) => project.title === selectedProject.title)
+          : undefined);
       setSelectedEnvironmentId(environmentId);
       setSelectedProjectKey(match ? scopedProjectKey(match.environmentId, match.id) : null);
     },
-    [projects, selectedProject?.repositoryIdentity?.canonicalKey],
+    [projects, selectedProject],
   );
 
   const setWorkspaceMode = useCallback(
