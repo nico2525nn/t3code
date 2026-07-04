@@ -55,6 +55,7 @@ interface HomeScreenProps {
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
+  readonly onNewThreadInProject: (project: EnvironmentProject) => void;
 }
 
 /* ─── Status indicator colors ────────────────────────────────────────── */
@@ -174,8 +175,10 @@ function ProjectGroupLabel(props: {
   readonly totalThreadCount: number;
   readonly isExpanded: boolean;
   readonly onToggleExpand: () => void;
+  readonly onNewThread: () => void;
 }) {
   const hiddenCount = props.totalThreadCount - COLLAPSED_THREAD_LIMIT;
+  const iconMutedColor = useThemeColor("--color-icon-muted");
 
   return (
     <View className="flex-row items-center gap-2.5 px-1 pb-2">
@@ -192,6 +195,22 @@ function ProjectGroupLabel(props: {
       >
         {props.title}
       </Text>
+
+      <Pressable
+        accessibilityLabel={`Create new thread in ${props.title}`}
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={props.onNewThread}
+        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+      >
+        <SymbolView
+          name="square.and.pencil"
+          size={15}
+          tintColor={iconMutedColor}
+          type="monochrome"
+          weight="medium"
+        />
+      </Pressable>
 
       {hiddenCount > 0 ? (
         <Pressable onPress={props.onToggleExpand} hitSlop={8}>
@@ -563,6 +582,7 @@ export function HomeScreen(props: HomeScreenProps) {
               >
                 <ProjectGroupLabel
                   isExpanded={isExpanded}
+                  onNewThread={() => props.onNewThreadInProject(group.representative)}
                   onToggleExpand={() => toggleExpanded(group.key)}
                   project={group.representative}
                   title={group.title}

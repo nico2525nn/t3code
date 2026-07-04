@@ -102,6 +102,16 @@ export default function HomeRouteScreen() {
         onAddConnection={() => router.push("/connections/new")}
         onArchiveThread={archiveThread}
         onDeleteThread={confirmDeleteThread}
+        onNewThreadInProject={(project) => {
+          router.push({
+            pathname: "/new/draft",
+            params: {
+              environmentId: project.environmentId,
+              projectId: project.id,
+              title: project.title,
+            },
+          });
+        }}
         onOpenEnvironments={() => router.push("/settings/environments")}
         onSelectThread={(thread) => {
           router.push(buildThreadRoutePath(thread));
