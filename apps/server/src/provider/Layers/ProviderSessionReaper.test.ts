@@ -144,7 +144,7 @@ function createHarness(input: {
 function seedSession(input: {
   readonly threadId: ThreadId;
   readonly providerName: "codex" | "claudeAgent";
-  readonly status?: "starting" | "running" | "ready" | "interrupted" | "stopped" | "error";
+  readonly status?: "starting" | "running" | "stopped" | "error";
   readonly lastSeenAt: string;
   readonly resumeOpaque: string;
 }) {
