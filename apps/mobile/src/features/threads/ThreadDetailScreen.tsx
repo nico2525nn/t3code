@@ -18,10 +18,8 @@ import * as Haptics from "expo-haptics";
 import { useHeaderHeight } from "expo-router/build/react-navigation/elements";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { View, type GestureResponderEvent } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { KeyboardController, KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { runOnJS } from "react-native-reanimated";
 
 import { AppText as Text } from "../../components/AppText";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
@@ -69,7 +67,6 @@ export interface ThreadDetailScreenProps {
   readonly selectedThreadQueueCount: number;
   readonly serverConfig: T3ServerConfig | null;
   readonly layoutVariant?: LayoutVariant;
-  readonly onOpenDrawer: () => void;
   readonly onOpenConnectionEditor: () => void;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftImages: () => Promise<void>;
@@ -204,8 +201,6 @@ const WorkingDurationPill = memo(function WorkingDurationPill(props: {
 });
 
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
-  const { onOpenDrawer } = props;
-
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
@@ -233,7 +228,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const { freeze, scrollMessageToEnd } = useKeyboardScrollToEnd({ listRef });
   const showContent = props.showContent ?? true;
   const layoutVariant = props.layoutVariant ?? "compact";
-  const isSplitLayout = layoutVariant === "split";
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
   useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
   const selectedProviderSkills = useMemo(
@@ -241,28 +235,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       props.serverConfig?.providers.find((provider) => provider.instanceId === selectedInstanceId)
         ?.skills ?? [],
     [props.serverConfig, selectedInstanceId],
-  );
-
-  const completeDrawerGesture = useCallback(() => {
-    void Haptics.selectionAsync();
-    onOpenDrawer();
-  }, [onOpenDrawer]);
-
-  const drawerGestureThreshold = 80;
-  const headerDrawerGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(!isSplitLayout)
-        .hitSlop({ left: 0, width: 40 })
-        .activeOffsetX([10, 999])
-        .failOffsetY([-24, 24])
-        .onEnd((event) => {
-          const translationX = Math.max(event.translationX, 0);
-          if (event.y < drawerGestureThreshold && translationX > 56) {
-            runOnJS(completeDrawerGesture)();
-          }
-        }),
-    [completeDrawerGesture, isSplitLayout],
   );
 
   useLayoutEffect(() => {
@@ -374,104 +346,102 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   }, []);
 
   return (
-    <GestureDetector gesture={headerDrawerGesture}>
-      <View className="flex-1">
-        {showContent ? (
-          <View
-            style={{ flex: 1 }}
-            onTouchStart={handleFeedTouchStart}
-            onTouchMove={handleFeedTouchMove}
-            onTouchEnd={handleFeedTouchEnd}
-            onTouchCancel={handleFeedTouchCancel}
-          >
-            <ThreadFeed
-              key={props.selectedThread.id}
+    <View className="flex-1">
+      {showContent ? (
+        <View
+          style={{ flex: 1 }}
+          onTouchStart={handleFeedTouchStart}
+          onTouchMove={handleFeedTouchMove}
+          onTouchEnd={handleFeedTouchEnd}
+          onTouchCancel={handleFeedTouchCancel}
+        >
+          <ThreadFeed
+            key={props.selectedThread.id}
+            environmentId={props.environmentId}
+            threadId={props.selectedThread.id}
+            workspaceRoot={props.threadCwd}
+            feed={props.selectedThreadFeed}
+            contentPresentation={props.contentPresentation}
+            agentLabel={agentLabel}
+            latestTurn={props.selectedThread.latestTurn}
+            listRef={listRef}
+            freeze={freeze}
+            anchorMessageId={anchorMessageId}
+            contentInsetEndAdjustment={contentInsetEndAdjustment}
+            contentTopInset={headerHeight}
+            contentBottomInset={estimatedOverlayHeight}
+            layoutVariant={layoutVariant}
+            skills={selectedProviderSkills}
+          />
+        </View>
+      ) : (
+        <View style={{ flex: 1 }} />
+      )}
+
+      {/* Floating composer — sticks to keyboard via KeyboardStickyView */}
+      {showContent ? (
+        <KeyboardStickyView
+          style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}
+          offset={{ closed: 0, opened: 0 }}
+        >
+          <View ref={composerOverlayRef} onLayout={onComposerLayout} style={{ paddingTop: 8 }}>
+            {props.activeWorkStartedAt ? (
+              <WorkingDurationPill startedAt={props.activeWorkStartedAt} />
+            ) : null}
+
+            {props.activePendingApproval || props.activePendingUserInput ? (
+              <View className="gap-3 px-4 pb-3" style={{ flexShrink: 0 }}>
+                {props.activePendingApproval ? (
+                  <PendingApprovalCard
+                    approval={props.activePendingApproval}
+                    respondingApprovalId={props.respondingApprovalId}
+                    onRespond={props.onRespondToApproval}
+                  />
+                ) : null}
+                {props.activePendingUserInput ? (
+                  <PendingUserInputCard
+                    pendingUserInput={props.activePendingUserInput}
+                    drafts={props.activePendingUserInputDrafts}
+                    answers={props.activePendingUserInputAnswers}
+                    respondingUserInputId={props.respondingUserInputId}
+                    onSelectOption={props.onSelectUserInputOption}
+                    onChangeCustomAnswer={props.onChangeUserInputCustomAnswer}
+                    onSubmit={props.onSubmitUserInput}
+                  />
+                ) : null}
+              </View>
+            ) : null}
+
+            <ThreadComposer
+              editorRef={composerEditorRef}
+              draftMessage={props.draftMessage}
+              draftAttachments={props.draftAttachments}
+              placeholder="Ask the repo agent, or run a command…"
+              connectionState={props.connectionStateLabel}
+              connectionError={props.connectionError}
+              environmentLabel={props.environmentLabel}
+              selectedThread={props.selectedThread}
+              serverConfig={props.serverConfig}
+              queueCount={props.selectedThreadQueueCount}
+              activeThreadBusy={props.activeThreadBusy}
               environmentId={props.environmentId}
-              threadId={props.selectedThread.id}
-              workspaceRoot={props.threadCwd}
-              feed={props.selectedThreadFeed}
-              contentPresentation={props.contentPresentation}
-              agentLabel={agentLabel}
-              latestTurn={props.selectedThread.latestTurn}
-              listRef={listRef}
-              freeze={freeze}
-              anchorMessageId={anchorMessageId}
-              contentInsetEndAdjustment={contentInsetEndAdjustment}
-              contentTopInset={headerHeight}
-              contentBottomInset={estimatedOverlayHeight}
-              layoutVariant={layoutVariant}
-              skills={selectedProviderSkills}
+              projectCwd={props.projectWorkspaceRoot}
+              bottomInset={composerBottomInset}
+              onChangeDraftMessage={props.onChangeDraftMessage}
+              onPickDraftImages={props.onPickDraftImages}
+              onNativePasteImages={props.onNativePasteImages}
+              onRemoveDraftImage={props.onRemoveDraftImage}
+              onStopThread={props.onStopThread}
+              onSendMessage={handleSendMessage}
+              onReconnectEnvironment={props.onReconnectEnvironment}
+              onUpdateModelSelection={props.onUpdateThreadModelSelection}
+              onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
+              onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
+              onExpandedChange={setComposerExpanded}
             />
           </View>
-        ) : (
-          <View style={{ flex: 1 }} />
-        )}
-
-        {/* Floating composer — sticks to keyboard via KeyboardStickyView */}
-        {showContent ? (
-          <KeyboardStickyView
-            style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}
-            offset={{ closed: 0, opened: 0 }}
-          >
-            <View ref={composerOverlayRef} onLayout={onComposerLayout} style={{ paddingTop: 8 }}>
-              {props.activeWorkStartedAt ? (
-                <WorkingDurationPill startedAt={props.activeWorkStartedAt} />
-              ) : null}
-
-              {props.activePendingApproval || props.activePendingUserInput ? (
-                <View className="gap-3 px-4 pb-3" style={{ flexShrink: 0 }}>
-                  {props.activePendingApproval ? (
-                    <PendingApprovalCard
-                      approval={props.activePendingApproval}
-                      respondingApprovalId={props.respondingApprovalId}
-                      onRespond={props.onRespondToApproval}
-                    />
-                  ) : null}
-                  {props.activePendingUserInput ? (
-                    <PendingUserInputCard
-                      pendingUserInput={props.activePendingUserInput}
-                      drafts={props.activePendingUserInputDrafts}
-                      answers={props.activePendingUserInputAnswers}
-                      respondingUserInputId={props.respondingUserInputId}
-                      onSelectOption={props.onSelectUserInputOption}
-                      onChangeCustomAnswer={props.onChangeUserInputCustomAnswer}
-                      onSubmit={props.onSubmitUserInput}
-                    />
-                  ) : null}
-                </View>
-              ) : null}
-
-              <ThreadComposer
-                editorRef={composerEditorRef}
-                draftMessage={props.draftMessage}
-                draftAttachments={props.draftAttachments}
-                placeholder="Ask the repo agent, or run a command…"
-                connectionState={props.connectionStateLabel}
-                connectionError={props.connectionError}
-                environmentLabel={props.environmentLabel}
-                selectedThread={props.selectedThread}
-                serverConfig={props.serverConfig}
-                queueCount={props.selectedThreadQueueCount}
-                activeThreadBusy={props.activeThreadBusy}
-                environmentId={props.environmentId}
-                projectCwd={props.projectWorkspaceRoot}
-                bottomInset={composerBottomInset}
-                onChangeDraftMessage={props.onChangeDraftMessage}
-                onPickDraftImages={props.onPickDraftImages}
-                onNativePasteImages={props.onNativePasteImages}
-                onRemoveDraftImage={props.onRemoveDraftImage}
-                onStopThread={props.onStopThread}
-                onSendMessage={handleSendMessage}
-                onReconnectEnvironment={props.onReconnectEnvironment}
-                onUpdateModelSelection={props.onUpdateThreadModelSelection}
-                onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
-                onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
-                onExpandedChange={setComposerExpanded}
-              />
-            </View>
-          </KeyboardStickyView>
-        ) : null}
-      </View>
-    </GestureDetector>
+        </KeyboardStickyView>
+      ) : null}
+    </View>
   );
 });

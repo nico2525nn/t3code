@@ -3,6 +3,8 @@ import { useCallback, useMemo, useState } from "react";
 import * as Option from "effect/Option";
 import { EnvironmentId, type ProjectScript } from "@t3tools/contracts";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
+import * as Haptics from "expo-haptics";
+import { SymbolView } from "expo-symbols";
 import { Pressable, ScrollView, Text as RNText, View } from "react-native";
 import { useWorkspaceState } from "../../state/workspace";
 import { useThemeColor } from "../../lib/useThemeColor";
@@ -145,6 +147,7 @@ export function ThreadRouteScreen() {
   const gitActionProgress = useGitActionProgress(gitActionProgressTarget);
 
   const handleOpenDrawer = useCallback(() => {
+    void Haptics.selectionAsync();
     setDrawerVisible(true);
   }, []);
 
@@ -270,48 +273,6 @@ export function ThreadRouteScreen() {
     ],
   );
 
-  if (!environmentId || !threadId) {
-    return <OpeningThreadLoadingScreen />;
-  }
-
-  if (!selectedThread) {
-    const stillHydrating =
-      workspaceState.isLoadingConnections ||
-      routeConnectionState === "connecting" ||
-      routeConnectionState === "reconnecting";
-
-    if (stillHydrating) {
-      return <OpeningThreadLoadingScreen />;
-    }
-
-    return (
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{
-          flexGrow: 1,
-          justifyContent: "center",
-          paddingHorizontal: 24,
-          paddingVertical: 32,
-        }}
-        className="bg-screen flex-1"
-      >
-        <EmptyState
-          title="Thread unavailable"
-          detail="This thread is not available in the current mobile snapshot."
-        />
-      </ScrollView>
-    );
-  }
-
-  const selectedThreadKey = scopedThreadKey(selectedThread.environmentId, selectedThread.id);
-  const contentPresentation = projectThreadContentPresentation({
-    hasDetail: selectedThreadDetail !== null,
-    detailError: Option.getOrNull(selectedThreadDetailState.error),
-    detailDeleted: selectedThreadDetailState.status === "deleted",
-    connectionState: routeConnectionState,
-  });
-  const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
-
   const headerSubtitle = [
     selectedThreadProject?.title ?? null,
     selectedEnvironmentConnection?.environmentLabel ?? null,
@@ -319,23 +280,31 @@ export function ThreadRouteScreen() {
     .filter(Boolean)
     .join(" · ");
 
-  return (
-    <>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          headerTransparent: true,
-          headerStyle: { backgroundColor: "transparent" },
-          headerShadowVisible: false,
-          headerTintColor: iconColor,
-          headerBackTitle: "",
-          headerTitle: () => (
-            <Pressable
-              style={{ alignItems: "center", maxWidth: 200 }}
-              onLongPress={() => {
-                // TODO: trigger rename modal
-              }}
-            >
+  // Rendered in every state (loading / unavailable / ready) so the back button and
+  // title stay consistent instead of flickering as the thread hydrates. Tapping the
+  // title opens the thread switcher drawer.
+  const headerScreen = (
+    <Stack.Screen
+      options={{
+        headerShown: true,
+        headerTransparent: true,
+        headerStyle: { backgroundColor: "transparent" },
+        headerShadowVisible: false,
+        headerTintColor: iconColor,
+        headerBackTitle: "",
+        headerBackVisible: true,
+        headerBackButtonDisplayMode: "minimal",
+        headerTitle: () => (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Switch thread"
+            accessibilityHint="Opens the list of threads"
+            disabled={selectedThread === null}
+            hitSlop={12}
+            onPress={handleOpenDrawer}
+            style={{ alignItems: "center", maxWidth: 240 }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: 240 }}>
               <RNText
                 numberOfLines={1}
                 style={{
@@ -346,8 +315,18 @@ export function ThreadRouteScreen() {
                   letterSpacing: -0.4,
                 }}
               >
-                {selectedThread.title}
+                {selectedThread?.title ?? "Opening thread…"}
               </RNText>
+              {selectedThread ? (
+                <SymbolView
+                  name="chevron.down"
+                  size={11}
+                  tintColor={secondaryFg}
+                  type="monochrome"
+                />
+              ) : null}
+            </View>
+            {headerSubtitle ? (
               <RNText
                 numberOfLines={1}
                 style={{
@@ -360,10 +339,71 @@ export function ThreadRouteScreen() {
               >
                 {headerSubtitle}
               </RNText>
-            </Pressable>
-          ),
-        }}
-      />
+            ) : null}
+          </Pressable>
+        ),
+      }}
+    />
+  );
+
+  if (!environmentId || !threadId) {
+    return (
+      <>
+        {headerScreen}
+        <OpeningThreadLoadingScreen />
+      </>
+    );
+  }
+
+  if (!selectedThread) {
+    const stillHydrating =
+      workspaceState.isLoadingConnections ||
+      routeConnectionState === "connecting" ||
+      routeConnectionState === "reconnecting";
+
+    if (stillHydrating) {
+      return (
+        <>
+          {headerScreen}
+          <OpeningThreadLoadingScreen />
+        </>
+      );
+    }
+
+    return (
+      <>
+        {headerScreen}
+        <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={{
+            flexGrow: 1,
+            justifyContent: "center",
+            paddingHorizontal: 24,
+            paddingVertical: 32,
+          }}
+          className="bg-screen flex-1"
+        >
+          <EmptyState
+            title="Thread unavailable"
+            detail="This thread is not available in the current mobile snapshot."
+          />
+        </ScrollView>
+      </>
+    );
+  }
+
+  const selectedThreadKey = scopedThreadKey(selectedThread.environmentId, selectedThread.id);
+  const contentPresentation = projectThreadContentPresentation({
+    hasDetail: selectedThreadDetail !== null,
+    detailError: Option.getOrNull(selectedThreadDetailState.error),
+    detailDeleted: selectedThreadDetailState.status === "deleted",
+    connectionState: routeConnectionState,
+  });
+  const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
+
+  return (
+    <>
+      {headerScreen}
 
       <ThreadGitControls
         currentBranch={selectedThread.branch}
@@ -405,7 +445,6 @@ export function ThreadRouteScreen() {
           projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
           threadCwd={selectedThreadCwd}
           selectedThreadQueueCount={composer.selectedThreadQueueCount}
-          onOpenDrawer={handleOpenDrawer}
           onOpenConnectionEditor={handleOpenConnectionEditor}
           onChangeDraftMessage={composer.onChangeDraftMessage}
           onPickDraftImages={composer.onPickDraftImages}
