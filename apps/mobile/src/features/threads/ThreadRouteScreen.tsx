@@ -1,15 +1,9 @@
 import { NativeStackScreenOptions } from "../../native/StackHeader";
-import {
-  StackActions,
-  useFocusEffect,
-  useNavigation,
-  type StaticScreenProps,
-} from "@react-navigation/native";
+import { useFocusEffect, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Option from "effect/Option";
 import { EnvironmentId, ThreadId, type ProjectScript } from "@t3tools/contracts";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import * as Haptics from "expo-haptics";
 import { Platform, Pressable, ScrollView, Text as RNText, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
@@ -50,7 +44,6 @@ import {
   useThreadGitRightHeaderItems,
 } from "./ThreadGitControls";
 import { GitOverviewSheet } from "./git/GitOverviewSheet";
-import { ThreadNavigationDrawer } from "./ThreadNavigationDrawer";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useSelectedThreadGitActions } from "../../state/use-selected-thread-git-actions";
 import { useSelectedThreadGitState } from "../../state/use-selected-thread-git-state";
@@ -198,7 +191,6 @@ function ThreadRouteContent(
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
   const navigation = useNavigation();
   const params = props.route.params;
-  const [drawerVisible, setDrawerVisible] = useState(false);
   const environmentIdRaw = firstRouteParam(params.environmentId);
   const environmentId = environmentIdRaw ? EnvironmentId.make(environmentIdRaw) : null;
   const threadId = firstRouteParam(params.threadId);
@@ -326,19 +318,6 @@ function ThreadRouteContent(
     [selectedThread?.environmentId, selectedThreadCwd],
   );
   const gitActionProgress = useGitActionProgress(gitActionProgressTarget);
-
-  const handleOpenDrawer = useCallback(() => {
-    if (!layout.usesSplitView) {
-      void Haptics.selectionAsync();
-      setDrawerVisible(true);
-    }
-  }, [layout.usesSplitView]);
-
-  useEffect(() => {
-    if (layout.usesSplitView) {
-      setDrawerVisible(false);
-    }
-  }, [layout.usesSplitView]);
 
   const handleOpenGitInspector = useCallback(() => {
     setInspectorSelection({ routeThreadIdentity, mode: "git" });
@@ -706,7 +685,6 @@ function ThreadRouteContent(
           selectedThreadQueueCount={composer.selectedThreadQueueCount}
           layoutVariant={layout.variant}
           usesAutomaticContentInsets={usesNativeHeaderGlass}
-          onOpenDrawer={handleOpenDrawer}
           onOpenConnectionEditor={handleOpenConnectionEditor}
           onChangeDraftMessage={composer.onChangeDraftMessage}
           onPickDraftImages={composer.onPickDraftImages}
@@ -724,23 +702,6 @@ function ThreadRouteContent(
           onChangeUserInputCustomAnswer={requests.onChangeUserInputCustomAnswer}
           onSubmitUserInput={requests.onSubmitUserInput}
         />
-
-        {layout.usesSplitView ? null : (
-          <ThreadNavigationDrawer
-            visible={drawerVisible}
-            selectedThreadKey={selectedThreadKey}
-            onClose={() => setDrawerVisible(false)}
-            onSelectThread={(thread) => {
-              navigation.dispatch(
-                StackActions.replace("Thread", {
-                  environmentId: String(thread.environmentId),
-                  threadId: String(thread.id),
-                }),
-              );
-            }}
-            onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
-          />
-        )}
       </View>
     </>
   );
