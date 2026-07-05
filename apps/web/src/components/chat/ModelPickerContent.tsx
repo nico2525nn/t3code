@@ -670,8 +670,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                 <ModelPickerSearchInput
                   inputRef={searchInputRef}
                   onNormalizedSearchQueryChange={setSearchQuery}
-                  onRequestClose={props.onRequestClose}
                   onSelectHighlightedModel={selectHighlightedModel}
+                  {...(props.onRequestClose ? { onRequestClose: props.onRequestClose } : {})}
                 />
               </div>
             </div>
