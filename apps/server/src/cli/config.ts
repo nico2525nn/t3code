@@ -395,9 +395,9 @@ export const resolveCliAuthConfig = (
 
 const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
 
-const parseDurationInput = (value: string): Duration.Duration | null => {
+const parseDurationInput = (value: string): Option.Option<Duration.Duration> => {
   const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
+  if (trimmed.length === 0) return Option.none();
 
   const shorthand = DurationShorthandPattern.exec(trimmed);
   const normalizedInput = shorthand?.groups
@@ -405,35 +405,32 @@ const parseDurationInput = (value: string): Duration.Duration | null => {
         const amountText = shorthand.groups.value;
         const unitText = shorthand.groups.unit;
         if (typeof amountText !== "string" || typeof unitText !== "string") {
-          return null;
+          return Option.none<Duration.Input>();
         }
 
         const amount = Number.parseInt(amountText, 10);
-        if (!Number.isFinite(amount)) return null;
+        if (!Number.isFinite(amount)) return Option.none<Duration.Input>();
 
         switch (unitText.toLowerCase()) {
           case "ms":
-            return `${amount} millis`;
+            return Option.some(`${amount} millis` as Duration.Input);
           case "s":
-            return `${amount} seconds`;
+            return Option.some(`${amount} seconds` as Duration.Input);
           case "m":
-            return `${amount} minutes`;
+            return Option.some(`${amount} minutes` as Duration.Input);
           case "h":
-            return `${amount} hours`;
+            return Option.some(`${amount} hours` as Duration.Input);
           case "d":
-            return `${amount} days`;
+            return Option.some(`${amount} days` as Duration.Input);
           case "w":
-            return `${amount} weeks`;
+            return Option.some(`${amount} weeks` as Duration.Input);
           default:
-            return null;
+            return Option.none<Duration.Input>();
         }
       })()
-    : (trimmed as Duration.Input);
+    : Option.some(trimmed as Duration.Input);
 
-  if (normalizedInput === null) return null;
-
-  const decoded = Duration.fromInput(normalizedInput as Duration.Input);
-  return Option.isSome(decoded) ? decoded.value : null;
+  return Option.flatMap(normalizedInput, (input) => Duration.fromInput(input));
 };
 
 export const DurationFromString = Schema.String.pipe(
@@ -442,14 +439,15 @@ export const DurationFromString = Schema.String.pipe(
     SchemaTransformation.transformOrFail({
       decode: (value) => {
         const duration = parseDurationInput(value);
-        if (duration !== null) {
-          return Effect.succeed(duration);
-        }
-        return Effect.fail(
-          new SchemaIssue.InvalidValue(Option.some(value), {
-            message: "Invalid duration. Use values like 5m, 1h, 30d, or 15 minutes.",
-          }),
-        );
+        return Option.match(duration, {
+          onSome: Effect.succeed,
+          onNone: () =>
+            Effect.fail(
+              new SchemaIssue.InvalidValue(Option.some(value), {
+                message: "Invalid duration. Use values like 5m, 1h, 30d, or 15 minutes.",
+              }),
+            ),
+        });
       },
       encode: (duration) => Effect.succeed(Duration.format(duration)),
     }),

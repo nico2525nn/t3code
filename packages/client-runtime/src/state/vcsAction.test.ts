@@ -3,7 +3,7 @@ import {
   type GitActionProgressEvent,
   type GitRunStackedActionResult,
 } from "@t3tools/contracts";
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -64,7 +64,14 @@ function progress<T extends GitActionProgressEvent>(event: T): T {
 }
 
 describe("vcsActionState", () => {
-  it("preserves malformed target key diagnostics and the native cause without copying the key", () => {
+  it("round-trips target keys through a Schema JSON codec", () => {
+    const key = getVcsActionTargetKey({ environmentId, cwd });
+
+    assert.isString(key);
+    assert.deepStrictEqual(parseVcsActionTargetKey(key), { environmentId, cwd });
+  });
+
+  it("preserves malformed target key diagnostics without copying the key", () => {
     const key = "not-json-with-credential=do-not-log";
     let error: unknown;
 
@@ -74,16 +81,17 @@ describe("vcsActionState", () => {
       error = cause;
     }
 
-    expect(error).toBeInstanceOf(VcsActionTargetKeyParseError);
-    expect(error).toMatchObject({ keyLength: key.length, cause: expect.any(SyntaxError) });
-    expect(error).not.toHaveProperty("key");
-    expect((error as Error).message).not.toContain(key);
+    assert.instanceOf(error, VcsActionTargetKeyParseError);
+    const parseError = error as VcsActionTargetKeyParseError;
+    assert.strictEqual(parseError.keyLength, key.length);
+    assert.notProperty(parseError, "key");
+    assert.notInclude(parseError.message, key);
   });
 
   it("rejects invalid target key shapes", () => {
     const key = JSON.stringify([environmentId]);
 
-    expect(() => parseVcsActionTargetKey(key)).toThrowError(VcsActionTargetKeyParseError);
+    assert.throws(() => parseVcsActionTargetKey(key), VcsActionTargetKeyParseError);
   });
 
   it("projects phase and hook progress without owning the async operation", () => {

@@ -2,6 +2,7 @@ import * as NodeOS from "node:os";
 
 import { assert, expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -16,9 +17,25 @@ import {
 import * as NetService from "@t3tools/shared/Net";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
-import { resolveServerConfig } from "./config.ts";
+import { DurationFromString, resolveServerConfig } from "./config.ts";
 
 const encodeDesktopBootstrap = Schema.encodeEffect(Schema.fromJsonString(DesktopBackendBootstrap));
+
+it.effect("decodes compact duration shorthands", () =>
+  Effect.gen(function* () {
+    const duration = yield* Schema.decodeUnknownEffect(DurationFromString)("5m");
+
+    assert.strictEqual(Duration.toMillis(duration), Duration.toMillis(Duration.minutes(5)));
+  }),
+);
+
+it.effect("rejects invalid duration strings", () =>
+  Effect.gen(function* () {
+    const error = yield* Effect.flip(Schema.decodeUnknownEffect(DurationFromString)("not-a-duration"));
+
+    assert.include(String(error), "Invalid duration");
+  }),
+);
 
 const makeDesktopBootstrap = (
   overrides: Partial<DesktopBackendBootstrapValue> = {},

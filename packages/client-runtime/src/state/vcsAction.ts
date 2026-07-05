@@ -157,9 +157,9 @@ export const EMPTY_VCS_ACTION_STATE = Object.freeze<VcsActionState>({
 
 const nowMs = (): number => DateTime.toEpochMillis(DateTime.nowUnsafe());
 let nextLocalActionId = 0;
-const decodeVcsActionTargetKey = Schema.decodeUnknownSync(
-  Schema.Tuple([EnvironmentId, Schema.String]),
-);
+const VcsActionTargetKeyJson = Schema.fromJsonString(Schema.Tuple([EnvironmentId, Schema.String]));
+const decodeVcsActionTargetKey = Schema.decodeUnknownSync(VcsActionTargetKeyJson);
+const encodeVcsActionTargetKey = Schema.encodeSync(VcsActionTargetKeyJson);
 
 export const vcsActionStateAtom = Atom.family((key: string) => {
   return Atom.make(EMPTY_VCS_ACTION_STATE).pipe(
@@ -177,12 +177,12 @@ export function getVcsActionTargetKey(target: VcsActionTarget): string | null {
   if (target.environmentId === null || target.cwd === null) {
     return null;
   }
-  return JSON.stringify([target.environmentId, target.cwd]);
+  return encodeVcsActionTargetKey([target.environmentId, target.cwd]);
 }
 
 export function parseVcsActionTargetKey(key: string): ResolvedVcsActionTarget {
   try {
-    const [environmentId, cwd] = decodeVcsActionTargetKey(JSON.parse(key));
+    const [environmentId, cwd] = decodeVcsActionTargetKey(key);
     return { environmentId, cwd };
   } catch (cause) {
     throw new VcsActionTargetKeyParseError({ keyLength: key.length, cause });
