@@ -31,7 +31,9 @@ it.effect("decodes compact duration shorthands", () =>
 
 it.effect("rejects invalid duration strings", () =>
   Effect.gen(function* () {
-    const error = yield* Effect.flip(Schema.decodeUnknownEffect(DurationFromString)("not-a-duration"));
+    const error = yield* Effect.flip(
+      Schema.decodeUnknownEffect(DurationFromString)("not-a-duration"),
+    );
 
     assert.include(String(error), "Invalid duration");
   }),

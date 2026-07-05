@@ -67,7 +67,9 @@ describe("vcsActionState", () => {
   it("round-trips target keys through a Schema JSON codec", () => {
     const key = getVcsActionTargetKey({ environmentId, cwd });
 
-    assert.isString(key);
+    if (key === null) {
+      assert.fail("expected target key to be encoded");
+    }
     assert.deepStrictEqual(parseVcsActionTargetKey(key), { environmentId, cwd });
   });
 
