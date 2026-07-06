@@ -65,12 +65,12 @@ describe("createSettingsSelectorSnapshotReader", () => {
 
     settings = {
       ...settings,
-      sidebarProjectGroupingMode: "physical-worktree",
+      sidebarProjectGroupingMode: "repository_path",
     };
     const relatedUpdateSelection = readProjectGroupingSettings();
 
     expect(relatedUpdateSelection).not.toBe(initialSelection);
-    expect(relatedUpdateSelection.sidebarProjectGroupingMode).toBe("physical-worktree");
+    expect(relatedUpdateSelection.sidebarProjectGroupingMode).toBe("repository_path");
   });
 });
 
