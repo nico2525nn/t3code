@@ -121,6 +121,18 @@ const ProcessDiagnosticsError = Schema.Union([
 type ProcessDiagnosticsError = typeof ProcessDiagnosticsError.Type;
 const isProcessDiagnosticsError = Schema.is(ProcessDiagnosticsError);
 
+const WindowsProcessRecord = Schema.Struct({
+  ProcessId: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+  ParentProcessId: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+  CommandLine: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  Name: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  Status: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  WorkingSetSize: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+  PercentProcessorTime: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+});
+const decodeWindowsProcessJson = Schema.decodeUnknownOption(Schema.UnknownFromJsonString);
+const decodeWindowsProcessRecord = Schema.decodeUnknownOption(WindowsProcessRecord);
+
 function parsePositiveInt(value: string): number | null {
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
@@ -202,8 +214,9 @@ export function parsePosixProcessRows(output: string): ReadonlyArray<ProcessRow>
 }
 
 function normalizeWindowsProcessRow(value: unknown): ProcessRow | null {
-  if (typeof value !== "object" || value === null) return null;
-  const record = value as Record<string, unknown>;
+  const recordOption = decodeWindowsProcessRecord(value);
+  if (Option.isNone(recordOption)) return null;
+  const record = recordOption.value;
   const pid = typeof record.ProcessId === "number" ? record.ProcessId : null;
   const ppid = typeof record.ParentProcessId === "number" ? record.ParentProcessId : null;
   const commandLine =
@@ -234,18 +247,15 @@ function normalizeWindowsProcessRow(value: unknown): ProcessRow | null {
   };
 }
 
-function parseWindowsProcessRows(output: string): ReadonlyArray<ProcessRow> {
+export function parseWindowsProcessRows(output: string): ReadonlyArray<ProcessRow> {
   if (output.trim().length === 0) return [];
-  try {
-    const parsed = JSON.parse(output) as unknown;
-    const records = Array.isArray(parsed) ? parsed : [parsed];
-    return records.flatMap((record) => {
-      const row = normalizeWindowsProcessRow(record);
-      return row ? [row] : [];
-    });
-  } catch {
-    return [];
-  }
+  const parsedOption = decodeWindowsProcessJson(output);
+  if (Option.isNone(parsedOption)) return [];
+  const records = Array.isArray(parsedOption.value) ? parsedOption.value : [parsedOption.value];
+  return records.flatMap((record) => {
+    const row = normalizeWindowsProcessRow(record);
+    return row ? [row] : [];
+  });
 }
 
 export function buildDescendantEntries(

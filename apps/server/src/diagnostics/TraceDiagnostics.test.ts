@@ -59,6 +59,7 @@ describe("TraceDiagnostics", () => {
                 durationMs: 50,
               }),
               "not-json",
+              "42",
             ].join("\n"),
           },
           {
@@ -123,7 +124,7 @@ describe("TraceDiagnostics", () => {
         }),
         "1970-01-01T00:00:05.025Z",
       );
-      assert.equal(diagnostics.parseErrorCount, 1);
+      assert.equal(diagnostics.parseErrorCount, 2);
       assert.equal(diagnostics.failureCount, 2);
       assert.equal(diagnostics.interruptionCount, 1);
       assert.equal(diagnostics.slowSpanCount, 1);

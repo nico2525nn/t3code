@@ -34,6 +34,24 @@ interface TraceEventLike {
   readonly attributes?: unknown;
 }
 
+const TraceEventRecord = Schema.Struct({
+  name: Schema.optionalKey(Schema.Unknown),
+  timeUnixNano: Schema.optionalKey(Schema.Unknown),
+  attributes: Schema.optionalKey(Schema.Unknown),
+});
+const TraceRecord = Schema.Struct({
+  name: Schema.optionalKey(Schema.Unknown),
+  traceId: Schema.optionalKey(Schema.Unknown),
+  spanId: Schema.optionalKey(Schema.Unknown),
+  startTimeUnixNano: Schema.optionalKey(Schema.Unknown),
+  endTimeUnixNano: Schema.optionalKey(Schema.Unknown),
+  durationMs: Schema.optionalKey(Schema.Unknown),
+  exit: Schema.optionalKey(Schema.Unknown),
+  events: Schema.optionalKey(Schema.Unknown),
+});
+const decodeTraceRecordLine = Schema.decodeUnknownOption(Schema.fromJsonString(TraceRecord));
+const decodeTraceEventRecord = Schema.decodeUnknownOption(TraceEventRecord);
+
 export interface TraceDiagnosticsOptions {
   readonly traceFilePath: string;
   readonly maxFiles: number;
@@ -121,10 +139,6 @@ function readExitTag(exit: unknown): string | null {
 function readExitCause(exit: unknown): string {
   if (!isRecordObject(exit) || !("cause" in exit)) return "Failure";
   return toStringValue(exit.cause)?.trim() ?? "Failure";
-}
-
-function isTraceEvent(value: unknown): value is TraceEventLike {
-  return typeof value === "object" && value !== null;
 }
 
 function readEventAttributes(event: TraceEventLike): Readonly<Record<string, unknown>> {
@@ -229,18 +243,13 @@ export function aggregateTraceDiagnostics(
     for (const line of lines) {
       if (line.trim().length === 0) continue;
 
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
+      const parsedOption = decodeTraceRecordLine(line);
+      if (Option.isNone(parsedOption)) {
         parseErrorCount += 1;
         continue;
       }
 
-      if (!isRecordObject(parsed)) {
-        parseErrorCount += 1;
-        continue;
-      }
+      const parsed = parsedOption.value;
 
       const name = toStringValue(parsed.name);
       const traceId = toStringValue(parsed.traceId);
@@ -305,8 +314,10 @@ export function aggregateTraceDiagnostics(
 
       if (Array.isArray(parsed.events)) {
         for (const rawEvent of parsed.events) {
-          if (!isTraceEvent(rawEvent)) continue;
-          const attributes = readEventAttributes(rawEvent);
+          const eventOption = decodeTraceEventRecord(rawEvent);
+          if (Option.isNone(eventOption)) continue;
+          const event = eventOption.value;
+          const attributes = readEventAttributes(event);
           const level = toStringValue(attributes["effect.logLevel"]);
           if (!level) continue;
 
@@ -321,8 +332,8 @@ export function aggregateTraceDiagnostics(
             continue;
           }
 
-          const seenAt = unixNanoToDateTime(rawEvent.timeUnixNano) ?? endedAt;
-          const message = toStringValue(rawEvent.name)?.trim() ?? "Log event";
+          const seenAt = unixNanoToDateTime(event.timeUnixNano) ?? endedAt;
+          const message = toStringValue(event.name)?.trim() ?? "Log event";
           latestWarningAndErrorLogs.push({
             spanName: name,
             level,

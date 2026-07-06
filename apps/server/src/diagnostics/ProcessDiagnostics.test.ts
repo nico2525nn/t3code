@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -42,7 +42,7 @@ describe("ProcessDiagnostics", () => {
         ].join("\n"),
       );
 
-      expect(rows).toEqual([
+      assert.deepStrictEqual(rows, [
         {
           pid: 10,
           ppid: 1,
@@ -64,6 +64,44 @@ describe("ProcessDiagnostics", () => {
           command: "codex app-server --config /tmp/one two",
         },
       ]);
+    }),
+  );
+
+  it.effect("parses Windows process JSON through Effect Schema decoding", () =>
+    Effect.sync(() => {
+      const rows = ProcessDiagnostics.parseWindowsProcessRows(
+        [
+          "[",
+          '{"ProcessId":10,"ParentProcessId":1,"Name":"node.exe","CommandLine":"node server.js","Status":"Live","WorkingSetSize":1024,"PercentProcessorTime":1.5},',
+          '{"ProcessId":11,"ParentProcessId":10,"Name":"agent.exe","CommandLine":null,"Status":null,"WorkingSetSize":null,"PercentProcessorTime":null},',
+          '"not-a-process-row"',
+          "]",
+        ].join(""),
+      );
+
+      assert.deepStrictEqual(rows, [
+        {
+          pid: 10,
+          ppid: 1,
+          pgid: null,
+          status: "Live",
+          cpuPercent: 1.5,
+          rssBytes: 1024,
+          elapsed: "",
+          command: "node server.js",
+        },
+        {
+          pid: 11,
+          ppid: 10,
+          pgid: null,
+          status: "Live",
+          cpuPercent: 0,
+          rssBytes: 0,
+          elapsed: "",
+          command: "agent.exe",
+        },
+      ]);
+      assert.deepStrictEqual(ProcessDiagnostics.parseWindowsProcessRows("not-json"), []);
     }),
   );
 
@@ -126,15 +164,21 @@ describe("ProcessDiagnostics", () => {
         ],
       });
 
-      expect(diagnostics.serverPid).toBe(100);
-      expect(DateTime.formatIso(diagnostics.readAt)).toBe("2026-05-05T10:00:00.000Z");
-      expect(diagnostics.processCount).toBe(2);
-      expect(diagnostics.totalRssBytes).toBe(6_000);
-      expect(diagnostics.totalCpuPercent).toBe(4.75);
-      expect(diagnostics.processes.map((process) => process.pid)).toEqual([101, 102]);
-      expect(diagnostics.processes.map((process) => process.depth)).toEqual([0, 1]);
-      expect(Option.getOrNull(diagnostics.processes[0]!.pgid)).toBe(100);
-      expect(diagnostics.processes[0]?.childPids).toEqual([102]);
+      assert.equal(diagnostics.serverPid, 100);
+      assert.equal(DateTime.formatIso(diagnostics.readAt), "2026-05-05T10:00:00.000Z");
+      assert.equal(diagnostics.processCount, 2);
+      assert.equal(diagnostics.totalRssBytes, 6_000);
+      assert.equal(diagnostics.totalCpuPercent, 4.75);
+      assert.deepStrictEqual(
+        diagnostics.processes.map((process) => process.pid),
+        [101, 102],
+      );
+      assert.deepStrictEqual(
+        diagnostics.processes.map((process) => process.depth),
+        [0, 1],
+      );
+      assert.equal(Option.getOrNull(diagnostics.processes[0]!.pgid), 100);
+      assert.deepStrictEqual(diagnostics.processes[0]?.childPids, [102]);
     }),
   );
 
@@ -177,7 +221,10 @@ describe("ProcessDiagnostics", () => {
         ],
       });
 
-      expect(diagnostics.processes.map((process) => process.pid)).toEqual([101, 102, 103]);
+      assert.deepStrictEqual(
+        diagnostics.processes.map((process) => process.pid),
+        [101, 102, 103],
+      );
     }),
   );
 
@@ -210,8 +257,11 @@ describe("ProcessDiagnostics", () => {
         Effect.provide(layer),
       );
 
-      expect(diagnostics.processes.map((process) => process.pid)).toEqual([4242]);
-      expect(commands).toEqual([
+      assert.deepStrictEqual(
+        diagnostics.processes.map((process) => process.pid),
+        [4242],
+      );
+      assert.deepStrictEqual(commands, [
         {
           command: "ps",
           args: ["-axo", "pid=,ppid=,pgid=,stat=,pcpu=,rss=,etime=,command="],
@@ -241,18 +291,17 @@ describe("ProcessDiagnostics", () => {
         Effect.flip,
       );
 
-      expect(error).toMatchObject({
-        _tag: "ProcessDiagnosticsQueryFailedError",
-        command: "ps",
-        argCount: 2,
-        cwd: process.cwd(),
-        exitCode: 17,
-        stdoutBytes: 22,
-        stderrBytes: 21,
-        stdoutTruncated: false,
-        stderrTruncated: false,
-      });
-      expect(error.message).toBe(
+      assert.equal(error._tag, "ProcessDiagnosticsQueryFailedError");
+      assert.equal(error.command, "ps");
+      assert.equal(error.argCount, 2);
+      assert.equal(error.cwd, process.cwd());
+      assert.equal(error.exitCode, 17);
+      assert.equal(error.stdoutBytes, 22);
+      assert.equal(error.stderrBytes, 21);
+      assert.equal(error.stdoutTruncated, false);
+      assert.equal(error.stderrTruncated, false);
+      assert.equal(
+        error.message,
         `Process diagnostics query 'ps' failed with exit code 17 in '${process.cwd()}'.`,
       );
     }),
@@ -280,7 +329,7 @@ describe("ProcessDiagnostics", () => {
         Effect.provide(layer),
       );
 
-      expect(result).toEqual({
+      assert.deepStrictEqual(result, {
         pid: 4242,
         signal: "SIGINT",
         signaled: false,
