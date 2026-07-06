@@ -292,6 +292,9 @@ describe("ProcessDiagnostics", () => {
       );
 
       assert.equal(error._tag, "ProcessDiagnosticsQueryFailedError");
+      if (error._tag !== "ProcessDiagnosticsQueryFailedError") {
+        assert.fail(`Expected ProcessDiagnosticsQueryFailedError, got ${error._tag}`);
+      }
       assert.equal(error.command, "ps");
       assert.equal(error.argCount, 2);
       assert.equal(error.cwd, process.cwd());
