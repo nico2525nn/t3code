@@ -242,11 +242,7 @@ function useSelectedClientSettings<T>(selector: SettingsSelector<ClientSettings,
     [selector],
   );
   const getSelectedServerSnapshot = useMemo(
-    () =>
-      createSettingsSelectorSnapshotReader(
-        () => DEFAULT_CLIENT_SETTINGS,
-        selector,
-      ),
+    () => createSettingsSelectorSnapshotReader(() => DEFAULT_CLIENT_SETTINGS, selector),
     [selector],
   );
 
