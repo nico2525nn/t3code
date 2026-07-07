@@ -151,6 +151,41 @@ describe("TraceDiagnostics", () => {
     }),
   );
 
+  it.effect("keeps valid spans without a start timestamp", () =>
+    Effect.sync(() => {
+      const diagnostics = TraceDiagnostics.aggregateTraceDiagnostics({
+        traceFilePath: "/tmp/server.trace.ndjson",
+        readAt: DateTime.makeUnsafe("2026-05-05T10:00:00.000Z"),
+        files: [
+          {
+            path: "/tmp/server.trace.ndjson",
+            text: JSON.stringify({
+              name: "server.noStart",
+              traceId: "trace-no-start",
+              spanId: "span-no-start",
+              endTimeUnixNano: ns(10_000),
+              durationMs: 100,
+              exit: { _tag: "Success" },
+              events: [],
+            }),
+          },
+        ],
+      });
+
+      assert.equal(diagnostics.recordCount, 1);
+      assert.equal(diagnostics.parseErrorCount, 0);
+      assert.isTrue(Option.isNone(diagnostics.firstSpanAt));
+      assert.equal(
+        Option.match(diagnostics.lastSpanAt, {
+          onNone: () => null,
+          onSome: DateTime.formatIso,
+        }),
+        "1970-01-01T00:00:10.000Z",
+      );
+      assert.equal(diagnostics.slowestSpans[0]?.traceId, "trace-no-start");
+    }),
+  );
+
   it.effect("preserves full failure causes and log messages", () =>
     Effect.sync(() => {
       const longCause = `VcsProcessSpawnError: ${"missing executable ".repeat(80)}`.trim();
