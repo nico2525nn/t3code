@@ -1,7 +1,8 @@
+import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { useAuth } from "@clerk/expo";
 import { useNavigation } from "@react-navigation/native";
-import { useCallback } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { useCallback, useState } from "react";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { reportAtomCommandResult, settlePromise } from "@t3tools/client-runtime/state/runtime";
@@ -9,6 +10,7 @@ import { AppText as Text } from "../../components/AppText";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import { CloudEnvironmentRows } from "../connection/CloudEnvironmentRows";
 import { splitEnvironmentSections } from "../connection/environmentSections";
+import { useConnectionController } from "../connection/useConnectionController";
 import { optOutOfConnectOnboarding } from "./connectOnboardingOptOut";
 import { hasCloudPublicConfig } from "./publicConfig";
 
@@ -28,12 +30,25 @@ function ConfiguredConnectOnboardingRouteScreen() {
   const insets = useSafeAreaInsets();
   const { isSignedIn, userId } = useAuth({ treatPendingAsSignedOut: false });
   const { connectedEnvironments, onReconnectEnvironment } = useRemoteConnections();
+  const { refreshRelayEnvironments } = useConnectionController();
   const { connectedCloudEnvironments } = splitEnvironmentSections({
     connectedEnvironments,
     cloudEnvironments: null,
   });
 
-  const handleDone = useCallback(() => {
+  // Pull-to-refresh tracks its own spinner instead of discovery's refreshing
+  // flag, so background refreshes (e.g. the sign-in one) don't yank the
+  // content down.
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
+  const handlePullRefresh = useCallback(() => {
+    void (async () => {
+      setIsPullRefreshing(true);
+      await refreshRelayEnvironments();
+      setIsPullRefreshing(false);
+    })();
+  }, [refreshRelayEnvironments]);
+
+  const handleClose = useCallback(() => {
     navigation.goBack();
   }, [navigation]);
 
@@ -49,38 +64,28 @@ function ConfiguredConnectOnboardingRouteScreen() {
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
+      <NativeHeaderToolbar placement="right">
+        <NativeHeaderToolbar.Button icon="xmark" onPress={handleClose} separateBackground />
+      </NativeHeaderToolbar>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
+        contentInset={{ bottom: Math.max(insets.bottom, 18) + 18 }}
         contentContainerStyle={{
-          gap: 24,
-          paddingBottom: Math.max(insets.bottom, 18) + 18,
+          gap: 16,
           paddingHorizontal: 20,
-          paddingTop: 24,
+          paddingTop: 16,
         }}
+        refreshControl={
+          <RefreshControl refreshing={isPullRefreshing} onRefresh={handlePullRefresh} />
+        }
       >
-        <View className="gap-1.5">
-          <View className="flex-row items-start justify-between gap-3">
-            <Text className="flex-1 text-2xl font-t3-bold text-foreground">Set up T3 Connect</Text>
-            <Pressable
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={handleDone}
-              className="rounded-full bg-subtle px-3.5 py-2 active:opacity-70"
-            >
-              <Text className="text-xs font-t3-bold uppercase text-foreground-muted">Skip</Text>
-            </Pressable>
-          </View>
-          <Text className="text-sm leading-normal text-foreground-muted">
-            Environments published from your other devices are ready to connect here.
-          </Text>
-        </View>
-
         {isSignedIn ? (
           <CloudEnvironmentRows
             connectedCloudEnvironments={connectedCloudEnvironments}
             onReconnectEnvironment={onReconnectEnvironment}
+            showHeader={false}
           />
         ) : (
           <View collapsable={false} className="rounded-[24px] bg-card p-5">
@@ -90,25 +95,16 @@ function ConfiguredConnectOnboardingRouteScreen() {
           </View>
         )}
 
-        <View className="gap-3">
+        {userId ? (
           <Pressable
             accessibilityRole="button"
-            onPress={handleDone}
-            className="min-h-[48px] items-center justify-center rounded-[18px] bg-card active:opacity-70"
+            hitSlop={8}
+            onPress={handleDontShowAgain}
+            className="items-center py-1 active:opacity-70"
           >
-            <Text className="text-base font-t3-bold text-foreground">Done</Text>
+            <Text className="text-xs text-foreground-muted">{"Don't show this again"}</Text>
           </Pressable>
-          {userId ? (
-            <Pressable
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={handleDontShowAgain}
-              className="items-center py-1 active:opacity-70"
-            >
-              <Text className="text-xs text-foreground-muted">{"Don't show this again"}</Text>
-            </Pressable>
-          ) : null}
-        </View>
+        ) : null}
       </ScrollView>
     </View>
   );

@@ -421,6 +421,10 @@ export const RootStack = createNativeStackNavigator({
       screen: ConnectOnboardingRouteScreen,
       linking: "connect-onboarding",
       options: {
+        // Root screenOptions hide headers; formSheets that want the native
+        // title bar opt back in with the sheet header preset.
+        ...SHEET_SOLID_HEADER_OPTIONS,
+        title: "Set up T3 Connect",
         gestureEnabled: true,
         presentation: "formSheet",
         sheetAllowedDetents: [0.6, 0.95],

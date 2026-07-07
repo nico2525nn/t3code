@@ -33,6 +33,12 @@ import { type RelayEnvironmentView, useConnectionController } from "./useConnect
 export function CloudEnvironmentRows(props: {
   readonly connectedCloudEnvironments: ReadonlyArray<ConnectedEnvironmentSummary>;
   readonly onReconnectEnvironment: (environmentId: EnvironmentId) => void;
+  /**
+   * Hide the "T3 Connect" section title + refresh button for hosts that
+   * provide their own chrome (the onboarding sheet's native header and
+   * pull-to-refresh).
+   */
+  readonly showHeader?: boolean;
 }) {
   const { isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
   const controller = useConnectionController();
@@ -56,27 +62,36 @@ export function CloudEnvironmentRows(props: {
     setExpandedErrorId((current) => (current === environmentId ? null : environmentId));
   }, []);
 
+  const showHeader = props.showHeader ?? true;
+
   if (!isSignedIn) return null;
 
   return (
-    <View collapsable={false} className="mt-5 gap-3">
-      <View className="flex-row items-center justify-between px-1">
-        <Text className="text-sm font-t3-bold uppercase text-foreground-muted">T3 Connect</Text>
-        <Pressable
-          accessibilityRole="button"
-          disabled={controller.relayDiscovery.isRefreshing}
-          onPress={() => {
-            void controller.refreshRelayEnvironments();
-          }}
-          className="h-9 w-9 items-center justify-center rounded-full bg-subtle active:opacity-70 disabled:opacity-50"
-        >
-          {controller.relayDiscovery.isRefreshing ? (
-            <ActivityIndicator color={iconColor} size="small" />
-          ) : (
-            <SymbolView name="arrow.clockwise" size={14} tintColor={iconColor} type="monochrome" />
-          )}
-        </Pressable>
-      </View>
+    <View collapsable={false} className={cn("gap-3", showHeader && "mt-5")}>
+      {showHeader ? (
+        <View className="flex-row items-center justify-between px-1">
+          <Text className="text-sm font-t3-bold uppercase text-foreground-muted">T3 Connect</Text>
+          <Pressable
+            accessibilityRole="button"
+            disabled={controller.relayDiscovery.isRefreshing}
+            onPress={() => {
+              void controller.refreshRelayEnvironments();
+            }}
+            className="h-9 w-9 items-center justify-center rounded-full bg-subtle active:opacity-70 disabled:opacity-50"
+          >
+            {controller.relayDiscovery.isRefreshing ? (
+              <ActivityIndicator color={iconColor} size="small" />
+            ) : (
+              <SymbolView
+                name="arrow.clockwise"
+                size={14}
+                tintColor={iconColor}
+                type="monochrome"
+              />
+            )}
+          </Pressable>
+        </View>
+      ) : null}
 
       {hasCloudRows ? (
         <View collapsable={false} className="overflow-hidden rounded-[24px] bg-card">
