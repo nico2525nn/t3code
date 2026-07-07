@@ -754,14 +754,8 @@ export const deviceApi = HttpApiBuilder.group(
             return yield* relayDeviceTokenPollError("expired_token");
           }
           const now = yield* DateTime.now;
-          if (record.expiresAt <= DateTime.formatIso(now)) {
-            yield* deviceAuthorizations.deleteByDeviceCodeHash(deviceCodeHash);
-            return yield* relayDeviceTokenPollError("expired_token");
-          }
-          if (record.status === "denied") {
-            yield* deviceAuthorizations.deleteByDeviceCodeHash(deviceCodeHash);
-            return yield* relayDeviceTokenPollError("access_denied");
-          }
+          // Approved rows stay redeemable past expiry (until pruning) so a
+          // completion near the deadline is not lost to the next poll.
           if (record.status === "approved") {
             const granted = yield* deviceAuthorizations.takeApproved(deviceCodeHash);
             if (granted?.authorizationCode && granted.redirectUri) {
@@ -770,6 +764,14 @@ export const deviceApi = HttpApiBuilder.group(
                 redirect_uri: granted.redirectUri,
               };
             }
+            return yield* relayDeviceTokenPollError("expired_token");
+          }
+          if (record.status === "denied") {
+            yield* deviceAuthorizations.deleteByDeviceCodeHash(deviceCodeHash);
+            return yield* relayDeviceTokenPollError("access_denied");
+          }
+          if (record.expiresAt <= DateTime.formatIso(now)) {
+            yield* deviceAuthorizations.deleteByDeviceCodeHash(deviceCodeHash);
             return yield* relayDeviceTokenPollError("expired_token");
           }
           const polledTooFast =
@@ -814,18 +816,28 @@ export const deviceApprovalApi = HttpApiBuilder.group(
           yield* appendRelayCredentialResponseHeaders;
           const { userId } = yield* RelayClientPrincipal;
           yield* Effect.annotateCurrentSpan({ "user.id": userId });
-          const callbackState = yield* crypto.randomUUIDv4.pipe(
+          const userCode = normalizeDeviceUserCode(args.params.userCode);
+          const requestedState = yield* crypto.randomUUIDv4.pipe(
             Effect.catch(() => relayInternalErrorResponse("internal_error")),
           );
-          const redirectUri = `${appBaseUrl}/oauth/device/callback`;
           const now = yield* DateTime.now;
-          const record = yield* deviceAuthorizations.beginApproval({
-            userCode: normalizeDeviceUserCode(args.params.userCode),
-            callbackState,
-            redirectUri,
+          // beginApproval only claims rows without a callback state. A reload
+          // or second tab reuses the already-issued state so the first Clerk
+          // redirect still completes.
+          const claimed = yield* deviceAuthorizations.beginApproval({
+            userCode,
+            callbackState: requestedState,
+            redirectUri: `${appBaseUrl}/oauth/device/callback`,
             now,
           });
-          if (record === null) {
+          const record = claimed ?? (yield* deviceAuthorizations.findByUserCode(userCode));
+          if (
+            record === null ||
+            record.status !== "pending" ||
+            record.expiresAt <= DateTime.formatIso(now) ||
+            record.callbackState === null ||
+            record.redirectUri === null
+          ) {
             return yield* relayDeviceAuthorizationNotFoundError();
           }
           const clerkFrontendApiUrl = yield* Effect.try({
@@ -834,10 +846,10 @@ export const deviceApprovalApi = HttpApiBuilder.group(
           }).pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
           const authorizationUrl = new URL(`${clerkFrontendApiUrl}/oauth/authorize`);
           authorizationUrl.searchParams.set("client_id", record.clientId);
-          authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+          authorizationUrl.searchParams.set("redirect_uri", record.redirectUri);
           authorizationUrl.searchParams.set("response_type", "code");
           authorizationUrl.searchParams.set("scope", record.scope);
-          authorizationUrl.searchParams.set("state", callbackState);
+          authorizationUrl.searchParams.set("state", record.callbackState);
           authorizationUrl.searchParams.set("code_challenge", record.codeChallenge);
           authorizationUrl.searchParams.set("code_challenge_method", "S256");
           return { authorizationUrl: authorizationUrl.toString() };

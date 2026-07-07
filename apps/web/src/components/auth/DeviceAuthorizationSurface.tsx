@@ -143,18 +143,28 @@ function ConfiguredDeviceAuthorizationSurface({
   const [state, setState] = useState<DeviceApprovalStep>({ step: "enter" });
   const [errorMessage, setErrorMessage] = useState("");
   const autoLookupAttemptedRef = useRef(false);
+  const lookupRequestSeqRef = useRef(0);
 
   const lookup = useCallback(
     async (code: string) => {
+      // A newer lookup supersedes any in-flight one; stale results must not
+      // reach setState or the review step could show the wrong device.
+      const requestSeq = ++lookupRequestSeqRef.current;
       setErrorMessage("");
       setState({ step: "looking-up" });
       const clerkToken = await readClerkToken();
+      if (lookupRequestSeqRef.current !== requestSeq) {
+        return;
+      }
       if (!clerkToken) {
         setState({ step: "enter" });
         setErrorMessage("Your session expired. Sign in again to continue.");
         return;
       }
       const result = await getDeviceAuthorization(clerkToken, code);
+      if (lookupRequestSeqRef.current !== requestSeq) {
+        return;
+      }
       if (result._tag === "success") {
         if (result.value.status !== "pending") {
           setState({ step: "enter" });

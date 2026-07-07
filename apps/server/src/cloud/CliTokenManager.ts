@@ -132,6 +132,19 @@ const wrapError =
   <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, WrappedError, R> =>
     effect.pipe(Effect.mapError(makeError));
 
+const isCloudCliTokenManagerError = Schema.is(CloudCliTokenManagerError);
+
+// Keeps already-typed manager errors (e.g. the authorization timeout) intact
+// instead of collapsing them into a generic authorization failure.
+const wrapUnknownError =
+  <WrappedError extends CloudCliTokenManagerError>(makeError: (cause: unknown) => WrappedError) =>
+  <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, WrappedError | CloudCliTokenManagerError, R> =>
+    effect.pipe(
+      Effect.mapError((cause) => (isCloudCliTokenManagerError(cause) ? cause : makeError(cause))),
+    );
+
 function stringToBytes(value: string): Uint8Array {
   return new TextEncoder().encode(value);
 }
@@ -329,14 +342,17 @@ export const make = Effect.gen(function* () {
             });
           case "expired_token":
             return yield* new CloudCliAuthorizationTimeoutError({
-              cause: "The device authorization request expired before it was approved.",
+              cause:
+                "The device authorization request expired or was already redeemed before this device could complete it.",
             });
         }
       }
     });
 
+    // The relay owns the authoritative expiry (it answers expired_token), so
+    // the local timeout is a backstop padded past the final scheduled poll.
     const grant = yield* poll.pipe(
-      Effect.timeout(Duration.seconds(authorization.expires_in)),
+      Effect.timeout(Duration.seconds(authorization.expires_in + authorization.interval + 5)),
       Effect.catchTag("TimeoutError", (cause) =>
         Effect.fail(new CloudCliAuthorizationTimeoutError({ cause })),
       ),
@@ -376,7 +392,7 @@ export const make = Effect.gen(function* () {
       return Option.isSome(token)
         ? token.value
         : yield* Effect.scoped(login()).pipe(Effect.flatMap(persist));
-    }).pipe(wrapError((cause) => new CloudCliAuthorizationError({ cause }))),
+    }).pipe(wrapUnknownError((cause) => new CloudCliAuthorizationError({ cause }))),
   );
   const getWithDeviceLogin = semaphore.withPermits(1)(
     Effect.gen(function* () {
@@ -384,7 +400,7 @@ export const make = Effect.gen(function* () {
       return Option.isSome(token)
         ? token.value
         : yield* loginDevice().pipe(Effect.flatMap(persist));
-    }).pipe(wrapError((cause) => new CloudCliAuthorizationError({ cause }))),
+    }).pipe(wrapUnknownError((cause) => new CloudCliAuthorizationError({ cause }))),
   );
 
   return CloudCliTokenManager.of({ get, getWithDeviceLogin, getExisting, hasCredential, clear });

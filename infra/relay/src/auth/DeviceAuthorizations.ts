@@ -3,7 +3,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { and, eq, gt, lt } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, ne, or } from "drizzle-orm";
 
 import * as RelayDb from "../db.ts";
 import { relayDeviceAuthorizations } from "../persistence/schema.ts";
@@ -152,6 +152,8 @@ const make = Effect.gen(function* () {
     "relay.device_authorizations.begin_approval",
   )(function* (input) {
     const now = DateTime.formatIso(input.now);
+    // Claims only rows without a callback state; repeated approvals must
+    // reuse the first issued state so an in-flight Clerk redirect stays valid.
     return firstOrNull(
       yield* db
         .update(relayDeviceAuthorizations)
@@ -165,6 +167,7 @@ const make = Effect.gen(function* () {
             eq(relayDeviceAuthorizations.userCode, input.userCode),
             eq(relayDeviceAuthorizations.status, "pending"),
             gt(relayDeviceAuthorizations.expiresAt, now),
+            isNull(relayDeviceAuthorizations.callbackState),
           ),
         )
         .returning()
@@ -257,11 +260,23 @@ const make = Effect.gen(function* () {
     });
 
   const pruneExpired: DeviceAuthorizations["Service"]["pruneExpired"] = Effect.gen(function* () {
-    const now = DateTime.formatIso(yield* DateTime.now);
-    yield* Effect.annotateCurrentSpan({ "relay.device_authorization_prune.before": now });
+    const now = yield* DateTime.now;
+    const cutoff = DateTime.formatIso(now);
+    // Approved-but-unredeemed rows get a grace window so a completion near
+    // the expiry boundary can still be picked up by the next CLI poll.
+    const approvedCutoff = DateTime.formatIso(DateTime.subtract(now, { minutes: 10 }));
+    yield* Effect.annotateCurrentSpan({ "relay.device_authorization_prune.before": cutoff });
     yield* db
       .delete(relayDeviceAuthorizations)
-      .where(lt(relayDeviceAuthorizations.expiresAt, now))
+      .where(
+        or(
+          and(
+            lt(relayDeviceAuthorizations.expiresAt, cutoff),
+            ne(relayDeviceAuthorizations.status, "approved"),
+          ),
+          lt(relayDeviceAuthorizations.expiresAt, approvedCutoff),
+        ),
+      )
       .pipe(Effect.mapError(persistenceError("prune-expired")));
   }).pipe(Effect.withSpan("relay.device_authorizations.prune_expired"));
 

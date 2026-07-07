@@ -42,10 +42,11 @@ deployments.
 
 For a hosted relay deployment, copy `infra/relay/.env.example` to `infra/relay/.env`. The relay
 deployment reads `RELAY_DOMAIN`, `RELAY_API_ZONE_NAME`, `RELAY_TUNNEL_ZONE_NAME`,
-`CLERK_PUBLISHABLE_KEY`, and `CLERK_JWT_AUDIENCE` through Effect `Config`, plus the optional
-`T3CODE_APP_BASE_URL` (web app origin for device-code login, default `https://app.t3.codes`; a
-non-production stage should point it at a web app build that targets the same stage relay and Clerk
-instance). Other than that default, there are no checked-in deployment defaults.
+`CLERK_PUBLISHABLE_KEY`, and `CLERK_JWT_AUDIENCE` through Effect `Config`, plus
+`T3CODE_APP_BASE_URL` (web app origin for device-code login; `prod` defaults to
+`https://app.t3.codes`, and every other stage must set it explicitly to a web app build that
+targets the same stage relay and Clerk instance). Other than that default, there are no checked-in
+deployment defaults.
 `vp run --filter t3code-relay deploy` invokes Alchemy from the relay directory, so Alchemy loads
 `infra/relay/.env`. After a successful deployment, the wrapper updates the repository-root `.env`
 with the deployed HTTPS relay URL. The relay still requires

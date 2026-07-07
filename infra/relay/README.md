@@ -87,10 +87,10 @@ vp run --filter t3code-relay deploy
 The stack provisions the Cloudflare Worker and queues, managed endpoint resources, database
 connectivity, and relay tracing resources. Copy [`infra/relay/.env.example`](./.env.example) to
 `infra/relay/.env` and fill in the deployment-specific values before deploying. Alchemy loads that
-file from the relay directory. Runtime secrets include Clerk and APNs credentials. The optional
-`T3CODE_APP_BASE_URL` selects the web app origin used by device-code login; it defaults to
-`https://app.t3.codes`, which is only correct for `prod` — see the comment in `.env.example` for
-personal stages. Production adopts
+file from the relay directory. Runtime secrets include Clerk and APNs credentials.
+`T3CODE_APP_BASE_URL` selects the web app origin used by device-code login; `prod` defaults to
+`https://app.t3.codes`, and every other stage must set it explicitly — see the comment in
+`.env.example`. Production adopts
 the configured API and tunnel DNS zones as retained Cloudflare resources. Personal stages reference
 the production-owned zones.
 
