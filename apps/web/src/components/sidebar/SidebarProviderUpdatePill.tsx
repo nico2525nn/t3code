@@ -59,9 +59,7 @@ function useSidebarProviderUpdatePillTransition(
     ? providerUpdatePillProgressStyle(displayedView.tone)
     : null;
   const showDismissProgress =
-    dismissAfterVisibleMs !== undefined &&
-    dismissProgressStyle !== null &&
-    exitingKey !== viewKey;
+    dismissAfterVisibleMs !== undefined && dismissProgressStyle !== null && exitingKey !== viewKey;
 
   const startExit = useCallback(
     (key: string, nextView: ProviderUpdateSidebarPillView | null, dismissKey?: string) => {
