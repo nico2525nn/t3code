@@ -18,6 +18,7 @@ import {
   setAgentAwarenessRelayTokenProvider,
   unregisterAgentAwarenessDeviceForCurrentUser,
 } from "../agent-awareness/remoteRegistration";
+import { requestConnectOnboardingIfNeeded } from "./connectOnboarding";
 import { resolveCloudPublicConfig, resolveRelayClerkTokenOptions } from "./publicConfig";
 
 function resetManagedRelayTokenCache() {
@@ -66,6 +67,16 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
     const previousObservedAccount = observedAccountRef.current;
     const nextAccount = isSignedIn && userId ? userId : null;
     observedAccountRef.current = nextAccount;
+
+    // A sign-in that completed during this session (a cold start observes
+    // undefined → account and must not re-prompt) requests the T3 Connect
+    // onboarding sheet once per account.
+    if (previousObservedAccount === null && nextAccount !== null) {
+      void (async () => {
+        const result = await settlePromise(() => requestConnectOnboardingIfNeeded(nextAccount));
+        reportAtomCommandResult(result, { label: "connect onboarding request" });
+      })();
+    }
 
     const queueAccountCleanup = (
       previous: {
