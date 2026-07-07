@@ -160,6 +160,10 @@ function relayProtectedErrorMessage(error: RelayProtectedErrorType): string {
       return `Relay rejected the agent activity publish proof (${error.reason}).`;
     case "RelayInternalError":
       return `Relay encountered an internal error (${error.reason}).`;
+    case "RelayDeviceTokenPollError":
+      return `Relay rejected the device authorization poll (${error.code}).`;
+    case "RelayDeviceAuthorizationNotFoundError":
+      return "Relay could not find the device authorization.";
   }
 }
 

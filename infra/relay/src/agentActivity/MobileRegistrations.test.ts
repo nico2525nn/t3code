@@ -123,6 +123,7 @@ function makeDeliveryAttempts(
 
 const config = RelayConfiguration.RelayConfiguration.of({
   relayIssuer: "https://relay.example.test",
+  appBaseUrl: "https://app.example.test",
   apns: {
     environment: "sandbox",
     teamId: "team-id",

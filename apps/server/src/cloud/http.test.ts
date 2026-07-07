@@ -192,6 +192,7 @@ describe("reconcileDesiredCloudLink", () => {
         CliTokenManager.CloudCliTokenManager,
         CliTokenManager.CloudCliTokenManager.of({
           get: unusedSecretStoreOperation(),
+          getWithDeviceLogin: unusedSecretStoreOperation(),
           getExisting: Effect.succeed(Option.none()),
           hasCredential: unusedSecretStoreOperation(),
           clear: unusedSecretStoreOperation(),

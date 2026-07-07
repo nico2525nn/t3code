@@ -4,6 +4,9 @@ import {
   type RelayClientEnvironmentRecord,
   type RelayClientDeviceRecord,
   RelayConnectEnvironmentEndpoint,
+  type RelayDeviceApprovalResponse,
+  type RelayDeviceAuthorizationDetails,
+  type RelayDeviceCompletionRequest,
   type RelayDeviceRegistrationRequest,
   RelayDpopAccessTokenScope,
   RelayDpopTokenExchangeGrantType,
@@ -92,6 +95,10 @@ export const ManagedRelayRequestAction = Schema.Literals([
   "register relay mobile device",
   "unregister relay mobile device",
   "register relay live activity",
+  "get relay device authorization",
+  "approve relay device authorization",
+  "complete relay device authorization",
+  "deny relay device authorization",
 ]);
 export type ManagedRelayRequestAction = typeof ManagedRelayRequestAction.Type;
 
@@ -107,6 +114,10 @@ export const ManagedRelayRequestActivity = Schema.Literals([
   "Relay mobile device registration",
   "Relay mobile device unregistration",
   "Relay Live Activity registration",
+  "Relay device authorization lookup",
+  "Relay device authorization approval",
+  "Relay device authorization completion",
+  "Relay device authorization denial",
 ]);
 export type ManagedRelayRequestActivity = typeof ManagedRelayRequestActivity.Type;
 
@@ -286,6 +297,22 @@ export class ManagedRelayClient extends Context.Service<
       readonly clerkToken: string;
       readonly payload: RelayLiveActivityRegistrationRequest;
     }) => Effect.Effect<RelayOkResponse, ManagedRelayClientError>;
+    readonly getDeviceAuthorization: (input: {
+      readonly clerkToken: string;
+      readonly userCode: string;
+    }) => Effect.Effect<RelayDeviceAuthorizationDetails, ManagedRelayClientError>;
+    readonly approveDeviceAuthorization: (input: {
+      readonly clerkToken: string;
+      readonly userCode: string;
+    }) => Effect.Effect<RelayDeviceApprovalResponse, ManagedRelayClientError>;
+    readonly completeDeviceAuthorization: (input: {
+      readonly clerkToken: string;
+      readonly payload: RelayDeviceCompletionRequest;
+    }) => Effect.Effect<RelayOkResponse, ManagedRelayClientError>;
+    readonly denyDeviceAuthorization: (input: {
+      readonly clerkToken: string;
+      readonly userCode: string;
+    }) => Effect.Effect<RelayOkResponse, ManagedRelayClientError>;
     readonly resetTokenCache: Effect.Effect<void>;
   }
 >()("@t3tools/client-runtime/relay/managedRelay/ManagedRelayClient") {}
@@ -399,6 +426,14 @@ function disabledManagedRelayClient(relayUrl: string): ManagedRelayClient["Servi
     registerDevice: unavailable("clientRuntime.managedRelay.registerDevice"),
     unregisterDevice: unavailable("clientRuntime.managedRelay.unregisterDevice"),
     registerLiveActivity: unavailable("clientRuntime.managedRelay.registerLiveActivity"),
+    getDeviceAuthorization: unavailable("clientRuntime.managedRelay.getDeviceAuthorization"),
+    approveDeviceAuthorization: unavailable(
+      "clientRuntime.managedRelay.approveDeviceAuthorization",
+    ),
+    completeDeviceAuthorization: unavailable(
+      "clientRuntime.managedRelay.completeDeviceAuthorization",
+    ),
+    denyDeviceAuthorization: unavailable("clientRuntime.managedRelay.denyDeviceAuthorization"),
     resetTokenCache: Effect.void.pipe(
       Effect.withSpan("clientRuntime.managedRelay.resetTokenCache"),
     ),
@@ -865,6 +900,66 @@ export const make = Effect.fn("ManagedRelayClient.make")(function* (
         );
       },
       Effect.withSpan("clientRuntime.managedRelay.registerLiveActivity"),
+      withRelayClientTracing,
+    ),
+    getDeviceAuthorization: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.deviceApproval
+          .getDeviceAuthorization({
+            headers: bearerHeaders(input.clerkToken),
+            params: { userCode: input.userCode },
+          })
+          .pipe(
+            Effect.mapError(relayRequestError("get relay device authorization")),
+            timeoutRelayRequest("Relay device authorization lookup"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.getDeviceAuthorization"),
+      withRelayClientTracing,
+    ),
+    approveDeviceAuthorization: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.deviceApproval
+          .approveDeviceAuthorization({
+            headers: bearerHeaders(input.clerkToken),
+            params: { userCode: input.userCode },
+          })
+          .pipe(
+            Effect.mapError(relayRequestError("approve relay device authorization")),
+            timeoutRelayRequest("Relay device authorization approval"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.approveDeviceAuthorization"),
+      withRelayClientTracing,
+    ),
+    completeDeviceAuthorization: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.deviceApproval
+          .completeDeviceAuthorization({
+            headers: bearerHeaders(input.clerkToken),
+            payload: input.payload,
+          })
+          .pipe(
+            Effect.mapError(relayRequestError("complete relay device authorization")),
+            timeoutRelayRequest("Relay device authorization completion"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.completeDeviceAuthorization"),
+      withRelayClientTracing,
+    ),
+    denyDeviceAuthorization: Effect.fnUntraced(
+      function* (input) {
+        return yield* client.deviceApproval
+          .denyDeviceAuthorization({
+            headers: bearerHeaders(input.clerkToken),
+            params: { userCode: input.userCode },
+          })
+          .pipe(
+            Effect.mapError(relayRequestError("deny relay device authorization")),
+            timeoutRelayRequest("Relay device authorization denial"),
+          );
+      },
+      Effect.withSpan("clientRuntime.managedRelay.denyDeviceAuthorization"),
       withRelayClientTracing,
     ),
     resetTokenCache: SynchronizedRef.set(cachedTokens, []).pipe(

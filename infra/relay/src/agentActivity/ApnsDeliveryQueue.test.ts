@@ -10,6 +10,7 @@ import * as ApnsDeliveryQueue from "./ApnsDeliveryQueue.ts";
 
 const config: RelayConfiguration.RelayConfiguration["Service"] = {
   relayIssuer: "https://relay.example.com",
+  appBaseUrl: "https://app.example.test",
   apns: {
     teamId: "team-1",
     keyId: "key-1",

@@ -168,6 +168,37 @@ export const relayDeliveryAttempts = pgTable(
   ],
 );
 
+export const relayDeviceAuthorizations = pgTable(
+  "relay_device_authorizations",
+  {
+    deviceCodeHash: varchar("device_code_hash", { length: 64 }).primaryKey(),
+    userCode: varchar("user_code", { length: 16 }).notNull(),
+    clientId: varchar("client_id", { length: 191 }).notNull(),
+    scope: text("scope").notNull(),
+    codeChallenge: varchar("code_challenge", { length: 128 }).notNull(),
+    status: varchar("status", { length: 16 }).notNull().$type<"pending" | "approved" | "denied">(),
+    userId: varchar("user_id", { length: 255 }),
+    callbackState: varchar("callback_state", { length: 64 }),
+    redirectUri: text("redirect_uri"),
+    authorizationCode: text("authorization_code"),
+    deviceName: text("device_name"),
+    devicePlatform: varchar("device_platform", { length: 128 }),
+    clientVersion: varchar("client_version", { length: 64 }),
+    requestIp: varchar("request_ip", { length: 64 }),
+    requestLocation: varchar("request_location", { length: 191 }),
+    pollIntervalSeconds: integer("poll_interval_seconds").notNull(),
+    lastPolledAt: varchar("last_polled_at", { length: 64 }),
+    expiresAt: varchar("expires_at", { length: 64 }).notNull(),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+    updatedAt: varchar("updated_at", { length: 64 }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_relay_device_authorizations_user_code").on(table.userCode),
+    uniqueIndex("idx_relay_device_authorizations_callback_state").on(table.callbackState),
+    index("idx_relay_device_authorizations_expires_at").on(table.expiresAt),
+  ],
+);
+
 export const relayDpopProofs = pgTable(
   "relay_dpop_proofs",
   {

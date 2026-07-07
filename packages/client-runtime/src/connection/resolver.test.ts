@@ -84,6 +84,10 @@ function relayClient(
     registerDevice: () => unsupported("registerDevice"),
     unregisterDevice: () => unsupported("unregisterDevice"),
     registerLiveActivity: () => unsupported("registerLiveActivity"),
+    getDeviceAuthorization: () => unsupported("getDeviceAuthorization"),
+    approveDeviceAuthorization: () => unsupported("approveDeviceAuthorization"),
+    completeDeviceAuthorization: () => unsupported("completeDeviceAuthorization"),
+    denyDeviceAuthorization: () => unsupported("denyDeviceAuthorization"),
     resetTokenCache: Effect.void,
   });
 }

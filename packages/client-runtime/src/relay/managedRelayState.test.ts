@@ -83,6 +83,10 @@ function createManager(
     registerDevice: () => Effect.die("unused"),
     unregisterDevice: () => Effect.die("unused"),
     registerLiveActivity: () => Effect.die("unused"),
+    getDeviceAuthorization: () => Effect.die("unused"),
+    approveDeviceAuthorization: () => Effect.die("unused"),
+    completeDeviceAuthorization: () => Effect.die("unused"),
+    denyDeviceAuthorization: () => Effect.die("unused"),
     resetTokenCache: Effect.void,
     ...overrides,
   });

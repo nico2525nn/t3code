@@ -70,6 +70,15 @@ function relayProtectedError(error: RelayProtectedError): ConnectionAttemptError
         detail: error.message,
         traceId: error.traceId,
       });
+    case "RelayDeviceTokenPollError":
+    case "RelayDeviceAuthorizationNotFoundError":
+      // Device-authorization errors never occur while connecting to an
+      // environment; map them defensively as configuration problems.
+      return new ConnectionBlockedError({
+        reason: "configuration",
+        detail: error.message,
+        traceId: error.traceId,
+      });
   }
 }
 

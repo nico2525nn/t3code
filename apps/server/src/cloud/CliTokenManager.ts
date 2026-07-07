@@ -21,8 +21,20 @@ import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 
+import {
+  RelayDeviceAuthorizationGrantType,
+  RelayDeviceAuthorizationResponse,
+  RelayDeviceTokenPollCode,
+  RelayDeviceTokenResponse,
+} from "@t3tools/contracts/relay";
+import {
+  HostProcessArchitecture,
+  HostProcessHostname,
+  HostProcessPlatform,
+} from "@t3tools/shared/hostProcess";
+
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
-import { cloudCliOAuthConfig, type CloudCliOAuthConfig } from "./publicConfig.ts";
+import { cloudCliOAuthConfig, relayUrlConfig, type CloudCliOAuthConfig } from "./publicConfig.ts";
 
 const CLOUD_CLI_OAUTH_TOKEN_SECRET = "cloud-cli-oauth-token";
 const CLOUD_CLI_OAUTH_CALLBACK_TIMEOUT = Duration.minutes(10);
@@ -44,6 +56,10 @@ const OAuthTokenResponse = Schema.Struct({
   refresh_token: Schema.optional(Schema.String),
   expires_in: Schema.Number,
   token_type: Schema.String,
+});
+
+const DeviceTokenPollErrorBody = Schema.Struct({
+  code: RelayDeviceTokenPollCode,
 });
 
 export class CloudCliCredentialRemovalError extends Schema.TaggedErrorClass<CloudCliCredentialRemovalError>()(
@@ -104,6 +120,7 @@ export class CloudCliTokenManager extends Context.Service<
   CloudCliTokenManager,
   {
     readonly get: Effect.Effect<PersistedToken, CloudCliTokenManagerError>;
+    readonly getWithDeviceLogin: Effect.Effect<PersistedToken, CloudCliTokenManagerError>;
     readonly getExisting: Effect.Effect<Option.Option<PersistedToken>, CloudCliTokenManagerError>;
     readonly hasCredential: Effect.Effect<boolean, CloudCliTokenManagerError>;
     readonly clear: Effect.Effect<void, CloudCliTokenManagerError>;
@@ -125,7 +142,9 @@ function bytesToString(value: Uint8Array): string {
 
 export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
-  const httpClient = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
+  // Device-token polling reads structured 400 bodies, so it needs the unfiltered client.
+  const rawHttpClient = yield* HttpClient.HttpClient;
+  const httpClient = rawHttpClient.pipe(HttpClient.filterStatusOk);
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const semaphore = yield* Semaphore.make(1);
   const persist = Effect.fn("cloud.cli_token.persist")(function* (token: PersistedToken) {
@@ -242,6 +261,96 @@ export const make = Effect.gen(function* () {
     });
   });
 
+  const loginDevice = Effect.fn("cloud.cli_token.login_device")(function* () {
+    const metadata = yield* cloudCliOAuthConfig;
+    const relayUrl = yield* relayUrlConfig;
+    const verifier = Encoding.encodeBase64Url(yield* crypto.randomBytes(32));
+    const challenge = Encoding.encodeBase64Url(
+      yield* crypto.digest("SHA-256", new TextEncoder().encode(verifier)),
+    );
+
+    const hostname = yield* HostProcessHostname;
+    const platform = yield* HostProcessPlatform;
+    const architecture = yield* HostProcessArchitecture;
+    const authorization = yield* HttpClientRequest.post(`${relayUrl}/v1/device/authorization`).pipe(
+      HttpClientRequest.bodyUrlParams({
+        client_id: metadata.clientId,
+        scope: metadata.scopes.join(" "),
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        device_name: hostname,
+        device_platform: `${platform} (${architecture}) node-v${process.versions.node}`,
+      }),
+      httpClient.execute,
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(RelayDeviceAuthorizationResponse)),
+    );
+
+    yield* Console.log(
+      [
+        `To authorize T3 Connect, open ${authorization.verification_uri} on another device and enter this code:`,
+        "",
+        `  ${authorization.user_code}`,
+        "",
+        "Or open this link directly:",
+        authorization.verification_uri_complete,
+        "",
+        "Waiting for approval...",
+      ].join("\n"),
+    );
+
+    let pollInterval = Duration.seconds(authorization.interval);
+    const poll = Effect.gen(function* () {
+      while (true) {
+        yield* Effect.sleep(pollInterval);
+        const response = yield* rawHttpClient.execute(
+          HttpClientRequest.post(`${relayUrl}/v1/device/token`).pipe(
+            HttpClientRequest.bodyUrlParams({
+              grant_type: RelayDeviceAuthorizationGrantType,
+              device_code: authorization.device_code,
+              client_id: metadata.clientId,
+            }),
+          ),
+        );
+        if (response.status === 200) {
+          return yield* HttpClientResponse.schemaBodyJson(RelayDeviceTokenResponse)(response);
+        }
+        const body = yield* HttpClientResponse.schemaBodyJson(DeviceTokenPollErrorBody)(
+          response,
+        ).pipe(Effect.mapError((cause) => new CloudCliAuthorizationError({ cause })));
+        switch (body.code) {
+          case "authorization_pending":
+            continue;
+          case "slow_down":
+            pollInterval = Duration.sum(pollInterval, Duration.seconds(5));
+            continue;
+          case "access_denied":
+            return yield* new CloudCliAuthorizationError({
+              cause: "The device authorization request was denied.",
+            });
+          case "expired_token":
+            return yield* new CloudCliAuthorizationTimeoutError({
+              cause: "The device authorization request expired before it was approved.",
+            });
+        }
+      }
+    });
+
+    const grant = yield* poll.pipe(
+      Effect.timeout(Duration.seconds(authorization.expires_in)),
+      Effect.catchTag("TimeoutError", (cause) =>
+        Effect.fail(new CloudCliAuthorizationTimeoutError({ cause })),
+      ),
+    );
+
+    return yield* exchangeToken(metadata, {
+      grant_type: "authorization_code",
+      code: grant.authorization_code,
+      redirect_uri: grant.redirect_uri,
+      client_id: metadata.clientId,
+      code_verifier: verifier,
+    });
+  });
+
   const getExistingNoLock = Effect.fn("cloud.cli_token.get_existing_no_lock")(function* () {
     const token = yield* read();
     if (Option.isNone(token)) return token;
@@ -269,8 +378,16 @@ export const make = Effect.gen(function* () {
         : yield* Effect.scoped(login()).pipe(Effect.flatMap(persist));
     }).pipe(wrapError((cause) => new CloudCliAuthorizationError({ cause }))),
   );
+  const getWithDeviceLogin = semaphore.withPermits(1)(
+    Effect.gen(function* () {
+      const token = yield* getExistingNoLock();
+      return Option.isSome(token)
+        ? token.value
+        : yield* loginDevice().pipe(Effect.flatMap(persist));
+    }).pipe(wrapError((cause) => new CloudCliAuthorizationError({ cause }))),
+  );
 
-  return CloudCliTokenManager.of({ get, getExisting, hasCredential, clear });
+  return CloudCliTokenManager.of({ get, getWithDeviceLogin, getExisting, hasCredential, clear });
 });
 
 export const layer = Layer.effect(CloudCliTokenManager, make);

@@ -96,7 +96,7 @@ function RootRouteView() {
     };
   }, [pathname]);
 
-  if (pathname === "/pair") {
+  if (pathname === "/pair" || pathname.startsWith("/oauth/device")) {
     return (
       <>
         <DocumentTitleSync />

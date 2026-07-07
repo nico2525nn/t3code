@@ -5,6 +5,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Encoding from "effect/Encoding";
 import * as Layer from "effect/Layer";
 import * as Record from "effect/Record";
 import * as Redacted from "effect/Redacted";
@@ -34,6 +35,9 @@ import {
   RelayMobileRegistrationScope,
   RelayAuthInvalidError,
   type RelayAuthInvalidReason,
+  RelayDeviceAuthorizationNotFoundError,
+  RelayDeviceTokenPollError,
+  type RelayDeviceTokenPollCode,
   RelayEnvironmentAuth,
   RelayEnvironmentConnectNotAuthorizedError,
   RelayEnvironmentEndpointTimedOutError,
@@ -47,9 +51,11 @@ import {
   type RelayDpopAccessTokenScope,
   RelayInternalError,
 } from "@t3tools/contracts/relay";
+import { clerkFrontendApiUrlFromPublishableKey } from "@t3tools/shared/relayAuth";
 import { normalizeRelayIssuer } from "@t3tools/shared/relayJwt";
 
 import * as DeliveryAttempts from "../agentActivity/DeliveryAttempts.ts";
+import * as DeviceAuthorizations from "../auth/DeviceAuthorizations.ts";
 import * as AgentActivityRows from "../agentActivity/AgentActivityRows.ts";
 import * as Devices from "../agentActivity/Devices.ts";
 import * as DpopProofs from "../auth/DpopProofs.ts";
@@ -623,6 +629,260 @@ export const tokenApi = HttpApiBuilder.group(
   }),
 );
 
+const RELAY_DEVICE_AUTHORIZATION_TTL = Duration.minutes(15);
+const RELAY_DEVICE_POLL_INTERVAL_SECONDS = 5;
+// Consonant-only alphabet: no accidental words, no ambiguous I/O/0/1.
+const RELAY_DEVICE_USER_CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ";
+const RELAY_DEVICE_USER_CODE_LENGTH = 8;
+
+function normalizeDeviceUserCode(userCode: string): string {
+  return userCode.toUpperCase().replaceAll(/[^A-Z0-9]/gu, "");
+}
+
+function formatDeviceUserCode(userCode: string): string {
+  return userCode.length === RELAY_DEVICE_USER_CODE_LENGTH
+    ? `${userCode.slice(0, 4)}-${userCode.slice(4)}`
+    : userCode;
+}
+
+function deviceUserCodeFromBytes(bytes: Uint8Array): string {
+  let code = "";
+  for (let index = 0; index < RELAY_DEVICE_USER_CODE_LENGTH; index++) {
+    code +=
+      RELAY_DEVICE_USER_CODE_ALPHABET[(bytes[index] ?? 0) % RELAY_DEVICE_USER_CODE_ALPHABET.length];
+  }
+  return code;
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/u, "");
+}
+
+function hashDeviceCode(crypto: Crypto.Crypto, deviceCode: string) {
+  return crypto.digest("SHA-256", new TextEncoder().encode(deviceCode)).pipe(
+    Effect.map(Encoding.encodeHex),
+    Effect.catch(() => relayInternalErrorResponse("internal_error")),
+  );
+}
+
+function deviceAuthorizationDetails(record: DeviceAuthorizations.DeviceAuthorizationRecord) {
+  return {
+    userCode: formatDeviceUserCode(record.userCode),
+    status: record.status,
+    scope: record.scope,
+    deviceName: record.deviceName,
+    devicePlatform: record.devicePlatform,
+    clientVersion: record.clientVersion,
+    requestIp: record.requestIp,
+    requestLocation: record.requestLocation,
+    requestedAt: record.createdAt,
+    expiresAt: record.expiresAt,
+  };
+}
+
+const relayDeviceTokenPollError = Effect.fnUntraced(function* (code: RelayDeviceTokenPollCode) {
+  const traceId = yield* currentTraceId;
+  yield* Effect.annotateCurrentSpan({ "relay.device_authorization.poll_result": code });
+  return yield* new RelayDeviceTokenPollError({ code, traceId });
+});
+
+const relayDeviceAuthorizationNotFoundError = Effect.fnUntraced(function* () {
+  const traceId = yield* currentTraceId;
+  return yield* new RelayDeviceAuthorizationNotFoundError({
+    code: "device_authorization_not_found",
+    traceId,
+  });
+});
+
+export const deviceApi = HttpApiBuilder.group(
+  RelayApi,
+  "device",
+  Effect.fnUntraced(function* (handlers) {
+    const config = yield* RelayConfiguration.RelayConfiguration;
+    const crypto = yield* Crypto.Crypto;
+    const deviceAuthorizations = yield* DeviceAuthorizations.DeviceAuthorizations;
+    const appBaseUrl = trimTrailingSlash(config.appBaseUrl);
+    return handlers
+      .handle(
+        "authorizeDevice",
+        Effect.fn("relay.api.device.authorizeDevice")(function* (args) {
+          yield* appendRelayCredentialResponseHeaders;
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          yield* Effect.annotateCurrentSpan({
+            "relay.oauth.client_id": args.payload.client_id,
+          });
+          const randomBytes = yield* crypto
+            .randomBytes(32 + RELAY_DEVICE_USER_CODE_LENGTH)
+            .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
+          const deviceCode = Encoding.encodeBase64Url(randomBytes.slice(0, 32));
+          const deviceCodeHash = yield* hashDeviceCode(crypto, deviceCode);
+          const userCode = deviceUserCodeFromBytes(randomBytes.slice(32));
+          const now = yield* DateTime.now;
+          const expiresAt = DateTime.addDuration(now, RELAY_DEVICE_AUTHORIZATION_TTL);
+          yield* deviceAuthorizations.create({
+            deviceCodeHash,
+            userCode,
+            clientId: args.payload.client_id,
+            scope: args.payload.scope,
+            codeChallenge: args.payload.code_challenge,
+            deviceName: args.payload.device_name ?? null,
+            devicePlatform: args.payload.device_platform ?? null,
+            clientVersion: args.payload.client_version ?? null,
+            requestIp: request.headers["cf-connecting-ip"] ?? null,
+            requestLocation: request.headers["cf-ipcountry"] ?? null,
+            pollIntervalSeconds: RELAY_DEVICE_POLL_INTERVAL_SECONDS,
+            expiresAt,
+          });
+          const formattedUserCode = formatDeviceUserCode(userCode);
+          return {
+            device_code: deviceCode,
+            user_code: formattedUserCode,
+            verification_uri: `${appBaseUrl}/oauth/device`,
+            verification_uri_complete: `${appBaseUrl}/oauth/device?user_code=${formattedUserCode}`,
+            expires_in: Duration.toSeconds(RELAY_DEVICE_AUTHORIZATION_TTL),
+            interval: RELAY_DEVICE_POLL_INTERVAL_SECONDS,
+          };
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "redeemDeviceCode",
+        Effect.fn("relay.api.device.redeemDeviceCode")(function* (args) {
+          yield* appendRelayCredentialResponseHeaders;
+          const deviceCodeHash = yield* hashDeviceCode(crypto, args.payload.device_code);
+          const record = yield* deviceAuthorizations.findByDeviceCodeHash(deviceCodeHash);
+          if (record === null || record.clientId !== args.payload.client_id) {
+            return yield* relayDeviceTokenPollError("expired_token");
+          }
+          const now = yield* DateTime.now;
+          if (record.expiresAt <= DateTime.formatIso(now)) {
+            yield* deviceAuthorizations.deleteByDeviceCodeHash(deviceCodeHash);
+            return yield* relayDeviceTokenPollError("expired_token");
+          }
+          if (record.status === "denied") {
+            yield* deviceAuthorizations.deleteByDeviceCodeHash(deviceCodeHash);
+            return yield* relayDeviceTokenPollError("access_denied");
+          }
+          if (record.status === "approved") {
+            const granted = yield* deviceAuthorizations.takeApproved(deviceCodeHash);
+            if (granted?.authorizationCode && granted.redirectUri) {
+              return {
+                authorization_code: granted.authorizationCode,
+                redirect_uri: granted.redirectUri,
+              };
+            }
+            return yield* relayDeviceTokenPollError("expired_token");
+          }
+          const polledTooFast =
+            record.lastPolledAt !== null &&
+            Date.parse(record.lastPolledAt) + (record.pollIntervalSeconds - 1) * 1_000 >
+              now.epochMilliseconds;
+          yield* deviceAuthorizations.stampPolled({ deviceCodeHash, now });
+          return yield* relayDeviceTokenPollError(
+            polledTooFast ? "slow_down" : "authorization_pending",
+          );
+        }, mapRelayCommonApiErrors("not_authorized")),
+      );
+  }),
+);
+
+export const deviceApprovalApi = HttpApiBuilder.group(
+  RelayApi,
+  "deviceApproval",
+  Effect.fnUntraced(function* (handlers) {
+    const config = yield* RelayConfiguration.RelayConfiguration;
+    const crypto = yield* Crypto.Crypto;
+    const deviceAuthorizations = yield* DeviceAuthorizations.DeviceAuthorizations;
+    const appBaseUrl = trimTrailingSlash(config.appBaseUrl);
+    return handlers
+      .handle(
+        "getDeviceAuthorization",
+        Effect.fn("relay.api.device_approval.getDeviceAuthorization")(function* (args) {
+          yield* appendRelayCredentialResponseHeaders;
+          const record = yield* deviceAuthorizations.findByUserCode(
+            normalizeDeviceUserCode(args.params.userCode),
+          );
+          const now = DateTime.formatIso(yield* DateTime.now);
+          if (record === null || record.expiresAt <= now) {
+            return yield* relayDeviceAuthorizationNotFoundError();
+          }
+          return deviceAuthorizationDetails(record);
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "approveDeviceAuthorization",
+        Effect.fn("relay.api.device_approval.approveDeviceAuthorization")(function* (args) {
+          yield* appendRelayCredentialResponseHeaders;
+          const { userId } = yield* RelayClientPrincipal;
+          yield* Effect.annotateCurrentSpan({ "user.id": userId });
+          const callbackState = yield* crypto.randomUUIDv4.pipe(
+            Effect.catch(() => relayInternalErrorResponse("internal_error")),
+          );
+          const redirectUri = `${appBaseUrl}/oauth/device/callback`;
+          const now = yield* DateTime.now;
+          const record = yield* deviceAuthorizations.beginApproval({
+            userCode: normalizeDeviceUserCode(args.params.userCode),
+            callbackState,
+            redirectUri,
+            now,
+          });
+          if (record === null) {
+            return yield* relayDeviceAuthorizationNotFoundError();
+          }
+          const clerkFrontendApiUrl = yield* Effect.try({
+            try: () => clerkFrontendApiUrlFromPublishableKey(config.clerkPublishableKey),
+            catch: (cause) => new ClerkTokenVerificationFailed({ cause }),
+          }).pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
+          const authorizationUrl = new URL(`${clerkFrontendApiUrl}/oauth/authorize`);
+          authorizationUrl.searchParams.set("client_id", record.clientId);
+          authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+          authorizationUrl.searchParams.set("response_type", "code");
+          authorizationUrl.searchParams.set("scope", record.scope);
+          authorizationUrl.searchParams.set("state", callbackState);
+          authorizationUrl.searchParams.set("code_challenge", record.codeChallenge);
+          authorizationUrl.searchParams.set("code_challenge_method", "S256");
+          return { authorizationUrl: authorizationUrl.toString() };
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "completeDeviceAuthorization",
+        Effect.fn("relay.api.device_approval.completeDeviceAuthorization")(function* (args) {
+          yield* appendRelayCredentialResponseHeaders;
+          const { userId } = yield* RelayClientPrincipal;
+          yield* Effect.annotateCurrentSpan({ "user.id": userId });
+          const now = yield* DateTime.now;
+          const record = yield* deviceAuthorizations.completeApproval({
+            callbackState: args.payload.state,
+            authorizationCode: args.payload.code,
+            userId,
+            now,
+          });
+          if (record === null) {
+            return yield* relayDeviceAuthorizationNotFoundError();
+          }
+          return { ok: true };
+        }, mapRelayCommonApiErrors("not_authorized")),
+      )
+      .handle(
+        "denyDeviceAuthorization",
+        Effect.fn("relay.api.device_approval.denyDeviceAuthorization")(function* (args) {
+          yield* appendRelayCredentialResponseHeaders;
+          const { userId } = yield* RelayClientPrincipal;
+          yield* Effect.annotateCurrentSpan({ "user.id": userId });
+          const now = yield* DateTime.now;
+          const record = yield* deviceAuthorizations.deny({
+            userCode: normalizeDeviceUserCode(args.params.userCode),
+            userId,
+            now,
+          });
+          if (record === null) {
+            return yield* relayDeviceAuthorizationNotFoundError();
+          }
+          return { ok: true };
+        }, mapRelayCommonApiErrors("not_authorized")),
+      );
+  }),
+);
+
 export const dpopClientApi = HttpApiBuilder.group(
   RelayApi,
   "dpopClient",
@@ -893,6 +1153,7 @@ const RelayCommonPersistenceError = Schema.Union([
   EnvironmentCredentials.EnvironmentCredentialAuthenticatePersistenceError,
   EnvironmentCredentials.EnvironmentCredentialRevokePersistenceError,
   DpopProofs.DpopProofReplayPersistenceError,
+  DeviceAuthorizations.DeviceAuthorizationPersistenceError,
   LiveActivities.LiveActivityTargetListPersistenceError,
   AgentActivityRows.AgentActivityRowUpsertPersistenceError,
   AgentActivityRows.AgentActivityRowDeletePersistenceError,

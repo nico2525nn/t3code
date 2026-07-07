@@ -18,6 +18,8 @@ export class RelayConfiguration extends Context.Service<
   RelayConfiguration,
   {
     readonly relayIssuer: string;
+    /** Origin of the hosted web app that serves the device-authorization approval page. */
+    readonly appBaseUrl: string;
     readonly apns: ApnsCredentials;
     readonly clerkSecretKey: Redacted.Redacted<string>;
     readonly clerkPublishableKey: string;

@@ -16,6 +16,8 @@ import { RelayApi } from "@t3tools/contracts/relay";
 
 import {
   clientApi,
+  deviceApi,
+  deviceApprovalApi,
   dpopClientApi,
   healthApi,
   metadataApi,
@@ -36,6 +38,7 @@ import { makeRelayTraceLayer, RelayObservability } from "./observability.ts";
 import * as DeliveryAttempts from "./agentActivity/DeliveryAttempts.ts";
 import * as AgentActivityRows from "./agentActivity/AgentActivityRows.ts";
 import * as Devices from "./agentActivity/Devices.ts";
+import * as DeviceAuthorizations from "./auth/DeviceAuthorizations.ts";
 import * as DpopProofs from "./auth/DpopProofs.ts";
 import * as RelayTokens from "./auth/RelayTokens.ts";
 import * as EnvironmentCredentials from "./environments/EnvironmentCredentials.ts";
@@ -79,6 +82,8 @@ const relayApiLayer = Layer.mergeAll(
   mobileApi,
   clientApi,
   tokenApi,
+  deviceApi,
+  deviceApprovalApi,
   dpopClientApi,
   serverApi,
 );
@@ -135,6 +140,9 @@ export default class Api extends Cloudflare.Worker<Api>()(
     const clerkSecretKey = yield* Config.redacted("CLERK_SECRET_KEY");
     const clerkPublishableKey = yield* Config.string("CLERK_PUBLISHABLE_KEY");
     const clerkJwtAudience = yield* Config.string("CLERK_JWT_AUDIENCE");
+    const appBaseUrl = yield* Config.string("T3CODE_APP_BASE_URL").pipe(
+      Config.withDefault("https://app.t3.codes"),
+    );
 
     const cloudMintPrivateKey = yield* cloudMintKeyPair.privateKey;
     const cloudMintPublicKey = yield* cloudMintKeyPair.publicKey;
@@ -155,6 +163,7 @@ export default class Api extends Cloudflare.Worker<Api>()(
     const loadSettings = Effect.gen(function* () {
       return RelayConfiguration.RelayConfiguration.of({
         relayIssuer: relayPublicOrigin,
+        appBaseUrl,
         apns: {
           environment,
           teamId: apnsTeamId,
@@ -194,7 +203,7 @@ export default class Api extends Cloudflare.Worker<Api>()(
           alchemyRuntimeContext,
         ),
       ),
-      Layer.provideMerge(DpopProofs.layer),
+      Layer.provideMerge(Layer.mergeAll(DpopProofs.layer, DeviceAuthorizations.layer)),
       Layer.provideMerge(ApnsDeliveries.layer),
       Layer.provideMerge(ApnsClient.layer),
       Layer.provideMerge(
@@ -243,6 +252,12 @@ export default class Api extends Cloudflare.Worker<Api>()(
       DpopProofs.DpopProofReplay.pipe(
         Effect.flatMap((dpopProofs) => dpopProofs.pruneExpired),
         Effect.withSpan("relay.cron.prune_expired_dpop_proofs"),
+        Effect.andThen(
+          DeviceAuthorizations.DeviceAuthorizations.pipe(
+            Effect.flatMap((deviceAuthorizations) => deviceAuthorizations.pruneExpired),
+            Effect.withSpan("relay.cron.prune_expired_device_authorizations"),
+          ),
+        ),
         Effect.provide(runtimeLayer),
       ),
     );

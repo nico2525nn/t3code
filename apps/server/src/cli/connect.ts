@@ -350,8 +350,16 @@ const runCloudCommand = <A, E>(
     return yield* run.pipe(Effect.provide(runtimeLayer));
   });
 
+const deviceLoginFlag = Flag.boolean("device").pipe(
+  Flag.withDescription(
+    "Sign in with a device code approved from another browser (for SSH and headless machines).",
+  ),
+  Flag.withDefault(false),
+);
+
 const connectLoginCommand = Command.make("login", {
   ...projectLocationFlags,
+  device: deviceLoginFlag,
 }).pipe(
   Command.withDescription("Authorize the T3 Connect CLI without enabling remote access."),
   Command.withHandler((flags) =>
@@ -359,7 +367,7 @@ const connectLoginCommand = Command.make("login", {
       flags,
       Effect.gen(function* () {
         const tokens = yield* CliTokenManager.CloudCliTokenManager;
-        yield* tokens.get;
+        yield* flags.device ? tokens.getWithDeviceLogin : tokens.get;
         yield* Console.log("Signed in to T3 Connect.");
       }),
     ),
