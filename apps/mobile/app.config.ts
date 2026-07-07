@@ -181,6 +181,32 @@ const config: ExpoConfig = {
             description: "Shows the current state of active T3 Code agents.",
             supportedFamilies: ["systemSmall", "systemMedium", "accessoryRectangular"],
           },
+          {
+            name: "NewThread",
+            displayName: "New Thread",
+            description: "Start a new T3 Code thread right from your Home Screen.",
+            supportedFamilies: ["systemSmall", "systemMedium", "systemLarge"],
+            // Per-instance options in the long-press "Edit Widget" sheet. Enum
+            // parameters are compiled into Swift at prebuild, so the dynamic
+            // project list cannot be offered as a picker — pins are typed as
+            // text and matched against the synced projects inside the widget.
+            configuration: {
+              title: "New Thread",
+              description: "Pin specific projects; the rest fills with your latest activity.",
+              parameters: {
+                pinnedProjects: {
+                  title: "Pinned projects (comma-separated)",
+                  type: "string",
+                  default: "",
+                },
+                showRecent: {
+                  title: "Fill with recent projects",
+                  type: "boolean",
+                  default: true,
+                },
+              },
+            },
+          },
         ],
       },
     ],

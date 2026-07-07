@@ -40,6 +40,7 @@ import { AddProjectSourceRoute } from "./features/projects/AddProjectSourceRoute
 import { NewTaskDraftRouteScreen } from "./features/threads/NewTaskDraftRouteScreen";
 import { NewTaskFlowProvider } from "./features/threads/new-task-flow-provider";
 import { NewTaskRouteScreen } from "./features/threads/NewTaskRouteScreen";
+import { useNewThreadWidgetSync } from "./features/threads/use-new-thread-widget-sync";
 import { SettingsAppearanceRouteScreen } from "./features/settings/SettingsAppearanceRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
@@ -256,6 +257,8 @@ function RootStackLayout(props: {
   useThreadOutboxDrain();
   // Presents the T3 Connect onboarding sheet after an in-session sign-in.
   useConnectOnboardingNavigation();
+  // Keeps the NewThread home-screen widget's project shortcuts current.
+  useNewThreadWidgetSync();
   // Full pathname (sheets included) for keyboard-command scoping; the
   // workspace layout only reacts to the underlying non-overlay route.
   const path = getPathFromState(props.state, navigationPathConfig);
