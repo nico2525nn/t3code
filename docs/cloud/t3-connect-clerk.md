@@ -42,8 +42,10 @@ deployments.
 
 For a hosted relay deployment, copy `infra/relay/.env.example` to `infra/relay/.env`. The relay
 deployment reads `RELAY_DOMAIN`, `RELAY_API_ZONE_NAME`, `RELAY_TUNNEL_ZONE_NAME`,
-`CLERK_PUBLISHABLE_KEY`, and `CLERK_JWT_AUDIENCE` through Effect `Config`. There are no checked-in
-deployment defaults.
+`CLERK_PUBLISHABLE_KEY`, and `CLERK_JWT_AUDIENCE` through Effect `Config`, plus the optional
+`T3CODE_APP_BASE_URL` (web app origin for device-code login, default `https://app.t3.codes`; a
+non-production stage should point it at a web app build that targets the same stage relay and Clerk
+instance). Other than that default, there are no checked-in deployment defaults.
 `vp run --filter t3code-relay deploy` invokes Alchemy from the relay directory, so Alchemy loads
 `infra/relay/.env`. After a successful deployment, the wrapper updates the repository-root `.env`
 with the deployed HTTPS relay URL. The relay still requires
@@ -63,19 +65,30 @@ In **Clerk Dashboard > OAuth applications**:
 
 1. Create an OAuth application for the T3 CLI.
 2. Enable the **Public** option so authorization-code exchange uses PKCE.
-3. Add `http://127.0.0.1:34338/callback` as an allowed redirect URI.
-4. Enable the `openid`, `profile`, and `email` scopes.
-5. Set `T3CODE_CLERK_CLI_OAUTH_CLIENT_ID` in the repository-root `.env` file and release build
+3. Add `http://127.0.0.1:34338/callback` as an allowed redirect URI. This serves the default
+   loopback login flow.
+4. Add `<app origin>/oauth/device/callback` as an additional allowed redirect URI for device-code
+   login (`t3 connect login --device`). The app origin must match the relay stage's
+   `T3CODE_APP_BASE_URL` (production: `https://app.t3.codes/oauth/device/callback`). For local
+   web-app testing against a development Clerk instance, also add the dev-server variant such as
+   `http://localhost:5733/oauth/device/callback`.
+5. Enable the `openid`, `profile`, and `email` scopes.
+6. Set `T3CODE_CLERK_CLI_OAUTH_CLIENT_ID` in the repository-root `.env` file and release build
    environment to the generated public client ID.
 
 The CLI derives Clerk's frontend API URL from the publishable key and calls Clerk's
-`/oauth/authorize` and `/oauth/token` endpoints directly. The relay is not involved in the OAuth
-handshake; it only validates the issued Clerk bearer token when the CLI manages an environment link.
+`/oauth/authorize` and `/oauth/token` endpoints directly. In the default loopback flow the relay is
+not involved in the OAuth handshake; it only validates the issued Clerk bearer token when the CLI
+manages an environment link. In the device flow the relay additionally brokers the pending
+authorization (it stores the PKCE challenge and hands the Clerk authorization code back to the
+polling CLI), but the token exchange still happens directly between the CLI and Clerk, so both
+flows store the same credential.
 
 The CLI supports these headless operations:
 
 ```sh
 t3 connect login
+t3 connect login --device
 t3 connect link
 t3 connect status
 t3 connect unlink
@@ -84,7 +97,11 @@ t3 serve
 ```
 
 `t3 connect login` opens the Clerk authorization flow and stores the CLI credential without enabling
-cloud exposure. `t3 connect link` installs the pinned managed `cloudflared` binary when needed,
+cloud exposure. `t3 connect login --device` uses a device-code flow instead: the CLI prints a short
+code and a link to `<T3CODE_APP_BASE_URL>/oauth/device`, where a signed-in user reviews the
+requesting device and approves or denies it while the CLI polls the relay for the result. Use it on
+VPSes, containers, and other machines where the loopback browser flow is impractical.
+`t3 connect link` installs the pinned managed `cloudflared` binary when needed,
 authorizes when needed, and records durable intent to expose the environment. It works without a
 running T3 server. The next `t3 serve` or `t3 start` reconciles the relay link and launches the
 managed tunnel. `t3 connect unlink` records disabled intent immediately, stops a reachable running
@@ -92,15 +109,13 @@ connector, and attempts to revoke the relay-side environment record. It retains 
 authorization so `t3 connect link` can re-enable exposure without another browser flow. `t3 connect
 logout` performs the same cleanup and removes the stored CLI authorization.
 
-The current OAuth callback listener binds to loopback port `34338`. When running the CLI over SSH,
-forward that port before running `t3 connect login` or `t3 connect link`:
+The default loopback callback listener binds to port `34338`. When running the CLI over SSH, either
+use `t3 connect login --device` (recommended — no port forwarding required) or forward that port
+before running `t3 connect login` or `t3 connect link`:
 
 ```sh
 ssh -L 34338:127.0.0.1:34338 <host>
 ```
-
-A relay-hosted callback broker can remove this port-forward requirement later without changing the
-stored PKCE token model.
 
 ## JWT Template
 

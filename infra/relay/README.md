@@ -19,6 +19,8 @@ The relay currently owns:
 - Linking T3 Code environments to a cloud account.
 - Provisioning and tracking managed environment endpoints.
 - Issuing short-lived credentials used to connect clients to linked environments.
+- Brokering OAuth device authorization for headless CLI logins (`t3 connect login --device`),
+  including the pending-authorization records approved at `app.t3.codes/oauth/device`.
 - Listing linked environments and registered mobile devices for an account.
 - Registering mobile notification preferences and APNs tokens.
 - Receiving published agent activity and delivering notifications or Live Activity updates.
@@ -85,7 +87,10 @@ vp run --filter t3code-relay deploy
 The stack provisions the Cloudflare Worker and queues, managed endpoint resources, database
 connectivity, and relay tracing resources. Copy [`infra/relay/.env.example`](./.env.example) to
 `infra/relay/.env` and fill in the deployment-specific values before deploying. Alchemy loads that
-file from the relay directory. Runtime secrets include Clerk and APNs credentials. Production adopts
+file from the relay directory. Runtime secrets include Clerk and APNs credentials. The optional
+`T3CODE_APP_BASE_URL` selects the web app origin used by device-code login; it defaults to
+`https://app.t3.codes`, which is only correct for `prod` — see the comment in `.env.example` for
+personal stages. Production adopts
 the configured API and tunnel DNS zones as retained Cloudflare resources. Personal stages reference
 the production-owned zones.
 
