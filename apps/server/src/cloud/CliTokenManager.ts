@@ -39,6 +39,7 @@ import { cloudCliOAuthConfig, relayUrlConfig, type CloudCliOAuthConfig } from ".
 const CLOUD_CLI_OAUTH_TOKEN_SECRET = "cloud-cli-oauth-token";
 const CLOUD_CLI_OAUTH_CALLBACK_TIMEOUT = Duration.minutes(10);
 const CLOUD_CLI_OAUTH_REFRESH_EARLY_MS = Duration.toMillis(Duration.minutes(5));
+const CLOUD_CLI_DEVICE_POLL_MAX_TRANSPORT_FAILURES = 5;
 
 const PersistedToken = Schema.Struct({
   accessToken: Schema.String,
@@ -312,23 +313,45 @@ export const make = Effect.gen(function* () {
     );
 
     let pollInterval = Duration.seconds(authorization.interval);
+    // Approval can take minutes; a flaky network or a relay blip mid-wait
+    // must not abort the whole login, so only repeated transport failures do.
+    let consecutiveTransportFailures = 0;
+    const failTransportOrContinue = (cause: unknown) => {
+      consecutiveTransportFailures += 1;
+      return consecutiveTransportFailures >= CLOUD_CLI_DEVICE_POLL_MAX_TRANSPORT_FAILURES
+        ? Effect.fail(new CloudCliAuthorizationError({ cause }))
+        : Effect.succeed(Option.none<HttpClientResponse.HttpClientResponse>());
+    };
     const poll = Effect.gen(function* () {
       while (true) {
         yield* Effect.sleep(pollInterval);
-        const response = yield* rawHttpClient.execute(
-          HttpClientRequest.post(`${relayUrl}/v1/device/token`).pipe(
-            HttpClientRequest.bodyUrlParams({
-              grant_type: RelayDeviceAuthorizationGrantType,
-              device_code: authorization.device_code,
-              client_id: metadata.clientId,
-            }),
-          ),
-        );
-        if (response.status === 200) {
-          return yield* HttpClientResponse.schemaBodyJson(RelayDeviceTokenResponse)(response);
+        const response = yield* rawHttpClient
+          .execute(
+            HttpClientRequest.post(`${relayUrl}/v1/device/token`).pipe(
+              HttpClientRequest.bodyUrlParams({
+                grant_type: RelayDeviceAuthorizationGrantType,
+                device_code: authorization.device_code,
+                client_id: metadata.clientId,
+              }),
+            ),
+          )
+          .pipe(Effect.map(Option.some), Effect.catch(failTransportOrContinue));
+        if (Option.isNone(response)) {
+          continue;
         }
+        if (response.value.status === 200) {
+          return yield* HttpClientResponse.schemaBodyJson(RelayDeviceTokenResponse)(response.value);
+        }
+        if (response.value.status !== 400) {
+          // Gateway errors and other unexpected statuses are transient.
+          yield* failTransportOrContinue(
+            `Relay device token poll returned status ${response.value.status}.`,
+          );
+          continue;
+        }
+        consecutiveTransportFailures = 0;
         const body = yield* HttpClientResponse.schemaBodyJson(DeviceTokenPollErrorBody)(
-          response,
+          response.value,
         ).pipe(Effect.mapError((cause) => new CloudCliAuthorizationError({ cause })));
         switch (body.code) {
           case "authorization_pending":

@@ -4,6 +4,7 @@ import * as Drizzle from "alchemy/Drizzle";
 import * as Config from "effect/Config";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as Etag from "effect/unstable/http/Etag";
@@ -250,18 +251,29 @@ export default class Api extends Cloudflare.Worker<Api>()(
       ),
     );
 
+    // Each prune runs to completion even when the other fails; a failure in
+    // one must not leave the other's expired rows behind for a whole cycle.
     yield* Cloudflare.cron("*/5 * * * *").subscribe(() =>
-      DpopProofs.DpopProofReplay.pipe(
-        Effect.flatMap((dpopProofs) => dpopProofs.pruneExpired),
-        Effect.withSpan("relay.cron.prune_expired_dpop_proofs"),
-        Effect.andThen(
+      Effect.gen(function* () {
+        const dpopPruneExit = yield* Effect.exit(
+          DpopProofs.DpopProofReplay.pipe(
+            Effect.flatMap((dpopProofs) => dpopProofs.pruneExpired),
+            Effect.withSpan("relay.cron.prune_expired_dpop_proofs"),
+          ),
+        );
+        const devicePruneExit = yield* Effect.exit(
           DeviceAuthorizations.DeviceAuthorizations.pipe(
             Effect.flatMap((deviceAuthorizations) => deviceAuthorizations.pruneExpired),
             Effect.withSpan("relay.cron.prune_expired_device_authorizations"),
           ),
-        ),
-        Effect.provide(runtimeLayer),
-      ),
+        );
+        if (Exit.isFailure(dpopPruneExit)) {
+          return yield* Effect.failCause(dpopPruneExit.cause);
+        }
+        if (Exit.isFailure(devicePruneExit)) {
+          return yield* Effect.failCause(devicePruneExit.cause);
+        }
+      }).pipe(Effect.provide(runtimeLayer)),
     );
 
     const fetch = Layer.merge(

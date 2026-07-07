@@ -711,31 +711,43 @@ export const deviceApi = HttpApiBuilder.group(
           yield* Effect.annotateCurrentSpan({
             "relay.oauth.client_id": args.payload.client_id,
           });
-          const randomBytes = yield* crypto
-            .randomBytes(32 + RELAY_DEVICE_USER_CODE_LENGTH)
-            .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
-          const deviceCode = Encoding.encodeBase64Url(randomBytes.slice(0, 32));
-          const deviceCodeHash = yield* hashDeviceCode(crypto, deviceCode);
-          const userCode = deviceUserCodeFromBytes(randomBytes.slice(32));
-          const now = yield* DateTime.now;
-          const expiresAt = DateTime.addDuration(now, RELAY_DEVICE_AUTHORIZATION_TTL);
-          yield* deviceAuthorizations.create({
-            deviceCodeHash,
-            userCode,
-            clientId: args.payload.client_id,
-            scope: args.payload.scope,
-            codeChallenge: args.payload.code_challenge,
-            deviceName: args.payload.device_name ?? null,
-            devicePlatform: args.payload.device_platform ?? null,
-            clientVersion: args.payload.client_version ?? null,
-            requestIp: request.headers["cf-connecting-ip"] ?? null,
-            requestLocation: request.headers["cf-ipcountry"] ?? null,
-            pollIntervalSeconds: RELAY_DEVICE_POLL_INTERVAL_SECONDS,
-            expiresAt,
+          // A fresh code pair is generated per attempt so a user-code
+          // collision on the unique index retries instead of failing the
+          // login request.
+          const issueAuthorization = Effect.gen(function* () {
+            const randomBytes = yield* crypto
+              .randomBytes(32 + RELAY_DEVICE_USER_CODE_LENGTH)
+              .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
+            const deviceCode = Encoding.encodeBase64Url(randomBytes.slice(0, 32));
+            const deviceCodeHash = yield* hashDeviceCode(crypto, deviceCode);
+            const userCode = deviceUserCodeFromBytes(randomBytes.slice(32));
+            const now = yield* DateTime.now;
+            const expiresAt = DateTime.addDuration(now, RELAY_DEVICE_AUTHORIZATION_TTL);
+            yield* deviceAuthorizations.create({
+              deviceCodeHash,
+              userCode,
+              clientId: args.payload.client_id,
+              scope: args.payload.scope,
+              codeChallenge: args.payload.code_challenge,
+              deviceName: args.payload.device_name ?? null,
+              devicePlatform: args.payload.device_platform ?? null,
+              clientVersion: args.payload.client_version ?? null,
+              requestIp: request.headers["cf-connecting-ip"] ?? null,
+              requestLocation: request.headers["cf-ipcountry"] ?? null,
+              pollIntervalSeconds: RELAY_DEVICE_POLL_INTERVAL_SECONDS,
+              expiresAt,
+            });
+            return { deviceCode, userCode };
           });
-          const formattedUserCode = formatDeviceUserCode(userCode);
+          const issued = yield* issueAuthorization.pipe(
+            Effect.retry({
+              times: 2,
+              while: (error) => error._tag === "DeviceAuthorizationPersistenceError",
+            }),
+          );
+          const formattedUserCode = formatDeviceUserCode(issued.userCode);
           return {
-            device_code: deviceCode,
+            device_code: issued.deviceCode,
             user_code: formattedUserCode,
             verification_uri: `${appBaseUrl}/oauth/device`,
             verification_uri_complete: `${appBaseUrl}/oauth/device?user_code=${formattedUserCode}`,
