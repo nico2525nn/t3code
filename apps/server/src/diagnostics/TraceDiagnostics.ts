@@ -205,7 +205,8 @@ function latestDateTime(
 ): Option.Option<DateTime.Utc> {
   return Option.match(current, {
     onNone: () => Option.some(candidate),
-    onSome: (value) => (DateTime.isGreaterThan(candidate, value) ? Option.some(candidate) : current),
+    onSome: (value) =>
+      DateTime.isGreaterThan(candidate, value) ? Option.some(candidate) : current,
   });
 }
 
