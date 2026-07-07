@@ -72,7 +72,10 @@ function SignInGate({
     return (
       <DeviceSurfaceMessage title={title} message={message}>
         <div className="mt-6">
-          <Button size="sm" onClick={() => clerk.openSignIn()}>
+          <Button
+            size="sm"
+            onClick={() => clerk.openSignIn({ forceRedirectUrl: window.location.href })}
+          >
             Sign in to continue
           </Button>
         </div>
