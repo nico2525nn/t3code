@@ -461,7 +461,7 @@ export const connectionStorageLayer = Layer.effectContext(
                 Effect.mapError((cause) => persistenceError("load-thread", cause)),
                 Effect.map((stored) =>
                   stored.environmentId === environmentId && stored.threadId === threadId
-                    ? Option.some(stored.thread)
+                    ? Option.some(stored.snapshot)
                     : Option.none(),
                 ),
               ),
@@ -474,18 +474,18 @@ export const connectionStorageLayer = Layer.effectContext(
           }),
           Effect.mapError((cause) => persistenceError("load-thread", cause)),
         ),
-      saveThread: (environmentId, thread) =>
+      saveThread: (environmentId, snapshot) =>
         Effect.gen(function* () {
           const encoded = yield* encodeStoredThreadSnapshot({
             schemaVersion: ORCHESTRATION_CACHE_SCHEMA_VERSION,
             environmentId,
-            threadId: thread.thread.id,
-            thread,
+            threadId: snapshot.projection.thread.id,
+            snapshot,
           }).pipe(Effect.mapError((cause) => persistenceError("save-thread", cause)));
           yield* writeDatabaseValue(
             database,
             THREAD_STORE_NAME,
-            threadCacheKey(environmentId, thread.thread.id),
+            threadCacheKey(environmentId, snapshot.projection.thread.id),
             encoded,
           );
         }).pipe(

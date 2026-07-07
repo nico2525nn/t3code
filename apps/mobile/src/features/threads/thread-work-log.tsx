@@ -1,13 +1,13 @@
 import * as Haptics from "expo-haptics";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useRouter } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import { LayoutAnimation, Pressable, useColorScheme, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
-import { buildThreadRoutePath } from "../../lib/routes";
 import type { ThreadFeedActivity } from "../../lib/threadActivity";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { useV2ItemSupport } from "../../state/v2-item-support";
 import { ThreadActivityInspector } from "./ThreadActivityInspector";
 
@@ -85,7 +85,7 @@ function ThreadActivityThreadLink(props: {
     sourceThreadId: row.sourceThreadId,
     sourceItemId: row.sourceItemId,
   });
-  const router = useRouter();
+  const navigation = useNavigation();
   const item = row.item;
   let targetThreadId: ThreadId | null = null;
   let label = "Open related thread";
@@ -112,12 +112,10 @@ function ThreadActivityThreadLink(props: {
       accessibilityLabel={label}
       onPress={() => {
         void Haptics.selectionAsync();
-        router.push(
-          buildThreadRoutePath({
-            environmentId: props.environmentId,
-            threadId: targetThreadId,
-          }),
-        );
+        navigation.navigate("Thread", {
+          environmentId: props.environmentId,
+          threadId: targetThreadId,
+        });
       }}
       className="mx-2 mb-2 min-h-9 flex-row items-center justify-center gap-1.5 rounded-lg border border-neutral-300/50 px-2 dark:border-white/[0.08]"
     >
@@ -125,6 +123,14 @@ function ThreadActivityThreadLink(props: {
       <SymbolView name="arrow.right" size={11} tintColor={props.iconColor} type="monochrome" />
     </Pressable>
   );
+}
+
+// Entering fades only for rows created moments ago: rows remount whenever the
+// list scrolls them back into view, and old rows must not replay an entrance.
+const FRESH_ROW_WINDOW_MS = 3_000;
+function isFreshRow(createdAt: string): boolean {
+  const timestamp = Date.parse(createdAt);
+  return Number.isFinite(timestamp) && Date.now() - timestamp < FRESH_ROW_WINDOW_MS;
 }
 
 export function ThreadWorkLog(props: {
@@ -170,8 +176,9 @@ export function ThreadWorkLog(props: {
           const iconIsDestructive = row.icon === "alert" || row.icon === "warning";
 
           return (
-            <View
+            <Animated.View
               key={row.id}
+              {...(isFreshRow(row.createdAt) ? { entering: FadeIn.duration(200) } : {})}
               className={cn(
                 row.prominent &&
                   "mb-2 overflow-hidden rounded-xl border border-neutral-300/60 bg-card dark:border-white/[0.1]",
@@ -210,10 +217,7 @@ export function ThreadWorkLog(props: {
                     />
                   </View>
 
-                  <Text
-                    className="min-w-0 flex-1 text-xs leading-5 text-foreground"
-                    numberOfLines={1}
-                  >
+                  <Text className="min-w-0 flex-1 text-xs text-foreground" numberOfLines={1}>
                     <Text
                       className={cn(
                         "font-t3-medium text-foreground",
@@ -280,7 +284,7 @@ export function ThreadWorkLog(props: {
                   iconColor={props.iconSubtleColor}
                 />
               ) : null}
-            </View>
+            </Animated.View>
           );
         })}
       </View>

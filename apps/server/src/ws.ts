@@ -602,10 +602,43 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subscribeThread")(
-        function* (input: { readonly threadId: ThreadId }) {
+        function* (input: { readonly threadId: ThreadId; readonly afterSequence?: number }) {
           yield* Effect.annotateCurrentSpan({
             "orchestration_v2.thread_id": input.threadId,
           });
+
+          const eventStreamFrom = (afterSequence: number) =>
+            threadManagement
+              .streamStoredEventsFrom({
+                threadId: input.threadId,
+                afterSequence,
+              })
+              .pipe(
+                Stream.map((stored) => ({
+                  kind: "event" as const,
+                  sequence: stored.sequence,
+                  event: stored.event,
+                })),
+                Stream.mapError(
+                  (cause) =>
+                    new OrchestrationV2GetThreadProjectionError({
+                      threadId: input.threadId,
+                      message: `Failed while streaming orchestration V2 thread ${input.threadId}`,
+                      cause,
+                    }),
+                ),
+              );
+
+          // When the client already holds the projection (cached, or loaded over
+          // HTTP) it passes that snapshot's sequence, and we resume by replaying
+          // persisted events after it instead of re-sending the (potentially
+          // multi-KB) snapshot frame over the socket. The event sink subscribes
+          // to live events before reading the persisted tail, so no event
+          // published during the replay window is lost; overlapping events are
+          // deduped by sequence on the client.
+          if (input.afterSequence !== undefined) {
+            return eventStreamFrom(input.afterSequence);
+          }
 
           const snapshot = yield* threadManagement.getThreadSnapshot(input.threadId).pipe(
             Effect.mapError(
@@ -619,40 +652,19 @@ const makeWsRpcLayer = (
           );
           const { projection, snapshotSequence } = snapshot;
 
-          const liveStream = threadManagement
-            .streamStoredEventsFrom({
-              threadId: input.threadId,
-              afterSequence: snapshotSequence,
-            })
-            .pipe(
-              Stream.map((stored) => ({
-                kind: "event" as const,
-                sequence: stored.sequence,
-                event: stored.event,
-              })),
-              Stream.mapError(
-                (cause) =>
-                  new OrchestrationV2GetThreadProjectionError({
-                    threadId: input.threadId,
-                    message: `Failed while streaming orchestration V2 thread ${input.threadId}`,
-                    cause,
-                  }),
-              ),
-            );
-
           return Stream.concat(
             Stream.make({
               kind: "snapshot" as const,
               snapshotSequence,
               projection,
             }),
-            liveStream,
+            eventStreamFrom(snapshotSequence),
           );
         },
       );
 
       const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subscribeShell")(
-        function* () {
+        function* (input: { readonly afterSequence?: number }) {
           const enrichmentChanges = yield* projectEnrichment.subscribeChanges;
           const loadSnapshot = Effect.fn("ws.orchestrationV2.loadShellSnapshot")(function* () {
             const base = yield* sql.withTransaction(
@@ -671,19 +683,8 @@ const makeWsRpcLayer = (
             const projects = yield* enrichProjectShells(base.projects);
             return { ...base, projects };
           });
-          const snapshot = yield* loadSnapshot().pipe(
-            Effect.mapError(
-              (cause) =>
-                new OrchestrationV2GetShellSnapshotError({
-                  message: "Failed to load the application shell snapshot",
-                  cause,
-                }),
-            ),
-          );
-
-          const live = applicationEvents
-            .streamApplicationEvents({ afterSequence: snapshot.snapshotSequence })
-            .pipe(
+          const liveFrom = (afterSequence: number) =>
+            applicationEvents.streamApplicationEvents({ afterSequence }).pipe(
               Stream.mapEffect((stored) =>
                 Effect.gen(function* () {
                   if ("aggregateKind" in stored) {
@@ -730,10 +731,35 @@ const makeWsRpcLayer = (
             Stream.map((snapshot) => ({ kind: "snapshot" as const, snapshot })),
           );
 
-          return Stream.merge(
-            Stream.concat(Stream.make({ kind: "snapshot" as const, snapshot }), live),
-            enrichmentRefreshes,
-          ).pipe(
+          // When the client already holds a shell snapshot (cached, or loaded
+          // over HTTP) it passes that snapshot's sequence, and we resume by
+          // replaying application events after it instead of re-sending the
+          // whole projects/threads list over the socket. The event store
+          // subscribes to live events before reading the persisted tail, so no
+          // event published during the replay window is lost; overlapping events
+          // are deduped by sequence on the client.
+          const base =
+            input.afterSequence !== undefined
+              ? liveFrom(input.afterSequence)
+              : Stream.unwrap(
+                  loadSnapshot().pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new OrchestrationV2GetShellSnapshotError({
+                          message: "Failed to load the application shell snapshot",
+                          cause,
+                        }),
+                    ),
+                    Effect.map((snapshot) =>
+                      Stream.concat(
+                        Stream.make({ kind: "snapshot" as const, snapshot }),
+                        liveFrom(snapshot.snapshotSequence),
+                      ),
+                    ),
+                  ),
+                );
+
+          return Stream.merge(base, enrichmentRefreshes).pipe(
             Stream.mapError(
               (cause) =>
                 new OrchestrationV2GetShellSnapshotError({
@@ -1013,10 +1039,10 @@ const makeWsRpcLayer = (
             subscribeOrchestrationV2ArchivedShell(),
             { "rpc.aggregate": "orchestration" },
           ),
-        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (_input) =>
+        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) =>
           observeRpcStreamEffect(
             ORCHESTRATION_V2_WS_METHODS.subscribeShell,
-            subscribeOrchestrationV2Shell(),
+            subscribeOrchestrationV2Shell(input),
             {
               "rpc.aggregate": "orchestrationV2",
             },

@@ -1955,6 +1955,38 @@ export const OrchestrationV2GetThreadProjectionInput = Schema.Struct({
 export type OrchestrationV2GetThreadProjectionInput =
   typeof OrchestrationV2GetThreadProjectionInput.Type;
 
+export const OrchestrationV2SubscribeShellInput = Schema.Struct({
+  /**
+   * When provided, the server skips the initial full shell snapshot and instead
+   * replays shell events after this sequence before streaming live events.
+   * Clients that already hold a cached (or HTTP-loaded) shell snapshot pass its
+   * sequence here so the subscription resumes without re-sending the entire
+   * projects/threads list (overlapping events are deduped by sequence on the
+   * client).
+   */
+  afterSequence: Schema.optionalKey(NonNegativeInt),
+});
+export type OrchestrationV2SubscribeShellInput = typeof OrchestrationV2SubscribeShellInput.Type;
+
+export const OrchestrationV2SubscribeThreadInput = Schema.Struct({
+  threadId: ThreadId,
+  /**
+   * When provided, the server skips the initial snapshot frame and instead
+   * replays events after this sequence before streaming live events. Clients
+   * that load the snapshot over HTTP pass the snapshot's sequence here so the
+   * live subscription resumes without a gap (overlapping events are deduped by
+   * sequence on the client).
+   */
+  afterSequence: Schema.optionalKey(NonNegativeInt),
+});
+export type OrchestrationV2SubscribeThreadInput = typeof OrchestrationV2SubscribeThreadInput.Type;
+
+export const OrchestrationV2ThreadDetailSnapshot = Schema.Struct({
+  snapshotSequence: NonNegativeInt,
+  projection: OrchestrationV2ThreadProjection,
+});
+export type OrchestrationV2ThreadDetailSnapshot = typeof OrchestrationV2ThreadDetailSnapshot.Type;
+
 export const OrchestrationV2ThreadStreamItem = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("snapshot"),
@@ -2045,11 +2077,11 @@ export const OrchestrationV2RpcSchemas = {
     output: OrchestrationV2ArchivedShellStreamItem,
   },
   subscribeShell: {
-    input: Schema.Struct({}),
+    input: OrchestrationV2SubscribeShellInput,
     output: OrchestrationV2ShellStreamItem,
   },
   subscribeThread: {
-    input: OrchestrationV2GetThreadProjectionInput,
+    input: OrchestrationV2SubscribeThreadInput,
     output: OrchestrationV2ThreadStreamItem,
   },
 } as const;
