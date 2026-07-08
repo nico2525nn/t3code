@@ -28,38 +28,81 @@ const PROVIDER_UPDATE_PILL_PROGRESS_STYLES = {
   error: "bg-destructive/14",
 } as const;
 
-function latestProviderCheckedAt(
-  providers: ReadonlyArray<Pick<ServerProvider, "checkedAt">>,
-): string | undefined {
-  return providers.reduce<string | undefined>(
-    (latest, provider) =>
-      latest === undefined || provider.checkedAt > latest ? provider.checkedAt : latest,
-    undefined,
-  );
+function useMountedIsoTimestamp(): string {
+  const [mountedIsoTimestamp] = useState(() => new Date().toISOString());
+  return mountedIsoTimestamp;
+}
+
+function useProviderUpdateRenderedViewSynchronization(input: {
+  readonly exitingKey: string | null;
+  readonly renderedView: ProviderUpdateSidebarPillView | null;
+  readonly setRenderedView: (view: ProviderUpdateSidebarPillView | null) => void;
+  readonly startExit: (key: string, nextView: ProviderUpdateSidebarPillView | null) => void;
+  readonly view: ProviderUpdateSidebarPillView | null;
+}) {
+  const { exitingKey, renderedView, setRenderedView, startExit, view } = input;
+  useEffect(() => {
+    if (exitingKey !== null) {
+      return;
+    }
+    if (!renderedView) {
+      if (view) {
+        setRenderedView(view);
+      }
+      return;
+    }
+    if (!view) {
+      startExit(renderedView.key, null);
+      return;
+    }
+    if (view.key !== renderedView.key) {
+      startExit(renderedView.key, view);
+      return;
+    }
+  }, [exitingKey, renderedView, setRenderedView, startExit, view]);
+}
+
+function useProviderUpdateAutoDismiss(input: {
+  readonly dismissAfterVisibleMs: number | undefined;
+  readonly exitingKey: string | null;
+  readonly startExit: (
+    key: string,
+    nextView: ProviderUpdateSidebarPillView | null,
+    dismissKey?: string,
+  ) => void;
+  readonly viewKey: string | null;
+}) {
+  const { dismissAfterVisibleMs, exitingKey, startExit, viewKey } = input;
+  useEffect(() => {
+    if (!dismissAfterVisibleMs || !viewKey) {
+      return;
+    }
+    if (exitingKey === viewKey) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      startExit(viewKey, null, viewKey);
+    }, dismissAfterVisibleMs);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [dismissAfterVisibleMs, exitingKey, startExit, viewKey]);
 }
 
 export function SidebarProviderUpdatePill() {
   const navigate = useNavigate();
   const providers = useAtomValue(primaryServerProvidersAtom);
   const [dismissedKeys, setDismissedKeys] = useState<ReadonlySet<string>>(() => new Set());
-  const [renderedView, setRenderedView] = useState<ProviderUpdateSidebarPillView | null>(null);
+  const visibleAfterIso = useMountedIsoTimestamp();
+  const view = getProviderUpdateSidebarPillView(providers, {
+    visibleAfterIso,
+    dismissedKeys,
+  });
+  const [renderedView, setRenderedView] = useState<ProviderUpdateSidebarPillView | null>(
+    () => view,
+  );
   const [pendingView, setPendingView] = useState<ProviderUpdateSidebarPillView | null>(null);
   const [exitingKey, setExitingKey] = useState<string | null>(null);
   const [dismissAfterExitKey, setDismissAfterExitKey] = useState<string | null>(null);
-  const [visibleAfterIso, setVisibleAfterIso] = useState<string | undefined>();
-  const effectiveVisibleAfterIso = visibleAfterIso ?? latestProviderCheckedAt(providers);
-  const view = getProviderUpdateSidebarPillView(providers, {
-    ...(effectiveVisibleAfterIso !== undefined
-      ? { visibleAfterIso: effectiveVisibleAfterIso }
-      : {}),
-    dismissedKeys,
-  });
-
-  useEffect(() => {
-    if (visibleAfterIso === undefined && effectiveVisibleAfterIso !== undefined) {
-      setVisibleAfterIso(effectiveVisibleAfterIso);
-    }
-  }, [effectiveVisibleAfterIso, visibleAfterIso]);
 
   const openProviderSettings = useCallback(() => {
     void navigate({ to: "/settings/providers" });
@@ -84,39 +127,19 @@ export function SidebarProviderUpdatePill() {
     [exitingKey],
   );
 
-  useEffect(() => {
-    if (exitingKey !== null) {
-      return;
-    }
-    if (!renderedView) {
-      if (view) {
-        setRenderedView(view);
-      }
-      return;
-    }
-    if (!view) {
-      startExit(renderedView.key, null);
-      return;
-    }
-    if (view.key !== renderedView.key) {
-      startExit(renderedView.key, view);
-      return;
-    }
-  }, [exitingKey, renderedView, startExit, view]);
-
-  useEffect(() => {
-    if (!dismissAfterVisibleMs || !viewKey) {
-      return;
-    }
-    if (exitingKey === viewKey) {
-      return;
-    }
-    const timeoutId = window.setTimeout(() => {
-      startExit(viewKey, null, viewKey);
-    }, dismissAfterVisibleMs);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [dismissAfterVisibleMs, exitingKey, startExit, viewKey]);
+  useProviderUpdateRenderedViewSynchronization({
+    exitingKey,
+    renderedView,
+    setRenderedView,
+    startExit,
+    view,
+  });
+  useProviderUpdateAutoDismiss({
+    dismissAfterVisibleMs,
+    exitingKey,
+    startExit,
+    viewKey,
+  });
 
   if (!displayedView) {
     return null;
