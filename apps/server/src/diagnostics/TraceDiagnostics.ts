@@ -100,7 +100,7 @@ function toStringValue(value: unknown): Option.Option<string> {
   return typeof value === "string" && value.trim().length > 0 ? Option.some(value) : Option.none();
 }
 
-function unixNanoToDateTime(value: string | null | undefined): Option.Option<DateTime.Utc> {
+function unixNanoToDateTime(value: unknown): Option.Option<DateTime.Utc> {
   const text = Option.getOrUndefined(toStringValue(value));
   if (text === undefined) return Option.none();
   try {

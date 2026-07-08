@@ -59,10 +59,7 @@ describe("TraceDiagnostics", () => {
                 durationMs: 50,
               }),
               "not-json",
-              JSON.stringify({
-                name: "missing span fields",
-                durationMs: "not-a-number",
-              }),
+              '{"name":"missing span fields","durationMs":"not-a-number"}',
             ].join("\n"),
           },
           {
