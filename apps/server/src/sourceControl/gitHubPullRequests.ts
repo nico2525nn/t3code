@@ -1,5 +1,4 @@
 import * as Cause from "effect/Cause";
-import * as Arr from "effect/Array";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -151,7 +150,7 @@ export function decodeGitHubPullRequestListJsonEffect(
         Effect.option,
       ),
     );
-    return Arr.filterMap(decoded, (entry) => entry);
+    return decoded.flatMap((entry) => (Option.isSome(entry) ? [entry.value] : []));
   });
 }
 
