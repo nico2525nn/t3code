@@ -5,8 +5,12 @@ import {
   type ServerLifecycleWelcomePayload,
   WS_METHODS,
 } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
+import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
 import {
@@ -16,6 +20,11 @@ import {
   createEnvironmentRpcSubscriptionAtomFamily,
 } from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
+import { EnvironmentSupervisor } from "../connection/supervisor.ts";
+import { safeErrorLogAttributes } from "../errors/safeLog.ts";
+import { EnvironmentCacheStore } from "../platform/persistence.ts";
+import { subscribe, type EnvironmentRpcInput } from "../rpc/client.ts";
+import { followStreamInEnvironment } from "./runtime.ts";
 
 export interface ServerConfigProjection {
   readonly config: ServerConfig;
@@ -68,6 +77,111 @@ export function projectServerConfig(
   return [next, Option.toArray(next)];
 }
 
+const cachedConfigSnapshotEvent = (config: ServerConfig): ServerConfigStreamEvent => ({
+  version: 1,
+  type: "snapshot",
+  config,
+});
+
+/**
+ * Keeps a complete server configuration available during reconnects. Server
+ * config carries the provider/model catalogue used by task creation, so it is
+ * useful—and safe—to retain after a transport session ends.
+ */
+export const makeEnvironmentServerConfigState = Effect.fn("EnvironmentServerConfigState.make")(
+  function* () {
+    const supervisor = yield* EnvironmentSupervisor;
+    const cache = yield* EnvironmentCacheStore;
+    const environmentId = supervisor.target.environmentId;
+    const cachedConfig = yield* cache.loadServerConfig(environmentId).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Could not load cached server configuration.").pipe(
+          Effect.annotateLogs({
+            environmentId,
+            ...safeErrorLogAttributes(error),
+          }),
+          Effect.as(Option.none<ServerConfig>()),
+        ),
+      ),
+    );
+    const state = yield* SubscriptionRef.make<Option.Option<ServerConfigProjection>>(
+      Option.map(cachedConfig, (config) => ({
+        config,
+        latestEvent: cachedConfigSnapshotEvent(config),
+      })),
+    );
+    const persistence = yield* Queue.sliding<ServerConfig>(1);
+
+    const persist = Effect.fn("EnvironmentServerConfigState.persist")(function* (
+      config: ServerConfig,
+    ) {
+      yield* cache.saveServerConfig(environmentId, config).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("Could not persist cached server configuration.").pipe(
+            Effect.annotateLogs({
+              environmentId,
+              ...safeErrorLogAttributes(error),
+            }),
+          ),
+        ),
+      );
+    });
+
+    yield* Stream.fromQueue(persistence).pipe(
+      Stream.debounce("500 millis"),
+      Stream.runForEach(persist),
+      Effect.forkScoped,
+    );
+
+    yield* subscribe(WS_METHODS.subscribeServerConfig, {}).pipe(
+      Stream.runForEach((event) =>
+        Effect.gen(function* () {
+          const next = applyServerConfigProjection(yield* SubscriptionRef.get(state), event);
+          if (Option.isNone(next)) {
+            return;
+          }
+          yield* SubscriptionRef.set(state, next);
+          yield* Queue.offer(persistence, next.value.config);
+        }),
+      ),
+      Effect.forkScoped,
+    );
+
+    yield* Effect.addFinalizer(() =>
+      SubscriptionRef.get(state).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.void,
+            onSome: (projection) => persist(projection.config),
+          }),
+        ),
+      ),
+    );
+
+    return state;
+  },
+);
+
+export function serverConfigStateChanges(environmentId: EnvironmentId) {
+  return followStreamInEnvironment(
+    environmentId,
+    Stream.unwrap(
+      makeEnvironmentServerConfigState().pipe(
+        Effect.map((state) =>
+          SubscriptionRef.changes(state).pipe(
+            Stream.filterMap((projection) =>
+              Option.match(projection, {
+                onNone: () => Result.failVoid,
+                onSome: (value) => Result.succeed(value),
+              }),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 export function projectServerWelcome(
   current: Option.Option<ServerLifecycleWelcomePayload>,
   event: {
@@ -86,7 +200,7 @@ export function projectServerWelcome(
 }
 
 export function createServerEnvironmentAtoms<R, E>(
-  runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
+  runtime: Atom.AtomRuntime<EnvironmentRegistry | EnvironmentCacheStore | R, E>,
   options: {
     readonly initialConfigValueAtom: (
       environmentId: EnvironmentId,
@@ -98,12 +212,18 @@ export function createServerEnvironmentAtoms<R, E>(
     mode: "serial" as const,
     key: ({ environmentId }: { readonly environmentId: string }) => environmentId,
   };
-  const configProjection = createEnvironmentRpcSubscriptionAtomFamily(runtime, {
-    label: "environment-data:server:config-projection",
-    tag: WS_METHODS.subscribeServerConfig,
-    transform: (stream) =>
-      stream.pipe(Stream.mapAccum(Option.none<ServerConfigProjection>, projectServerConfig)),
-  });
+  const configProjectionFamily = Atom.family((environmentId: EnvironmentId) =>
+    runtime
+      .atom(serverConfigStateChanges(environmentId))
+      .pipe(
+        Atom.setIdleTTL(5 * 60_000),
+        Atom.withLabel(`environment-data:server:config-projection:${environmentId}`),
+      ),
+  );
+  const configProjection = (target: {
+    readonly environmentId: EnvironmentId;
+    readonly input: EnvironmentRpcInput<typeof WS_METHODS.subscribeServerConfig>;
+  }) => configProjectionFamily(target.environmentId);
   const emptyConfigAtom = Atom.make<ServerConfig | null>(null).pipe(
     Atom.withLabel("environment-data:server:config:empty"),
   );

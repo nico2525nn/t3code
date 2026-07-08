@@ -14,7 +14,6 @@ import type { SearchBarCommands } from "react-native-screens";
 import { nativeHeaderScrollEdgeEffects } from "../../lib/native-scroll-edge-effect";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
-import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import { createNativeMailSearchToolbarItem } from "../layout/native-mail-search-toolbar";
 import type { HomeProjectSortOrder } from "./homeThreadList";
 import {
@@ -77,14 +76,17 @@ export function HomeHeader(props: {
           unstable_headerRightItems:
             Platform.OS === "ios"
               ? () => [
-                  withNativeGlassHeaderItem({
+                  {
                     accessibilityLabel: "Open settings",
+                    glassEffect: false,
                     icon: { name: "ellipsis", type: "sfSymbol" } as const,
                     identifier: "home-settings",
                     label: "",
                     onPress: props.onOpenSettings,
+                    sharesBackground: false,
                     type: "button",
-                  }),
+                    variant: "plain",
+                  },
                 ]
               : undefined,
           unstable_headerToolbarItems:

@@ -15,7 +15,7 @@ import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { StatusPill } from "../../components/StatusPill";
 import { nativeHeaderScrollEdgeEffects } from "../../lib/native-scroll-edge-effect";
-import { settingsEnvironmentsNavigation } from "../../lib/routes";
+import { connectionsNewNavigation, settingsEnvironmentsNavigation } from "../../lib/routes";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { relativeTime } from "../../lib/time";
 import { useThemeColor } from "../../lib/useThemeColor";
@@ -566,83 +566,92 @@ export function ThreadNavigationSidebar(props: {
   if (usesNativeSidebarChrome) {
     const { Screen, ScreenStack, ScreenStackHeaderConfig } =
       require("react-native-screens") as typeof import("react-native-screens");
+    const settingsHeaderItem = withNativeGlassHeaderItem({
+      accessibilityLabel: "Open settings",
+      icon: { name: "ellipsis", type: "sfSymbol" } as const,
+      identifier: "thread-sidebar-settings",
+      onPress: props.onOpenSettings,
+      tintColor: foregroundColor,
+      type: "button",
+    });
+    const addEnvironmentHeaderItem = withNativeGlassHeaderItem({
+      accessibilityLabel: "Add environment",
+      icon: { name: "plus", type: "sfSymbol" } as const,
+      identifier: "thread-sidebar-add-environment",
+      onPress: () => navigation.push(connectionsNewNavigation()),
+      tintColor: foregroundColor,
+      type: "button",
+    });
+    const filterHeaderItem = withNativeGlassHeaderItem({
+      accessibilityLabel: "Filter and sort threads",
+      icon: { name: filterIcon, type: "sfSymbol" } as const,
+      identifier: "thread-sidebar-filter",
+      menu: {
+        title: "Thread list options",
+        items: [
+          {
+            type: "submenu",
+            title: "Environment",
+            items: [
+              {
+                onPress: () => setSelectedEnvironmentId(null),
+                state: options.selectedEnvironmentId === null ? "on" : "off",
+                subtitle: "Show threads from every environment",
+                title: "All environments",
+                type: "action",
+              },
+              ...environments.map((environment) => ({
+                onPress: () => setSelectedEnvironmentId(environment.environmentId),
+                state:
+                  options.selectedEnvironmentId === environment.environmentId
+                    ? ("on" as const)
+                    : ("off" as const),
+                title: environment.label,
+                type: "action" as const,
+              })),
+            ],
+          },
+          {
+            type: "submenu",
+            title: "Sort projects",
+            items: PROJECT_SORT_OPTIONS.map((option) => ({
+              onPress: () => setProjectSortOrder(option.value),
+              state: options.projectSortOrder === option.value ? ("on" as const) : ("off" as const),
+              title: option.label,
+              type: "action" as const,
+            })),
+          },
+          {
+            type: "submenu",
+            title: "Sort threads",
+            items: THREAD_SORT_OPTIONS.map((option) => ({
+              onPress: () => setThreadSortOrder(option.value),
+              state: options.threadSortOrder === option.value ? ("on" as const) : ("off" as const),
+              title: option.label,
+              type: "action" as const,
+            })),
+          },
+          {
+            type: "submenu",
+            title: "Group projects",
+            items: PROJECT_GROUPING_OPTIONS.map((option) => ({
+              onPress: () => setProjectGroupingMode(option.value),
+              state:
+                options.projectGroupingMode === option.value ? ("on" as const) : ("off" as const),
+              subtitle: option.subtitle,
+              title: option.label,
+              type: "action" as const,
+            })),
+          },
+        ],
+      },
+      tintColor: foregroundColor,
+      type: "menu",
+    });
     const nativeHeaderRightBarButtonItems = [
-      withNativeGlassHeaderItem({
-        accessibilityLabel: "Open settings",
-        icon: { name: "ellipsis", type: "sfSymbol" } as const,
-        identifier: "thread-sidebar-settings",
-        onPress: props.onOpenSettings,
-        tintColor: foregroundColor,
-        type: "button",
-      }),
-      withNativeGlassHeaderItem({
-        accessibilityLabel: "Filter and sort threads",
-        icon: { name: filterIcon, type: "sfSymbol" } as const,
-        identifier: "thread-sidebar-filter",
-        menu: {
-          title: "Thread list options",
-          items: [
-            {
-              type: "submenu",
-              title: "Environment",
-              items: [
-                {
-                  onPress: () => setSelectedEnvironmentId(null),
-                  state: options.selectedEnvironmentId === null ? "on" : "off",
-                  subtitle: "Show threads from every environment",
-                  title: "All environments",
-                  type: "action",
-                },
-                ...environments.map((environment) => ({
-                  onPress: () => setSelectedEnvironmentId(environment.environmentId),
-                  state:
-                    options.selectedEnvironmentId === environment.environmentId
-                      ? ("on" as const)
-                      : ("off" as const),
-                  title: environment.label,
-                  type: "action" as const,
-                })),
-              ],
-            },
-            {
-              type: "submenu",
-              title: "Sort projects",
-              items: PROJECT_SORT_OPTIONS.map((option) => ({
-                onPress: () => setProjectSortOrder(option.value),
-                state:
-                  options.projectSortOrder === option.value ? ("on" as const) : ("off" as const),
-                title: option.label,
-                type: "action" as const,
-              })),
-            },
-            {
-              type: "submenu",
-              title: "Sort threads",
-              items: THREAD_SORT_OPTIONS.map((option) => ({
-                onPress: () => setThreadSortOrder(option.value),
-                state:
-                  options.threadSortOrder === option.value ? ("on" as const) : ("off" as const),
-                title: option.label,
-                type: "action" as const,
-              })),
-            },
-            {
-              type: "submenu",
-              title: "Group projects",
-              items: PROJECT_GROUPING_OPTIONS.map((option) => ({
-                onPress: () => setProjectGroupingMode(option.value),
-                state:
-                  options.projectGroupingMode === option.value ? ("on" as const) : ("off" as const),
-                subtitle: option.subtitle,
-                title: option.label,
-                type: "action" as const,
-              })),
-            },
-          ],
-        },
-        tintColor: foregroundColor,
-        type: "menu",
-      }),
+      ...(!catalogState.hasConnections ? [addEnvironmentHeaderItem] : []),
+      settingsHeaderItem,
+      ...(catalogState.hasConnections ? [filterHeaderItem] : []),
     ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerRightBarButtonItems"];
 
     return (

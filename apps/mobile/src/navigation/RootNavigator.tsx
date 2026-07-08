@@ -44,9 +44,10 @@ import SettingsWaitlistRouteScreen from "../screens/settings/waitlist";
 import { ThreadSelectionProvider } from "../state/use-thread-selection";
 import { useThreadOutboxDrain } from "../state/use-thread-outbox-drain";
 import { useCurrentPathname } from "./app-navigation";
-import type { AppStackParamList } from "./route-model";
+import type { AppStackParamList, SettingsStackParamList } from "./route-model";
 
 const RootStack = createNativeStackNavigator<AppStackParamList>();
+const SettingsStack = createNativeStackNavigator<SettingsStackParamList>();
 
 function ThreadSelectionRoute(props: { readonly children: ReactNode }) {
   return <ThreadSelectionProvider>{props.children}</ThreadSelectionProvider>;
@@ -210,7 +211,7 @@ function WorkspaceNavigator() {
   const connectionSheetScreenOptions = {
     contentStyle: sheetStyle,
     gestureEnabled: true,
-    headerShown: false,
+    headerShown: true,
     presentation: "formSheet" as const,
     sheetAllowedDetents: [0.55, 0.7],
     sheetGrabberVisible: true,
@@ -225,6 +226,7 @@ function WorkspaceNavigator() {
       }
     : {
         ...connectionSheetScreenOptions,
+        headerShown: false,
         sheetAllowedDetents: isExpanded ? [0.92] : [0.7],
       };
   const newTaskScreenOptions = {
@@ -250,35 +252,8 @@ function WorkspaceNavigator() {
       />
       <RootStack.Screen
         name="Settings"
-        component={SettingsRouteScreen}
+        component={SettingsNavigator}
         listeners={{ transitionEnd: handleSettingsTransitionEnd }}
-        options={settingsScreenOptions}
-      />
-      <RootStack.Screen
-        name="SettingsEnvironments"
-        component={SettingsEnvironmentsRouteScreen}
-        options={settingsScreenOptions}
-      />
-      <RootStack.Screen
-        name="SettingsEnvironmentNew"
-        component={ConnectionsNewRouteScreen}
-        options={settingsScreenOptions}
-      />
-      <RootStack.Screen
-        name="SettingsArchive"
-        component={ArchivedThreadsRouteScreen}
-        listeners={{ transitionEnd: handleSettingsTransitionEnd }}
-        options={settingsScreenOptions}
-      />
-      <RootStack.Screen
-        name="SettingsAuth"
-        component={SettingsAuthRouteScreen}
-        listeners={{ transitionEnd: handleSettingsTransitionEnd }}
-        options={settingsScreenOptions}
-      />
-      <RootStack.Screen
-        name="SettingsWaitlist"
-        component={SettingsWaitlistRouteScreen}
         options={settingsScreenOptions}
       />
       <RootStack.Screen
@@ -401,5 +376,29 @@ function WorkspaceNavigator() {
       />
       <RootStack.Screen name="NotFound" component={NotFoundRoute} />
     </RootStack.Navigator>
+  );
+}
+
+function SettingsNavigator() {
+  const sheetStyle = useResolveClassNames("bg-sheet");
+
+  return (
+    <SettingsStack.Navigator
+      initialRouteName="SettingsIndex"
+      screenOptions={{
+        contentStyle: sheetStyle,
+        headerShown: true,
+      }}
+    >
+      <SettingsStack.Screen name="SettingsIndex" component={SettingsRouteScreen} />
+      <SettingsStack.Screen
+        name="SettingsEnvironments"
+        component={SettingsEnvironmentsRouteScreen}
+      />
+      <SettingsStack.Screen name="SettingsEnvironmentNew" component={ConnectionsNewRouteScreen} />
+      <SettingsStack.Screen name="SettingsArchive" component={ArchivedThreadsRouteScreen} />
+      <SettingsStack.Screen name="SettingsAuth" component={SettingsAuthRouteScreen} />
+      <SettingsStack.Screen name="SettingsWaitlist" component={SettingsWaitlistRouteScreen} />
+    </SettingsStack.Navigator>
   );
 }

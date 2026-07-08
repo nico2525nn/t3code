@@ -72,6 +72,10 @@ describe("environment shell synchronization", () => {
         loadThread: () => Effect.succeed(Option.none()),
         saveThread: () => Effect.void,
         removeThread: () => Effect.void,
+        loadServerConfig: () => Effect.succeed(Option.none()),
+        saveServerConfig: () => Effect.void,
+        loadVcsRefs: () => Effect.succeed(Option.none()),
+        saveVcsRefs: () => Effect.void,
         clear: () => Effect.void,
       });
       const shellState = yield* makeEnvironmentShellState().pipe(

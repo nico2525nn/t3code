@@ -1,15 +1,16 @@
-import type { NavigationState, PartialState, Route } from "@react-navigation/native";
+import type {
+  NavigationState,
+  NavigatorScreenParams,
+  PartialState,
+  Route,
+} from "@react-navigation/native";
 
 export type RouteParams = Record<string, string | string[] | undefined>;
 
 export type AppRouteName =
   | "Home"
   | "Settings"
-  | "SettingsEnvironments"
-  | "SettingsEnvironmentNew"
-  | "SettingsArchive"
-  | "SettingsAuth"
-  | "SettingsWaitlist"
+  | SettingsStackRouteName
   | "Connections"
   | "ConnectionsNew"
   | "NewTask"
@@ -31,14 +32,26 @@ export type AppRouteName =
   | "DebugRnsGlass"
   | "NotFound";
 
-export type AppStackParamList = {
-  Home: undefined;
-  Settings: undefined;
+export type SettingsStackRouteName =
+  | "SettingsIndex"
+  | "SettingsEnvironments"
+  | "SettingsEnvironmentNew"
+  | "SettingsArchive"
+  | "SettingsAuth"
+  | "SettingsWaitlist";
+
+export type SettingsStackParamList = {
+  SettingsIndex: undefined;
   SettingsEnvironments: undefined;
   SettingsEnvironmentNew: RouteParams | undefined;
   SettingsArchive: undefined;
   SettingsAuth: undefined;
   SettingsWaitlist: undefined;
+};
+
+export type AppStackParamList = {
+  Home: undefined;
+  Settings: NavigatorScreenParams<SettingsStackParamList> | undefined;
   Connections: undefined;
   ConnectionsNew: RouteParams | undefined;
   NewTask: undefined;
@@ -250,6 +263,7 @@ export function buildPathFromRoute(route: AppFocusedRoute): string {
     case "Home":
       return "/";
     case "Settings":
+    case "SettingsIndex":
       return "/settings";
     case "SettingsEnvironments":
       return "/settings/environments";

@@ -13,8 +13,10 @@ import {
   resolveNavigationTarget,
   type AppFocusedRoute,
   type AppNavigationInput,
+  type AppRouteName,
   type AppStackParamList,
   type RouteParams,
+  type SettingsStackRouteName,
 } from "./route-model";
 
 export type AppNavigation = {
@@ -35,6 +37,18 @@ type AppNavigationContextValue = {
 };
 
 export const AppNavigationContext = createContext<AppNavigationContextValue | null>(null);
+
+const SETTINGS_CHILD_ROUTES = new Set<AppRouteName>([
+  "SettingsEnvironments",
+  "SettingsEnvironmentNew",
+  "SettingsArchive",
+  "SettingsAuth",
+  "SettingsWaitlist",
+]);
+
+function isSettingsChildRoute(name: AppRouteName): name is SettingsStackRouteName {
+  return SETTINGS_CHILD_ROUTES.has(name);
+}
 
 export function useAppNavigation(): AppNavigation {
   const context = use(AppNavigationContext);
@@ -70,6 +84,19 @@ export function createAppNavigation(
     const target = resolveNavigationTarget(input);
     const navigation = navigationRef.current;
     if (!navigation) {
+      return;
+    }
+
+    if (isSettingsChildRoute(target.name)) {
+      navigation.dispatch(
+        CommonActions.navigate({
+          name: "Settings",
+          params: {
+            screen: target.name,
+            params: target.params,
+          },
+        }),
+      );
       return;
     }
 

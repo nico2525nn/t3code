@@ -18,7 +18,9 @@ import {
   EnvironmentId,
   OrchestrationThread,
   OrchestrationShellSnapshot,
+  ServerConfig,
   ThreadId,
+  VcsListRefsResult,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -34,6 +36,10 @@ const SHELL_SNAPSHOT_CACHE_DIRECTORY = "connection-shell-snapshots";
 const LEGACY_SHELL_SNAPSHOT_CACHE_DIRECTORY = "shell-snapshots";
 const THREAD_SNAPSHOT_CACHE_SCHEMA_VERSION = 1;
 const THREAD_SNAPSHOT_CACHE_DIRECTORY = "connection-thread-snapshots";
+const SERVER_CONFIG_CACHE_SCHEMA_VERSION = 1;
+const SERVER_CONFIG_CACHE_DIRECTORY = "connection-server-configs";
+const VCS_REFS_CACHE_SCHEMA_VERSION = 1;
+const VCS_REFS_CACHE_DIRECTORY = "connection-vcs-refs";
 
 const StoredShellSnapshot = Schema.Struct({
   schemaVersion: Schema.Literal(SHELL_SNAPSHOT_CACHE_SCHEMA_VERSION),
@@ -48,12 +54,35 @@ const StoredThreadSnapshot = Schema.Struct({
   thread: OrchestrationThread,
 });
 
+const StoredServerConfig = Schema.Struct({
+  schemaVersion: Schema.Literal(SERVER_CONFIG_CACHE_SCHEMA_VERSION),
+  environmentId: EnvironmentId,
+  config: ServerConfig,
+});
+
+const StoredVcsRefs = Schema.Struct({
+  schemaVersion: Schema.Literal(VCS_REFS_CACHE_SCHEMA_VERSION),
+  environmentId: EnvironmentId,
+  cwd: Schema.String,
+  refs: VcsListRefsResult,
+});
+
 const LegacyStoredShellSnapshot = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   environmentId: EnvironmentId,
   snapshotReceivedAt: Schema.String,
   snapshot: OrchestrationShellSnapshot,
 });
+
+const decodeStoredShellSnapshot = Schema.decodeUnknownResult(StoredShellSnapshot);
+const encodeStoredShellSnapshot = Schema.encodeUnknownResult(StoredShellSnapshot);
+const decodeStoredThreadSnapshot = Schema.decodeUnknownResult(StoredThreadSnapshot);
+const encodeStoredThreadSnapshot = Schema.encodeUnknownResult(StoredThreadSnapshot);
+const decodeStoredServerConfig = Schema.decodeUnknownResult(StoredServerConfig);
+const encodeStoredServerConfig = Schema.encodeUnknownResult(StoredServerConfig);
+const decodeStoredVcsRefs = Schema.decodeUnknownResult(StoredVcsRefs);
+const encodeStoredVcsRefs = Schema.encodeUnknownResult(StoredVcsRefs);
+const decodeLegacyStoredShellSnapshot = Schema.decodeUnknownResult(LegacyStoredShellSnapshot);
 
 function catalogError(operation: string, cause: unknown) {
   return new ConnectionTransientError({
@@ -69,6 +98,10 @@ function shellPersistenceError(
     | "load-thread"
     | "save-thread"
     | "remove-thread"
+    | "load-server-config"
+    | "save-server-config"
+    | "load-vcs-refs"
+    | "save-vcs-refs"
     | "clear-environment",
   cause: unknown,
 ) {
@@ -80,6 +113,14 @@ function shellPersistenceError(
 
 function threadSnapshotFileName(threadId: ThreadId): string {
   return `${encodeURIComponent(threadId)}.json`;
+}
+
+function environmentCacheFileName(environmentId: EnvironmentId): string {
+  return `${encodeURIComponent(environmentId)}.json`;
+}
+
+function vcsRefsFileName(cwd: string): string {
+  return `${encodeURIComponent(cwd)}.json`;
 }
 
 const threadSnapshotDirectory = Effect.fn("mobile.connectionStorage.threadSnapshotDirectory")(
@@ -146,8 +187,53 @@ const secureCatalogStorage: SecureCatalogStorage = {
 };
 
 function shellSnapshotFileName(environmentId: EnvironmentId): string {
-  return `${encodeURIComponent(environmentId)}.json`;
+  return environmentCacheFileName(environmentId);
 }
+
+const serverConfigFile = Effect.fn("mobile.connectionStorage.serverConfigFile")(function* (
+  environmentId: EnvironmentId,
+  operation: "load-server-config" | "save-server-config" | "clear-environment",
+) {
+  return yield* Effect.tryPromise({
+    try: async () => {
+      const { Directory, File, Paths } = await import("expo-file-system");
+      const directory = new Directory(Paths.document, SERVER_CONFIG_CACHE_DIRECTORY);
+      directory.create({ idempotent: true, intermediates: true });
+      return new File(directory, environmentCacheFileName(environmentId));
+    },
+    catch: (cause) => shellPersistenceError(operation, cause),
+  });
+});
+
+const vcsRefsDirectory = Effect.fn("mobile.connectionStorage.vcsRefsDirectory")(function* (
+  environmentId: EnvironmentId,
+  operation: "load-vcs-refs" | "save-vcs-refs" | "clear-environment",
+) {
+  return yield* Effect.tryPromise({
+    try: async () => {
+      const { Directory, Paths } = await import("expo-file-system");
+      const directory = new Directory(
+        Paths.document,
+        VCS_REFS_CACHE_DIRECTORY,
+        encodeURIComponent(environmentId),
+      );
+      if (operation !== "clear-environment") {
+        directory.create({ idempotent: true, intermediates: true });
+      }
+      return directory;
+    },
+    catch: (cause) => shellPersistenceError(operation, cause),
+  });
+});
+
+const vcsRefsFile = Effect.fn("mobile.connectionStorage.vcsRefsFile")(function* (
+  environmentId: EnvironmentId,
+  cwd: string,
+  operation: "load-vcs-refs" | "save-vcs-refs",
+) {
+  const { File } = yield* Effect.promise(() => import("expo-file-system"));
+  return new File(yield* vcsRefsDirectory(environmentId, operation), vcsRefsFileName(cwd));
+});
 
 const shellSnapshotFileInDirectory = Effect.fn(
   "mobile.connectionStorage.shellSnapshotFileInDirectory",
@@ -289,9 +375,9 @@ export const connectionStorageLayer = Layer.effectContext(
               try: () => JSON.parse(raw) as unknown,
               catch: (cause) => shellPersistenceError("load-shell", cause),
             });
-            const stored = yield* Effect.fromResult(
-              Schema.decodeUnknownResult(StoredShellSnapshot)(parsed),
-            ).pipe(Effect.mapError((cause) => shellPersistenceError("load-shell", cause)));
+            const stored = yield* Effect.fromResult(decodeStoredShellSnapshot(parsed)).pipe(
+              Effect.mapError((cause) => shellPersistenceError("load-shell", cause)),
+            );
             return stored.environmentId === environmentId
               ? Option.some(stored.snapshot)
               : Option.none();
@@ -310,7 +396,7 @@ export const connectionStorageLayer = Layer.effectContext(
             catch: (cause) => shellPersistenceError("load-shell", cause),
           });
           const legacyStored = yield* Effect.fromResult(
-            Schema.decodeUnknownResult(LegacyStoredShellSnapshot)(legacyParsed),
+            decodeLegacyStoredShellSnapshot(legacyParsed),
           ).pipe(Effect.mapError((cause) => shellPersistenceError("load-shell", cause)));
           return legacyStored.environmentId === environmentId
             ? Option.some(legacyStored.snapshot)
@@ -324,9 +410,9 @@ export const connectionStorageLayer = Layer.effectContext(
             environmentId,
             snapshot,
           } as const;
-          const encoded = yield* Effect.fromResult(
-            Schema.encodeUnknownResult(StoredShellSnapshot)(stored),
-          ).pipe(Effect.mapError((cause) => shellPersistenceError("save-shell", cause)));
+          const encoded = yield* Effect.fromResult(encodeStoredShellSnapshot(stored)).pipe(
+            Effect.mapError((cause) => shellPersistenceError("save-shell", cause)),
+          );
           yield* Effect.try({
             try: () => {
               if (!file.exists) {
@@ -335,6 +421,47 @@ export const connectionStorageLayer = Layer.effectContext(
               file.write(JSON.stringify(encoded));
             },
             catch: (cause) => shellPersistenceError("save-shell", cause),
+          });
+        }),
+      loadServerConfig: (environmentId) =>
+        Effect.gen(function* () {
+          const file = yield* serverConfigFile(environmentId, "load-server-config");
+          if (!file.exists) {
+            return Option.none();
+          }
+          const raw = yield* Effect.tryPromise({
+            try: () => file.text(),
+            catch: (cause) => shellPersistenceError("load-server-config", cause),
+          });
+          const parsed = yield* Effect.try({
+            try: () => JSON.parse(raw) as unknown,
+            catch: (cause) => shellPersistenceError("load-server-config", cause),
+          });
+          const stored = yield* Effect.fromResult(decodeStoredServerConfig(parsed)).pipe(
+            Effect.mapError((cause) => shellPersistenceError("load-server-config", cause)),
+          );
+          return stored.environmentId === environmentId
+            ? Option.some(stored.config)
+            : Option.none();
+        }),
+      saveServerConfig: (environmentId, config) =>
+        Effect.gen(function* () {
+          const file = yield* serverConfigFile(environmentId, "save-server-config");
+          const encoded = yield* Effect.fromResult(
+            encodeStoredServerConfig({
+              schemaVersion: SERVER_CONFIG_CACHE_SCHEMA_VERSION,
+              environmentId,
+              config,
+            }),
+          ).pipe(Effect.mapError((cause) => shellPersistenceError("save-server-config", cause)));
+          yield* Effect.try({
+            try: () => {
+              if (!file.exists) {
+                file.create({ intermediates: true, overwrite: true });
+              }
+              file.write(JSON.stringify(encoded));
+            },
+            catch: (cause) => shellPersistenceError("save-server-config", cause),
           });
         }),
       loadThread: (environmentId, threadId) =>
@@ -351,9 +478,9 @@ export const connectionStorageLayer = Layer.effectContext(
             try: () => JSON.parse(raw) as unknown,
             catch: (cause) => shellPersistenceError("load-thread", cause),
           });
-          const stored = yield* Effect.fromResult(
-            Schema.decodeUnknownResult(StoredThreadSnapshot)(parsed),
-          ).pipe(Effect.mapError((cause) => shellPersistenceError("load-thread", cause)));
+          const stored = yield* Effect.fromResult(decodeStoredThreadSnapshot(parsed)).pipe(
+            Effect.mapError((cause) => shellPersistenceError("load-thread", cause)),
+          );
           return stored.environmentId === environmentId && stored.threadId === threadId
             ? Option.some(stored.thread)
             : Option.none();
@@ -362,7 +489,7 @@ export const connectionStorageLayer = Layer.effectContext(
         Effect.gen(function* () {
           const file = yield* threadSnapshotFile(environmentId, thread.id, "save-thread");
           const encoded = yield* Effect.fromResult(
-            Schema.encodeUnknownResult(StoredThreadSnapshot)({
+            encodeStoredThreadSnapshot({
               schemaVersion: THREAD_SNAPSHOT_CACHE_SCHEMA_VERSION,
               environmentId,
               threadId: thread.id,
@@ -377,6 +504,48 @@ export const connectionStorageLayer = Layer.effectContext(
               file.write(JSON.stringify(encoded));
             },
             catch: (cause) => shellPersistenceError("save-thread", cause),
+          });
+        }),
+      loadVcsRefs: (environmentId, cwd) =>
+        Effect.gen(function* () {
+          const file = yield* vcsRefsFile(environmentId, cwd, "load-vcs-refs");
+          if (!file.exists) {
+            return Option.none();
+          }
+          const raw = yield* Effect.tryPromise({
+            try: () => file.text(),
+            catch: (cause) => shellPersistenceError("load-vcs-refs", cause),
+          });
+          const parsed = yield* Effect.try({
+            try: () => JSON.parse(raw) as unknown,
+            catch: (cause) => shellPersistenceError("load-vcs-refs", cause),
+          });
+          const stored = yield* Effect.fromResult(decodeStoredVcsRefs(parsed)).pipe(
+            Effect.mapError((cause) => shellPersistenceError("load-vcs-refs", cause)),
+          );
+          return stored.environmentId === environmentId && stored.cwd === cwd
+            ? Option.some(stored.refs)
+            : Option.none();
+        }),
+      saveVcsRefs: (environmentId, cwd, refs) =>
+        Effect.gen(function* () {
+          const file = yield* vcsRefsFile(environmentId, cwd, "save-vcs-refs");
+          const encoded = yield* Effect.fromResult(
+            encodeStoredVcsRefs({
+              schemaVersion: VCS_REFS_CACHE_SCHEMA_VERSION,
+              environmentId,
+              cwd,
+              refs,
+            }),
+          ).pipe(Effect.mapError((cause) => shellPersistenceError("save-vcs-refs", cause)));
+          yield* Effect.try({
+            try: () => {
+              if (!file.exists) {
+                file.create({ intermediates: true, overwrite: true });
+              }
+              file.write(JSON.stringify(encoded));
+            },
+            catch: (cause) => shellPersistenceError("save-vcs-refs", cause),
           });
         }),
       removeThread: (environmentId, threadId) =>
@@ -408,6 +577,13 @@ export const connectionStorageLayer = Layer.effectContext(
               catch: (cause) => shellPersistenceError("clear-environment", cause),
             });
           }
+          const configFile = yield* serverConfigFile(environmentId, "clear-environment");
+          if (configFile.exists) {
+            yield* Effect.try({
+              try: () => configFile.delete(),
+              catch: (cause) => shellPersistenceError("clear-environment", cause),
+            });
+          }
           const threadDirectory = yield* threadSnapshotDirectory(
             environmentId,
             "clear-environment",
@@ -415,6 +591,13 @@ export const connectionStorageLayer = Layer.effectContext(
           if (threadDirectory.exists) {
             yield* Effect.try({
               try: () => threadDirectory.delete(),
+              catch: (cause) => shellPersistenceError("clear-environment", cause),
+            });
+          }
+          const refsDirectory = yield* vcsRefsDirectory(environmentId, "clear-environment");
+          if (refsDirectory.exists) {
+            yield* Effect.try({
+              try: () => refsDirectory.delete(),
               catch: (cause) => shellPersistenceError("clear-environment", cause),
             });
           }

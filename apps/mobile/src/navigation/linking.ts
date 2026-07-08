@@ -9,12 +9,17 @@ export const appLinking: LinkingOptions<AppStackParamList> = {
     screens: {
       Home: "",
       DebugRnsGlass: "debug/rns-glass",
-      Settings: "settings",
-      SettingsEnvironments: "settings/environments",
-      SettingsEnvironmentNew: "settings/environment-new",
-      SettingsArchive: "settings/archive",
-      SettingsAuth: "settings/auth",
-      SettingsWaitlist: "settings/waitlist",
+      Settings: {
+        path: "settings",
+        screens: {
+          SettingsIndex: "",
+          SettingsEnvironments: "environments",
+          SettingsEnvironmentNew: "environment-new",
+          SettingsArchive: "archive",
+          SettingsAuth: "auth",
+          SettingsWaitlist: "waitlist",
+        },
+      },
       Connections: "connections",
       ConnectionsNew: "connections/new",
       NewTask: "new",
