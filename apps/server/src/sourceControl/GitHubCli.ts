@@ -2,7 +2,6 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
-import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import {
@@ -13,8 +12,8 @@ import {
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
-  decodeGitHubPullRequestJson,
-  decodeGitHubPullRequestListJson,
+  decodeGitHubPullRequestJsonEffect,
+  decodeGitHubPullRequestListJsonEffect,
 } from "./gitHubPullRequests.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -339,22 +338,18 @@ export const make = Effect.gen(function* () {
         Effect.flatMap((raw) =>
           raw.length === 0
             ? Effect.succeed([])
-            : Effect.sync(() => decodeGitHubPullRequestListJson(raw)).pipe(
-                Effect.flatMap((decoded) => {
-                  if (!Result.isSuccess(decoded)) {
-                    return Effect.fail(
-                      new GitHubPullRequestListDecodeError({
-                        command: "gh",
-                        cwd: input.cwd,
-                        cause: decoded.failure,
-                      }),
-                    );
-                  }
-
-                  return Effect.succeed(
-                    decoded.success.map(({ updatedAt: _updatedAt, ...summary }) => summary),
-                  );
-                }),
+            : decodeGitHubPullRequestListJsonEffect(raw).pipe(
+                Effect.map((decoded) =>
+                  decoded.map(({ updatedAt: _updatedAt, ...summary }) => summary),
+                ),
+                Effect.mapError(
+                  (cause) =>
+                    new GitHubPullRequestListDecodeError({
+                      command: "gh",
+                      cwd: input.cwd,
+                      cause,
+                    }),
+                ),
               ),
         ),
       ),
@@ -371,22 +366,16 @@ export const make = Effect.gen(function* () {
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
         Effect.flatMap((raw) =>
-          Effect.sync(() => decodeGitHubPullRequestJson(raw)).pipe(
-            Effect.flatMap((decoded) => {
-              if (!Result.isSuccess(decoded)) {
-                return Effect.fail(
-                  new GitHubPullRequestDecodeError({
-                    command: "gh",
-                    cwd: input.cwd,
-                    cause: decoded.failure,
-                  }),
-                );
-              }
-
-              return Effect.succeed(
-                (({ updatedAt: _updatedAt, ...summary }) => summary)(decoded.success),
-              );
-            }),
+          decodeGitHubPullRequestJsonEffect(raw).pipe(
+            Effect.map(({ updatedAt: _updatedAt, ...summary }) => summary),
+            Effect.mapError(
+              (cause) =>
+                new GitHubPullRequestDecodeError({
+                  command: "gh",
+                  cwd: input.cwd,
+                  cause,
+                }),
+            ),
           ),
         ),
       ),

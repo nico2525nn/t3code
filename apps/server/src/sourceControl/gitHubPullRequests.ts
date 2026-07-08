@@ -1,5 +1,7 @@
 import * as Cause from "effect/Cause";
+import * as Arr from "effect/Array";
 import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
@@ -97,6 +99,13 @@ function normalizeGitHubPullRequestRecord(
 const decodeGitHubPullRequestList = decodeJsonResult(Schema.Array(Schema.Unknown));
 const decodeGitHubPullRequest = decodeJsonResult(GitHubPullRequestSchema);
 const decodeGitHubPullRequestEntry = Schema.decodeUnknownExit(GitHubPullRequestSchema);
+const decodeGitHubPullRequestListEffect = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Array(Schema.Unknown)),
+);
+const decodeGitHubPullRequestEffect = Schema.decodeEffect(
+  Schema.fromJsonString(GitHubPullRequestSchema),
+);
+const decodeGitHubPullRequestEntryEffect = Schema.decodeUnknownEffect(GitHubPullRequestSchema);
 
 export const formatGitHubJsonDecodeError = formatSchemaError;
 
@@ -129,4 +138,25 @@ export function decodeGitHubPullRequestJson(
     return Result.succeed(normalizeGitHubPullRequestRecord(result.success));
   }
   return Result.fail(result.failure);
+}
+
+export function decodeGitHubPullRequestListJsonEffect(
+  raw: string,
+): Effect.Effect<ReadonlyArray<NormalizedGitHubPullRequestRecord>, Schema.SchemaError> {
+  return Effect.gen(function* () {
+    const entries = yield* decodeGitHubPullRequestListEffect(raw);
+    const decoded = yield* Effect.forEach(entries, (entry) =>
+      decodeGitHubPullRequestEntryEffect(entry).pipe(
+        Effect.map(normalizeGitHubPullRequestRecord),
+        Effect.option,
+      ),
+    );
+    return Arr.filterMap(decoded, (entry) => entry);
+  });
+}
+
+export function decodeGitHubPullRequestJsonEffect(
+  raw: string,
+): Effect.Effect<NormalizedGitHubPullRequestRecord, Schema.SchemaError> {
+  return decodeGitHubPullRequestEffect(raw).pipe(Effect.map(normalizeGitHubPullRequestRecord));
 }

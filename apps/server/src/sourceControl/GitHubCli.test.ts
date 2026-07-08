@@ -208,6 +208,28 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("surfaces tagged decode errors for invalid pull request output", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("not-json")));
+
+      const gh = yield* GitHubCli.GitHubCli;
+      const error = yield* gh
+        .getPullRequest({
+          cwd: "/repo",
+          reference: "#42",
+        })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(error._tag, "GitHubPullRequestDecodeError");
+      assert.strictEqual(error.command, "gh");
+      assert.strictEqual(error.cwd, "/repo");
+      assert.strictEqual(
+        error.message,
+        "GitHub CLI failed in getPullRequest: GitHub CLI returned invalid pull request JSON.",
+      );
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("reads repository clone URLs", () =>
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(
