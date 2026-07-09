@@ -154,11 +154,15 @@ const decodeWindowsProcessRowsJson = Schema.decodeUnknownOption(WindowsProcessRo
 const decodeWindowsProcessRowJson = Schema.decodeUnknownOption(WindowsProcessRowJson);
 
 function positiveIntegerOption(value: number | undefined): Option.Option<number> {
-  return Number.isInteger(value) && value > 0 ? Option.some(value) : Option.none();
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? Option.some(value)
+    : Option.none();
 }
 
 function nonNegativeIntegerOption(value: number | undefined): Option.Option<number> {
-  return Number.isInteger(value) && value >= 0 ? Option.some(value) : Option.none();
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? Option.some(value)
+    : Option.none();
 }
 
 export function parsePosixProcessRows(output: string): ReadonlyArray<ProcessRow> {
