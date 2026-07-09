@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -30,6 +30,26 @@ function mockHandle(result: {
     getInputFd: () => Sink.drain,
     getOutputFd: () => Stream.empty,
   });
+}
+
+function readWindowsRows(stdout: string) {
+  const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
+  const spawnerLayer = Layer.mock(ChildProcessSpawner.ChildProcessSpawner)({
+    spawn: (command) => {
+      const childProcess = command as unknown as {
+        readonly command: string;
+        readonly args: ReadonlyArray<string>;
+      };
+      commands.push({ command: childProcess.command, args: childProcess.args });
+      return Effect.succeed(mockHandle({ stdout }));
+    },
+  });
+
+  return ProcessDiagnostics.readProcessRows.pipe(
+    Effect.map((rows) => ({ rows, commands })),
+    Effect.provide(spawnerLayer),
+    Effect.provideService(HostProcessPlatform, "win32"),
+  );
 }
 
 describe("ProcessDiagnostics", () => {
@@ -64,6 +84,110 @@ describe("ProcessDiagnostics", () => {
           command: "codex app-server --config /tmp/one two",
         },
       ]);
+    }),
+  );
+
+  it.effect("parses Windows PowerShell JSON rows through the child process layer", () =>
+    Effect.gen(function* () {
+      const { rows, commands } = yield* readWindowsRows(`[
+        {
+          "ProcessId": 100,
+          "ParentProcessId": 1,
+          "Name": "node.exe",
+          "CommandLine": "node server.js",
+          "Status": "Running",
+          "WorkingSetSize": 4096.4,
+          "PercentProcessorTime": 1.5
+        },
+        {
+          "ProcessId": 101,
+          "ParentProcessId": 100,
+          "Name": "agent.exe",
+          "CommandLine": null,
+          "Status": null,
+          "WorkingSetSize": -128,
+          "PercentProcessorTime": -2
+        },
+        {
+          "ProcessId": 0,
+          "ParentProcessId": 100,
+          "Name": "skip-zero-pid.exe"
+        },
+        {
+          "ProcessId": 102,
+          "Name": "skip-missing-parent.exe"
+        },
+        {
+          "ProcessId": "bad",
+          "ParentProcessId": 100,
+          "Name": "skip-schema-invalid.exe"
+        }
+      ]`);
+
+      assert.deepStrictEqual(rows, [
+        {
+          pid: 100,
+          ppid: 1,
+          pgid: null,
+          status: "Running",
+          cpuPercent: 1.5,
+          rssBytes: 4096,
+          elapsed: "",
+          command: "node server.js",
+        },
+        {
+          pid: 101,
+          ppid: 100,
+          pgid: null,
+          status: "Live",
+          cpuPercent: 0,
+          rssBytes: 0,
+          elapsed: "",
+          command: "agent.exe",
+        },
+      ]);
+      assert.strictEqual(commands[0]?.command, "powershell.exe");
+      assert.deepStrictEqual(commands[0]?.args.slice(0, 3), [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+      ]);
+      assert.isTrue(commands[0]?.args[3]?.includes("Get-CimInstance Win32_Process") === true);
+    }),
+  );
+
+  it.effect("parses a single Windows PowerShell JSON object", () =>
+    Effect.gen(function* () {
+      const { rows } = yield* readWindowsRows(`{
+        "ProcessId": 200,
+        "ParentProcessId": 100,
+        "Name": "single.exe",
+        "CommandLine": null,
+        "Status": "",
+        "WorkingSetSize": 2048,
+        "PercentProcessorTime": 3
+      }`);
+
+      assert.deepStrictEqual(rows, [
+        {
+          pid: 200,
+          ppid: 100,
+          pgid: null,
+          status: "Live",
+          cpuPercent: 3,
+          rssBytes: 2048,
+          elapsed: "",
+          command: "single.exe",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("returns no Windows rows for invalid JSON", () =>
+    Effect.gen(function* () {
+      const { rows } = yield* readWindowsRows("not-json");
+
+      assert.deepStrictEqual(rows, []);
     }),
   );
 
