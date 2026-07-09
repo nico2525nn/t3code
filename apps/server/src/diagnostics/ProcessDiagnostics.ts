@@ -269,10 +269,13 @@ function parseWindowsProcessRows(output: string): ReadonlyArray<ProcessRow> {
     onSome: (payload) => {
       const records = Array.isArray(payload) ? payload : [payload];
       return records.flatMap((record) =>
-        Option.match(Option.flatMap(decodeWindowsProcessRowJson(record), normalizeWindowsProcessRow), {
-          onNone: () => [],
-          onSome: (row) => [row],
-        }),
+        Option.match(
+          Option.flatMap(decodeWindowsProcessRowJson(record), normalizeWindowsProcessRow),
+          {
+            onNone: () => [],
+            onSome: (row) => [row],
+          },
+        ),
       );
     },
   });
