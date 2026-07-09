@@ -38,48 +38,37 @@ function latestProviderCheckedAt(
   );
 }
 
-export function SidebarProviderUpdatePill() {
-  const navigate = useNavigate();
-  const providers = useAtomValue(primaryServerProvidersAtom);
-  const [dismissedKeys, setDismissedKeys] = useState<ReadonlySet<string>>(() => new Set());
-  const [renderedView, setRenderedView] = useState<ProviderUpdateSidebarPillView | null>(null);
-  const [pendingView, setPendingView] = useState<ProviderUpdateSidebarPillView | null>(null);
-  const [exitingKey, setExitingKey] = useState<string | null>(null);
-  const [dismissAfterExitKey, setDismissAfterExitKey] = useState<string | null>(null);
-  const [visibleAfterIso, setVisibleAfterIso] = useState<string | undefined>();
-  const effectiveVisibleAfterIso = visibleAfterIso ?? latestProviderCheckedAt(providers);
-  const view = getProviderUpdateSidebarPillView(providers, {
-    ...(effectiveVisibleAfterIso !== undefined
-      ? { visibleAfterIso: effectiveVisibleAfterIso }
-      : {}),
-    dismissedKeys,
-  });
+function useInitialProviderVisibleAfterIso(
+  providers: ReadonlyArray<Pick<ServerProvider, "checkedAt">>,
+): string | undefined {
+  const latestCheckedAt = latestProviderCheckedAt(providers);
+  const [visibleAfterIso, setVisibleAfterIso] = useState<string | undefined>(() => latestCheckedAt);
 
   useEffect(() => {
-    if (visibleAfterIso === undefined && effectiveVisibleAfterIso !== undefined) {
-      setVisibleAfterIso(effectiveVisibleAfterIso);
+    if (visibleAfterIso === undefined && latestCheckedAt !== undefined) {
+      setVisibleAfterIso(latestCheckedAt);
     }
-  }, [effectiveVisibleAfterIso, visibleAfterIso]);
+  }, [latestCheckedAt, visibleAfterIso]);
 
-  const openProviderSettings = useCallback(() => {
-    void navigate({ to: "/settings/providers" });
-  }, [navigate]);
-  const displayedView = renderedView ?? view;
-  const dismissAfterVisibleMs = displayedView?.dismissAfterVisibleMs;
-  const viewKey = displayedView?.key ?? null;
-  const showDismissProgress =
-    dismissAfterVisibleMs !== undefined &&
-    displayedView?.tone !== "loading" &&
-    exitingKey !== viewKey;
+  return visibleAfterIso ?? latestCheckedAt;
+}
+
+function useProviderUpdatePillTransition(view: ProviderUpdateSidebarPillView | null) {
+  const [renderedView, setRenderedView] = useState<ProviderUpdateSidebarPillView | null>(
+    () => view,
+  );
+  const pendingViewRef = useRef<ProviderUpdateSidebarPillView | null>(null);
+  const dismissAfterExitKeyRef = useRef<string | null>(null);
+  const [exitingKey, setExitingKey] = useState<string | null>(null);
 
   const startExit = useCallback(
     (key: string, nextView: ProviderUpdateSidebarPillView | null, dismissKey?: string) => {
       if (exitingKey === key) {
         return;
       }
-      setPendingView(nextView);
+      pendingViewRef.current = nextView;
+      dismissAfterExitKeyRef.current = dismissKey ?? null;
       setExitingKey(key);
-      setDismissAfterExitKey(dismissKey ?? null);
     },
     [exitingKey],
   );
@@ -104,6 +93,37 @@ export function SidebarProviderUpdatePill() {
     }
   }, [exitingKey, renderedView, startExit, view]);
 
+  const completeExit = useCallback((dismissKey: (key: string) => void) => {
+    const keyToDismiss = dismissAfterExitKeyRef.current;
+    if (keyToDismiss !== null) {
+      dismissKey(keyToDismiss);
+    }
+    setRenderedView(pendingViewRef.current);
+    pendingViewRef.current = null;
+    setExitingKey(null);
+    dismissAfterExitKeyRef.current = null;
+  }, []);
+
+  return {
+    displayedView: renderedView ?? view,
+    exitingKey,
+    startExit,
+    completeExit,
+  };
+}
+
+function useProviderUpdatePillAutoDismiss(input: {
+  readonly dismissAfterVisibleMs: number | undefined;
+  readonly exitingKey: string | null;
+  readonly startExit: (
+    key: string,
+    nextView: ProviderUpdateSidebarPillView | null,
+    dismissKey?: string,
+  ) => void;
+  readonly viewKey: string | null;
+}) {
+  const { dismissAfterVisibleMs, exitingKey, startExit, viewKey } = input;
+
   useEffect(() => {
     if (!dismissAfterVisibleMs || !viewKey) {
       return;
@@ -117,6 +137,31 @@ export function SidebarProviderUpdatePill() {
 
     return () => window.clearTimeout(timeoutId);
   }, [dismissAfterVisibleMs, exitingKey, startExit, viewKey]);
+}
+
+export function SidebarProviderUpdatePill() {
+  const navigate = useNavigate();
+  const providers = useAtomValue(primaryServerProvidersAtom);
+  const [dismissedKeys, setDismissedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const visibleAfterIso = useInitialProviderVisibleAfterIso(providers);
+  const view = getProviderUpdateSidebarPillView(providers, {
+    ...(visibleAfterIso !== undefined ? { visibleAfterIso } : {}),
+    dismissedKeys,
+  });
+
+  const openProviderSettings = useCallback(() => {
+    void navigate({ to: "/settings/providers" });
+  }, [navigate]);
+  const { displayedView, exitingKey, startExit, completeExit } =
+    useProviderUpdatePillTransition(view);
+  const dismissAfterVisibleMs = displayedView?.dismissAfterVisibleMs;
+  const viewKey = displayedView?.key ?? null;
+  const showDismissProgress =
+    dismissAfterVisibleMs !== undefined &&
+    displayedView?.tone !== "loading" &&
+    exitingKey !== viewKey;
+
+  useProviderUpdatePillAutoDismiss({ dismissAfterVisibleMs, exitingKey, startExit, viewKey });
 
   if (!displayedView) {
     return null;
@@ -138,13 +183,11 @@ export function SidebarProviderUpdatePill() {
         if (!displayedView || exitingKey !== displayedView.key) {
           return;
         }
-        if (dismissAfterExitKey === displayedView.key) {
-          setDismissedKeys((previous) => new Set(previous).add(displayedView.key));
-        }
-        setRenderedView(pendingView);
-        setPendingView(null);
-        setExitingKey(null);
-        setDismissAfterExitKey(null);
+        completeExit((key) => {
+          setDismissedKeys((previous) =>
+            previous.has(key) ? previous : new Set(previous).add(key),
+          );
+        });
       }}
     >
       {showDismissProgress ? (
