@@ -47,6 +47,26 @@ export interface OrchestrationEventStoreShape {
   ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
 
   /**
+   * Replay a single aggregate's events after the provided sequence.
+   *
+   * @param aggregateKind - Aggregate kind of the stream.
+   * @param aggregateId - Aggregate id of the stream.
+   * @param sequenceExclusive - Sequence cursor (exclusive).
+   * @param limit - Maximum number of events to emit.
+   * @returns Stream containing ordered events for that aggregate only.
+   *
+   * The filter runs in SQL against the (aggregate_kind, stream_id, sequence)
+   * index, so the cost scales with the aggregate's own events rather than the
+   * global event range after the cursor.
+   */
+  readonly readAggregateFromSequence: (
+    aggregateKind: OrchestrationEvent["aggregateKind"],
+    aggregateId: string,
+    sequenceExclusive: number,
+    limit?: number,
+  ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
+
+  /**
    * Read all events from the beginning of the stream.
    *
    * @returns Stream containing all stored events.

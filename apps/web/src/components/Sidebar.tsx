@@ -184,7 +184,8 @@ import {
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useOpenAddProjectCommandPalette } from "../commandPaletteContext";
 import {
-  getSidebarThreadIdsToPrewarm,
+  createSidebarHoverPrewarmController,
+  SIDEBAR_THREAD_HOVER_PREWARM_DELAY_MS,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
   isTrailingDoubleClick,
@@ -246,6 +247,37 @@ const SIDEBAR_ICON_ACTION_BUTTON_CLASS =
 function SidebarThreadDetailPrewarmer({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   useEnvironmentThread(threadRef.environmentId, threadRef.threadId);
   return null;
+}
+
+// Self-contained so hover changes re-render only this component, never the
+// sidebar tree. Delegated `pointerover` avoids per-row handler props.
+function SidebarHoverThreadPrewarmer() {
+  const [prewarmThreadKey, setPrewarmThreadKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = createSidebarHoverPrewarmController({
+      delayMs: SIDEBAR_THREAD_HOVER_PREWARM_DELAY_MS,
+      onPrewarmTargetChange: setPrewarmThreadKey,
+    });
+    const onPointerOver = (event: globalThis.PointerEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      controller.hover(
+        target?.closest("[data-thread-prewarm-key]")?.getAttribute("data-thread-prewarm-key") ??
+          null,
+      );
+    };
+    window.addEventListener("pointerover", onPointerOver, { passive: true });
+    return () => {
+      window.removeEventListener("pointerover", onPointerOver);
+      controller.dispose();
+    };
+  }, []);
+
+  const prewarmThreadRef = useMemo(
+    () => (prewarmThreadKey === null ? null : parseScopedThreadKey(prewarmThreadKey)),
+    [prewarmThreadKey],
+  );
+  return prewarmThreadRef ? <SidebarThreadDetailPrewarmer threadRef={prewarmThreadRef} /> : null;
 }
 
 function clampSidebarThreadPreviewCount(value: number): SidebarThreadPreviewCount {
@@ -673,6 +705,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     <SidebarMenuSubItem
       className="w-full"
       data-thread-item
+      data-thread-prewarm-key={threadKey}
       onMouseLeave={handleMouseLeave}
       onBlurCapture={handleBlurCapture}
     >
@@ -3491,18 +3524,6 @@ export default function Sidebar() {
     ? threadJumpLabelByKey
     : EMPTY_THREAD_JUMP_LABELS;
   const orderedSidebarThreadKeys = visibleSidebarThreadKeys;
-  const prewarmedSidebarThreadKeys = useMemo(
-    () => getSidebarThreadIdsToPrewarm(visibleSidebarThreadKeys),
-    [visibleSidebarThreadKeys],
-  );
-  const prewarmedSidebarThreadRefs = useMemo(
-    () =>
-      prewarmedSidebarThreadKeys.flatMap((threadKey) => {
-        const ref = parseScopedThreadKey(threadKey);
-        return ref ? [ref] : [];
-      }),
-    [prewarmedSidebarThreadKeys],
-  );
 
   useEffect(() => {
     updateThreadJumpHintsVisibility(shouldShowThreadJumpHintsNow);
@@ -3695,9 +3716,7 @@ export default function Sidebar() {
 
   return (
     <>
-      {prewarmedSidebarThreadRefs.map((threadRef) => (
-        <SidebarThreadDetailPrewarmer key={scopedThreadKey(threadRef)} threadRef={threadRef} />
-      ))}
+      <SidebarHoverThreadPrewarmer />
       <SidebarChromeHeader isElectron={isElectron} />
 
       {isOnSettings ? (

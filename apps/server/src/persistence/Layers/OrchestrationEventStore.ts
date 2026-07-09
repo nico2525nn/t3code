@@ -64,6 +64,12 @@ const ReadFromSequenceRequestSchema = Schema.Struct({
   sequenceExclusive: NonNegativeInt,
   limit: Schema.Number,
 });
+const ReadAggregateFromSequenceRequestSchema = Schema.Struct({
+  aggregateKind: OrchestrationAggregateKind,
+  aggregateId: Schema.String,
+  sequenceExclusive: NonNegativeInt,
+  limit: Schema.Number,
+});
 const DEFAULT_READ_FROM_SEQUENCE_LIMIT = 1_000;
 const READ_PAGE_SIZE = 500;
 
@@ -181,6 +187,32 @@ const makeEventStore = Effect.gen(function* () {
       `,
   });
 
+  const readAggregateEventRowsFromSequence = SqlSchema.findAll({
+    Request: ReadAggregateFromSequenceRequestSchema,
+    Result: OrchestrationEventPersistedRowSchema,
+    execute: (request) =>
+      sql`
+        SELECT
+          sequence,
+          event_id AS "eventId",
+          event_type AS "type",
+          aggregate_kind AS "aggregateKind",
+          stream_id AS "aggregateId",
+          occurred_at AS "occurredAt",
+          command_id AS "commandId",
+          causation_event_id AS "causationEventId",
+          correlation_id AS "correlationId",
+          payload_json AS "payload",
+          metadata_json AS "metadata"
+        FROM orchestration_events
+        WHERE aggregate_kind = ${request.aggregateKind}
+          AND stream_id = ${request.aggregateId}
+          AND sequence > ${request.sequenceExclusive}
+        ORDER BY sequence ASC
+        LIMIT ${request.limit}
+      `,
+  });
+
   const append: OrchestrationEventStoreShape["append"] = (event) =>
     appendEventRow({
       eventId: event.eventId,
@@ -208,10 +240,18 @@ const makeEventStore = Effect.gen(function* () {
       ),
     );
 
-  const readFromSequence: OrchestrationEventStoreShape["readFromSequence"] = (
-    sequenceExclusive,
-    limit = DEFAULT_READ_FROM_SEQUENCE_LIMIT,
-  ) => {
+  const readPagedEvents = <E>(
+    operation: string,
+    readRows: (
+      cursor: number,
+      pageLimit: number,
+    ) => Effect.Effect<
+      ReadonlyArray<Schema.Schema.Type<typeof OrchestrationEventPersistedRowSchema>>,
+      E
+    >,
+    sequenceExclusive: number,
+    limit: number,
+  ): Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError> => {
     const normalizedLimit = Math.max(0, Math.floor(limit));
     if (normalizedLimit === 0) {
       return Stream.empty;
@@ -221,22 +261,14 @@ const makeEventStore = Effect.gen(function* () {
       remaining: number,
     ): Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError> =>
       Stream.fromEffect(
-        readEventRowsFromSequence({
-          sequenceExclusive: cursor,
-          limit: Math.min(remaining, READ_PAGE_SIZE),
-        }).pipe(
+        readRows(cursor, Math.min(remaining, READ_PAGE_SIZE)).pipe(
           Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "OrchestrationEventStore.readFromSequence:query",
-              "OrchestrationEventStore.readFromSequence:decodeRows",
-            ),
+            toPersistenceSqlOrDecodeError(`${operation}:query`, `${operation}:decodeRows`),
           ),
           Effect.flatMap((rows) =>
             Effect.forEach(rows, (row) =>
               decodeEvent(row).pipe(
-                Effect.mapError(
-                  toPersistenceDecodeError("OrchestrationEventStore.readFromSequence:rowToEvent"),
-                ),
+                Effect.mapError(toPersistenceDecodeError(`${operation}:rowToEvent`)),
               ),
             ),
           ),
@@ -260,9 +292,41 @@ const makeEventStore = Effect.gen(function* () {
     return readPage(sequenceExclusive, normalizedLimit);
   };
 
+  const readFromSequence: OrchestrationEventStoreShape["readFromSequence"] = (
+    sequenceExclusive,
+    limit = DEFAULT_READ_FROM_SEQUENCE_LIMIT,
+  ) =>
+    readPagedEvents(
+      "OrchestrationEventStore.readFromSequence",
+      (cursor, pageLimit) =>
+        readEventRowsFromSequence({ sequenceExclusive: cursor, limit: pageLimit }),
+      sequenceExclusive,
+      limit,
+    );
+
+  const readAggregateFromSequence: OrchestrationEventStoreShape["readAggregateFromSequence"] = (
+    aggregateKind,
+    aggregateId,
+    sequenceExclusive,
+    limit = Number.MAX_SAFE_INTEGER,
+  ) =>
+    readPagedEvents(
+      "OrchestrationEventStore.readAggregateFromSequence",
+      (cursor, pageLimit) =>
+        readAggregateEventRowsFromSequence({
+          aggregateKind,
+          aggregateId,
+          sequenceExclusive: cursor,
+          limit: pageLimit,
+        }),
+      sequenceExclusive,
+      limit,
+    );
+
   return {
     append,
     readFromSequence,
+    readAggregateFromSequence,
     readAll: () => readFromSequence(0, Number.MAX_SAFE_INTEGER),
   } satisfies OrchestrationEventStoreShape;
 });

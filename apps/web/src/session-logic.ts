@@ -356,7 +356,7 @@ export function derivePendingApprovals(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): PendingApproval[] {
   const openByRequestId = new Map<ApprovalRequestId, PendingApproval>();
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  const ordered = orderActivities(activities);
 
   for (const activity of ordered) {
     const payload =
@@ -462,7 +462,7 @@ export function derivePendingUserInputs(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): PendingUserInput[] {
   const openByRequestId = new Map<ApprovalRequestId, PendingUserInput>();
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  const ordered = orderActivities(activities);
 
   for (const activity of ordered) {
     const payload =
@@ -511,7 +511,7 @@ export function deriveActivePlanState(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   latestTurnId: TurnId | undefined,
 ): ActivePlanState | null {
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  const ordered = orderActivities(activities);
   const allPlanActivities = ordered.filter((activity) => activity.kind === "turn.plan.updated");
   // Prefer plan from the current turn; fall back to the most recent plan from any turn
   // so that TodoWrite tasks persist across follow-up messages.
@@ -627,7 +627,7 @@ export function hasActionableProposedPlan(
 export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): WorkLogEntry[] {
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  const ordered = orderActivities(activities);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
     if (activity.kind === "tool.started") continue;
@@ -1296,6 +1296,35 @@ function extractChangedFiles(payload: Record<string, unknown> | null): string[] 
   return changedFiles;
 }
 
+// Several independent derivations (work log, pending approvals, pending user
+// inputs, active plan) order the same activities array per render. The reducer
+// appends in order, so the input is almost always already sorted — detect that
+// in O(n) and share the result per array identity instead of copying and
+// re-sorting the whole history in each derivation.
+const orderedActivitiesCache = new WeakMap<
+  ReadonlyArray<OrchestrationThreadActivity>,
+  ReadonlyArray<OrchestrationThreadActivity>
+>();
+
+function orderActivities(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyArray<OrchestrationThreadActivity> {
+  const cached = orderedActivitiesCache.get(activities);
+  if (cached) {
+    return cached;
+  }
+  let isSorted = true;
+  for (let index = 1; index < activities.length; index += 1) {
+    if (compareActivitiesByOrder(activities[index - 1]!, activities[index]!) > 0) {
+      isSorted = false;
+      break;
+    }
+  }
+  const ordered = isSorted ? activities : [...activities].toSorted(compareActivitiesByOrder);
+  orderedActivitiesCache.set(activities, ordered);
+  return ordered;
+}
+
 function compareActivitiesByOrder(
   left: OrchestrationThreadActivity,
   right: OrchestrationThreadActivity,
@@ -1337,6 +1366,42 @@ function compareActivityLifecycleRank(kind: string): number {
   return 1;
 }
 
+function isSortedByCreatedAt(rows: ReadonlyArray<TimelineEntry>): boolean {
+  for (let index = 1; index < rows.length; index += 1) {
+    if (rows[index - 1]!.createdAt.localeCompare(rows[index]!.createdAt) > 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Stable k-way merge of per-kind rows that are each already in createdAt order
+// (the reducers maintain that invariant). Equal timestamps keep the same order
+// a stable sort of the concatenation would produce.
+function mergeTimelineRows(sources: ReadonlyArray<ReadonlyArray<TimelineEntry>>): TimelineEntry[] {
+  const merged: TimelineEntry[] = [];
+  const cursors = sources.map(() => 0);
+  const total = sources.reduce((sum, rows) => sum + rows.length, 0);
+  while (merged.length < total) {
+    let nextSource = -1;
+    for (let index = 0; index < sources.length; index += 1) {
+      const candidate = sources[index]![cursors[index]!];
+      if (candidate === undefined) {
+        continue;
+      }
+      if (
+        nextSource === -1 ||
+        candidate.createdAt.localeCompare(sources[nextSource]![cursors[nextSource]!]!.createdAt) < 0
+      ) {
+        nextSource = index;
+      }
+    }
+    merged.push(sources[nextSource]![cursors[nextSource]!]!);
+    cursors[nextSource] = cursors[nextSource]! + 1;
+  }
+  return merged;
+}
+
 export function deriveTimelineEntries(
   messages: ReadonlyArray<ChatMessage>,
   proposedPlans: ReadonlyArray<ProposedPlan>,
@@ -1360,9 +1425,10 @@ export function deriveTimelineEntries(
     createdAt: entry.createdAt,
     entry,
   }));
-  return [...messageRows, ...proposedPlanRows, ...workRows].toSorted((a, b) =>
-    a.createdAt.localeCompare(b.createdAt),
-  );
+  const sources = [messageRows, proposedPlanRows, workRows];
+  return sources.every(isSortedByCreatedAt)
+    ? mergeTimelineRows(sources)
+    : sources.flat().toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 export function inferCheckpointTurnCountByTurnId(

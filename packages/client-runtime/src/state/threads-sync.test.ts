@@ -5,6 +5,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  TurnId,
   type OrchestrationThread,
   type OrchestrationThreadDetailSnapshot,
   type OrchestrationThreadStreamItem,
@@ -301,6 +302,67 @@ describe("EnvironmentThreads", () => {
       expect(Option.getOrThrow(state.data).title).toBe("Live title");
       expect((yield* Ref.get(harness.savedThreads)).at(-1)?.thread.title).toBe("Live title");
       expect((yield* Ref.get(harness.savedThreads)).at(-1)?.snapshotSequence).toBe(2);
+    }),
+  );
+
+  it.effect("skips snapshot persistence while the session is running a turn", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ cached: BASE_THREAD });
+      yield* Queue.offer(harness.inputs, snapshot(BASE_THREAD));
+      const sessionSet = (
+        status: "running" | "idle",
+        sequence: number,
+      ): OrchestrationThreadStreamItem => ({
+        kind: "event",
+        event: {
+          eventId: EventId.make(`event-session-${sequence}`),
+          sequence,
+          occurredAt: "2026-04-01T01:00:00.000Z",
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          aggregateKind: "thread",
+          aggregateId: THREAD_ID,
+          type: "thread.session-set",
+          payload: {
+            threadId: THREAD_ID,
+            session: {
+              threadId: THREAD_ID,
+              status,
+              providerName: null,
+              runtimeMode: "full-access",
+              activeTurnId: status === "running" ? TurnId.make("turn-1") : null,
+              lastError: null,
+              updatedAt: "2026-04-01T01:00:00.000Z",
+            },
+          },
+        },
+      });
+
+      yield* Queue.offer(harness.inputs, sessionSet("running", 2));
+      yield* Queue.offer(harness.inputs, titleUpdated("Streaming title", 3));
+      yield* awaitThreadState(
+        harness.observed,
+        (value) => Option.isSome(value.data) && value.data.value.title === "Streaming title",
+      );
+      yield* TestClock.adjust("500 millis");
+      yield* Effect.yieldNow;
+      const savedWhileRunning = yield* Ref.get(harness.savedThreads);
+      expect(savedWhileRunning.some((saved) => saved.thread.title === "Streaming title")).toBe(
+        false,
+      );
+
+      yield* Queue.offer(harness.inputs, sessionSet("idle", 4));
+      yield* awaitThreadState(
+        harness.observed,
+        (value) => Option.isSome(value.data) && value.data.value.session?.status === "idle",
+      );
+      yield* TestClock.adjust("500 millis");
+      yield* Effect.yieldNow;
+      const savedAfterSettle = yield* Ref.get(harness.savedThreads);
+      expect(savedAfterSettle.at(-1)?.thread.title).toBe("Streaming title");
+      expect(savedAfterSettle.at(-1)?.snapshotSequence).toBe(4);
     }),
   );
 

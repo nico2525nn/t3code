@@ -176,6 +176,19 @@ function derivePendingUserInputCountFromActivities(
   return openRequestIds.size;
 }
 
+// Activity kinds that can change the shell summary's pending-approval or
+// pending-user-input counters. All other activity kinds (command output,
+// file edits, streaming progress, ...) leave the summary untouched, so they
+// must not trigger the history-wide summary rebuild.
+const SHELL_SUMMARY_ACTIVITY_KINDS: ReadonlySet<string> = new Set([
+  "approval.requested",
+  "approval.resolved",
+  "provider.approval.respond.failed",
+  "user-input.requested",
+  "user-input.resolved",
+  "provider.user-input.respond.failed",
+]);
+
 function deriveHasActionableProposedPlan(input: {
   readonly latestTurnId: string | null;
   readonly proposedPlans: ReadonlyArray<ProjectionThreadProposedPlan>;
@@ -713,9 +726,55 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
-        case "thread.message-sent":
+        case "thread.message-sent": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          // A message can only move latestUserMessageAt forward; the other
+          // summary fields depend on activities/plans/approvals, which this
+          // event cannot touch. Update incrementally instead of re-reading the
+          // whole message/plan/activity/approval history per (streamed) chunk.
+          const latestUserMessageAt =
+            event.payload.role === "user" &&
+            (existingRow.value.latestUserMessageAt === null ||
+              event.payload.createdAt > existingRow.value.latestUserMessageAt)
+              ? event.payload.createdAt
+              : existingRow.value.latestUserMessageAt;
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestUserMessageAt,
+            // Streaming assistant chunks arrive many times per second and
+            // change no shell-visible field; leaving updatedAt untouched lets
+            // the shell stream skip per-chunk upsert fan-out (toShellStreamEvent).
+            updatedAt:
+              event.payload.streaming && event.payload.role === "assistant"
+                ? existingRow.value.updatedAt
+                : event.occurredAt,
+          });
+          return;
+        }
+
+        case "thread.activity-appended": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.occurredAt,
+          });
+          if (SHELL_SUMMARY_ACTIVITY_KINDS.has(event.payload.activity.kind)) {
+            yield* refreshThreadShellSummary(event.payload.threadId);
+          }
+          return;
+        }
+
         case "thread.proposed-plan-upserted":
-        case "thread.activity-appended":
         case "thread.approval-response-requested":
         case "thread.user-input-response-requested": {
           const existingRow = yield* projectionThreadRepository.getById({

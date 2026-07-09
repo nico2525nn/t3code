@@ -140,6 +140,9 @@ const highlightedCodeCache = new LRUCache<string>(
   MAX_HIGHLIGHT_CACHE_MEMORY_BYTES,
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
+// Languages Shiki has no grammar for (e.g. `sh` fences). Without this negative
+// cache every render of such a block retries the grammar load and throws again.
+const fallbackHighlightLanguages = new Set<string>();
 
 function findTaskListMarkerOffset(markdown: string, listItemStart: number): number | null {
   const firstLineEnd = markdown.indexOf("\n", listItemStart);
@@ -281,12 +284,15 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
     langs: [language as SupportedLanguages],
     preferredHighlighter: "shiki-js",
   }).catch((err) => {
-    highlighterPromiseCache.delete(language);
     if (language === "text") {
       // "text" itself failed — Shiki cannot initialize at all, surface the error
+      highlighterPromiseCache.delete(language);
       throw err;
     }
-    // Language not supported by Shiki — fall back to "text"
+    // Language not supported by Shiki — remember that and fall back to "text",
+    // keeping the resolved promise cached so the grammar load isn't retried on
+    // every render of a block with that language.
+    fallbackHighlightLanguages.add(language);
     return getHighlighterPromise("text");
   });
   highlighterPromiseCache.set(language, promise);
@@ -684,15 +690,17 @@ function UncachedShikiCodeBlock({
 }: UncachedShikiCodeBlockProps) {
   const highlighter = use(getHighlighterPromise(language));
   const highlightedHtml = useMemo(() => {
+    const effectiveLanguage = fallbackHighlightLanguages.has(language) ? "text" : language;
     try {
-      return highlighter.codeToHtml(code, { lang: language, theme: themeName });
+      return highlighter.codeToHtml(code, { lang: effectiveLanguage, theme: themeName });
     } catch (error) {
       // Log highlighting failures for debugging while falling back to plain text
       console.warn(
         `Code highlighting failed for language "${language}", falling back to plain text.`,
         error instanceof Error ? error.message : error,
       );
-      // If highlighting fails for this language, render as plain text
+      // Remember the failure so subsequent renders skip the throwing path.
+      fallbackHighlightLanguages.add(language);
       return highlighter.codeToHtml(code, { lang: "text", theme: themeName });
     }
   }, [code, highlighter, language, themeName]);

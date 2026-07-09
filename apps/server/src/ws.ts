@@ -276,6 +276,11 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
+// Shell catch-up replays the global event stream (shell relevance is only known
+// after reading), so a stale cursor must not scan an unbounded gap. Past this
+// many events it is cheaper to re-send the projection-backed shell snapshot.
+const MAX_SHELL_CATCH_UP_EVENTS = 500;
+
 const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [ORCHESTRATION_WS_METHODS.dispatchCommand, AuthOrchestrationOperateScope],
   [ORCHESTRATION_WS_METHODS.getTurnDiff, AuthOrchestrationReadScope],
@@ -660,6 +665,16 @@ const makeWsRpcLayer = (
             );
           default:
             if (event.aggregateKind !== "thread") {
+              return Effect.succeed(Option.none());
+            }
+            // Streaming assistant chunks change no shell-visible field (the
+            // projection leaves updatedAt untouched for them), so don't read
+            // and re-broadcast the thread shell row once per token.
+            if (
+              event.type === "thread.message-sent" &&
+              event.payload.streaming &&
+              event.payload.role === "assistant"
+            ) {
               return Effect.succeed(Option.none());
             }
             return projectionSnapshotQuery
@@ -1079,8 +1094,13 @@ const makeWsRpcLayer = (
               // live subscription is attached (into a scope-bound buffer) before
               // draining the catch-up replay so no event published during the
               // replay window is lost; overlapping events are deduped by sequence
-              // on the client. The full range is read (not the store's default
-              // page limit) since the shell filter runs after reading.
+              // on the client.
+              //
+              // Shell events are filtered out of the global event stream after
+              // reading, so a stale cursor would otherwise scan every event
+              // appended since it. The catch-up read is therefore bounded: past
+              // the bound it is cheaper to re-send the projection-backed shell
+              // snapshot than to replay (and per-event enrich) the whole gap.
               if (input.afterSequence !== undefined) {
                 const afterSequence = input.afterSequence;
                 return Stream.unwrap(
@@ -1089,22 +1109,41 @@ const makeWsRpcLayer = (
                     yield* Effect.forkScoped(
                       liveStream.pipe(Stream.runForEach((item) => Queue.offer(liveBuffer, item))),
                     );
-                    const catchUpStream = orchestrationEngine
-                      .readEvents(afterSequence, Number.MAX_SAFE_INTEGER)
-                      .pipe(
+                    const catchUpEvents = yield* Stream.runCollect(
+                      orchestrationEngine.readEvents(afterSequence, MAX_SHELL_CATCH_UP_EVENTS + 1),
+                    ).pipe(
+                      Effect.map((events) => Array.from(events)),
+                      Effect.mapError(
+                        (cause) =>
+                          new OrchestrationGetSnapshotError({
+                            message: "Failed to replay orchestration shell events",
+                            cause,
+                          }),
+                      ),
+                    );
+                    if (catchUpEvents.length <= MAX_SHELL_CATCH_UP_EVENTS) {
+                      const catchUpStream = Stream.fromIterable(catchUpEvents).pipe(
                         Stream.mapEffect(toShellStreamEvent),
                         Stream.flatMap((event) =>
                           Option.isSome(event) ? Stream.succeed(event.value) : Stream.empty,
                         ),
-                        Stream.mapError(
-                          (cause) =>
-                            new OrchestrationGetSnapshotError({
-                              message: "Failed to replay orchestration shell events",
-                              cause,
-                            }),
-                        ),
                       );
-                    return Stream.concat(catchUpStream, Stream.fromQueue(liveBuffer));
+                      return Stream.concat(catchUpStream, Stream.fromQueue(liveBuffer));
+                    }
+
+                    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new OrchestrationGetSnapshotError({
+                            message: "Failed to load orchestration shell snapshot",
+                            cause,
+                          }),
+                      ),
+                    );
+                    return Stream.concat(
+                      Stream.make({ kind: "snapshot" as const, snapshot }),
+                      Stream.fromQueue(liveBuffer),
+                    );
                   }),
                 );
               }
@@ -1179,10 +1218,9 @@ const makeWsRpcLayer = (
               // catch-up followed by the buffered/ongoing live events. Overlapping
               // events are deduped by sequence on the client.
               //
-              // Read the full range after the cursor (not the store's default
-              // page-bounded limit): the range is normally tiny (a fresh HTTP
-              // snapshot sequence) and the per-thread filter runs after reading,
-              // so a global cap could otherwise omit this thread's events.
+              // The catch-up read targets this thread's aggregate stream (via
+              // the aggregate stream index), so a stale cursor replays only this
+              // thread's events instead of scanning the global range after it.
               if (input.afterSequence !== undefined) {
                 const afterSequence = input.afterSequence;
                 return Stream.unwrap(
@@ -1192,7 +1230,7 @@ const makeWsRpcLayer = (
                       liveStream.pipe(Stream.runForEach((item) => Queue.offer(liveBuffer, item))),
                     );
                     const catchUpStream = orchestrationEngine
-                      .readEvents(afterSequence, Number.MAX_SAFE_INTEGER)
+                      .readAggregateEvents("thread", input.threadId, afterSequence)
                       .pipe(
                         Stream.filter(isThisThreadDetailEvent),
                         Stream.map((event) => ({ kind: "event" as const, event })),

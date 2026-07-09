@@ -38,6 +38,18 @@ export interface OrchestrationEngineShape {
   ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
 
   /**
+   * Replay a single aggregate's persisted events from an exclusive sequence
+   * cursor. Reads via the aggregate stream index, so per-thread catch-up does
+   * not scan the global event range after the cursor.
+   */
+  readonly readAggregateEvents: (
+    aggregateKind: OrchestrationEvent["aggregateKind"],
+    aggregateId: string,
+    fromSequenceExclusive: number,
+    limit?: number,
+  ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
+
+  /**
    * Dispatch a validated orchestration command.
    *
    * @param command - Valid orchestration command.

@@ -2013,6 +2013,107 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
     }),
   );
 
+  it.effect("updates shell summary fields incrementally for message events", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+      yield* appendAndProject({
+        type: "thread.created",
+        eventId: EventId.make("evt-incremental-1"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-incremental"),
+        occurredAt: "2026-02-26T14:00:00.000Z",
+        commandId: CommandId.make("cmd-incremental-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-incremental-1"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.make("thread-incremental"),
+          projectId: ProjectId.make("project-incremental"),
+          title: "Thread Incremental",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-02-26T14:00:00.000Z",
+          updatedAt: "2026-02-26T14:00:00.000Z",
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.message-sent",
+        eventId: EventId.make("evt-incremental-2"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-incremental"),
+        occurredAt: "2026-02-26T14:00:01.000Z",
+        commandId: CommandId.make("cmd-incremental-2"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-incremental-2"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.make("thread-incremental"),
+          messageId: MessageId.make("message-incremental-user"),
+          role: "user",
+          text: "Do the thing",
+          turnId: null,
+          streaming: false,
+          createdAt: "2026-02-26T14:00:01.000Z",
+          updatedAt: "2026-02-26T14:00:01.000Z",
+        },
+      });
+
+      // A streaming assistant chunk must not move updatedAt (no shell fan-out).
+      yield* appendAndProject({
+        type: "thread.message-sent",
+        eventId: EventId.make("evt-incremental-3"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-incremental"),
+        occurredAt: "2026-02-26T14:00:02.000Z",
+        commandId: CommandId.make("cmd-incremental-3"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-incremental-3"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.make("thread-incremental"),
+          messageId: MessageId.make("message-incremental-assistant"),
+          role: "assistant",
+          text: "Work",
+          turnId: null,
+          streaming: true,
+          createdAt: "2026-02-26T14:00:02.000Z",
+          updatedAt: "2026-02-26T14:00:02.000Z",
+        },
+      });
+
+      const threadRows = yield* sql<{
+        readonly latestUserMessageAt: string | null;
+        readonly updatedAt: string;
+      }>`
+        SELECT
+          latest_user_message_at AS "latestUserMessageAt",
+          updated_at AS "updatedAt"
+        FROM projection_threads
+        WHERE thread_id = 'thread-incremental'
+      `;
+      assert.deepEqual(threadRows, [
+        {
+          latestUserMessageAt: "2026-02-26T14:00:01.000Z",
+          updatedAt: "2026-02-26T14:00:01.000Z",
+        },
+      ]);
+    }),
+  );
+
   it.effect("ignores non-stale provider approval response failures", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;

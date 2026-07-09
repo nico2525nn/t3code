@@ -69,6 +69,51 @@ layer("OrchestrationEventStore", (it) => {
     }),
   );
 
+  it.effect("replays only the requested aggregate's events after the cursor", () =>
+    Effect.gen(function* () {
+      const eventStore = yield* OrchestrationEventStore;
+      const now = "2026-01-01T00:00:00.000Z";
+
+      const appendProjectCreated = (suffix: string) =>
+        eventStore.append({
+          type: "project.created",
+          eventId: EventId.make(`evt-aggregate-${suffix}`),
+          aggregateKind: "project",
+          aggregateId: ProjectId.make(`project-${suffix}`),
+          occurredAt: now,
+          commandId: CommandId.make(`cmd-aggregate-${suffix}`),
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          payload: {
+            projectId: ProjectId.make(`project-${suffix}`),
+            title: `Project ${suffix}`,
+            workspaceRoot: `/tmp/project-${suffix}`,
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+      const first = yield* appendProjectCreated("a");
+      yield* appendProjectCreated("b");
+
+      const replayed = yield* Stream.runCollect(
+        eventStore.readAggregateFromSequence("project", first.aggregateId, 0),
+      ).pipe(Effect.map((chunk) => Array.from(chunk)));
+      assert.deepStrictEqual(
+        replayed.map((event) => event.aggregateId),
+        [first.aggregateId],
+      );
+
+      const afterCursor = yield* Stream.runCollect(
+        eventStore.readAggregateFromSequence("project", first.aggregateId, first.sequence),
+      ).pipe(Effect.map((chunk) => Array.from(chunk)));
+      assert.deepStrictEqual(afterCursor, []);
+    }),
+  );
+
   it.effect("fails with PersistenceDecodeError when stored json is invalid", () =>
     Effect.gen(function* () {
       const eventStore = yield* OrchestrationEventStore;

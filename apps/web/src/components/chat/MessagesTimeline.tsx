@@ -373,7 +373,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         rowTop < scrollBottom &&
         rowTop + Math.max(1, rowHeight ?? 1) > scrollTop;
 
-      strip.dataset.inView = inView ? "true" : "false";
+      // Scroll fires per frame; unconditional writes would dirty every strip's
+      // attributes each frame even though only rows crossing the viewport edge
+      // change.
+      const nextInView = inView ? "true" : "false";
+      if (strip.dataset.inView !== nextInView) {
+        strip.dataset.inView = nextInView;
+      }
     }
   }, [listRef, minimapItems, minimapStripMap, onIsAtEndChange]);
 

@@ -129,7 +129,14 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       error: Option.none(),
     });
     // Persist the thread together with the sequence it reflects so the next warm
-    // cache can resume from exactly here.
+    // cache can resume from exactly here. While a turn is actively running,
+    // events arrive many times per second and each snapshot encode covers the
+    // whole thread history — skip those; the session leaving "running" (and the
+    // scope finalizer) persists the settled state, and a stale cache only means
+    // resuming via a slightly longer `afterSequence` replay.
+    if (thread.session?.status === "running") {
+      return;
+    }
     const snapshotSequence = yield* SubscriptionRef.get(lastSequence);
     yield* Queue.offer(persistence, { snapshotSequence, thread });
   });
