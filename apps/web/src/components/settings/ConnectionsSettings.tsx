@@ -2272,6 +2272,12 @@ export function ConnectionsSettings() {
     },
     [connectSshEnvironment, savedBackendMode, savedDesktopSshEnvironmentsByAlias],
   );
+  const handleConnectDiscoveredSshHost = useCallback(
+    (target: DesktopDiscoveredSshHost) => {
+      void handleConnectSshHost(target);
+    },
+    [handleConnectSshHost],
+  );
 
   const visibleDesktopPairingLinks = desktopPairingLinks;
   const tailscaleHttpsEndpoint = useMemo(
@@ -2495,7 +2501,7 @@ export function ConnectionsSettings() {
                 key={`${target.alias}:${target.hostname}:${target.port ?? ""}`}
                 target={target}
                 connectingHostAlias={connectingSshHostAlias}
-                onConnect={(nextTarget) => void handleConnectSshHost(nextTarget)}
+                onConnect={handleConnectDiscoveredSshHost}
               />
             ))}
             {hasLoadedDiscoveredSshHosts &&
