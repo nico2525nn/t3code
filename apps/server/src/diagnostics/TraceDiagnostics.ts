@@ -86,15 +86,11 @@ function isRecordObject(value: unknown): value is TraceRecordLike {
 }
 
 function toStringOption(value: unknown): Option.Option<string> {
-  return typeof value === "string" && value.trim().length > 0
-    ? Option.some(value)
-    : Option.none();
+  return typeof value === "string" && value.trim().length > 0 ? Option.some(value) : Option.none();
 }
 
 function toNumberOption(value: unknown): Option.Option<number> {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Option.some(value)
-    : Option.none();
+  return typeof value === "number" && Number.isFinite(value) ? Option.some(value) : Option.none();
 }
 
 function unixNanoToDateTime(value: unknown): Option.Option<DateTime.Utc> {
@@ -296,7 +292,8 @@ export function aggregateTraceDiagnostics(
 
         const failureKey = `${name}\0${cause}`;
         const existing = failuresByKey.get(failureKey);
-        const isLatestFailure = !existing || DateTime.isGreaterThan(endedAtValue, existing.lastSeenAt);
+        const isLatestFailure =
+          !existing || DateTime.isGreaterThan(endedAtValue, existing.lastSeenAt);
         failuresByKey.set(failureKey, {
           name,
           cause,
@@ -326,8 +323,12 @@ export function aggregateTraceDiagnostics(
             continue;
           }
 
-          const seenAt = Option.getOrElse(unixNanoToDateTime(rawEvent.timeUnixNano), () => endedAtValue);
-          const message = Option.getOrUndefined(toStringOption(rawEvent.name))?.trim() ?? "Log event";
+          const seenAt = Option.getOrElse(
+            unixNanoToDateTime(rawEvent.timeUnixNano),
+            () => endedAtValue,
+          );
+          const message =
+            Option.getOrUndefined(toStringOption(rawEvent.name))?.trim() ?? "Log event";
           latestWarningAndErrorLogs.push({
             spanName: name,
             level,

@@ -154,9 +154,7 @@ function parseNumber(value: string): number | null {
 }
 
 function toNonEmptyStringOption(value: string | null | undefined): Option.Option<string> {
-  return typeof value === "string" && value.trim().length > 0
-    ? Option.some(value)
-    : Option.none();
+  return typeof value === "string" && value.trim().length > 0 ? Option.some(value) : Option.none();
 }
 
 function toNonNegativeNumber(value: number | null | undefined): number {
