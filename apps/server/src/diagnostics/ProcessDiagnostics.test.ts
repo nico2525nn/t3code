@@ -70,22 +70,22 @@ describe("ProcessDiagnostics", () => {
   it.effect("parses Windows process JSON through Schema and skips invalid rows", () =>
     Effect.sync(() => {
       const rows = ProcessDiagnostics.parseWindowsProcessRows(
-        JSON.stringify([
+        `[
           {
-            ProcessId: 10,
-            ParentProcessId: 1,
-            CommandLine: "",
-            Name: "node.exe",
-            Status: "",
-            WorkingSetSize: 1024.4,
-            PercentProcessorTime: 12.5,
+            "ProcessId": 10,
+            "ParentProcessId": 1,
+            "CommandLine": "",
+            "Name": "node.exe",
+            "Status": "",
+            "WorkingSetSize": 1024.4,
+            "PercentProcessorTime": 12.5
           },
           {
-            ProcessId: "not-a-number",
-            ParentProcessId: 1,
-            Name: "bad.exe",
-          },
-        ]),
+            "ProcessId": "not-a-number",
+            "ParentProcessId": 1,
+            "Name": "bad.exe"
+          }
+        ]`,
       );
 
       assert.deepEqual(rows, [
