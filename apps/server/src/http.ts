@@ -279,28 +279,26 @@ export const staticAndDevRouteLayer = HttpRouter.add(
       }
     }
 
-    const fileInfo = yield* fileSystem.stat(filePath).pipe(Effect.orElseSucceed(() => null));
-    if (!fileInfo || fileInfo.type !== "File") {
+    const fileInfo = yield* Effect.option(fileSystem.stat(filePath));
+    if (Option.isNone(fileInfo) || fileInfo.value.type !== "File") {
       const indexPath = path.resolve(staticRoot, "index.html");
-      const indexData = yield* fileSystem
-        .readFile(indexPath)
-        .pipe(Effect.orElseSucceed(() => null));
-      if (!indexData) {
+      const indexData = yield* Effect.option(fileSystem.readFile(indexPath));
+      if (Option.isNone(indexData)) {
         return HttpServerResponse.text("Not Found", { status: 404 });
       }
-      return HttpServerResponse.uint8Array(indexData, {
+      return HttpServerResponse.uint8Array(indexData.value, {
         status: 200,
         contentType: "text/html; charset=utf-8",
       });
     }
 
     const contentType = Mime.getType(filePath) ?? "application/octet-stream";
-    const data = yield* fileSystem.readFile(filePath).pipe(Effect.orElseSucceed(() => null));
-    if (!data) {
+    const data = yield* Effect.option(fileSystem.readFile(filePath));
+    if (Option.isNone(data)) {
       return HttpServerResponse.text("Internal Server Error", { status: 500 });
     }
 
-    return HttpServerResponse.uint8Array(data, {
+    return HttpServerResponse.uint8Array(data.value, {
       status: 200,
       contentType,
     });

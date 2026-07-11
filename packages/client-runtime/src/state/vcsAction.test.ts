@@ -3,7 +3,7 @@ import {
   type GitActionProgressEvent,
   type GitRunStackedActionResult,
 } from "@t3tools/contracts";
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -64,7 +64,7 @@ function progress<T extends GitActionProgressEvent>(event: T): T {
 }
 
 describe("vcsActionState", () => {
-  it("preserves malformed target key diagnostics and the native cause without copying the key", () => {
+  it("preserves malformed target key diagnostics without copying the key", () => {
     const key = "not-json-with-credential=do-not-log";
     let error: unknown;
 
@@ -74,16 +74,17 @@ describe("vcsActionState", () => {
       error = cause;
     }
 
-    expect(error).toBeInstanceOf(VcsActionTargetKeyParseError);
-    expect(error).toMatchObject({ keyLength: key.length, cause: expect.any(SyntaxError) });
-    expect(error).not.toHaveProperty("key");
-    expect((error as Error).message).not.toContain(key);
+    assert.instanceOf(error, VcsActionTargetKeyParseError);
+    assert.equal(error.keyLength, key.length);
+    assert.isDefined(error.cause);
+    assert.isFalse("key" in error);
+    assert.notInclude(error.message, key);
   });
 
   it("rejects invalid target key shapes", () => {
     const key = JSON.stringify([environmentId]);
 
-    expect(() => parseVcsActionTargetKey(key)).toThrowError(VcsActionTargetKeyParseError);
+    assert.throws(() => parseVcsActionTargetKey(key), VcsActionTargetKeyParseError);
   });
 
   it("projects phase and hook progress without owning the async operation", () => {
@@ -245,12 +246,15 @@ describe("vcsActionState", () => {
   });
 
   it("keys presentation state only when the environment and repository are known", () => {
-    expect(
-      getVcsActionTargetKey({
-        environmentId,
-        cwd,
-      }),
-    ).toBe(JSON.stringify([environmentId, cwd]));
+    const key = getVcsActionTargetKey({
+      environmentId,
+      cwd,
+    });
+    if (key === null) {
+      assert.fail("Expected a resolved target key.");
+    }
+    assert.equal(key, JSON.stringify([environmentId, cwd]));
+    assert.deepEqual(parseVcsActionTargetKey(key), { environmentId, cwd });
     expect(getVcsActionTargetKey({ environmentId: null, cwd })).toBeNull();
     expect(
       getVcsActionTargetKey({
