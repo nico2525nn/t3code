@@ -28,6 +28,10 @@ const PROVIDER_UPDATE_PILL_PROGRESS_STYLES = {
   error: "bg-destructive/14",
 } as const;
 
+function providerUpdatePillProgressClassName(tone: ProviderUpdateSidebarPillView["tone"]) {
+  return tone === "loading" ? null : PROVIDER_UPDATE_PILL_PROGRESS_STYLES[tone];
+}
+
 function latestProviderCheckedAt(
   providers: ReadonlyArray<Pick<ServerProvider, "checkedAt">>,
 ): string | undefined {
@@ -142,6 +146,9 @@ export function SidebarProviderUpdatePill() {
   if (!displayedView) {
     return null;
   }
+  const dismissProgressClassName = showDismissProgress
+    ? providerUpdatePillProgressClassName(displayedView.tone)
+    : null;
 
   return (
     <div
@@ -165,13 +172,11 @@ export function SidebarProviderUpdatePill() {
         completeExit();
       }}
     >
-      {showDismissProgress ? (
+      {dismissProgressClassName ? (
         <div
           key={displayedView.key}
           aria-hidden="true"
-          className={`provider-update-pill-progress pointer-events-none absolute inset-y-0 left-0 w-full origin-left border-r border-current/15 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)] ${
-            PROVIDER_UPDATE_PILL_PROGRESS_STYLES[displayedView.tone]
-          }`}
+          className={`provider-update-pill-progress pointer-events-none absolute inset-y-0 left-0 w-full origin-left border-r border-current/15 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)] ${dismissProgressClassName}`}
           style={
             {
               "--provider-update-pill-dismiss-ms": `${dismissAfterVisibleMs}ms`,
