@@ -216,12 +216,7 @@ export function parsePosixProcessRows(output: string): ReadonlyArray<ProcessRow>
       cpuPercent: parseNumber(cpuText),
       rssKiB: parseNonNegativeInt(rssText),
     });
-    if (
-      Option.isNone(parsed) ||
-      !status ||
-      !elapsed ||
-      !command
-    ) {
+    if (Option.isNone(parsed) || !status || !elapsed || !command) {
       continue;
     }
 
