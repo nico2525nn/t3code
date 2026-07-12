@@ -2054,6 +2054,14 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
           if (context.finalized) return;
           context.finalized = true;
           yield* closeTextStreams(context);
+          // Persist any throttled subagent text now: after the turn ends the
+          // run fiber that routes child-thread events may be gone, so waiting
+          // for the coalescer's timer flush could drop the tail of a stream.
+          for (const subagent of context.subagents.values()) {
+            if (subagent.streamPendingText) {
+              yield* flushSubagentAssistant(subagent);
+            }
+          }
           const now = yield* DateTime.now;
           const turn = providerTurnPayload(context, status, now);
           yield* Ref.update(providerTurns, (current) => {
