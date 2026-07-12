@@ -75,7 +75,7 @@ import {
   insertInlineTerminalContextPlaceholder,
   type TerminalContextDraft,
 } from "./lib/terminalContext";
-import { createDebouncedStorage } from "./lib/storage";
+import { createDebouncedJsonStorage } from "./lib/storage";
 
 function makeImage(input: {
   id: string;
@@ -1648,7 +1648,7 @@ describe("composerDraftStore runtime and interaction settings", () => {
 });
 
 // ---------------------------------------------------------------------------
-// createDebouncedStorage
+// createDebouncedJsonStorage
 // ---------------------------------------------------------------------------
 
 function createMockStorage() {
@@ -1664,7 +1664,11 @@ function createMockStorage() {
   };
 }
 
-describe("createDebouncedStorage", () => {
+describe("createDebouncedJsonStorage", () => {
+  const v1 = { state: { value: "v1" }, version: 1 };
+  const v2 = { state: { value: "v2" }, version: 1 };
+  const v3 = { state: { value: "v3" }, version: 1 };
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -1673,47 +1677,54 @@ describe("createDebouncedStorage", () => {
     vi.useRealTimers();
   });
 
-  it("delegates getItem immediately", () => {
+  it("parses getItem results immediately", () => {
     const base = createMockStorage();
-    base.getItem.mockReturnValueOnce("value");
-    const storage = createDebouncedStorage(base);
+    base.getItem.mockReturnValueOnce(JSON.stringify(v1));
+    const storage = createDebouncedJsonStorage(base);
 
-    expect(storage.getItem("key")).toBe("value");
+    expect(storage.getItem("key")).toEqual(v1);
     expect(base.getItem).toHaveBeenCalledWith("key");
   });
 
-  it("does not write to base storage until the debounce fires", () => {
+  it("returns null from getItem when nothing is stored", () => {
     const base = createMockStorage();
-    const storage = createDebouncedStorage(base);
+    const storage = createDebouncedJsonStorage(base);
 
-    storage.setItem("key", "v1");
+    expect(storage.getItem("key")).toBeNull();
+  });
+
+  it("does not serialize or write until the debounce fires", () => {
+    const base = createMockStorage();
+    const storage = createDebouncedJsonStorage(base);
+
+    storage.setItem("key", v1);
     expect(base.setItem).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(299);
     expect(base.setItem).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(1);
-    expect(base.setItem).toHaveBeenCalledWith("key", "v1");
+    expect(base.setItem).toHaveBeenCalledWith("key", JSON.stringify(v1));
   });
 
   it("only writes the last value when setItem is called rapidly", () => {
     const base = createMockStorage();
-    const storage = createDebouncedStorage(base);
+    const storage = createDebouncedJsonStorage(base);
 
-    storage.setItem("key", "v1");
-    storage.setItem("key", "v2");
-    storage.setItem("key", "v3");
+    storage.setItem("key", v1);
+    storage.setItem("key", v2);
+    storage.setItem("key", v3);
 
     vi.advanceTimersByTime(300);
     expect(base.setItem).toHaveBeenCalledTimes(1);
-    expect(base.setItem).toHaveBeenCalledWith("key", "v3");
+    expect(base.setItem).toHaveBeenCalledWith("key", JSON.stringify(v3));
   });
 
   it("removeItem cancels a pending setItem write", () => {
     const base = createMockStorage();
-    const storage = createDebouncedStorage(base);
+    const storage = createDebouncedJsonStorage(base);
 
-    storage.setItem("key", "v1");
+    storage.setItem("key", v1);
     storage.removeItem("key");
 
     vi.advanceTimersByTime(300);
@@ -1723,13 +1734,13 @@ describe("createDebouncedStorage", () => {
 
   it("flush writes the pending value immediately", () => {
     const base = createMockStorage();
-    const storage = createDebouncedStorage(base);
+    const storage = createDebouncedJsonStorage(base);
 
-    storage.setItem("key", "v1");
+    storage.setItem("key", v1);
     expect(base.setItem).not.toHaveBeenCalled();
 
     storage.flush();
-    expect(base.setItem).toHaveBeenCalledWith("key", "v1");
+    expect(base.setItem).toHaveBeenCalledWith("key", JSON.stringify(v1));
 
     // Timer should be cancelled; no duplicate write.
     vi.advanceTimersByTime(300);
@@ -1738,7 +1749,7 @@ describe("createDebouncedStorage", () => {
 
   it("flush is a no-op when nothing is pending", () => {
     const base = createMockStorage();
-    const storage = createDebouncedStorage(base);
+    const storage = createDebouncedJsonStorage(base);
 
     storage.flush();
     expect(base.setItem).not.toHaveBeenCalled();
@@ -1746,9 +1757,9 @@ describe("createDebouncedStorage", () => {
 
   it("flush after removeItem is a no-op", () => {
     const base = createMockStorage();
-    const storage = createDebouncedStorage(base);
+    const storage = createDebouncedJsonStorage(base);
 
-    storage.setItem("key", "v1");
+    storage.setItem("key", v1);
     storage.removeItem("key");
     storage.flush();
 
@@ -1757,14 +1768,14 @@ describe("createDebouncedStorage", () => {
 
   it("setItem works normally after removeItem cancels a pending write", () => {
     const base = createMockStorage();
-    const storage = createDebouncedStorage(base);
+    const storage = createDebouncedJsonStorage(base);
 
-    storage.setItem("key", "v1");
+    storage.setItem("key", v1);
     storage.removeItem("key");
-    storage.setItem("key", "v2");
+    storage.setItem("key", v2);
 
     vi.advanceTimersByTime(300);
     expect(base.setItem).toHaveBeenCalledTimes(1);
-    expect(base.setItem).toHaveBeenCalledWith("key", "v2");
+    expect(base.setItem).toHaveBeenCalledWith("key", JSON.stringify(v2));
   });
 });
