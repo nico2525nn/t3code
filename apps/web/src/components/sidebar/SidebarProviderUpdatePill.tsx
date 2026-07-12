@@ -55,10 +55,7 @@ function useProviderUpdatePillAutoDismiss({
 }: {
   readonly displayedView: ProviderUpdateSidebarPillView | null;
   readonly exitingKey: string | null;
-  readonly startExit: (
-    view: ProviderUpdateSidebarPillView,
-    dismissKey?: string,
-  ) => void;
+  readonly startExit: (view: ProviderUpdateSidebarPillView, dismissKey?: string) => void;
 }) {
   const dismissAfterVisibleMs = displayedView?.dismissAfterVisibleMs;
   const viewKey = displayedView?.key ?? null;
@@ -117,16 +114,13 @@ export function SidebarProviderUpdatePillContent({
     displayedView?.tone !== "loading" &&
     exitingKey !== viewKey;
 
-  const startExit = useCallback(
-    (exitView: ProviderUpdateSidebarPillView, dismissKey?: string) => {
-      setExitState((current) =>
-        current?.view.key === exitView.key
-          ? current
-          : { view: exitView, dismissAfterExitKey: dismissKey ?? null },
-      );
-    },
-    [],
-  );
+  const startExit = useCallback((exitView: ProviderUpdateSidebarPillView, dismissKey?: string) => {
+    setExitState((current) =>
+      current?.view.key === exitView.key
+        ? current
+        : { view: exitView, dismissAfterExitKey: dismissKey ?? null },
+    );
+  }, []);
 
   useProviderUpdatePillAutoDismiss({ displayedView, exitingKey, startExit });
 
