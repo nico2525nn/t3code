@@ -77,8 +77,8 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
           id: "contextWindow",
           label: "Context Window",
           options: [
-            { value: "200k", label: "200k", isDefault: true },
-            { value: "1m", label: "1M" },
+            { value: "200k", label: "200k" },
+            { value: "1m", label: "1M", isDefault: true },
           ],
         }),
       ],
@@ -163,8 +163,8 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
           id: "contextWindow",
           label: "Context Window",
           options: [
-            { value: "200k", label: "200k", isDefault: true },
-            { value: "1m", label: "1M" },
+            { value: "200k", label: "200k" },
+            { value: "1m", label: "1M", isDefault: true },
           ],
         }),
       ],
@@ -216,8 +216,8 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
           id: "contextWindow",
           label: "Context Window",
           options: [
-            { value: "200k", label: "200k", isDefault: true },
-            { value: "1m", label: "1M" },
+            { value: "200k", label: "200k" },
+            { value: "1m", label: "1M", isDefault: true },
           ],
         }),
       ],
@@ -245,8 +245,8 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
           id: "contextWindow",
           label: "Context Window",
           options: [
-            { value: "200k", label: "200k", isDefault: true },
-            { value: "1m", label: "1M" },
+            { value: "200k", label: "200k" },
+            { value: "1m", label: "1M", isDefault: true },
           ],
         }),
       ],
@@ -370,8 +370,22 @@ export function isClaudeUltracodeEffort(effort: string | null | undefined): bool
   return effort === "ultracode";
 }
 
+export function resolveClaudeContextWindow(
+  modelSelection: ModelSelection | undefined,
+): string | undefined {
+  const caps = getClaudeModelCapabilities(modelSelection?.model);
+  const raw = getModelSelectionStringOptionValue(modelSelection, "contextWindow");
+  const descriptors = getProviderOptionDescriptors({
+    caps,
+    ...(raw ? { selections: [{ id: "contextWindow", value: raw }] } : {}),
+  });
+  const descriptor = descriptors.find((candidate) => candidate.id === "contextWindow");
+  const value = getProviderOptionCurrentValue(descriptor);
+  return typeof value === "string" ? value : undefined;
+}
+
 export function resolveClaudeApiModelId(modelSelection: ModelSelection): string {
-  switch (getModelSelectionStringOptionValue(modelSelection, "contextWindow")) {
+  switch (resolveClaudeContextWindow(modelSelection)) {
     case "1m":
       return `${modelSelection.model}[1m]`;
     default:
