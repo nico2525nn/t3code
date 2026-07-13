@@ -22,10 +22,12 @@ interface RecordedBatchRequest {
   readonly body: {
     readonly batch?: ReadonlyArray<{
       readonly event?: string | undefined;
-      readonly properties?: {
-        readonly index?: number | undefined;
-        readonly clientType?: string | undefined;
-      } | undefined;
+      readonly properties?:
+        | {
+            readonly index?: number | undefined;
+            readonly clientType?: string | undefined;
+          }
+        | undefined;
     }>;
   } | null;
 }
@@ -33,10 +35,12 @@ interface RecordedBatchRequest {
 interface RecordedBatchBody {
   readonly batch: ReadonlyArray<{
     readonly event?: string | undefined;
-    readonly properties?: {
-      readonly index?: number | undefined;
-      readonly clientType?: string | undefined;
-    } | undefined;
+    readonly properties?:
+      | {
+          readonly index?: number | undefined;
+          readonly clientType?: string | undefined;
+        }
+      | undefined;
   }>;
 }
 
