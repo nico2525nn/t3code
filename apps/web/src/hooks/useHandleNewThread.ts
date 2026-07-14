@@ -136,7 +136,7 @@ export function useNewThreadHandler() {
             reusableStoredDraftThread.draftId,
             {
               threadId: reusableStoredDraftThread.threadId,
-              ...(storedDraftProjectChanged && !hasEnvModeOption
+              ...(storedDraftProjectChanged && !hasEnvModeOption && !hasStartFromOriginOption
                 ? (() => {
                     const envMode = resolveDefaultEnvMode();
                     return {
