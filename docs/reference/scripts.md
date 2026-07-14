@@ -3,7 +3,7 @@
 - `bun run dev` — Starts contracts, server, and web in `turbo watch` mode.
 - `bun run dev:server` — Starts just the WebSocket server (uses Bun TypeScript execution).
 - `bun run dev:web` — Starts just the Vite dev server for the web app.
-- Dev commands default `T3CODE_STATE_DIR` to `~/.t3/dev` to keep dev state isolated from desktop/prod state.
+- Dev servers store state under `<T3CODE_HOME>/dev` (default `~/.t3/dev`) to keep dev state isolated from desktop/prod state.
 - Override server CLI-equivalent flags from root dev commands with `--`, for example:
   `bun run dev -- --base-dir ~/.t3-2`
 - `bun run start` — Runs the production server (serves built web app as static files).
@@ -43,3 +43,14 @@ Set `T3CODE_DEV_INSTANCE` to any value to deterministically shift all dev ports 
 - Example: `T3CODE_DEV_INSTANCE=branch-a bun run dev:desktop`
 
 If you want full control instead of hashing, set `T3CODE_PORT_OFFSET` to a numeric offset.
+
+### Authentication across dev instances
+
+Local web-dev servers support silent pairing: the web app authenticates
+automatically on load, with no pairing code (see the dev-mode section in
+`docs/cloud/environment-auth.md` for the guards). Additionally, all dev
+instances sharing a `T3CODE_HOME` share the session store and signing secret
+under `<T3CODE_HOME>/dev`, so a browser session created against one instance
+verifies against every other. Cookies are host-scoped: sessions carry across
+ports on the same hostname, but `localhost` and `127.0.0.1` do not share
+cookies — use one hostname consistently.

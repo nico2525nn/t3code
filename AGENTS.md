@@ -24,6 +24,23 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
 
+## Verifying Changes in the Browser
+
+Starting a dev server to verify changes is expected and allowed:
+
+- `T3CODE_DEV_INSTANCE=<worktree-name> bun run dev` runs an isolated instance
+  with deterministic port offsets (server base `13773`, web base `5733`; the
+  runner probes for free ports and prints the chosen pair).
+- On localhost dev servers the web UI authenticates automatically — no pairing
+  code needed. Just load the printed web port (e.g. `http://localhost:5733`).
+  This applies to fresh/headless browser profiles too.
+- Dev instances sharing the default `T3CODE_HOME` (`~/.t3`) share state under
+  `~/.t3/dev`; a browser session carries across instances on the same hostname.
+  Use `localhost` consistently — it does not share cookies with `127.0.0.1`.
+
+See `docs/reference/scripts.md` for parallel-instance details and
+`docs/cloud/environment-auth.md` for how dev auto-auth is secured.
+
 ## Package Roles
 
 - `apps/server`: Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, and manages provider sessions.
