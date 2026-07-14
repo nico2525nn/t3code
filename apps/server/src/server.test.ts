@@ -103,6 +103,8 @@ import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import * as WorktreeBasePlanner from "./git/WorktreeBasePlanner.ts";
+import * as WorktreeRegistry from "./git/WorktreeRegistry.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
@@ -503,6 +505,10 @@ const buildAppUnderTest = (options?: {
       Layer.provideMerge(gitVcsDriverLayer),
       Layer.provideMerge(gitManagerLayer),
     );
+    const worktreeBasePlannerLayer = WorktreeBasePlanner.layer.pipe(
+      Layer.provide(gitWorkflowLayer),
+    );
+    const worktreeRegistryLayer = WorktreeRegistry.layer;
     const vcsProvisioningLayer = VcsProvisioningService.layer.pipe(
       Layer.provide(vcsDriverRegistryLayer),
     );
@@ -628,7 +634,9 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provide(gitManagerLayer),
       Layer.provide(gitVcsDriverLayer),
-      Layer.provide(gitWorkflowLayer),
+      Layer.provide(
+        Layer.mergeAll(gitWorkflowLayer, worktreeBasePlannerLayer, worktreeRegistryLayer),
+      ),
       Layer.provide(reviewLayer),
       Layer.provide(vcsProvisioningLayer),
       Layer.provide(
@@ -6224,12 +6232,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           ),
         );
 
-        assert.equal(response.sequence, 5);
+        assert.equal(response.sequence, 6);
         assert.deepEqual(
           dispatchedCommands.map((command) => command.type),
           [
             "thread.create",
             "thread.meta.update",
+            "thread.activity.append",
             "thread.activity.append",
             "thread.activity.append",
             "thread.turn.start",
@@ -6241,6 +6250,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           newRefName: "t3code/bootstrap-refName",
           baseRefName: "main",
           path: null,
+          uniquifyNewRefName: true,
         });
         assert.deepEqual(fetchRemote.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
@@ -6270,9 +6280,21 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         );
         assert.deepEqual(
           setupActivities.map((command) => command.activity.kind),
-          ["setup-script.requested", "setup-script.started"],
+          ["worktree.base-pinned", "setup-script.requested", "setup-script.started"],
         );
-        const finalCommand = dispatchedCommands[4];
+        const basePinnedActivity = setupActivities[0];
+        assert.deepEqual(basePinnedActivity?.activity.payload, {
+          branch: "t3code/bootstrap-refName",
+          worktreePath: "/tmp/bootstrap-worktree",
+          baseRefName: "origin/main",
+          baseCommitSha: fetchedOriginCommit,
+          baseProvenance: "fresh",
+          baseFetchedAt: basePinnedActivity
+            ? (basePinnedActivity.activity.payload as { baseFetchedAt: string | null })
+                .baseFetchedAt
+            : null,
+        });
+        const finalCommand = dispatchedCommands[5];
         assertTrue(finalCommand?.type === "thread.turn.start");
         if (finalCommand?.type === "thread.turn.start") {
           assert.equal(finalCommand.bootstrap, undefined);
@@ -6367,14 +6389,21 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
 
-      assert.equal(response.sequence, 4);
+      assert.equal(response.sequence, 5);
       assert.deepEqual(
         dispatchedCommands.map((command) => command.type),
-        ["thread.create", "thread.meta.update", "thread.activity.append", "thread.turn.start"],
+        [
+          "thread.create",
+          "thread.meta.update",
+          "thread.activity.append",
+          "thread.activity.append",
+          "thread.turn.start",
+        ],
       );
       const setupFailureActivity = dispatchedCommands.find(
         (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
-          command.type === "thread.activity.append",
+          command.type === "thread.activity.append" &&
+          command.activity.kind.startsWith("setup-script."),
       );
       assert.equal(setupFailureActivity?.activity.kind, "setup-script.failed");
       assert.deepEqual(setupFailureActivity?.activity.payload, {
@@ -6488,14 +6517,21 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
 
-      assert.equal(response.sequence, 4);
+      assert.equal(response.sequence, 5);
       assert.deepEqual(
         dispatchedCommands.map((command) => command.type),
-        ["thread.create", "thread.meta.update", "thread.activity.append", "thread.turn.start"],
+        [
+          "thread.create",
+          "thread.meta.update",
+          "thread.activity.append",
+          "thread.activity.append",
+          "thread.turn.start",
+        ],
       );
       const setupActivities = dispatchedCommands.filter(
         (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
-          command.type === "thread.activity.append",
+          command.type === "thread.activity.append" &&
+          command.activity.kind.startsWith("setup-script."),
       );
       assert.deepEqual(
         setupActivities.map((command) => command.activity.kind),

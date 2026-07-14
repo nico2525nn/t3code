@@ -12,9 +12,11 @@ import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
+  DEFAULT_SERVER_SETTINGS,
   MessageId,
   ThreadId,
 } from "@t3tools/contracts";
+import { resolveDefaultThreadEnvMode } from "@t3tools/shared/threadEnvMode";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 
@@ -345,10 +347,28 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const selectedProjectDraft = useComposerDraft(selectedProjectDraftKey);
   const prompt = selectedProjectDraft.text;
   const attachments = selectedProjectDraft.attachments;
-  const workspaceMode = selectedProjectDraft.workspaceSelection?.mode ?? "local";
+  // Mobile is a detached surface — there is no local checkout in front of
+  // the user — so surface derivation (the default) resolves to an isolated
+  // worktree pinned to the latest remote base. An explicit
+  // defaultThreadEnvMode in the environment settings still applies, and
+  // "Local" remains an explicit per-draft exception.
+  const environmentSettings = selectedEnvironmentServerConfig?.settings;
+  const defaultWorkspaceMode = resolveDefaultThreadEnvMode({
+    deriveFromSurface:
+      environmentSettings?.deriveThreadEnvModeFromSurface ??
+      DEFAULT_SERVER_SETTINGS.deriveThreadEnvModeFromSurface,
+    configuredMode:
+      environmentSettings?.defaultThreadEnvMode ?? DEFAULT_SERVER_SETTINGS.defaultThreadEnvMode,
+    surface: "detached",
+  });
+  const workspaceMode = selectedProjectDraft.workspaceSelection?.mode ?? defaultWorkspaceMode;
   const selectedBranchName = selectedProjectDraft.workspaceSelection?.branch ?? null;
   const selectedWorktreePath = selectedProjectDraft.workspaceSelection?.worktreePath ?? null;
-  const startFromOrigin = selectedProjectDraft.workspaceSelection?.startFromOrigin ?? false;
+  const startFromOrigin =
+    selectedProjectDraft.workspaceSelection?.startFromOrigin ??
+    (workspaceMode === "worktree" &&
+      (environmentSettings?.newWorktreesStartFromOrigin ??
+        DEFAULT_SERVER_SETTINGS.newWorktreesStartFromOrigin));
   const runtimeMode = selectedProjectDraft.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode = selectedProjectDraft.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE;
 
@@ -667,7 +687,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         return null;
       }
       const workspaceSelection = draft.workspaceSelection;
-      const mode = workspaceSelection?.mode ?? "local";
+      const mode = workspaceSelection?.mode ?? defaultWorkspaceMode;
+      const pendingStartFromOrigin =
+        workspaceSelection?.startFromOrigin ?? (mode === "worktree" && startFromOrigin);
       // When the selection is the stand-in built from the queued snapshot,
       // persist the original (possibly absent) snapshot values — the
       // stand-in's placeholder title/workspaceRoot must never be written back
@@ -696,17 +718,19 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           workspaceMode: mode,
           branch: workspaceSelection?.branch ?? null,
           worktreePath: mode === "worktree" ? null : (workspaceSelection?.worktreePath ?? null),
-          ...(workspaceSelection?.startFromOrigin ? { startFromOrigin: true } : {}),
+          ...(pendingStartFromOrigin ? { startFromOrigin: true } : {}),
         },
         createdAt: metadata.createdAt,
       };
     },
     [
+      defaultWorkspaceMode,
       editingPendingProject,
       editingPendingTask,
       selectedModel,
       selectedProject,
       selectedProjectDraftKey,
+      startFromOrigin,
     ],
   );
 

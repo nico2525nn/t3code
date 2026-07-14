@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import {
   scopedProjectKey,
   scopeProjectRef,
@@ -10,6 +11,9 @@ import {
 } from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
+
+import { environmentPresentations } from "../state/presentation";
+import { resolveSurfaceThreadEnvMode } from "../lib/threadSurface";
 import {
   markPromotedDraftThreadByRef,
   type DraftThreadEnvMode,
@@ -32,7 +36,11 @@ import { useClientSettings } from "./useSettings";
 export function useNewThreadHandler() {
   const projects = useProjects();
   const serverConfigs = useServerConfigs();
+  const environmentPresentationById = useAtomValue(environmentPresentations.presentationsAtom);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const projectThreadEnvModeOverrides = useClientSettings(
+    (settings) => settings.projectThreadEnvModeOverrides,
+  );
   const router = useRouter();
   const getCurrentRouteTarget = useCallback(() => {
     const currentRouteParams = router.state.matches[router.state.matches.length - 1]?.params ?? {};
@@ -159,7 +167,20 @@ export function useNewThreadHandler() {
       const draftId = newDraftId();
       const threadId = newThreadId();
       const createdAt = new Date().toISOString();
-      const initialEnvMode = options?.envMode ?? environmentSettings.defaultThreadEnvMode;
+      // The default mode derives from the surface (attached checkout →
+      // local, detached → worktree) unless a project override or an explicit
+      // setting pins a mode. Draft exceptions never retrain this default —
+      // only the project override ("Always for this project") does, and only
+      // through an explicit settings write.
+      const projectEnvModeOverride =
+        projectThreadEnvModeOverrides[scopedProjectKey(projectRef)] ?? null;
+      const initialEnvMode =
+        options?.envMode ??
+        projectEnvModeOverride ??
+        resolveSurfaceThreadEnvMode({
+          settings: environmentSettings,
+          target: environmentPresentationById.get(projectRef.environmentId)?.entry.target ?? null,
+        });
       return (async () => {
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
           threadId,
@@ -183,7 +204,15 @@ export function useNewThreadHandler() {
         });
       })();
     },
-    [getCurrentRouteTarget, projectGroupingSettings, projects, router, serverConfigs],
+    [
+      environmentPresentationById,
+      getCurrentRouteTarget,
+      projectGroupingSettings,
+      projects,
+      projectThreadEnvModeOverrides,
+      router,
+      serverConfigs,
+    ],
   );
 }
 

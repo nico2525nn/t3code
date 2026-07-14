@@ -93,6 +93,24 @@ export function buildTemporaryWorktreeBranchName(
   return `${WORKTREE_BRANCH_PREFIX}/${token}`;
 }
 
+/**
+ * Deterministic worktree branch name derived from the thread id (the first
+ * UUID segment), so every worktree is attributable to its thread by
+ * construction and resends of the same thread reuse one branch name.
+ * Falls back to the caller-supplied randomness when the id has no usable
+ * hex prefix (non-UUID ids from older clients).
+ */
+export function buildThreadWorktreeBranchName(
+  threadId: string,
+  randomHex: (byteLength: number) => string,
+): string {
+  const token = threadId.trim().toLowerCase().slice(0, 8);
+  if (/^[0-9a-f]{8}$/.test(token)) {
+    return `${WORKTREE_BRANCH_PREFIX}/${token}`;
+  }
+  return buildTemporaryWorktreeBranchName(randomHex);
+}
+
 export function isTemporaryWorktreeBranch(refName: string): boolean {
   return TEMP_WORKTREE_BRANCH_PATTERN.test(refName.trim().toLowerCase());
 }
