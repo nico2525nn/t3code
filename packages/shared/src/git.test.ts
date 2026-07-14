@@ -72,6 +72,11 @@ describe("isTemporaryWorktreeBranch", () => {
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/DEADBEEF`)).toBe(true);
   });
 
+  it("matches uniquified retry suffixes on thread-derived branches", () => {
+    expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/deadbeef-2`)).toBe(true);
+    expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/deadbeef-10`)).toBe(true);
+  });
+
   it("rejects non-temporary refName names", () => {
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/feature/demo`)).toBe(false);
     expect(isTemporaryWorktreeBranch("main")).toBe(false);

@@ -163,7 +163,11 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderRuntimeIngestionLive),
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
-  Layer.provideMerge(ThreadDeletionReactorLive.pipe(Layer.provide(WorktreeRegistry.layer))),
+  // WorktreeRegistry is deliberately NOT provided here: the reactor must
+  // share the single instance from VcsLayerLive (provided downstream in
+  // RuntimeCoreDependenciesLive) so bootstrap registrations and deletion
+  // markings see the same in-memory state.
+  Layer.provideMerge(ThreadDeletionReactorLive),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );

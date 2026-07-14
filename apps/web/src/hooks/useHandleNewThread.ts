@@ -80,6 +80,17 @@ export function useNewThreadHandler() {
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
       const hasStartFromOriginOption = options?.startFromOrigin !== undefined;
+      // The default mode derives from the surface (attached checkout →
+      // local, detached → worktree) unless a project override or an explicit
+      // setting pins a mode. Draft exceptions never retrain this default —
+      // only the project override ("Always for this project") does, and only
+      // through an explicit settings write.
+      const resolveDefaultEnvMode = (): DraftThreadEnvMode =>
+        projectThreadEnvModeOverrides[scopedProjectKey(projectRef)] ??
+        resolveSurfaceThreadEnvMode({
+          settings: environmentSettings,
+          target: environmentPresentationById.get(projectRef.environmentId)?.entry.target ?? null,
+        });
       const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
       const storedDraftThreadRef = storedDraftThread
         ? scopeThreadRef(storedDraftThread.environmentId, storedDraftThread.threadId)
@@ -96,6 +107,14 @@ export function useNewThreadHandler() {
           ? getDraftThread(currentRouteTarget.threadRef)
           : getDraftSession(currentRouteTarget.draftId)
         : null;
+      // Reusing a stored draft for a different project member must re-derive
+      // the mode from that member's default — otherwise the store's
+      // project-changed reset hard-codes "local" regardless of surface.
+      const storedDraftProjectChanged =
+        reusableStoredDraftThread !== null &&
+        reusableStoredDraftThread !== undefined &&
+        (reusableStoredDraftThread.environmentId !== projectRef.environmentId ||
+          reusableStoredDraftThread.projectId !== projectRef.projectId);
       if (reusableStoredDraftThread) {
         return (async () => {
           if (
@@ -117,6 +136,19 @@ export function useNewThreadHandler() {
             reusableStoredDraftThread.draftId,
             {
               threadId: reusableStoredDraftThread.threadId,
+              ...(storedDraftProjectChanged && !hasEnvModeOption
+                ? (() => {
+                    const envMode = resolveDefaultEnvMode();
+                    return {
+                      envMode,
+                      startFromOrigin: resolveNewDraftStartFromOrigin({
+                        envMode,
+                        newWorktreesStartFromOrigin:
+                          environmentSettings.newWorktreesStartFromOrigin,
+                      }),
+                    };
+                  })()
+                : {}),
             },
           );
           if (
@@ -167,20 +199,7 @@ export function useNewThreadHandler() {
       const draftId = newDraftId();
       const threadId = newThreadId();
       const createdAt = new Date().toISOString();
-      // The default mode derives from the surface (attached checkout →
-      // local, detached → worktree) unless a project override or an explicit
-      // setting pins a mode. Draft exceptions never retrain this default —
-      // only the project override ("Always for this project") does, and only
-      // through an explicit settings write.
-      const projectEnvModeOverride =
-        projectThreadEnvModeOverrides[scopedProjectKey(projectRef)] ?? null;
-      const initialEnvMode =
-        options?.envMode ??
-        projectEnvModeOverride ??
-        resolveSurfaceThreadEnvMode({
-          settings: environmentSettings,
-          target: environmentPresentationById.get(projectRef.environmentId)?.entry.target ?? null,
-        });
+      const initialEnvMode = options?.envMode ?? resolveDefaultEnvMode();
       return (async () => {
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
           threadId,

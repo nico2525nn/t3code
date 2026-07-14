@@ -108,10 +108,13 @@ export const make = Effect.gen(function* () {
   const runDedupedFetch = (cwd: string): Effect.Effect<boolean> =>
     Effect.gen(function* () {
       const state = getState(cwd);
-      if (state.inFlight) {
-        return yield* Deferred.await(state.inFlight);
+      const existingInFlight = state.inFlight;
+      if (existingInFlight) {
+        return yield* Deferred.await(existingInFlight);
       }
-      const inFlight = yield* Deferred.make<boolean>();
+      // Claim the slot synchronously (no suspension between the check above
+      // and this assignment) so concurrent callers can't both start a fetch.
+      const inFlight = Deferred.makeUnsafe<boolean>();
       state.inFlight = inFlight;
       return yield* gitWorkflow.fetchRemote({ cwd, remoteName: "origin" }).pipe(
         Effect.flatMap(() =>

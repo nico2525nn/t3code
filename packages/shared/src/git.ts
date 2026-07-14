@@ -11,7 +11,11 @@ import * as Result from "effect/Result";
 import { detectSourceControlProviderFromRemoteUrl } from "./sourceControl.ts";
 
 export const WORKTREE_BRANCH_PREFIX = "t3code";
-const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
+// Optional `-N` suffix: bootstrap retries uniquify a taken thread-derived
+// branch name (t3code/a1b2c3d4-2), and those are still temporary branches.
+const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(
+  `^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}(-\\d+)?$`,
+);
 
 /**
  * Sanitize an arbitrary string into a valid, lowercase git refName fragment.

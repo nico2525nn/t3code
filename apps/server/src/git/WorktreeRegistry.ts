@@ -83,7 +83,9 @@ export const make = Effect.gen(function* () {
     return decoded.value;
   });
 
-  const getRegistry = Effect.gen(function* () {
+  // All reads and writes take the semaphore so a first-access disk load can
+  // never overwrite in-memory state that a concurrent mutation just wrote.
+  const getRegistryLocked = Effect.gen(function* () {
     const loaded = yield* Ref.get(loadedRef);
     if (loaded !== null) {
       return loaded;
@@ -93,14 +95,15 @@ export const make = Effect.gen(function* () {
     return fromDisk;
   });
 
+  const getRegistry = Semaphore.withPermit(writeSemaphore)(getRegistryLocked);
+
   const mutate = (
     update: (current: WorktreeRegistryFile) => WorktreeRegistryFile,
   ): Effect.Effect<void> =>
     Semaphore.withPermit(writeSemaphore)(
       Effect.gen(function* () {
-        const current = yield* getRegistry;
+        const current = yield* getRegistryLocked;
         const next = update(current);
-        yield* Ref.set(loadedRef, next);
         const contents = yield* encodeRegistryJson(next);
         yield* writeFileStringAtomically({
           filePath: worktreeRegistryPath,
@@ -109,6 +112,9 @@ export const make = Effect.gen(function* () {
           Effect.provideService(FileSystem.FileSystem, fs),
           Effect.provideService(Path.Path, path),
         );
+        // Memory reflects disk only after the persist succeeds, so `list`
+        // never reports an association that was never durably recorded.
+        yield* Ref.set(loadedRef, next);
       }),
     ).pipe(
       Effect.catchCause((cause) =>

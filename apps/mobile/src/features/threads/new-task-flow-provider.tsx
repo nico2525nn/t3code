@@ -617,6 +617,13 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     if (workspaceMode !== "worktree" || selectedBranchName !== null) {
       return;
     }
+    // Wait for the environment's settings before auto-writing a workspace
+    // selection: selectBranch persists the current mode into the draft, and
+    // doing that against the pre-config fallback would freeze the wrong
+    // default once the real settings arrive.
+    if (environmentSettings === undefined) {
+      return;
+    }
     const preferredBranch =
       availableBranches.find((branch) => branch.current) ??
       availableBranches.find((branch) => branch.isDefault) ??
@@ -624,7 +631,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     if (preferredBranch) {
       selectBranch(preferredBranch);
     }
-  }, [availableBranches, selectBranch, selectedBranchName, workspaceMode]);
+  }, [availableBranches, environmentSettings, selectBranch, selectedBranchName, workspaceMode]);
 
   const setRuntimeMode = useCallback(
     (value: RuntimeMode) => {
