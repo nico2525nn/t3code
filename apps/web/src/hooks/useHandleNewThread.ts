@@ -136,18 +136,21 @@ export function useNewThreadHandler() {
             reusableStoredDraftThread.draftId,
             {
               threadId: reusableStoredDraftThread.threadId,
-              ...(storedDraftProjectChanged && !hasEnvModeOption && !hasStartFromOriginOption
-                ? (() => {
-                    const envMode = resolveDefaultEnvMode();
-                    return {
-                      envMode,
-                      startFromOrigin: resolveNewDraftStartFromOrigin({
-                        envMode,
-                        newWorktreesStartFromOrigin:
-                          environmentSettings.newWorktreesStartFromOrigin,
-                      }),
-                    };
-                  })()
+              // Independently re-derive whichever values the caller didn't
+              // pin, so the store's project-changed reset (hard-coded
+              // "local"/false) never overrides the target's surface default.
+              ...(storedDraftProjectChanged && !hasEnvModeOption
+                ? { envMode: resolveDefaultEnvMode() }
+                : {}),
+              ...(storedDraftProjectChanged && !hasStartFromOriginOption
+                ? {
+                    startFromOrigin: resolveNewDraftStartFromOrigin({
+                      envMode: hasEnvModeOption
+                        ? (options?.envMode ?? resolveDefaultEnvMode())
+                        : resolveDefaultEnvMode(),
+                      newWorktreesStartFromOrigin: environmentSettings.newWorktreesStartFromOrigin,
+                    }),
+                  }
                 : {}),
             },
           );
