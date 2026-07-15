@@ -1,0 +1,150 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { describe, expect, it } from "vite-plus/test";
+
+import {
+  buildThreadListV2Items,
+  resolveThreadListV2Status,
+  sortThreadsForListV2,
+} from "./threadListV2";
+
+const environmentId = EnvironmentId.make("environment-1");
+
+function makeThread(
+  input: Partial<EnvironmentThreadShell> & Pick<EnvironmentThreadShell, "id" | "title">,
+): EnvironmentThreadShell {
+  return {
+    environmentId,
+    projectId: ProjectId.make("project-1"),
+    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    latestTurn: null,
+    createdAt: "2026-06-01T00:00:00.000Z",
+    updatedAt: "2026-06-01T00:00:00.000Z",
+    archivedAt: null,
+    session: null,
+    latestUserMessageAt: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    hasActionableProposedPlan: false,
+    ...input,
+    settledOverride: input.settledOverride ?? null,
+    settledAt: input.settledAt ?? null,
+  };
+}
+
+const NOW = "2026-06-02T00:00:00.000Z";
+
+describe("resolveThreadListV2Status", () => {
+  it("prioritizes approval over a running session", () => {
+    const thread = makeThread({
+      id: ThreadId.make("t"),
+      title: "t",
+      hasPendingApprovals: true,
+      session: {
+        threadId: ThreadId.make("t"),
+        status: "running",
+        providerName: "Codex",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        runtimeMode: "full-access",
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: NOW,
+      },
+    });
+    expect(resolveThreadListV2Status(thread)).toBe("approval");
+  });
+
+  it("resolves ready for quiescent threads", () => {
+    expect(resolveThreadListV2Status(makeThread({ id: ThreadId.make("t"), title: "t" }))).toBe(
+      "ready",
+    );
+  });
+});
+
+describe("sortThreadsForListV2", () => {
+  it("orders by creation time, newest first, ignoring activity", () => {
+    const sorted = sortThreadsForListV2([
+      { id: "oldest", createdAt: "2026-06-01T08:00:00.000Z" },
+      { id: "newest", createdAt: "2026-06-01T12:00:00.000Z" },
+      { id: "middle", createdAt: "2026-06-01T10:00:00.000Z" },
+    ]);
+    expect(sorted.map((thread) => thread.id)).toEqual(["newest", "middle", "oldest"]);
+  });
+});
+
+describe("buildThreadListV2Items", () => {
+  it("partitions settled threads into a slim tail with one divider", () => {
+    const items = buildThreadListV2Items({
+      threads: [
+        makeThread({ id: ThreadId.make("active"), title: "Active" }),
+        makeThread({
+          id: ThreadId.make("settled"),
+          title: "Settled",
+          settledOverride: "settled",
+        }),
+        makeThread({
+          id: ThreadId.make("settled-2"),
+          title: "Settled 2",
+          settledOverride: "settled",
+        }),
+      ],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+
+    expect(items.map((item) => [item.thread.id, item.variant])).toEqual([
+      ["active", "card"],
+      ["settled", "slim"],
+      ["settled-2", "slim"],
+    ]);
+    expect(items.map((item) => item.showSettledDivider)).toEqual([false, true, false]);
+    expect(items.map((item) => item.isLast)).toEqual([false, false, true]);
+  });
+
+  it("keeps cards in creation order while settled sorts by recency", () => {
+    const items = buildThreadListV2Items({
+      threads: [
+        makeThread({
+          id: ThreadId.make("older-created"),
+          title: "Older",
+          createdAt: "2026-06-01T08:00:00.000Z",
+          updatedAt: NOW, // recent activity must NOT promote it
+        }),
+        makeThread({
+          id: ThreadId.make("newer-created"),
+          title: "Newer",
+          createdAt: "2026-06-01T12:00:00.000Z",
+        }),
+      ],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+
+    expect(items.map((item) => item.thread.id)).toEqual(["newer-created", "older-created"]);
+  });
+
+  it("excludes archived threads and filters by search query", () => {
+    const items = buildThreadListV2Items({
+      threads: [
+        makeThread({ id: ThreadId.make("match"), title: "Fix login bug" }),
+        makeThread({ id: ThreadId.make("miss"), title: "Greeting" }),
+        makeThread({
+          id: ThreadId.make("archived"),
+          title: "Fix login again",
+          archivedAt: NOW,
+        }),
+      ],
+      environmentId: null,
+      searchQuery: "login",
+      now: NOW,
+    });
+
+    expect(items.map((item) => item.thread.id)).toEqual(["match"]);
+  });
+});

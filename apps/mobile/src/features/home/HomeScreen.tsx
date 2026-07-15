@@ -32,6 +32,8 @@ import {
   ThreadListRow,
   ThreadListShowMoreRow,
 } from "../threads/thread-list-items";
+import { ThreadListV2Row } from "../threads/thread-list-v2-items";
+import { buildThreadListV2Items, type ThreadListV2Item } from "../threads/threadListV2";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import {
   buildHomeListLayout,
@@ -73,6 +75,8 @@ interface HomeScreenProps {
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
+  readonly onSettleThread: (thread: EnvironmentThreadShell) => void;
+  readonly onUnsettleThread: (thread: EnvironmentThreadShell) => void;
   readonly onSelectPendingTask: (pendingTask: PendingNewTask) => void;
   readonly onDeletePendingTask: (pendingTask: PendingNewTask) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
@@ -162,6 +166,9 @@ export function HomeScreen(props: HomeScreenProps) {
     ReadonlyMap<string, HomeGroupDisplayState>
   >(() => new Map());
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const threadListV2Enabled =
+    AsyncResult.isSuccess(preferencesResult) &&
+    preferencesResult.value.threadListV2Enabled === true;
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const listRef = useRef<LegendListRef | null>(null);
@@ -266,6 +273,63 @@ export function HomeScreen(props: HomeScreenProps) {
     }
     return map;
   }, [props.projects]);
+
+  const projectByKey = useMemo(() => {
+    const map = new Map<string, EnvironmentProject>();
+    for (const project of props.projects) {
+      map.set(scopedProjectKey(project.environmentId, project.id), project);
+    }
+    return map;
+  }, [props.projects]);
+
+  // Thread List v2 (beta): one flat list in creation order, no grouping.
+  // Settled threads collapse into a recency tail below the card block.
+  const threadListV2Items = useMemo(
+    () =>
+      threadListV2Enabled
+        ? buildThreadListV2Items({
+            threads: props.threads,
+            environmentId: props.selectedEnvironmentId,
+            searchQuery: props.searchQuery,
+          })
+        : [],
+    [props.searchQuery, props.selectedEnvironmentId, props.threads, threadListV2Enabled],
+  );
+
+  const renderV2Item = useCallback(
+    ({ item }: LegendListRenderItemProps<ThreadListV2Item>) => (
+      <ThreadListV2Row
+        thread={item.thread}
+        variant={item.variant}
+        showSettledDivider={item.showSettledDivider}
+        project={
+          projectByKey.get(scopedProjectKey(item.thread.environmentId, item.thread.projectId)) ??
+          null
+        }
+        onSelectThread={props.onSelectThread}
+        onArchiveThread={props.onArchiveThread}
+        onDeleteThread={props.onDeleteThread}
+        onSettleThread={props.onSettleThread}
+        onUnsettleThread={props.onUnsettleThread}
+        onSwipeableClose={handleSwipeableClose}
+        onSwipeableWillOpen={handleSwipeableWillOpen}
+      />
+    ),
+    [
+      handleSwipeableClose,
+      handleSwipeableWillOpen,
+      projectByKey,
+      props.onArchiveThread,
+      props.onDeleteThread,
+      props.onSelectThread,
+      props.onSettleThread,
+      props.onUnsettleThread,
+    ],
+  );
+  const v2KeyExtractor = useCallback(
+    (item: ThreadListV2Item) => `${item.thread.environmentId}:${item.thread.id}`,
+    [],
+  );
 
   const extraData = useMemo(
     () => ({ savedConnectionsById: props.savedConnectionsById, projectCwdByKey }),
@@ -439,6 +503,41 @@ export function HomeScreen(props: HomeScreenProps) {
       <EmptyState title="No threads yet" detail="Create a task to start a new coding session." />
     )
   ) : null;
+
+  if (threadListV2Enabled) {
+    return (
+      <View className="flex-1 bg-screen">
+        <SwipeableScrollGateProvider enabled={swipeEnabled}>
+          <LegendList
+            data={threadListV2Items}
+            renderItem={renderV2Item}
+            keyExtractor={v2KeyExtractor}
+            drawDistance={500}
+            estimatedItemSize={ESTIMATED_THREAD_ROW_HEIGHT}
+            extraData={projectByKey}
+            ListHeaderComponent={listHeader}
+            ListEmptyComponent={listEmpty}
+            style={{ flex: 1 }}
+            automaticallyAdjustsScrollIndicatorInsets={Platform.OS === "ios"}
+            contentInsetAdjustmentBehavior={Platform.OS === "ios" ? "automatic" : "never"}
+            showsVerticalScrollIndicator={false}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+            {...scrollGateHandlers}
+            recycleItems
+            scrollEventThrottle={16}
+            contentContainerStyle={{
+              paddingBottom:
+                Platform.OS === "ios"
+                  ? Math.max(insets.bottom, 24) + 24
+                  : Math.max(insets.bottom, 16) + 88,
+            }}
+          />
+        </SwipeableScrollGateProvider>
+        {connectionStatus}
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-screen">
