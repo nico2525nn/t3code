@@ -206,11 +206,11 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
             operation: error.operation,
           },
           {
-          workspaceRoot: cwd,
-          relativePath: "missing.txt",
-          resolvedPath,
-          operationPath: resolvedPath,
-          operation: "realpath-target",
+            workspaceRoot: cwd,
+            relativePath: "missing.txt",
+            resolvedPath,
+            operationPath: resolvedPath,
+            operation: "realpath-target",
           },
         );
         assert.instanceOf(error.cause, PlatformError.PlatformError);
