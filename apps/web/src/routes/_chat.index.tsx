@@ -4,13 +4,16 @@ import { LinkIcon, PlusIcon } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 import { useOpenAddProjectCommandPalette } from "../commandPaletteContext";
-import { NoActiveThreadState } from "../components/NoActiveThreadState";
 import { sortProjectsForSidebar } from "../components/Sidebar.logic";
 import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
-import { useProjects, useThreadShells } from "../state/entities";
+import {
+  useAllEnvironmentShellsBootstrapped,
+  useProjects,
+  useThreadShells,
+} from "../state/entities";
 import { useEnvironments } from "../state/environments";
 import { APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
@@ -36,28 +39,32 @@ function ChatIndexRouteView() {
 function IndexDraftLanding() {
   const projects = useProjects();
   const threads = useThreadShells();
+  const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const handleNewThread = useNewThreadHandler();
-  const startedRef = useRef(false);
+  const startingRef = useRef(false);
 
   const mostRecentProject = useMemo(
-    () => sortProjectsForSidebar(projects, threads, "updated_at")[0] ?? null,
-    [projects, threads],
+    () =>
+      bootstrapped ? (sortProjectsForSidebar(projects, threads, "updated_at")[0] ?? null) : null,
+    [bootstrapped, projects, threads],
   );
 
   useEffect(() => {
-    if (mostRecentProject === null || startedRef.current) {
+    if (mostRecentProject === null || startingRef.current) {
       return;
     }
-    startedRef.current = true;
+    startingRef.current = true;
     void handleNewThread(scopeProjectRef(mostRecentProject.environmentId, mostRecentProject.id), {
       replace: true,
+    }).catch(() => {
+      startingRef.current = false;
     });
   }, [handleNewThread, mostRecentProject]);
 
-  if (mostRecentProject === null) {
-    return <NoProjectsHero />;
+  if (!bootstrapped || mostRecentProject !== null) {
+    return null;
   }
-  return <NoActiveThreadState />;
+  return <NoProjectsHero />;
 }
 
 function NoProjectsHero() {
