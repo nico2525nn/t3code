@@ -14,7 +14,7 @@ import type {
 } from "@t3tools/contracts";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -294,22 +294,85 @@ export function HomeScreen(props: HomeScreenProps) {
     [props.environments, threadListV2Enabled],
   );
   const { snapshots: archivedSnapshots } = useArchivedThreadSnapshots(archivedEnvironmentIds);
+  // PR states stream in per-row (rows own the VCS subscriptions); a merged or
+  // closed PR auto-settles its thread on the next partition (mirrors web).
+  const [changeRequestStateByKey, setChangeRequestStateByKey] = useState<
+    ReadonlyMap<string, "open" | "closed" | "merged">
+  >(() => new Map());
+  const handleChangeRequestState = useCallback(
+    (threadKey: string, state: "open" | "closed" | "merged" | null) => {
+      setChangeRequestStateByKey((current) => {
+        if ((current.get(threadKey) ?? null) === state) return current;
+        const next = new Map(current);
+        if (state === null) {
+          next.delete(threadKey);
+        } else {
+          next.set(threadKey, state);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+  // Bridge the gap between the live stream dropping a just-settled thread
+  // and the archived snapshot returning it: hold the shell we settled,
+  // marked archived, until the snapshot carries it. Held explicitly at
+  // settle time so deleted threads are never resurrected.
+  const [settledHolds, setSettledHolds] = useState<ReadonlyMap<string, EnvironmentThreadShell>>(
+    () => new Map(),
+  );
+  const handleSettleThread = useCallback(
+    (thread: EnvironmentThreadShell) => {
+      setSettledHolds((current) =>
+        new Map(current).set(scopedThreadKey(thread.environmentId, thread.id), {
+          ...thread,
+          archivedAt: thread.archivedAt ?? new Date().toISOString(),
+        }),
+      );
+      props.onSettleThread(thread);
+    },
+    [props.onSettleThread],
+  );
+  useEffect(() => {
+    if (settledHolds.size === 0) return;
+    const covered = new Set<string>();
+    for (const { environmentId, snapshot } of archivedSnapshots) {
+      for (const thread of snapshot.threads) {
+        covered.add(scopedThreadKey(environmentId, thread.id));
+      }
+    }
+    if ([...settledHolds.keys()].some((threadKey) => covered.has(threadKey))) {
+      setSettledHolds((current) => {
+        const next = new Map(current);
+        for (const threadKey of covered) next.delete(threadKey);
+        return next;
+      });
+    }
+  }, [archivedSnapshots, settledHolds]);
   const threadListV2Items = useMemo(() => {
     if (!threadListV2Enabled) return [];
-    const liveKeys = new Set(
-      props.threads.map((thread) => scopedThreadKey(thread.environmentId, thread.id)),
-    );
-    const archived = archivedSnapshots.flatMap(({ environmentId, snapshot }) =>
-      snapshot.threads
-        .map((thread) => ({ ...thread, environmentId }))
-        .filter((thread) => !liveKeys.has(scopedThreadKey(thread.environmentId, thread.id))),
-    );
+    const merged = new Map<string, EnvironmentThreadShell>();
+    for (const { environmentId, snapshot } of archivedSnapshots) {
+      for (const thread of snapshot.threads) {
+        merged.set(scopedThreadKey(environmentId, thread.id), { ...thread, environmentId });
+      }
+    }
+    for (const thread of props.threads) {
+      merged.set(scopedThreadKey(thread.environmentId, thread.id), thread);
+    }
+    for (const [threadKey, shell] of settledHolds) {
+      if (merged.has(threadKey)) continue;
+      merged.set(threadKey, shell);
+    }
     return buildThreadListV2Items({
-      threads: [...props.threads, ...archived],
+      threads: [...merged.values()],
       environmentId: props.selectedEnvironmentId,
       searchQuery: props.searchQuery,
+      changeRequestStateByKey,
     });
   }, [
+    changeRequestStateByKey,
+    settledHolds,
     archivedSnapshots,
     props.searchQuery,
     props.selectedEnvironmentId,
@@ -330,20 +393,27 @@ export function HomeScreen(props: HomeScreenProps) {
         onSelectThread={props.onSelectThread}
         onArchiveThread={props.onArchiveThread}
         onDeleteThread={props.onDeleteThread}
-        onSettleThread={props.onSettleThread}
+        onSettleThread={handleSettleThread}
         onUnsettleThread={props.onUnsettleThread}
+        onChangeRequestState={handleChangeRequestState}
+        projectCwd={
+          projectCwdByKey.get(scopedProjectKey(item.thread.environmentId, item.thread.projectId)) ??
+          null
+        }
         onSwipeableClose={handleSwipeableClose}
         onSwipeableWillOpen={handleSwipeableWillOpen}
       />
     ),
     [
+      handleChangeRequestState,
+      handleSettleThread,
       handleSwipeableClose,
       handleSwipeableWillOpen,
       projectByKey,
+      projectCwdByKey,
       props.onArchiveThread,
       props.onDeleteThread,
       props.onSelectThread,
-      props.onSettleThread,
       props.onUnsettleThread,
     ],
   );
@@ -445,8 +515,12 @@ export function HomeScreen(props: HomeScreenProps) {
   const keyExtractor = useCallback((item: HomeListItem) => item.key, []);
 
   /* Empty states */
+  // v2 shows archived threads as its settled tail, so an archived-only
+  // workspace still has a list to render there.
   const hasAnyThreads =
-    props.threads.some((thread) => thread.archivedAt === null) || props.pendingTasks.length > 0;
+    props.threads.some((thread) => thread.archivedAt === null) ||
+    props.pendingTasks.length > 0 ||
+    (threadListV2Enabled && threadListV2Items.length > 0);
   const hasResults = projectGroups.length > 0;
   const selectedEnvironmentLabel =
     props.selectedEnvironmentId === null

@@ -15,8 +15,10 @@ import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/time";
 import { useThemeColor } from "../../lib/useThemeColor";
+import { useThreadPr } from "../../state/use-thread-pr";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { resolveThreadListV2Status, type ThreadListV2Status } from "./threadListV2";
+import { useEffect } from "react";
 
 /**
  * Thread List v2 rows. The design language is the web sidebar v2 (status
@@ -71,11 +73,17 @@ const PRESS_SPRING = { damping: 30, stiffness: 400 } as const;
 /**
  * Pressable that springs down to 97% while touched — the "this is a real
  * object under your finger" signal every native list app ships.
+ *
+ * Accepts an injected `onLongPress` and forwards it to the inner Pressable:
+ * on Android, ControlPillMenu opens its menu by cloning its immediate child
+ * with an onLongPress prop, so this component must be that child and must
+ * route the handler to something that actually handles presses.
  */
 function PressableScaleCard(props: {
   readonly accessibilityHint: string;
   readonly accessibilityLabel: string;
   readonly onPress: () => void;
+  readonly onLongPress?: () => void;
   readonly children: ReactNode;
 }) {
   const scale = useSharedValue(1);
@@ -88,6 +96,7 @@ function PressableScaleCard(props: {
         accessibilityLabel={props.accessibilityLabel}
         accessibilityRole="button"
         onPress={props.onPress}
+        {...(props.onLongPress ? { onLongPress: props.onLongPress } : {})}
         onPressIn={() => {
           scale.value = withSpring(0.97, PRESS_SPRING);
         }}
@@ -128,6 +137,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly onUnsettleThread: (thread: EnvironmentThreadShell) => void;
   readonly onSwipeableWillOpen: (methods: SwipeableMethods) => void;
   readonly onSwipeableClose: (methods: SwipeableMethods) => void;
+  /** Reports this row's live PR state up so the partition can auto-settle
+      merged/closed work (mirrors web's onChangeRequestState). */
+  readonly onChangeRequestState?: (
+    threadKey: string,
+    state: "open" | "closed" | "merged" | null,
+  ) => void;
+  readonly projectCwd?: string | null;
   readonly simultaneousSwipeGesture?: ComponentProps<
     typeof ThreadSwipeable
   >["simultaneousWithExternalGesture"];
@@ -141,7 +157,15 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     onDeleteThread,
     onSettleThread,
     onUnsettleThread,
+    onChangeRequestState,
   } = props;
+
+  const pr = useThreadPr(thread, props.projectCwd ?? props.project?.workspaceRoot ?? null);
+  const prState = pr?.state ?? null;
+  const threadKey = `${thread.environmentId}:${thread.id}`;
+  useEffect(() => {
+    onChangeRequestState?.(threadKey, prState);
+  }, [onChangeRequestState, prState, threadKey]);
 
   const iconSubtleColor = useThemeColor("--color-icon-subtle");
   const screenColor = useThemeColor("--color-screen");
@@ -187,15 +211,17 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const rowContent = (close: () => void) =>
     variant === "card" ? (
-      <View className="bg-screen px-4 py-1.5">
-        <PressableScaleCard
-          accessibilityHint="Opens the thread. Swipe left to settle."
-          accessibilityLabel={thread.title}
-          onPress={() => {
-            close();
-            onSelectThread(thread);
-          }}
-        >
+      // PressableScaleCard must be the ROOT here: ControlPillMenu injects
+      // its Android long-press by cloning this element.
+      <PressableScaleCard
+        accessibilityHint="Opens the thread. Swipe left to settle."
+        accessibilityLabel={thread.title}
+        onPress={() => {
+          close();
+          onSelectThread(thread);
+        }}
+      >
+        <View className="bg-screen px-4 py-1.5">
           {/* Solid raised card: bg-card with no border reads as an object,
               not a notification banner. */}
           <View
@@ -281,8 +307,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               />
             </View>
           </View>
-        </PressableScaleCard>
-      </View>
+        </View>
+      </PressableScaleCard>
     ) : (
       <Pressable
         accessibilityHint="Opens the thread. Swipe left to un-settle."
@@ -326,6 +352,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       <ThreadSwipeable
         backgroundColor={screenColor}
         enableTrackpadSwipe
+        // Full swipe commits the advertised lifecycle action (Settle /
+        // Un-settle), never the destructive delete.
+        fullSwipeAction="primary"
         fullSwipeWidth={windowWidth - 32}
         onDelete={handleDelete}
         onSwipeableClose={props.onSwipeableClose}

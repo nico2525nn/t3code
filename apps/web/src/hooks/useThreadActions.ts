@@ -360,6 +360,22 @@ export function useThreadActions() {
   const settleThread = useCallback(
     async (target: ScopedThreadRef) => {
       const resolved = resolveThreadTarget(target);
+      // Settle rides archive, so it inherits archive's guard: never
+      // interrupt a thread mid-turn.
+      if (
+        resolved &&
+        resolved.thread.session?.status === "running" &&
+        resolved.thread.session.activeTurnId != null
+      ) {
+        return AsyncResult.failure(
+          Cause.fail(
+            new ThreadArchiveBlockedError({
+              environmentId: resolved.threadRef.environmentId,
+              threadId: resolved.threadRef.threadId,
+            }),
+          ),
+        );
+      }
       const settleResult = await settleThreadMutation({
         environmentId: target.environmentId,
         input: { threadId: target.threadId },
@@ -484,12 +500,20 @@ export function useThreadActions() {
   );
 
   const unsettleThread = useCallback(
-    (target: ScopedThreadRef) =>
-      unsettleThreadMutation({
+    async (target: ScopedThreadRef) => {
+      // Auto-settled rows (inactivity / merged PR) are not archived; sending
+      // unarchive for them would be rejected by the server. There is nothing
+      // to undo client-side, so succeed as a no-op.
+      const resolved = resolveThreadTarget(target);
+      if (resolved && resolved.thread.archivedAt === null) {
+        return AsyncResult.success(undefined);
+      }
+      return unsettleThreadMutation({
         environmentId: target.environmentId,
         input: { threadId: target.threadId },
-      }),
-    [unsettleThreadMutation],
+      });
+    },
+    [resolveThreadTarget, unsettleThreadMutation],
   );
 
   const confirmAndDeleteThread = useCallback(

@@ -62,6 +62,24 @@ function useThreadActionExecutor(
       inFlightThreadKeys.current.add(key);
       selectionHaptic();
       try {
+        // Settle rides archive, so it inherits archive's guard: never
+        // interrupt a thread mid-turn.
+        if (
+          (action === "settle" || action === "archive") &&
+          thread.session?.status === "running" &&
+          thread.session.activeTurnId != null
+        ) {
+          Alert.alert(
+            actionFailureTitle(action),
+            "This thread is working. Interrupt it first, then try again.",
+          );
+          return;
+        }
+        // Auto-settled rows (inactivity / merged PR) are not archived;
+        // unarchiving them would be rejected. Nothing to undo — no-op.
+        if (action === "unsettle" && thread.archivedAt === null) {
+          return;
+        }
         const mutation =
           action === "settle"
             ? settleMutation

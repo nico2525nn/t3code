@@ -415,7 +415,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 type="button"
                 aria-label="Un-settle thread"
                 onClick={handleUnsettleClick}
-                className="absolute inset-y-0 right-0 inline-flex items-center gap-1 border border-border bg-background px-2 text-[11px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/v2-row:opacity-100"
+                className="absolute inset-y-0 right-0 inline-flex items-center gap-1 border border-border bg-background px-2 text-[11px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
               >
                 <Undo2Icon className="size-3" />
               </button>
@@ -424,7 +424,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 type="button"
                 aria-label="Settle thread"
                 onClick={handleSettleClick}
-                className="absolute inset-y-0 right-0 inline-flex items-center gap-1 border border-border bg-background px-2 text-[11px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/v2-row:opacity-100"
+                className="absolute inset-y-0 right-0 inline-flex items-center gap-1 border border-border bg-background px-2 text-[11px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
               >
                 <CheckIcon className="size-3" />
               </button>
@@ -504,7 +504,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               type="button"
               aria-label="Settle thread"
               onClick={handleSettleClick}
-              className="absolute inset-y-0 right-0 inline-flex items-center gap-1 border border-border bg-background px-2 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/v2-row:opacity-100"
+              className="absolute inset-y-0 right-0 inline-flex items-center gap-1 border border-border bg-background px-2 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
             >
               <CheckIcon className="size-3" />
               Settle
@@ -715,20 +715,53 @@ export default function SidebarV2() {
     [environments],
   );
   const { snapshots: archivedSnapshots } = useArchivedThreadSnapshots(archivedEnvironmentIds);
+  // Bridge the gap between the live stream dropping a just-settled thread
+  // (thread.archived → thread-removed) and the archived snapshot returning
+  // it: hold the shell we settled, marked archived, until either source
+  // carries the thread again. Held explicitly at settle time — not inferred
+  // from disappearance — so deleted threads are never resurrected.
+  const [settledHolds, setSettledHolds] = useState<ReadonlyMap<string, EnvironmentThreadShell>>(
+    () => new Map(),
+  );
   const allThreads = useMemo(() => {
-    const liveKeys = new Set(
-      threads.map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
-    );
-    const archived = archivedSnapshots.flatMap(({ environmentId, snapshot }) =>
-      snapshot.threads
-        .map((thread) => ({ ...thread, environmentId }))
-        .filter(
-          (thread) =>
-            !liveKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
-        ),
-    );
-    return [...threads, ...archived];
-  }, [archivedSnapshots, threads]);
+    const merged = new Map<string, EnvironmentThreadShell>();
+    for (const { environmentId, snapshot } of archivedSnapshots) {
+      for (const thread of snapshot.threads) {
+        merged.set(scopedThreadKey(scopeThreadRef(environmentId, thread.id)), {
+          ...thread,
+          environmentId,
+        });
+      }
+    }
+    // Live shells win over snapshot copies.
+    for (const thread of threads) {
+      merged.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread);
+    }
+    for (const [threadKey, shell] of settledHolds) {
+      if (merged.has(threadKey)) continue;
+      merged.set(threadKey, shell);
+    }
+    return [...merged.values()];
+  }, [archivedSnapshots, settledHolds, threads]);
+  // Drop a hold once the archived snapshot carries the thread — the steady
+  // state. (Not the live stream: the thread is still live when the hold is
+  // created, and holds are inert while a real source has the thread anyway.)
+  useEffect(() => {
+    if (settledHolds.size === 0) return;
+    const covered = new Set<string>();
+    for (const { environmentId, snapshot } of archivedSnapshots) {
+      for (const thread of snapshot.threads) {
+        covered.add(scopedThreadKey(scopeThreadRef(environmentId, thread.id)));
+      }
+    }
+    if ([...settledHolds.keys()].some((threadKey) => covered.has(threadKey))) {
+      setSettledHolds((current) => {
+        const next = new Map(current);
+        for (const threadKey of covered) next.delete(threadKey);
+        return next;
+      });
+    }
+  }, [archivedSnapshots, settledHolds]);
 
   const { activeThreads, settledThreads } = useMemo(() => {
     const now = `${nowMinute}:00.000Z`;
@@ -894,8 +927,26 @@ export default function SidebarV2() {
   const attemptSettle = useCallback(
     (threadRef: ScopedThreadRef) => {
       void (async () => {
+        // Hold the shell before dispatching: the live stream drops the
+        // thread on archive, and the settled tail must not flicker while
+        // the archived snapshot refresh is in flight.
+        const threadKey = scopedThreadKey(threadRef);
+        const shell = threadByKeyRef.current.get(threadKey);
+        if (shell) {
+          setSettledHolds((current) =>
+            new Map(current).set(threadKey, {
+              ...shell,
+              archivedAt: shell.archivedAt ?? new Date().toISOString(),
+            }),
+          );
+        }
         const result = await settleThread(threadRef);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          setSettledHolds((current) => {
+            const next = new Map(current);
+            next.delete(threadKey);
+            return next;
+          });
           const error = squashAtomCommandFailure(result);
           toastManager.add(
             stackedThreadToast({

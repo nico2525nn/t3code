@@ -62,6 +62,8 @@ export function buildThreadListV2Items(input: {
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly environmentId: EnvironmentId | null;
   readonly searchQuery: string;
+  /** Per-row PR state reported up by visible rows ("env:threadId" keys). */
+  readonly changeRequestStateByKey?: ReadonlyMap<string, "open" | "closed" | "merged">;
   readonly autoSettleAfterDays?: number;
   /** Injectable for tests; defaults to now. */
   readonly now?: string;
@@ -77,9 +79,9 @@ export function buildThreadListV2Items(input: {
     // archive IS settle, so they render as the settled tail.
     if (input.environmentId !== null && thread.environmentId !== input.environmentId) continue;
     if (query.length > 0 && !thread.title.toLocaleLowerCase().includes(query)) continue;
-    // PR state feeds the web partition per-row; mobile shells don't watch PRs
-    // from the list, so the partition here is archive/session/inactivity.
-    if (effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState: null })) {
+    const changeRequestState =
+      input.changeRequestStateByKey?.get(`${thread.environmentId}:${thread.id}`) ?? null;
+    if (effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState })) {
       settled.push(thread);
     } else {
       active.push(thread);
