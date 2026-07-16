@@ -3,10 +3,12 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import type { MenuAction } from "@react-native-menu/menu";
-import { memo, useCallback, useMemo, type ComponentProps } from "react";
+import { memo, useCallback, useMemo, type ComponentProps, type ReactNode } from "react";
 import { Platform, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
+import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
@@ -17,10 +19,12 @@ import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { resolveThreadListV2Status, type ThreadListV2Status } from "./threadListV2";
 
 /**
- * Thread List v2 rows, ported from the web sidebar v2 (SidebarV2.tsx):
- * brutalist square cards where a thin title bar carries the project
- * favicon + name as chrome, a solid edge strip carries status color, and
- * settled threads collapse to dimmed slim rows.
+ * Thread List v2 rows. The design language is the web sidebar v2 (status
+ * edge strip, mono project labels, settled tail), but the card anatomy is
+ * native iOS list-app, not the web's window chrome: a solid raised surface
+ * (no outline), a leading favicon tile as the touch anchor, a trailing
+ * chevron, and spring press feedback. Bordered translucent boxes with a
+ * header row read as notifications — information, not buttons.
  */
 
 const MONO_FONT = Platform.select({
@@ -62,12 +66,47 @@ const SLIM_MENU_ACTIONS: MenuAction[] = [
   { id: "delete", title: "Delete", image: "trash", attributes: { destructive: true } },
 ];
 
+const PRESS_SPRING = { damping: 30, stiffness: 400 } as const;
+
+/**
+ * Pressable that springs down to 97% while touched — the "this is a real
+ * object under your finger" signal every native list app ships.
+ */
+function PressableScaleCard(props: {
+  readonly accessibilityHint: string;
+  readonly accessibilityLabel: string;
+  readonly onPress: () => void;
+  readonly children: ReactNode;
+}) {
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <Animated.View style={animatedStyle}>
+      <Pressable
+        accessibilityHint={props.accessibilityHint}
+        accessibilityLabel={props.accessibilityLabel}
+        accessibilityRole="button"
+        onPress={props.onPress}
+        onPressIn={() => {
+          scale.value = withSpring(0.97, PRESS_SPRING);
+        }}
+        onPressOut={() => {
+          scale.value = withSpring(1, PRESS_SPRING);
+        }}
+      >
+        {props.children}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 export const ThreadListV2SettledDivider = memo(function ThreadListV2SettledDivider() {
   const separatorColor = useThemeColor("--color-separator");
   return (
-    <View className="mb-1.5 mt-3 flex-row items-center gap-2 px-5">
+    <View className="mb-2 mt-4 flex-row items-center gap-2.5 px-5">
       <Text
-        className="text-3xs font-t3-bold uppercase text-foreground-tertiary"
+        className="text-2xs font-t3-bold uppercase text-foreground-tertiary"
         style={{ fontFamily: MONO_FONT, letterSpacing: 1.8 }}
       >
         Settled
@@ -104,7 +143,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     onUnsettleThread,
   } = props;
 
-  const separatorColor = useThemeColor("--color-separator");
+  const iconSubtleColor = useThemeColor("--color-icon-subtle");
   const screenColor = useThemeColor("--color-screen");
 
   const status = resolveThreadListV2Status(thread);
@@ -148,86 +187,102 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const rowContent = (close: () => void) =>
     variant === "card" ? (
-      <Pressable
-        accessibilityHint="Opens the thread. Swipe left to settle."
-        accessibilityLabel={thread.title}
-        accessibilityRole="button"
-        className="bg-screen"
-        onPress={() => {
-          close();
-          onSelectThread(thread);
-        }}
-        style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-      >
-        <View className="px-4 py-1">
-          <View className="overflow-hidden border border-black/12 bg-black/[0.02] dark:border-white/12 dark:bg-white/[0.04]">
-            {/* Title bar: project favicon + name as chrome. */}
-            <View className="flex-row items-center gap-1.5 border-b border-black/10 bg-black/[0.03] py-1 pl-3 pr-2.5 dark:border-white/10 dark:bg-white/[0.03]">
+      <View className="bg-screen px-4 py-1.5">
+        <PressableScaleCard
+          accessibilityHint="Opens the thread. Swipe left to settle."
+          accessibilityLabel={thread.title}
+          onPress={() => {
+            close();
+            onSelectThread(thread);
+          }}
+        >
+          {/* Solid raised card: bg-card with no border reads as an object,
+              not a notification banner. */}
+          <View
+            className="flex-row items-center overflow-hidden bg-card"
+            style={{ borderRadius: 18, borderCurve: "continuous", minHeight: 84 }}
+          >
+            {statusEdge ? <View className={cn("h-full w-1", statusEdge)} /> : null}
+            {/* Favicon tile: the leading touch anchor, app-icon style. */}
+            <View
+              className="ml-3 mr-3 items-center justify-center bg-subtle"
+              style={{ width: 38, height: 38, borderRadius: 10, borderCurve: "continuous" }}
+            >
               {props.project ? (
                 <ProjectFavicon
                   environmentId={thread.environmentId}
-                  size={14}
+                  size={22}
                   projectTitle={props.project.title}
                   workspaceRoot={props.project.workspaceRoot}
                 />
               ) : null}
-              <Text
-                className="flex-1 text-3xs font-t3-bold uppercase text-foreground-muted"
-                numberOfLines={1}
-                style={{ fontFamily: MONO_FONT, letterSpacing: 1.4 }}
-              >
-                {props.project?.title ?? ""}
-              </Text>
-              <Text
-                className={cn(
-                  "text-3xs tabular-nums",
-                  status === "approval"
-                    ? "text-amber-600 dark:text-amber-400"
-                    : "text-foreground-tertiary",
-                )}
-                style={{ fontFamily: MONO_FONT }}
-              >
-                {timeLabel}
-              </Text>
             </View>
-            {/* Status edge strip spans the full card over both zones. */}
-            {statusEdge ? (
-              <View className={cn("absolute bottom-0 left-0 top-0 w-[3px]", statusEdge)} />
-            ) : null}
-            <View className="px-3 py-2">
-              <Text className="text-base font-t3-medium text-foreground" numberOfLines={2}>
+            <View className="flex-1 py-3 pr-2">
+              <View className="flex-row items-center gap-2">
+                <Text
+                  className="flex-1 text-2xs font-t3-bold uppercase text-foreground-tertiary"
+                  numberOfLines={1}
+                  style={{ fontFamily: MONO_FONT, letterSpacing: 1.2 }}
+                >
+                  {props.project?.title ?? ""}
+                </Text>
+                <Text
+                  className={cn(
+                    "text-2xs tabular-nums",
+                    status === "approval"
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-foreground-tertiary",
+                  )}
+                  style={{ fontFamily: MONO_FONT }}
+                >
+                  {timeLabel}
+                </Text>
+              </View>
+              <Text className="mt-0.5 text-lg font-t3-bold text-foreground" numberOfLines={2}>
                 {thread.title}
               </Text>
-              <View className="mt-1 flex-row items-center gap-2">
-                {statusWord ? (
-                  <Text
-                    className={cn("text-3xs font-t3-bold", statusWord.className)}
-                    style={{ fontFamily: MONO_FONT, letterSpacing: 0.9 }}
-                  >
-                    {statusWord.label}
-                  </Text>
-                ) : null}
-                {status === "failed" && thread.session?.lastError ? (
-                  <Text
-                    className="flex-1 text-3xs text-red-600/80 dark:text-red-400/80"
-                    numberOfLines={1}
-                  >
-                    {thread.session.lastError}
-                  </Text>
-                ) : thread.branch ? (
-                  <Text
-                    className="flex-1 text-3xs text-foreground-muted"
-                    numberOfLines={1}
-                    style={{ fontFamily: MONO_FONT }}
-                  >
-                    {thread.branch}
-                  </Text>
-                ) : null}
-              </View>
+              {statusWord || thread.branch || (status === "failed" && thread.session?.lastError) ? (
+                <View className="mt-0.5 flex-row items-center gap-2">
+                  {statusWord ? (
+                    <Text
+                      className={cn("text-sm font-t3-bold", statusWord.className)}
+                      style={{ fontFamily: MONO_FONT, letterSpacing: 0.7 }}
+                    >
+                      {statusWord.label}
+                    </Text>
+                  ) : null}
+                  {status === "failed" && thread.session?.lastError ? (
+                    <Text
+                      className="flex-1 text-sm text-red-600/80 dark:text-red-400/80"
+                      numberOfLines={1}
+                    >
+                      {thread.session.lastError}
+                    </Text>
+                  ) : thread.branch ? (
+                    <Text
+                      className="flex-1 text-sm text-foreground-muted"
+                      numberOfLines={1}
+                      style={{ fontFamily: MONO_FONT }}
+                    >
+                      {thread.branch}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+            {/* Trailing chevron: the universal "this navigates" affordance. */}
+            <View className="pr-3.5">
+              <SymbolView
+                name="chevron.right"
+                size={14}
+                tintColor={iconSubtleColor}
+                type="monochrome"
+                weight="semibold"
+              />
             </View>
           </View>
-        </View>
-      </Pressable>
+        </PressableScaleCard>
+      </View>
     ) : (
       <Pressable
         accessibilityHint="Opens the thread. Swipe left to un-settle."
@@ -241,22 +296,22 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
       >
         {/* Settled history recedes: dimmed favicon + muted title. */}
-        <View className="min-h-[40px] flex-row items-center gap-2.5 px-5 py-2">
+        <View className="min-h-[48px] flex-row items-center gap-3 px-5 py-2.5">
           {props.project ? (
             <View className="opacity-40">
               <ProjectFavicon
                 environmentId={thread.environmentId}
-                size={15}
+                size={18}
                 projectTitle={props.project.title}
                 workspaceRoot={props.project.workspaceRoot}
               />
             </View>
           ) : null}
-          <Text className="flex-1 text-base text-foreground-muted" numberOfLines={1}>
+          <Text className="flex-1 text-lg text-foreground-muted" numberOfLines={1}>
             {thread.title}
           </Text>
           <Text
-            className="text-3xs tabular-nums text-foreground-tertiary"
+            className="text-sm tabular-nums text-foreground-tertiary"
             style={{ fontFamily: MONO_FONT }}
           >
             {relativeTime(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt)}
@@ -290,9 +345,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           </ControlPillMenu>
         )}
       </ThreadSwipeable>
-      {props.showSettledDivider ? null : variant === "slim" ? (
-        <View className="mx-5 h-px" style={{ backgroundColor: separatorColor, opacity: 0.5 }} />
-      ) : null}
     </>
   );
 });
