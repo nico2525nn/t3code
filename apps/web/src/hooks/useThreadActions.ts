@@ -391,10 +391,16 @@ export function useThreadActions() {
       if (thread.worktreePath === null) {
         return settleResult;
       }
-      const threads = readEnvironmentThreadRefs(threadRef.environmentId).flatMap((ref) => {
+      // Settle = archive drops the thread from the live shell store, so the
+      // orphan computation must re-include the shell we just settled — the
+      // live threads are only the OTHER worktree users.
+      const liveThreads = readEnvironmentThreadRefs(threadRef.environmentId).flatMap((ref) => {
         const shell = readThreadShell(ref);
         return shell === null ? [] : [shell];
       });
+      const threads = liveThreads.some((candidate) => candidate.id === threadRef.threadId)
+        ? liveThreads
+        : [...liveThreads, thread];
       const orphanedWorktreePath = getOrphanedWorktreePathForThread(threads, threadRef.threadId);
       const threadProject = readProject({
         environmentId: threadRef.environmentId,
@@ -425,16 +431,24 @@ export function useThreadActions() {
                 // thread can have woken up or another thread adopted the
                 // worktree since the settle happened.
                 const currentShell = readThreadShell(threadRef);
-                const currentThreads = readEnvironmentThreadRefs(threadRef.environmentId).flatMap(
-                  (ref) => {
-                    const shell = readThreadShell(ref);
-                    return shell === null ? [] : [shell];
-                  },
-                );
+                const currentLiveThreads = readEnvironmentThreadRefs(
+                  threadRef.environmentId,
+                ).flatMap((ref) => {
+                  const shell = readThreadShell(ref);
+                  return shell === null ? [] : [shell];
+                });
+                // Archived threads leave the live store entirely, so absence
+                // IS the settled state; a live shell means it woke back up
+                // (unarchive puts it back in the stream).
+                const stillSettled = currentShell === null || currentShell.archivedAt != null;
+                const currentThreads = currentLiveThreads.some(
+                  (candidate) => candidate.id === threadRef.threadId,
+                )
+                  ? currentLiveThreads
+                  : [...currentLiveThreads, thread];
                 const stillOrphaned =
                   getOrphanedWorktreePathForThread(currentThreads, threadRef.threadId) ===
                   orphanedWorktreePath;
-                const stillSettled = currentShell?.archivedAt != null;
                 if (!stillOrphaned || !stillSettled) {
                   toastManager.add(
                     stackedThreadToast({

@@ -189,24 +189,27 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     [handleArchive, handleDelete, handleSettle, handleUnsettle],
   );
 
-  // Swipe: the v2 primary action is Settle (cards) / Un-settle (slim) —
-  // the lifecycle transition IS the organizing gesture of this list.
+  // Swipe: the v2 primary action is the lifecycle transition. Un-settle only
+  // exists when there is an archive to undo; an auto-settled slim row
+  // (inactivity / merged PR, archivedAt null) offers Settle, which archives
+  // it — the explicit "keep it settled" the row can actually deliver.
+  const canUnsettle = variant === "slim" && thread.archivedAt !== null;
   const primaryAction = useMemo(
     () =>
-      variant === "card"
+      canUnsettle
         ? {
-            accessibilityLabel: `Settle ${thread.title}`,
-            icon: "checkmark" as const,
-            label: "Settle",
-            onPress: handleSettle,
-          }
-        : {
             accessibilityLabel: `Un-settle ${thread.title}`,
             icon: "arrow.uturn.backward" as const,
             label: "Un-settle",
             onPress: handleUnsettle,
+          }
+        : {
+            accessibilityLabel: `Settle ${thread.title}`,
+            icon: "checkmark" as const,
+            label: "Settle",
+            onPress: handleSettle,
           },
-    [handleSettle, handleUnsettle, thread.title, variant],
+    [canUnsettle, handleSettle, handleUnsettle, thread.title],
   );
 
   const rowContent = (close: () => void) =>
@@ -366,7 +369,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       >
         {(close) => (
           <ControlPillMenu
-            actions={variant === "card" ? CARD_MENU_ACTIONS : SLIM_MENU_ACTIONS}
+            actions={canUnsettle ? SLIM_MENU_ACTIONS : CARD_MENU_ACTIONS}
             onPressAction={handleMenuAction}
             shouldOpenOnLongPress
           >

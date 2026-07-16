@@ -76,7 +76,8 @@ interface HomeScreenProps {
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
-  readonly onSettleThread: (thread: EnvironmentThreadShell) => void;
+  /** Resolves true iff the settle was dispatched and succeeded. */
+  readonly onSettleThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly onUnsettleThread: (thread: EnvironmentThreadShell) => void;
   readonly onSelectPendingTask: (pendingTask: PendingNewTask) => void;
   readonly onDeletePendingTask: (pendingTask: PendingNewTask) => void;
@@ -323,15 +324,51 @@ export function HomeScreen(props: HomeScreenProps) {
   );
   const handleSettleThread = useCallback(
     (thread: EnvironmentThreadShell) => {
+      const threadKey = scopedThreadKey(thread.environmentId, thread.id);
       setSettledHolds((current) =>
-        new Map(current).set(scopedThreadKey(thread.environmentId, thread.id), {
+        new Map(current).set(threadKey, {
           ...thread,
           archivedAt: thread.archivedAt ?? new Date().toISOString(),
         }),
       );
-      props.onSettleThread(thread);
+      void (async () => {
+        // Roll the optimistic hold back if the settle was blocked or failed —
+        // otherwise a never-archived thread would render settled forever.
+        const succeeded = await props.onSettleThread(thread);
+        if (!succeeded) {
+          setSettledHolds((current) => {
+            const next = new Map(current);
+            next.delete(threadKey);
+            return next;
+          });
+        }
+      })();
     },
     [props.onSettleThread],
+  );
+  // Delete and un-settle both invalidate any hold for the thread.
+  const dropSettledHold = useCallback((thread: EnvironmentThreadShell) => {
+    setSettledHolds((current) => {
+      const threadKey = scopedThreadKey(thread.environmentId, thread.id);
+      if (!current.has(threadKey)) return current;
+      const next = new Map(current);
+      next.delete(threadKey);
+      return next;
+    });
+  }, []);
+  const handleDeleteThread = useCallback(
+    (thread: EnvironmentThreadShell) => {
+      dropSettledHold(thread);
+      props.onDeleteThread(thread);
+    },
+    [dropSettledHold, props.onDeleteThread],
+  );
+  const handleUnsettleThread = useCallback(
+    (thread: EnvironmentThreadShell) => {
+      dropSettledHold(thread);
+      props.onUnsettleThread(thread);
+    },
+    [dropSettledHold, props.onUnsettleThread],
   );
   useEffect(() => {
     if (settledHolds.size === 0) return;
@@ -392,9 +429,9 @@ export function HomeScreen(props: HomeScreenProps) {
         }
         onSelectThread={props.onSelectThread}
         onArchiveThread={props.onArchiveThread}
-        onDeleteThread={props.onDeleteThread}
+        onDeleteThread={handleDeleteThread}
         onSettleThread={handleSettleThread}
-        onUnsettleThread={props.onUnsettleThread}
+        onUnsettleThread={handleUnsettleThread}
         onChangeRequestState={handleChangeRequestState}
         projectCwd={
           projectCwdByKey.get(scopedProjectKey(item.thread.environmentId, item.thread.projectId)) ??
@@ -406,15 +443,15 @@ export function HomeScreen(props: HomeScreenProps) {
     ),
     [
       handleChangeRequestState,
+      handleDeleteThread,
       handleSettleThread,
       handleSwipeableClose,
       handleSwipeableWillOpen,
+      handleUnsettleThread,
       projectByKey,
       projectCwdByKey,
       props.onArchiveThread,
-      props.onDeleteThread,
       props.onSelectThread,
-      props.onUnsettleThread,
     ],
   );
   const v2KeyExtractor = useCallback(
@@ -586,6 +623,28 @@ export function HomeScreen(props: HomeScreenProps) {
     </>
   );
 
+  // v2 renders queued offline tasks above the thread cards — they are not
+  // thread shells, so the v2 item builder never sees them, but they must
+  // stay visible and deletable while their environment is offline.
+  const v2ListHeader = (
+    <>
+      {listHeader}
+      {props.pendingTasks.map((pendingTask, index) => (
+        <PendingTaskListRow
+          key={pendingTask.message.messageId}
+          variant="compact"
+          pendingTask={pendingTask}
+          environmentLabel={
+            props.savedConnectionsById[pendingTask.message.environmentId]?.environmentLabel ?? null
+          }
+          isLast={index === props.pendingTasks.length - 1}
+          onSelectPendingTask={props.onSelectPendingTask}
+          onDeletePendingTask={props.onDeletePendingTask}
+        />
+      ))}
+    </>
+  );
+
   const listEmpty = !hasResults ? (
     hasSearchQuery ? (
       <EmptyState title="No results" detail={`No threads matching "${props.searchQuery}".`} />
@@ -610,7 +669,7 @@ export function HomeScreen(props: HomeScreenProps) {
             drawDistance={500}
             estimatedItemSize={ESTIMATED_THREAD_ROW_HEIGHT}
             extraData={projectByKey}
-            ListHeaderComponent={listHeader}
+            ListHeaderComponent={v2ListHeader}
             ListEmptyComponent={listEmpty}
             style={{ flex: 1 }}
             automaticallyAdjustsScrollIndicatorInsets={Platform.OS === "ios"}

@@ -979,6 +979,14 @@ export default function SidebarV2() {
           );
           return;
         }
+        // Un-settling invalidates any optimistic settled hold for the thread.
+        setSettledHolds((current) => {
+          const threadKey = scopedThreadKey(threadRef);
+          if (!current.has(threadKey)) return current;
+          const next = new Map(current);
+          next.delete(threadKey);
+          return next;
+        });
         refreshArchivedThreadsForEnvironment(threadRef.environmentId);
       })();
     },
@@ -1053,6 +1061,15 @@ export default function SidebarV2() {
           }
           return;
         }
+        // Deleted threads must not survive as settled holds or stale
+        // archived-snapshot rows.
+        setSettledHolds((current) => {
+          if (!current.has(threadKey)) return current;
+          const next = new Map(current);
+          next.delete(threadKey);
+          return next;
+        });
+        refreshArchivedThreadsForEnvironment(thread.environmentId);
       }
       removeFromSelection(threadKeys);
     },
@@ -1079,9 +1096,9 @@ export default function SidebarV2() {
         }
         const thread = threadByKeyRef.current.get(threadKey);
         if (!thread) return;
-        // Match what the user sees: a row renders slim iff it is in the
-        // settled partition, so the menu label mirrors that exact state.
-        const isSettled = settledThreadKeysRef.current.has(threadKey);
+        // Un-settle appears only when there is an archive to undo; an
+        // auto-settled (unarchived) slim row gets Settle, which archives it.
+        const isSettled = settledThreadKeysRef.current.has(threadKey) && thread.archivedAt !== null;
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             [
@@ -1146,7 +1163,17 @@ export default function SidebarV2() {
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
+              return;
             }
+            // A deleted thread must not survive as a settled hold or a stale
+            // archived-snapshot row.
+            setSettledHolds((current) => {
+              if (!current.has(threadKey)) return current;
+              const next = new Map(current);
+              next.delete(threadKey);
+              return next;
+            });
+            refreshArchivedThreadsForEnvironment(threadRef.environmentId);
             return;
           }
           default:
@@ -1445,7 +1472,11 @@ export default function SidebarV2() {
                   key={threadKey}
                   thread={thread}
                   variant={isCard ? "card" : "slim"}
-                  variantAction={isSettledRow ? "unsettle" : "settle"}
+                  // Un-settle only when there is an archive to undo. An
+                  // auto-settled row (inactivity / merged PR, archivedAt
+                  // null) offers Settle: archiving is the explicit "keep it
+                  // settled" the row can actually deliver.
+                  variantAction={isSettledRow && thread.archivedAt !== null ? "unsettle" : "settle"}
                   isActive={routeThreadKey === threadKey}
                   jumpLabel={showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null}
                   currentEnvironmentId={primaryEnvironmentId}

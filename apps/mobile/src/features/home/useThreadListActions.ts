@@ -40,6 +40,7 @@ function actionFailureTitle(action: ThreadListAction): string {
   return "Could not delete thread";
 }
 
+/** Resolves to true iff the action was dispatched and succeeded. */
 function useThreadActionExecutor(
   onCompleted?: (action: ThreadListAction, thread: EnvironmentThreadShell) => void,
 ) {
@@ -56,7 +57,7 @@ function useThreadActionExecutor(
     async (action: ThreadListAction, thread: EnvironmentThreadShell) => {
       const key = scopedThreadKey(thread.environmentId, thread.id);
       if (inFlightThreadKeys.current.has(key)) {
-        return;
+        return false;
       }
 
       inFlightThreadKeys.current.add(key);
@@ -73,12 +74,12 @@ function useThreadActionExecutor(
             actionFailureTitle(action),
             "This thread is working. Interrupt it first, then try again.",
           );
-          return;
+          return false;
         }
         // Auto-settled rows (inactivity / merged PR) are not archived;
         // unarchiving them would be rejected. Nothing to undo — no-op.
         if (action === "unsettle" && thread.archivedAt === null) {
-          return;
+          return false;
         }
         const mutation =
           action === "settle"
@@ -96,15 +97,16 @@ function useThreadActionExecutor(
         });
         if (result._tag === "Failure") {
           Alert.alert(actionFailureTitle(action), actionFailureMessage(action, result.cause));
-          return;
+          return false;
         }
-        // Settle rides archive, and archiving drops the thread from the live
-        // shell stream — refresh the archived snapshot so the v2 list can
-        // show it as a settled row without waiting for a manual reload.
-        if (action === "settle" || action === "unsettle" || action === "archive") {
-          refreshArchivedThreadsForEnvironment(thread.environmentId);
-        }
+        // Archived threads leave the live shell stream, and the v2 list
+        // renders them from the archived snapshot — keep it fresh for every
+        // action that changes what that snapshot should contain (delete
+        // included, or a deleted settled row lingers until some later
+        // refresh).
+        refreshArchivedThreadsForEnvironment(thread.environmentId);
         onCompleted?.(action, thread);
+        return true;
       } finally {
         inFlightThreadKeys.current.delete(key);
       }
@@ -123,7 +125,7 @@ function useThreadActionExecutor(
 }
 
 function useConfirmDeleteThread(
-  executeAction: (action: ThreadListAction, thread: EnvironmentThreadShell) => Promise<void>,
+  executeAction: (action: ThreadListAction, thread: EnvironmentThreadShell) => Promise<boolean>,
 ) {
   return useCallback(
     (thread: EnvironmentThreadShell) => {
@@ -159,7 +161,7 @@ function useConfirmDeleteThread(
 export function useThreadListActions(): {
   readonly archiveThread: (thread: EnvironmentThreadShell) => void;
   readonly confirmDeleteThread: (thread: EnvironmentThreadShell) => void;
-  readonly settleThread: (thread: EnvironmentThreadShell) => void;
+  readonly settleThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly unsettleThread: (thread: EnvironmentThreadShell) => void;
 } {
   const executeAction = useThreadActionExecutor();
@@ -171,9 +173,7 @@ export function useThreadListActions(): {
     [executeAction],
   );
   const settleThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
-      void executeAction("settle", thread);
-    },
+    async (thread: EnvironmentThreadShell) => (await executeAction("settle", thread)) === true,
     [executeAction],
   );
   const unsettleThread = useCallback(
