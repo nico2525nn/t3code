@@ -1,4 +1,8 @@
 import {
+  AVAILABLE_CONNECTION_STATE,
+  connectionProjectionPhase,
+} from "@t3tools/client-runtime/connection";
+import {
   createEnvironmentShellAtoms,
   createEnvironmentShellSummaryAtom,
   createEnvironmentSnapshotAtom,
@@ -24,7 +28,14 @@ export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
     return false;
   }
   for (const environmentId of catalog.value.entries.keys()) {
-    if (Option.isNone(get(environmentShell.stateValueAtom(environmentId)).snapshot)) {
+    if (Option.isSome(get(environmentShell.stateValueAtom(environmentId)).snapshot)) {
+      continue;
+    }
+    const connection = Option.getOrElse(
+      AsyncResult.value(get(environmentCatalog.stateAtom(environmentId))),
+      () => AVAILABLE_CONNECTION_STATE,
+    );
+    if (connectionProjectionPhase(connection) !== "disconnected") {
       return false;
     }
   }
