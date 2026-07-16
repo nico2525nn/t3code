@@ -23,7 +23,8 @@ import { useThemeColor } from "../../lib/useThemeColor";
 import { EmptyState } from "../../components/EmptyState";
 import type { WorkspaceState } from "../../state/workspaceModel";
 import type { SavedRemoteConnection } from "../../lib/connection";
-import { scopedProjectKey } from "../../lib/scopedEntities";
+import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
+import { useArchivedThreadSnapshots } from "../archive/useArchivedThreadSnapshots";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import {
@@ -284,17 +285,37 @@ export function HomeScreen(props: HomeScreenProps) {
 
   // Thread List v2 (beta): one flat list in creation order, no grouping.
   // Settled threads collapse into a recency tail below the card block.
-  const threadListV2Items = useMemo(
+  // Settle = archive in the client-only model, and the live shell stream
+  // drops archived threads — merge them back from the archived snapshot so
+  // they render as the settled tail. Live shells win on overlap.
+  const archivedEnvironmentIds = useMemo(
     () =>
-      threadListV2Enabled
-        ? buildThreadListV2Items({
-            threads: props.threads,
-            environmentId: props.selectedEnvironmentId,
-            searchQuery: props.searchQuery,
-          })
-        : [],
-    [props.searchQuery, props.selectedEnvironmentId, props.threads, threadListV2Enabled],
+      threadListV2Enabled ? props.environments.map((environment) => environment.environmentId) : [],
+    [props.environments, threadListV2Enabled],
   );
+  const { snapshots: archivedSnapshots } = useArchivedThreadSnapshots(archivedEnvironmentIds);
+  const threadListV2Items = useMemo(() => {
+    if (!threadListV2Enabled) return [];
+    const liveKeys = new Set(
+      props.threads.map((thread) => scopedThreadKey(thread.environmentId, thread.id)),
+    );
+    const archived = archivedSnapshots.flatMap(({ environmentId, snapshot }) =>
+      snapshot.threads
+        .map((thread) => ({ ...thread, environmentId }))
+        .filter((thread) => !liveKeys.has(scopedThreadKey(thread.environmentId, thread.id))),
+    );
+    return buildThreadListV2Items({
+      threads: [...props.threads, ...archived],
+      environmentId: props.selectedEnvironmentId,
+      searchQuery: props.searchQuery,
+    });
+  }, [
+    archivedSnapshots,
+    props.searchQuery,
+    props.selectedEnvironmentId,
+    props.threads,
+    threadListV2Enabled,
+  ]);
 
   const renderV2Item = useCallback(
     ({ item }: LegendListRenderItemProps<ThreadListV2Item>) => (

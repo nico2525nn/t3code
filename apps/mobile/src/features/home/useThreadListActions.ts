@@ -6,6 +6,7 @@ import { Alert } from "react-native";
 
 import { showConfirmDialog } from "../../components/ConfirmDialogHost";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { refreshArchivedThreadsForEnvironment } from "../archive/useArchivedThreadSnapshots";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 
@@ -45,8 +46,10 @@ function useThreadActionExecutor(
   const archiveMutation = useAtomCommand(threadEnvironment.archive, { reportFailure: false });
   const unarchiveMutation = useAtomCommand(threadEnvironment.unarchive, { reportFailure: false });
   const deleteMutation = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
-  const settleMutation = useAtomCommand(threadEnvironment.settle, { reportFailure: false });
-  const unsettleMutation = useAtomCommand(threadEnvironment.unsettle, { reportFailure: false });
+  // Client-only settled model: settle/unsettle ride the archive lifecycle so
+  // no server upgrade is required. See client-runtime threadSettled.ts.
+  const settleMutation = archiveMutation;
+  const unsettleMutation = unarchiveMutation;
   const inFlightThreadKeys = useRef(new Set<string>());
 
   const executeAction = useCallback(
@@ -59,30 +62,29 @@ function useThreadActionExecutor(
       inFlightThreadKeys.current.add(key);
       selectionHaptic();
       try {
-        const result =
+        const mutation =
           action === "settle"
-            ? await settleMutation({
-                environmentId: thread.environmentId,
-                input: { threadId: thread.id },
-              })
+            ? settleMutation
             : action === "unsettle"
-              ? await unsettleMutation({
-                  environmentId: thread.environmentId,
-                  input: { threadId: thread.id, reason: "user" },
-                })
-              : await (
-                  action === "archive"
-                    ? archiveMutation
-                    : action === "unarchive"
-                      ? unarchiveMutation
-                      : deleteMutation
-                )({
-                  environmentId: thread.environmentId,
-                  input: { threadId: thread.id },
-                });
+              ? unsettleMutation
+              : action === "archive"
+                ? archiveMutation
+                : action === "unarchive"
+                  ? unarchiveMutation
+                  : deleteMutation;
+        const result = await mutation({
+          environmentId: thread.environmentId,
+          input: { threadId: thread.id },
+        });
         if (result._tag === "Failure") {
           Alert.alert(actionFailureTitle(action), actionFailureMessage(action, result.cause));
           return;
+        }
+        // Settle rides archive, and archiving drops the thread from the live
+        // shell stream — refresh the archived snapshot so the v2 list can
+        // show it as a settled row without waiting for a manual reload.
+        if (action === "settle" || action === "unsettle" || action === "archive") {
+          refreshArchivedThreadsForEnvironment(thread.environmentId);
         }
         onCompleted?.(action, thread);
       } finally {

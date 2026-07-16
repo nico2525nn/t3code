@@ -31,8 +31,6 @@ function makeThread(
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
     ...input,
-    settledOverride: input.settledOverride ?? null,
-    settledAt: input.settledAt ?? null,
   };
 }
 
@@ -77,19 +75,19 @@ describe("sortThreadsForListV2", () => {
 });
 
 describe("buildThreadListV2Items", () => {
-  it("partitions settled threads into a slim tail with one divider", () => {
+  it("partitions archived (settled) threads into a slim tail with one divider", () => {
     const items = buildThreadListV2Items({
       threads: [
         makeThread({ id: ThreadId.make("active"), title: "Active" }),
         makeThread({
           id: ThreadId.make("settled"),
           title: "Settled",
-          settledOverride: "settled",
+          archivedAt: NOW,
         }),
         makeThread({
           id: ThreadId.make("settled-2"),
           title: "Settled 2",
-          settledOverride: "settled",
+          archivedAt: NOW,
         }),
       ],
       environmentId: null,
@@ -129,7 +127,7 @@ describe("buildThreadListV2Items", () => {
     expect(items.map((item) => item.thread.id)).toEqual(["newer-created", "older-created"]);
   });
 
-  it("excludes archived threads and filters by search query", () => {
+  it("keeps archived threads in the tail and filters by search query", () => {
     const items = buildThreadListV2Items({
       threads: [
         makeThread({ id: ThreadId.make("match"), title: "Fix login bug" }),
@@ -145,6 +143,9 @@ describe("buildThreadListV2Items", () => {
       now: NOW,
     });
 
-    expect(items.map((item) => item.thread.id)).toEqual(["match"]);
+    expect(items.map((item) => [item.thread.id, item.variant])).toEqual([
+      ["match", "card"],
+      ["archived", "slim"],
+    ]);
   });
 });

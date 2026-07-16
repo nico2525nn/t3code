@@ -54,10 +54,12 @@ export function useThreadActions() {
   const deleteThreadMutation = useAtomCommand(threadEnvironment.delete, {
     reportFailure: false,
   });
-  const settleThreadMutation = useAtomCommand(threadEnvironment.settle, {
+  // Client-only settled model: settle/unsettle ride the pre-existing archive
+  // lifecycle so no server upgrade is required. See threadSettled.ts.
+  const settleThreadMutation = useAtomCommand(threadEnvironment.archive, {
     reportFailure: false,
   });
-  const unsettleThreadMutation = useAtomCommand(threadEnvironment.unsettle, {
+  const unsettleThreadMutation = useAtomCommand(threadEnvironment.unarchive, {
     reportFailure: false,
   });
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession);
@@ -416,7 +418,7 @@ export function useThreadActions() {
                 const stillOrphaned =
                   getOrphanedWorktreePathForThread(currentThreads, threadRef.threadId) ===
                   orphanedWorktreePath;
-                const stillSettled = currentShell?.settledOverride === "settled";
+                const stillSettled = currentShell?.archivedAt != null;
                 if (!stillOrphaned || !stillSettled) {
                   toastManager.add(
                     stackedThreadToast({
@@ -485,7 +487,7 @@ export function useThreadActions() {
     (target: ScopedThreadRef) =>
       unsettleThreadMutation({
         environmentId: target.environmentId,
-        input: { threadId: target.threadId, reason: "user" },
+        input: { threadId: target.threadId },
       }),
     [unsettleThreadMutation],
   );

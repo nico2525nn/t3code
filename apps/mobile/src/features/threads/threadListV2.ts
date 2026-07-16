@@ -73,11 +73,12 @@ export function buildThreadListV2Items(input: {
   const active: EnvironmentThreadShell[] = [];
   const settled: EnvironmentThreadShell[] = [];
   for (const thread of input.threads) {
-    if (thread.archivedAt !== null) continue;
+    // Archived threads stay in the list: in the client-only settled model,
+    // archive IS settle, so they render as the settled tail.
     if (input.environmentId !== null && thread.environmentId !== input.environmentId) continue;
     if (query.length > 0 && !thread.title.toLocaleLowerCase().includes(query)) continue;
     // PR state feeds the web partition per-row; mobile shells don't watch PRs
-    // from the list, so the partition here is override/session/inactivity.
+    // from the list, so the partition here is archive/session/inactivity.
     if (effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState: null })) {
       settled.push(thread);
     } else {

@@ -18,7 +18,7 @@ const FRESH = "2026-04-09T00:00:00.000Z";
 const STALE = "2026-04-06T23:59:59.999Z";
 
 function makeShell(input: {
-  readonly settledOverride: OrchestrationThreadShell["settledOverride"];
+  readonly archivedAt: string | null;
   readonly activityAt: string | null;
   readonly sessionStatus?: "starting" | "running";
   readonly pending?: "approval" | "user-input";
@@ -46,9 +46,7 @@ function makeShell(input: {
           },
     createdAt: "2026-04-01T00:00:00.000Z",
     updatedAt: NOW,
-    archivedAt: null,
-    settledOverride: input.settledOverride,
-    settledAt: input.settledOverride === "settled" ? NOW : null,
+    archivedAt: input.archivedAt,
     session:
       input.sessionStatus === undefined
         ? null
@@ -70,7 +68,7 @@ function makeShell(input: {
 
 describe("threadLastActivityAt", () => {
   it("returns the latest real user or turn activity and ignores thread/session updates", () => {
-    const shell = makeShell({ settledOverride: null, activityAt: null, sessionStatus: "running" });
+    const shell = makeShell({ archivedAt: null, activityAt: null, sessionStatus: "running" });
     const withActivity: OrchestrationThreadShell = {
       ...shell,
       latestUserMessageAt: "2026-04-04T00:00:00.000Z",
@@ -90,7 +88,7 @@ describe("threadLastActivityAt", () => {
 });
 
 describe("effectiveSettled", () => {
-  const overrides = ["settled", "active", null] as const;
+  const archivedCases = [null, NOW] as const;
   const changeRequestStates = [undefined, "open", "merged"] as const;
   const inactivityCases = [
     ["fresh", FRESH],
@@ -99,23 +97,23 @@ describe("effectiveSettled", () => {
   ] as const;
   const runningCases = [false, true] as const;
   const pendingCases = [undefined, "approval", "user-input"] as const;
-  const truthTable = overrides.flatMap((settledOverride) =>
+  const truthTable = archivedCases.flatMap((archivedAt) =>
     changeRequestStates.flatMap((changeRequestState) =>
       inactivityCases.flatMap(([inactivity, activityAt]) =>
         runningCases.flatMap((running) =>
           pendingCases.map((pending) => ({
-            settledOverride,
+            archivedAt,
             changeRequestState,
             inactivity,
             activityAt,
             running,
             pending,
+            // Settled iff nothing blocks (pending work / live session) AND
+            // any positive signal holds: archived, merged PR, or staleness.
             expected:
               pending === undefined &&
-              (settledOverride === "settled" ||
-                (settledOverride === null &&
-                  !running &&
-                  (changeRequestState === "merged" || inactivity === "stale"))),
+              !running &&
+              (archivedAt !== null || changeRequestState === "merged" || inactivity === "stale"),
           })),
         ),
       ),
@@ -123,10 +121,10 @@ describe("effectiveSettled", () => {
   );
 
   it.each(truthTable)(
-    "override=$settledOverride pr=$changeRequestState inactivity=$inactivity running=$running pending=$pending",
-    ({ settledOverride, changeRequestState, activityAt, running, pending, expected }) => {
+    "archived=$archivedAt pr=$changeRequestState inactivity=$inactivity running=$running pending=$pending",
+    ({ archivedAt, changeRequestState, activityAt, running, pending, expected }) => {
       const shell = makeShell({
-        settledOverride,
+        archivedAt,
         activityAt,
         ...(running ? { sessionStatus: "running" as const } : {}),
         ...(pending === undefined ? {} : { pending }),
@@ -147,7 +145,7 @@ describe("effectiveSettled", () => {
   );
 
   it("treats closed change requests like merged ones", () => {
-    const shell = makeShell({ settledOverride: null, activityAt: null });
+    const shell = makeShell({ archivedAt: null, activityAt: null });
     expect(
       effectiveSettled(shell, {
         now: NOW,
@@ -157,9 +155,9 @@ describe("effectiveSettled", () => {
     ).toBe(true);
   });
 
-  it("never auto-settles a starting session", () => {
+  it("never settles a starting session, even when archived", () => {
     const shell = makeShell({
-      settledOverride: null,
+      archivedAt: NOW,
       activityAt: STALE,
       sessionStatus: "starting",
     });
@@ -174,10 +172,10 @@ describe("effectiveSettled", () => {
 
   it("uses a strict inactivity boundary and honors a null threshold", () => {
     const boundary = makeShell({
-      settledOverride: null,
+      archivedAt: null,
       activityAt: "2026-04-07T00:00:00.000Z",
     });
-    const stale = makeShell({ settledOverride: null, activityAt: STALE });
+    const stale = makeShell({ archivedAt: null, activityAt: STALE });
 
     expect(effectiveSettled(boundary, { now: NOW, autoSettleAfterDays: 3 })).toBe(false);
     expect(effectiveSettled(stale, { now: NOW, autoSettleAfterDays: null })).toBe(false);

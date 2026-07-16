@@ -26,6 +26,17 @@ export function threadLastActivityAt(shell: OrchestrationThreadShell): string | 
   return latest;
 }
 
+/**
+ * Client-only settled resolution, backed by the pre-existing archive
+ * lifecycle instead of dedicated settle commands — no server, protocol, or
+ * database changes required. "Settled" here means: the user archived the
+ * thread, its PR merged/closed, or it has been inactive past the auto-settle
+ * window.
+ *
+ * Trade-offs vs the event-sourced settled model (kept on the main feature
+ * branch): activity does not auto-un-settle an archived thread, and there is
+ * no distinct "keep active" override — un-settling is just unarchiving.
+ */
 export function effectiveSettled(
   shell: OrchestrationThreadShell,
   options: {
@@ -36,9 +47,8 @@ export function effectiveSettled(
 ): boolean {
   // Blocked work must remain visible even when a user explicitly settled it.
   if (shell.hasPendingApprovals || shell.hasPendingUserInput) return false;
-  if (shell.settledOverride === "settled") return true;
-  if (shell.settledOverride === "active") return false;
   if (shell.session?.status === "starting" || shell.session?.status === "running") return false;
+  if (shell.archivedAt !== null) return true;
   if (options.changeRequestState === "merged" || options.changeRequestState === "closed") {
     return true;
   }

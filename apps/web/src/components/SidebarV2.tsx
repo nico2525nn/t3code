@@ -43,6 +43,10 @@ import { readLocalApi } from "../localApi";
 import { useUiStateStore } from "../uiStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
+import {
+  refreshArchivedThreadsForEnvironment,
+  useArchivedThreadSnapshots,
+} from "../lib/archivedThreadsState";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenAddProjectCommandPalette } from "../commandPaletteContext";
 import { onOpenNewThreadPicker } from "../newThreadPickerBus";
@@ -702,14 +706,37 @@ export default function SidebarV2() {
     }
   }, [projectScopeKey, projects]);
 
+  // Archived threads ARE the settled tail in the client-only settled model,
+  // but the live shell stream drops a thread the moment it is archived
+  // (thread.archived → thread-removed). Merge them back in from the archived
+  // snapshot query; live shells win on the (brief) overlap.
+  const archivedEnvironmentIds = useMemo(
+    () => environments.map((environment) => environment.environmentId),
+    [environments],
+  );
+  const { snapshots: archivedSnapshots } = useArchivedThreadSnapshots(archivedEnvironmentIds);
+  const allThreads = useMemo(() => {
+    const liveKeys = new Set(
+      threads.map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+    );
+    const archived = archivedSnapshots.flatMap(({ environmentId, snapshot }) =>
+      snapshot.threads
+        .map((thread) => ({ ...thread, environmentId }))
+        .filter(
+          (thread) =>
+            !liveKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+        ),
+    );
+    return [...threads, ...archived];
+  }, [archivedSnapshots, threads]);
+
   const { activeThreads, settledThreads } = useMemo(() => {
     const now = `${nowMinute}:00.000Z`;
-    const visible = threads.filter(
+    const visible = allThreads.filter(
       (thread) =>
-        thread.archivedAt === null &&
-        (scopedProject === null ||
-          (thread.environmentId === scopedProject.environmentId &&
-            thread.projectId === scopedProject.id)),
+        scopedProject === null ||
+        (thread.environmentId === scopedProject.environmentId &&
+          thread.projectId === scopedProject.id),
     );
     const active: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
@@ -730,7 +757,7 @@ export default function SidebarV2() {
           Date.parse(left.latestUserMessageAt ?? left.updatedAt),
       ),
     };
-  }, [autoSettleAfterDays, changeRequestStateByKey, nowMinute, scopedProject, threads]);
+  }, [allThreads, autoSettleAfterDays, changeRequestStateByKey, nowMinute, scopedProject]);
 
   const orderedThreads = useMemo(
     () => [...activeThreads, ...settledThreads],
@@ -877,7 +904,11 @@ export default function SidebarV2() {
               description: error instanceof Error ? error.message : "An error occurred.",
             }),
           );
+          return;
         }
+        // Settle = archive: the shell stream drops the thread, so pull the
+        // archived snapshot immediately to keep it visible as a settled row.
+        refreshArchivedThreadsForEnvironment(threadRef.environmentId);
       })();
     },
     [settleThread],
@@ -895,7 +926,9 @@ export default function SidebarV2() {
               description: error instanceof Error ? error.message : "An error occurred.",
             }),
           );
+          return;
         }
+        refreshArchivedThreadsForEnvironment(threadRef.environmentId);
       })();
     },
     [unsettleThread],
