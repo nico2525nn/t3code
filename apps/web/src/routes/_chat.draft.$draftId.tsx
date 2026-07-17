@@ -8,6 +8,7 @@ import {
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { SidebarInset } from "../components/ui/sidebar";
+import { waitForDraftHeroTransition } from "../components/chat/draftHeroTransition";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useThread, useThreadRefs } from "../state/entities";
 
@@ -40,11 +41,22 @@ function DraftChatThreadRouteView() {
     if (!canonicalThreadRef) {
       return;
     }
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(canonicalThreadRef),
-      replace: true,
+
+    let cancelled = false;
+    void waitForDraftHeroTransition().then(() => {
+      if (cancelled) {
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(canonicalThreadRef),
+        replace: true,
+      });
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [canonicalThreadRef, navigate]);
 
   useEffect(() => {

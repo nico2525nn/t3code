@@ -214,6 +214,11 @@ import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import {
+  DRAFT_HERO_TRANSITION_ANIMATION_ID,
+  DRAFT_HERO_TRANSITION_DURATION_MS,
+  DRAFT_HERO_TRANSITION_EASING,
+} from "./chat/draftHeroTransition";
+import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
@@ -257,6 +262,65 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
+  const composerRef = useRef<HTMLDivElement | null>(null);
+  const lowerChromeRef = useRef<HTMLDivElement | null>(null);
+  const previousStateRef = useRef(isDraftHeroState);
+  const previousRectsRef = useRef<Array<DOMRect | null>>([null, null]);
+  const animationsRef = useRef<Animation[]>([]);
+  const attachComposerRef = (element: HTMLDivElement | null) => {
+    composerRef.current = element;
+  };
+  const attachLowerChromeRef = (element: HTMLDivElement | null) => {
+    lowerChromeRef.current = element;
+  };
+
+  useLayoutEffect(() => {
+    const elements = [composerRef.current, lowerChromeRef.current] as const;
+    const nextRects = elements.map((element) => element?.getBoundingClientRect() ?? null);
+    const stateChanged = previousStateRef.current !== isDraftHeroState;
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+    animationsRef.current.forEach((animation) => animation.cancel());
+    animationsRef.current = [];
+
+    if (stateChanged && !prefersReducedMotion) {
+      elements.forEach((element, index) => {
+        const previousRect = previousRectsRef.current[index];
+        const nextRect = nextRects[index];
+        if (!element || !previousRect || !nextRect || typeof element.animate !== "function") {
+          return;
+        }
+
+        const translateX = previousRect.left - nextRect.left;
+        const translateY = previousRect.top - nextRect.top;
+        if (Math.abs(translateX) < 0.5 && Math.abs(translateY) < 0.5) {
+          return;
+        }
+
+        const animation = element.animate(
+          [
+            { transform: `translate3d(${translateX}px, ${translateY}px, 0)` },
+            { transform: "translate3d(0, 0, 0)" },
+          ],
+          {
+            duration: DRAFT_HERO_TRANSITION_DURATION_MS,
+            easing: DRAFT_HERO_TRANSITION_EASING,
+          },
+        );
+        animation.id = DRAFT_HERO_TRANSITION_ANIMATION_ID;
+        animationsRef.current.push(animation);
+      });
+    }
+
+    previousStateRef.current = isDraftHeroState;
+    previousRectsRef.current = nextRects;
+  }, [isDraftHeroState]);
+
+  return [attachComposerRef, attachLowerChromeRef] as const;
+}
 const PreviewPanel = lazy(() =>
   import("./preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
 );
@@ -2065,6 +2129,8 @@ function ChatViewContent(props: ChatViewProps) {
     [activeThread?.proposedPlans, timelineMessages, workLogEntries],
   );
   const isDraftHeroState = isLocalDraftThread && timelineEntries.length === 0 && !isWorking;
+  const [attachDraftHeroComposerRef, attachDraftHeroLowerChromeRef] =
+    useDraftHeroLayoutTransition(isDraftHeroState);
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const turnDiffSummaryByAssistantMessageId = useMemo(() => {
@@ -5139,9 +5205,11 @@ function ChatViewContent(props: ChatViewProps) {
               {/* Equal flexible spacers keep the hero group vertically stable:
                   whatever mounts below (branch toolbar, banners) grows into the
                   bottom spacer instead of re-centering the headline. */}
-              {isDraftHeroState ? <div className="min-h-0 flex-1 basis-0" /> : null}
               {isDraftHeroState ? (
-                <div className="chat-composer-horizontal-inset pb-8">
+                <div key="draft-hero-top-spacer" className="min-h-0 flex-1 basis-0" />
+              ) : null}
+              {isDraftHeroState ? (
+                <div key="draft-hero-headline" className="chat-composer-horizontal-inset pb-8">
                   <DraftHeroHeadline
                     activeProjectRef={activeProjectRef}
                     activeProjectTitle={activeProject?.title ?? null}
@@ -5149,6 +5217,7 @@ function ChatViewContent(props: ChatViewProps) {
                 </div>
               ) : (
                 <div
+                  key="docked-composer-blur"
                   aria-hidden="true"
                   className="chat-composer-horizontal-inset pointer-events-none absolute inset-x-0 top-1.5 bottom-0 z-0 sm:top-2"
                 >
@@ -5157,14 +5226,13 @@ function ChatViewContent(props: ChatViewProps) {
                   </div>
                 </div>
               )}
-              <div className="chat-composer-horizontal-inset">
+              <div
+                key="chat-composer"
+                ref={attachDraftHeroComposerRef}
+                className="chat-composer-horizontal-inset"
+              >
                 <div className="pointer-events-auto relative z-10 isolate">
-                  {/* In the hero layout the banner hangs below the composer without
-                      contributing height, so connect/reconnect churn cannot
-                      re-center the headline and composer. */}
-                  {isDraftHeroState ? null : (
-                    <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
-                  )}
+                  <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
                   <div className="relative z-10">
                     <ChatComposer
                       composerRef={composerRef}
@@ -5241,7 +5309,9 @@ function ChatViewContent(props: ChatViewProps) {
                 </div>
               </div>
               <div
-                className={isDraftHeroState ? "flex min-h-0 flex-1 basis-0 flex-col" : "contents"}
+                key="composer-lower-chrome"
+                ref={attachDraftHeroLowerChromeRef}
+                className={cn("flex min-h-0 flex-col", isDraftHeroState ? "flex-1 basis-0" : null)}
               >
                 <div
                   className={cn(
@@ -5280,13 +5350,6 @@ function ChatViewContent(props: ChatViewProps) {
                     </div>
                   )}
                 </div>
-                {isDraftHeroState ? (
-                  <div className="chat-composer-horizontal-inset pt-1">
-                    <div className="pointer-events-auto">
-                      <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
-                    </div>
-                  </div>
-                ) : null}
               </div>
             </div>
 
