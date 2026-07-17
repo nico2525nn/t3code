@@ -53,6 +53,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -217,6 +218,9 @@ import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
   DRAFT_HERO_TRANSITION_DURATION_MS,
   DRAFT_HERO_TRANSITION_EASING,
+  MOBILE_COMPOSER_CHROME_VIEW_TRANSITION_NAME,
+  MOBILE_DRAFT_HEADLINE_VIEW_TRANSITION_NAME,
+  runMobileComposerTransition,
 } from "./chat/draftHeroTransition";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
@@ -263,44 +267,49 @@ const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
-  const composerRef = useRef<HTMLDivElement | null>(null);
-  const lowerChromeRef = useRef<HTMLDivElement | null>(null);
+  const transitionGroupRef = useRef<HTMLDivElement | null>(null);
+  const composerAnchorRef = useRef<HTMLDivElement | null>(null);
   const previousStateRef = useRef(isDraftHeroState);
-  const previousRectsRef = useRef<Array<DOMRect | null>>([null, null]);
-  const animationsRef = useRef<Animation[]>([]);
-  const attachComposerRef = (element: HTMLDivElement | null) => {
-    composerRef.current = element;
+  const previousComposerRectRef = useRef<DOMRect | null>(null);
+  const animationRef = useRef<Animation | null>(null);
+  const attachTransitionGroupRef = (element: HTMLDivElement | null) => {
+    transitionGroupRef.current = element;
   };
-  const attachLowerChromeRef = (element: HTMLDivElement | null) => {
-    lowerChromeRef.current = element;
+  const attachComposerAnchorRef = (element: HTMLDivElement | null) => {
+    composerAnchorRef.current = element;
+  };
+  const captureComposerRect = () => {
+    previousComposerRectRef.current = composerAnchorRef.current?.getBoundingClientRect() ?? null;
   };
 
   useLayoutEffect(() => {
-    const elements = [composerRef.current, lowerChromeRef.current] as const;
-    const nextRects = elements.map((element) => element?.getBoundingClientRect() ?? null);
+    const transitionGroup = transitionGroupRef.current;
+    const nextComposerRect = composerAnchorRef.current?.getBoundingClientRect() ?? null;
     const stateChanged = previousStateRef.current !== isDraftHeroState;
     const prefersReducedMotion =
       typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const mobileComposerTransitionActive =
+      typeof document !== "undefined" &&
+      document.documentElement.dataset.mobileComposerRouteTransition === "true";
 
-    animationsRef.current.forEach((animation) => animation.cancel());
-    animationsRef.current = [];
+    animationRef.current?.cancel();
+    animationRef.current = null;
 
-    if (stateChanged && !prefersReducedMotion) {
-      elements.forEach((element, index) => {
-        const previousRect = previousRectsRef.current[index];
-        const nextRect = nextRects[index];
-        if (!element || !previousRect || !nextRect || typeof element.animate !== "function") {
-          return;
-        }
-
-        const translateX = previousRect.left - nextRect.left;
-        const translateY = previousRect.top - nextRect.top;
-        if (Math.abs(translateX) < 0.5 && Math.abs(translateY) < 0.5) {
-          return;
-        }
-
-        const animation = element.animate(
+    const previousComposerRect = previousComposerRectRef.current;
+    if (
+      stateChanged &&
+      !prefersReducedMotion &&
+      !mobileComposerTransitionActive &&
+      transitionGroup &&
+      previousComposerRect &&
+      nextComposerRect &&
+      typeof transitionGroup.animate === "function"
+    ) {
+      const translateX = previousComposerRect.left - nextComposerRect.left;
+      const translateY = previousComposerRect.top - nextComposerRect.top;
+      if (Math.abs(translateX) >= 0.5 || Math.abs(translateY) >= 0.5) {
+        const animation = transitionGroup.animate(
           [
             { transform: `translate3d(${translateX}px, ${translateY}px, 0)` },
             { transform: "translate3d(0, 0, 0)" },
@@ -311,15 +320,23 @@ function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
           },
         );
         animation.id = DRAFT_HERO_TRANSITION_ANIMATION_ID;
-        animationsRef.current.push(animation);
-      });
+        animationRef.current = animation;
+        void animation.finished
+          .catch(() => undefined)
+          .then(() => {
+            if (animationRef.current !== animation) {
+              return;
+            }
+            animationRef.current = null;
+          });
+      }
     }
 
     previousStateRef.current = isDraftHeroState;
-    previousRectsRef.current = nextRects;
+    previousComposerRectRef.current = nextComposerRect;
   }, [isDraftHeroState]);
 
-  return [attachComposerRef, attachLowerChromeRef] as const;
+  return [attachTransitionGroupRef, attachComposerAnchorRef, captureComposerRect] as const;
 }
 const PreviewPanel = lazy(() =>
   import("./preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -404,6 +421,7 @@ type ChatViewProps =
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
       reserveTitleBarControlInset?: boolean;
+      forceExpandedMobileComposer?: boolean;
       routeKind: "server";
       draftId?: never;
     }
@@ -412,6 +430,7 @@ type ChatViewProps =
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
       reserveTitleBarControlInset?: boolean;
+      forceExpandedMobileComposer?: boolean;
       routeKind: "draft";
       draftId: DraftId;
     };
@@ -1051,6 +1070,7 @@ function ChatViewContent(props: ChatViewProps) {
     routeKind,
     onDiffPanelOpen,
     reserveTitleBarControlInset = true,
+    forceExpandedMobileComposer = false,
   } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
   const routeThreadRef = useMemo(
@@ -2128,9 +2148,16 @@ function ChatViewContent(props: ChatViewProps) {
       deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
     [activeThread?.proposedPlans, timelineMessages, workLogEntries],
   );
-  const isDraftHeroState = isLocalDraftThread && timelineEntries.length === 0 && !isWorking;
-  const [attachDraftHeroComposerRef, attachDraftHeroLowerChromeRef] =
-    useDraftHeroLayoutTransition(isDraftHeroState);
+  const [dockedDraftHeroThreadKey, setDockedDraftHeroThreadKey] = useState<string | null>(null);
+  const draftHeroDockRequested =
+    activeThreadKey !== null && dockedDraftHeroThreadKey === activeThreadKey;
+  const isDraftHeroState =
+    isLocalDraftThread && timelineEntries.length === 0 && !isWorking && !draftHeroDockRequested;
+  const [
+    attachDraftHeroTransitionGroupRef,
+    attachDraftHeroComposerAnchorRef,
+    captureDraftHeroComposerRect,
+  ] = useDraftHeroLayoutTransition(isDraftHeroState);
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const turnDiffSummaryByAssistantMessageId = useMemo(() => {
@@ -4031,7 +4058,16 @@ function ChatViewContent(props: ChatViewProps) {
       }
       return;
     }
-    if (!activeProject) return;
+    if (!activeProject) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: "Choose a project first",
+          description: "This draft no longer points to an available project.",
+        }),
+      );
+      return;
+    }
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
     const baseBranchForWorktree =
@@ -4048,6 +4084,21 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
 
+    if (isDraftHeroState && activeThreadKey) {
+      let resolveDockStarted: (() => void) | undefined;
+      const dockStarted = new Promise<void>((resolve) => {
+        resolveDockStarted = resolve;
+      });
+      const dockTransition = runMobileComposerTransition(() => {
+        flushSync(() => {
+          captureDraftHeroComposerRect();
+          setDockedDraftHeroThreadKey(activeThreadKey);
+        });
+        resolveDockStarted?.();
+      });
+      void dockTransition.catch(() => resolveDockStarted?.());
+      await dockStarted;
+    }
     sendInFlightRef.current = true;
     beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
 
@@ -4302,6 +4353,9 @@ function ChatViewContent(props: ChatViewProps) {
     }
     sendInFlightRef.current = false;
     if (!turnStartSucceeded) {
+      setDockedDraftHeroThreadKey((currentThreadKey) =>
+        currentThreadKey === activeThreadKey ? null : currentThreadKey,
+      );
       resetLocalDispatch();
     }
   };
@@ -5198,24 +5252,11 @@ function ChatViewContent(props: ChatViewProps) {
               data-chat-composer-overlay="true"
               className={
                 isDraftHeroState
-                  ? "pointer-events-none absolute inset-0 z-20 flex flex-col pt-1.5 sm:pt-2"
+                  ? "pointer-events-none absolute inset-0 z-20 flex items-center"
                   : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
               }
             >
-              {/* Equal flexible spacers keep the hero group vertically stable:
-                  whatever mounts below (branch toolbar, banners) grows into the
-                  bottom spacer instead of re-centering the headline. */}
-              {isDraftHeroState ? (
-                <div key="draft-hero-top-spacer" className="min-h-0 flex-1 basis-0" />
-              ) : null}
-              {isDraftHeroState ? (
-                <div key="draft-hero-headline" className="chat-composer-horizontal-inset pb-8">
-                  <DraftHeroHeadline
-                    activeProjectRef={activeProjectRef}
-                    activeProjectTitle={activeProject?.title ?? null}
-                  />
-                </div>
-              ) : (
+              {!isDraftHeroState ? (
                 <div
                   key="docked-composer-blur"
                   aria-hidden="true"
@@ -5225,15 +5266,38 @@ function ChatViewContent(props: ChatViewProps) {
                     <div className="chat-composer-shared-blur absolute -inset-8" />
                   </div>
                 </div>
-              )}
+              ) : null}
               <div
-                key="chat-composer"
-                ref={attachDraftHeroComposerRef}
-                className="chat-composer-horizontal-inset"
+                ref={attachDraftHeroTransitionGroupRef}
+                className="chat-composer-horizontal-inset w-full"
               >
                 <div className="pointer-events-auto relative z-10 isolate">
-                  <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
-                  <div className="relative z-10">
+                  {isDraftHeroState ? (
+                    <div className="absolute inset-x-0 bottom-full z-0">
+                      <div
+                        className="pb-8"
+                        style={
+                          forceExpandedMobileComposer
+                            ? {
+                                viewTransitionName: MOBILE_DRAFT_HEADLINE_VIEW_TRANSITION_NAME,
+                              }
+                            : undefined
+                        }
+                      >
+                        <DraftHeroHeadline
+                          activeProjectRef={activeProjectRef}
+                          activeProjectTitle={activeProject?.title ?? null}
+                        />
+                      </div>
+                      <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
+                    </div>
+                  ) : (
+                    <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
+                  )}
+                  <div
+                    ref={attachDraftHeroComposerAnchorRef}
+                    className="relative z-10 mx-auto w-full max-w-3xl"
+                  >
                     <ChatComposer
                       composerRef={composerRef}
                       composerDraftTarget={composerDraftTarget}
@@ -5246,6 +5310,8 @@ function ChatViewContent(props: ChatViewProps) {
                       activeThread={activeThread}
                       isServerThread={isServerThread}
                       isLocalDraftThread={isLocalDraftThread}
+                      forceExpandedOnMobile={forceExpandedMobileComposer && isDraftHeroState}
+                      projectSelectionRequired={isLocalDraftThread && activeProject === null}
                       phase={phase}
                       isConnecting={isConnecting}
                       isSendBusy={isSendBusy}
@@ -5306,49 +5372,57 @@ function ChatViewContent(props: ChatViewProps) {
                       onExpandImage={onExpandTimelineImage}
                     />
                   </div>
-                </div>
-              </div>
-              <div
-                key="composer-lower-chrome"
-                ref={attachDraftHeroLowerChromeRef}
-                className={cn("flex min-h-0 flex-col", isDraftHeroState ? "flex-1 basis-0" : null)}
-              >
-                <div
-                  className={cn(
-                    "chat-composer-horizontal-inset chat-composer-lower-chrome relative z-10",
-                    isGitRepo
-                      ? "pb-[calc(env(safe-area-inset-bottom)+0.25rem)]"
-                      : "pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:pb-[calc(env(safe-area-inset-bottom)+1rem)]",
-                  )}
-                >
-                  {isGitRepo && (
-                    <div className="pointer-events-auto">
-                      <BranchToolbar
-                        environmentId={activeThread.environmentId}
-                        threadId={activeThread.id}
-                        {...(routeKind === "draft" && draftId ? { draftId } : {})}
-                        onEnvModeChange={onEnvModeChange}
-                        startFromOrigin={startFromOrigin}
-                        onStartFromOriginChange={onStartFromOriginChange}
-                        {...(canOverrideServerThreadEnvMode
-                          ? { effectiveEnvModeOverride: envMode }
-                          : {})}
-                        {...(canOverrideServerThreadEnvMode
+                  <div
+                    className={cn(
+                      "min-h-0",
+                      isDraftHeroState ? "absolute inset-x-0 top-full" : null,
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "chat-composer-lower-chrome relative z-10",
+                        isGitRepo
+                          ? "pb-[calc(env(safe-area-inset-bottom)+0.25rem)]"
+                          : "pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:pb-[calc(env(safe-area-inset-bottom)+1rem)]",
+                      )}
+                      style={
+                        forceExpandedMobileComposer
                           ? {
-                              activeThreadBranchOverride: activeThreadBranch,
-                              onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
+                              viewTransitionName: MOBILE_COMPOSER_CHROME_VIEW_TRANSITION_NAME,
                             }
-                          : {})}
-                        envLocked={envLocked}
-                        onComposerFocusRequest={scheduleComposerFocus}
-                        {...(canCheckoutPullRequestIntoThread
-                          ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-                          : {})}
-                        {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
-                        availableEnvironments={logicalProjectEnvironments}
-                      />
+                          : undefined
+                      }
+                    >
+                      {isGitRepo && (
+                        <div className="pointer-events-auto">
+                          <BranchToolbar
+                            environmentId={activeThread.environmentId}
+                            threadId={activeThread.id}
+                            {...(routeKind === "draft" && draftId ? { draftId } : {})}
+                            onEnvModeChange={onEnvModeChange}
+                            startFromOrigin={startFromOrigin}
+                            onStartFromOriginChange={onStartFromOriginChange}
+                            {...(canOverrideServerThreadEnvMode
+                              ? { effectiveEnvModeOverride: envMode }
+                              : {})}
+                            {...(canOverrideServerThreadEnvMode
+                              ? {
+                                  activeThreadBranchOverride: activeThreadBranch,
+                                  onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
+                                }
+                              : {})}
+                            envLocked={envLocked}
+                            onComposerFocusRequest={scheduleComposerFocus}
+                            {...(canCheckoutPullRequestIntoThread
+                              ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+                              : {})}
+                            {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
+                            availableEnvironments={logicalProjectEnvironments}
+                          />
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>

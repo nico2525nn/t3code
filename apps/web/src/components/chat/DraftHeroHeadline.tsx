@@ -1,12 +1,21 @@
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { ChevronDownIcon } from "lucide-react";
+import { FolderPlusIcon } from "lucide-react";
 import { useMemo } from "react";
 
+import { useOpenAddProjectCommandPalette } from "~/commandPaletteContext";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { useProjects, useThreadShells } from "~/state/entities";
 import { sortProjectsForSidebar } from "../Sidebar.logic";
-import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "../ui/menu";
 
 interface DraftHeroHeadlineProps {
   readonly activeProjectRef: ScopedProjectRef | null;
@@ -20,6 +29,7 @@ export function DraftHeroHeadline({
   const projects = useProjects();
   const threads = useThreadShells();
   const handleNewThread = useNewThreadHandler();
+  const openAddProject = useOpenAddProjectCommandPalette();
 
   const orderedProjects = useMemo(
     () => sortProjectsForSidebar(projects, threads, "updated_at"),
@@ -39,50 +49,60 @@ export function DraftHeroHeadline({
     [orderedProjects],
   );
   const activeProjectKey = activeProjectRef === null ? "" : scopedProjectKey(activeProjectRef);
+  const hasResolvedProject = activeProjectTitle !== null;
+  const canChooseProject = orderedProjects.length > 0;
+  const shouldShowProjectMenu = canChooseProject;
 
-  const projectLabel = activeProjectTitle ?? "this project";
+  const projectSelector = shouldShowProjectMenu ? (
+    <Menu>
+      <MenuTrigger
+        aria-label={hasResolvedProject ? "Change project" : "Choose a project"}
+        className="pointer-events-auto inline cursor-pointer border-current border-b border-dotted text-foreground underline-offset-8 transition-opacity hover:opacity-75 focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {activeProjectTitle ?? "Choose a project"}
+      </MenuTrigger>
+      <MenuPopup align="center" className="max-h-80 w-64 overflow-y-auto">
+        <MenuRadioGroup
+          value={activeProjectKey}
+          onValueChange={(value) => {
+            const project = projectByKey.get(value as string);
+            if (!project || value === activeProjectKey) {
+              return;
+            }
+            void handleNewThread(scopeProjectRef(project.environmentId, project.id), {
+              replace: true,
+            });
+          }}
+        >
+          {orderedProjects.map((project) => {
+            const key = scopedProjectKey(scopeProjectRef(project.environmentId, project.id));
+            return (
+              <MenuRadioItem key={key} value={key} closeOnClick>
+                <span className="min-w-0 truncate">{project.title}</span>
+              </MenuRadioItem>
+            );
+          })}
+        </MenuRadioGroup>
+        <MenuSeparator />
+        <MenuItem onClick={openAddProject}>
+          <FolderPlusIcon />
+          New project
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
+  ) : (
+    <span className="text-muted-foreground/60">{activeProjectTitle ?? "Add a project"}</span>
+  );
+
   return (
-    <h1 className="mx-auto w-full max-w-3xl text-center font-semibold text-2xl text-foreground sm:text-3xl">
-      What should we do in{" "}
-      {orderedProjects.length > 1 ? (
-        <Menu>
-          <MenuTrigger className="pointer-events-auto inline-flex cursor-pointer items-baseline gap-1.5 rounded-md text-muted-foreground/60 transition-colors hover:text-foreground/80 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring">
-            {projectLabel}
-            <span
-              aria-hidden="true"
-              className="mr-1.5 flex size-4 shrink-0 items-center justify-center self-center rounded-full bg-muted-foreground/12 sm:size-5"
-            >
-              <ChevronDownIcon className="size-2.5 sm:size-3" />
-            </span>
-          </MenuTrigger>
-          <MenuPopup align="center" className="max-h-80 w-64 overflow-y-auto">
-            <MenuRadioGroup
-              value={activeProjectKey}
-              onValueChange={(value) => {
-                const project = projectByKey.get(value as string);
-                if (!project || value === activeProjectKey) {
-                  return;
-                }
-                void handleNewThread(scopeProjectRef(project.environmentId, project.id), {
-                  replace: true,
-                });
-              }}
-            >
-              {orderedProjects.map((project) => {
-                const key = scopedProjectKey(scopeProjectRef(project.environmentId, project.id));
-                return (
-                  <MenuRadioItem key={key} value={key} closeOnClick>
-                    <span className="min-w-0 truncate">{project.title}</span>
-                  </MenuRadioItem>
-                );
-              })}
-            </MenuRadioGroup>
-          </MenuPopup>
-        </Menu>
+    <h1 className="mx-auto w-full max-w-5xl text-center font-normal text-3xl text-foreground tracking-tight sm:text-5xl">
+      {hasResolvedProject ? (
+        <>What should we build in {projectSelector}?</>
+      ) : canChooseProject ? (
+        <>{projectSelector} to start</>
       ) : (
-        <span className="text-muted-foreground/60">{projectLabel}</span>
+        <>Add a project to start</>
       )}
-      ?
     </h1>
   );
 }

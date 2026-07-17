@@ -73,6 +73,7 @@ function DraftChatThreadRouteView() {
           environmentId={canonicalThreadRef.environmentId}
           threadId={canonicalThreadRef.threadId}
           routeKind="server"
+          forceExpandedMobileComposer
         />
       </SidebarInset>
     );
@@ -89,6 +90,7 @@ function DraftChatThreadRouteView() {
         environmentId={draftSession.environmentId}
         threadId={draftSession.threadId}
         routeKind="draft"
+        forceExpandedMobileComposer
       />
     </SidebarInset>
   );
