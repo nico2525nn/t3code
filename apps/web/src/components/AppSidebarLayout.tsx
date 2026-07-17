@@ -91,11 +91,10 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         side="left"
         collapsible="offcanvas"
         className={
-          // v2 is a darker, higher-contrast panel: it sits below the main
-          // surface instead of matching it, so its bordered cards read as
-          // raised blocks.
+          // v2 is a raised panel against the pure-black canvas: its card
+          // surface lets the bordered thread cards read as set into it.
           useSidebarV2
-            ? "border-r border-black/15 bg-neutral-100 text-foreground dark:border-white/10 dark:bg-neutral-950"
+            ? "border-r border-black/15 bg-neutral-100 text-foreground dark:border-white/10 dark:bg-card"
             : "border-r border-border bg-card text-foreground"
         }
         resizable={{
