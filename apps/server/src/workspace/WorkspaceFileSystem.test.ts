@@ -206,10 +206,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           operation: "realpath-target",
         });
         assert.instanceOf(error.cause, PlatformError.PlatformError);
-        assert.strictEqual(
-          (error.cause as PlatformError.PlatformError).reason._tag,
-          "NotFound",
-        );
+        assert.strictEqual((error.cause as PlatformError.PlatformError).reason._tag, "NotFound");
       }),
     );
   });
@@ -243,9 +240,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         yield* writeTextFile(cwd, "src/existing.ts", "export {};\n");
 
         const beforeWrite = yield* workspaceEntries.list({ cwd });
-        assert.isFalse(
-          beforeWrite.entries.some((entry) => entry.path === "plans/effect-rpc.md"),
-        );
+        assert.isFalse(beforeWrite.entries.some((entry) => entry.path === "plans/effect-rpc.md"));
 
         yield* workspaceFileSystem.writeFile({
           cwd,
@@ -254,9 +249,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         });
 
         const afterWrite = yield* workspaceEntries.list({ cwd });
-        assert.isTrue(
-          afterWrite.entries.some((entry) => entry.path === "plans/effect-rpc.md"),
-        );
+        assert.isTrue(afterWrite.entries.some((entry) => entry.path === "plans/effect-rpc.md"));
         assert.isFalse(afterWrite.truncated);
       }),
     );
