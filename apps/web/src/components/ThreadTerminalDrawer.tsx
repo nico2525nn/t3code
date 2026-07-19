@@ -22,6 +22,7 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
   type SetStateAction,
   useCallback,
   useEffect,
@@ -293,6 +294,46 @@ interface TerminalLaunchLocation {
   readonly runtimeEnv?: Record<string, string>;
 }
 
+function useFitTerminalOnViewportChange({
+  visible,
+  drawerHeight,
+  environmentId,
+  resizeEpoch,
+  terminalId,
+  threadId,
+  terminalRef,
+  fitAddonRef,
+  resizeTerminal,
+}: {
+  visible: boolean;
+  drawerHeight: number;
+  environmentId: string;
+  resizeEpoch: number;
+  terminalId: string;
+  threadId: ThreadId;
+  terminalRef: RefObject<Terminal | null>;
+  fitAddonRef: RefObject<FitAddon | null>;
+  resizeTerminal: (cols: number, rows: number) => unknown;
+}) {
+  useEffect(() => {
+    if (!visible) return;
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!terminal || !fitAddon) return;
+    const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
+    const frame = window.requestAnimationFrame(() => {
+      fitTerminalSafely(fitAddon);
+      if (wasAtBottom) {
+        terminal.scrollToBottom();
+      }
+      void resizeTerminal(terminal.cols, terminal.rows);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [drawerHeight, environmentId, resizeEpoch, resizeTerminal, terminalId, threadId, visible]);
+}
+
 export function TerminalViewport({
   threadRef,
   threadId,
@@ -360,11 +401,13 @@ export function TerminalViewport({
       input: { threadId, terminalId, data },
     }),
   );
-  const resizeTerminal = useEffectEvent((cols: number, rows: number) =>
-    runTerminalResize({
-      environmentId,
-      input: { threadId, terminalId, cols, rows },
-    }),
+  const resizeTerminal = useCallback(
+    (cols: number, rows: number) =>
+      runTerminalResize({
+        environmentId,
+        input: { threadId, terminalId, cols, rows },
+      }),
+    [environmentId, runTerminalResize, terminalId, threadId],
   );
   const terminalBuffer = terminalSession.buffer;
   const terminalError = terminalSession.error;
@@ -809,23 +852,17 @@ export function TerminalViewport({
     };
   }, [autoFocus, focusRequestId]);
 
-  useEffect(() => {
-    if (!visible) return;
-    const terminal = terminalRef.current;
-    const fitAddon = fitAddonRef.current;
-    if (!terminal || !fitAddon) return;
-    const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
-    const frame = window.requestAnimationFrame(() => {
-      fitTerminalSafely(fitAddon);
-      if (wasAtBottom) {
-        terminal.scrollToBottom();
-      }
-      void resizeTerminal(terminal.cols, terminal.rows);
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [drawerHeight, environmentId, resizeEpoch, terminalId, threadId, visible]);
+  useFitTerminalOnViewportChange({
+    visible,
+    drawerHeight,
+    environmentId,
+    resizeEpoch,
+    terminalId,
+    threadId,
+    terminalRef,
+    fitAddonRef,
+    resizeTerminal,
+  });
   return (
     <div
       ref={containerRef}
