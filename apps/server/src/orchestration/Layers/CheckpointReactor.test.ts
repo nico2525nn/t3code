@@ -35,7 +35,7 @@ import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
-import { CheckpointReactorLive } from "./CheckpointReactor.ts";
+import { CheckpointReactorLive, conversationTurnCountForTurn } from "./CheckpointReactor.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -228,6 +228,24 @@ function gitRefExists(cwd: string, ref: string): boolean {
 function gitShowFileAtRef(cwd: string, ref: string, filePath: string): string {
   return runGit(cwd, ["show", `${ref}:${filePath}`]);
 }
+
+describe("conversationTurnCountForTurn", () => {
+  it("counts steering prompts through the last assistant message for the same turn", () => {
+    const steeredTurnId = asTurnId("steered-turn");
+    const laterTurnId = asTurnId("later-turn");
+    const messages = [
+      { role: "user", turnId: null },
+      { role: "assistant", turnId: steeredTurnId },
+      { role: "user", turnId: null },
+      { role: "assistant", turnId: steeredTurnId },
+      { role: "user", turnId: null },
+      { role: "assistant", turnId: laterTurnId },
+    ];
+
+    expect(conversationTurnCountForTurn(messages, steeredTurnId)).toBe(2);
+    expect(conversationTurnCountForTurn(messages, laterTurnId)).toBe(3);
+  });
+});
 
 async function waitForGitRefExists(cwd: string, ref: string, timeoutMs = 15_000) {
   const deadline = (await Effect.runPromise(Clock.currentTimeMillis)) + timeoutMs;

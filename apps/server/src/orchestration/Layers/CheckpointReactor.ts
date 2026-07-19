@@ -62,7 +62,7 @@ export function countConversationTurns(messages: ReadonlyArray<{ readonly role: 
   return messages.reduce((count, message) => count + (message.role === "user" ? 1 : 0), 0);
 }
 
-function conversationTurnCountForTurn(
+export function conversationTurnCountForTurn(
   messages: ReadonlyArray<{
     readonly role: string;
     readonly turnId: TurnId | null;
@@ -70,15 +70,16 @@ function conversationTurnCountForTurn(
   turnId: TurnId,
 ): number | undefined {
   let turnCount = 0;
+  let matchedTurnCount: number | undefined;
   for (const message of messages) {
     if (message.role === "user") {
       turnCount += 1;
     }
     if (message.role === "assistant" && sameId(message.turnId, turnId)) {
-      return turnCount > 0 ? turnCount : undefined;
+      matchedTurnCount = turnCount > 0 ? turnCount : undefined;
     }
   }
-  return undefined;
+  return matchedTurnCount;
 }
 
 function maxCheckpointTurnCount(
