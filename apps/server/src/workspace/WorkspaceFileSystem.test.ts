@@ -205,8 +205,10 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         });
         expect(error.cause).toMatchObject({
           _tag: "PlatformError",
-          pathOrDescriptor: resolvedPath,
-          reason: { _tag: "NotFound" },
+          reason: {
+            _tag: "NotFound",
+            pathOrDescriptor: resolvedPath,
+          },
         });
       }),
     );
