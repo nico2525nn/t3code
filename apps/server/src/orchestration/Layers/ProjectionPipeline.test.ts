@@ -2351,12 +2351,60 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         payload: {
           threadId: ThreadId.make("thread-revert"),
           turnId: TurnId.make("turn-2"),
-          checkpointTurnCount: 2,
+          checkpointTurnCount: 1,
           checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-revert/turn/2"),
           status: "ready",
           files: [],
           assistantMessageId: null,
           completedAt: "2026-02-26T12:00:03.000Z",
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.activity-appended",
+        eventId: EventId.make("evt-revert-checkpoint-activity"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-revert"),
+        occurredAt: "2026-02-26T12:00:03.010Z",
+        commandId: CommandId.make("cmd-revert-checkpoint-activity"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-revert-checkpoint-activity"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.make("thread-revert"),
+          activity: {
+            id: EventId.make("checkpoint-only-activity"),
+            tone: "tool",
+            kind: "command",
+            summary: "Retained checkpoint activity",
+            payload: {},
+            turnId: TurnId.make("turn-2"),
+            createdAt: "2026-02-26T12:00:03.010Z",
+          },
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.proposed-plan-upserted",
+        eventId: EventId.make("evt-revert-checkpoint-plan"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-revert"),
+        occurredAt: "2026-02-26T12:00:03.020Z",
+        commandId: CommandId.make("cmd-revert-checkpoint-plan"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-revert-checkpoint-plan"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.make("thread-revert"),
+          proposedPlan: {
+            id: "checkpoint-only-plan",
+            turnId: TurnId.make("turn-2"),
+            planMarkdown: "## Retained checkpoint plan",
+            implementedAt: null,
+            implementationThreadId: null,
+            createdAt: "2026-02-26T12:00:03.020Z",
+            updatedAt: "2026-02-26T12:00:03.020Z",
+          },
         },
       });
 
@@ -2457,7 +2505,21 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         WHERE thread_id = 'thread-revert'
         ORDER BY requested_at ASC, turn_id ASC
       `;
-      assert.deepEqual(turnRows, [{ turnId: "turn-1" }]);
+      assert.deepEqual(turnRows, [{ turnId: "turn-1" }, { turnId: "turn-2" }]);
+
+      const activityRows = yield* sql<{ readonly activityId: string }>`
+        SELECT activity_id AS "activityId"
+        FROM projection_thread_activities
+        WHERE thread_id = 'thread-revert'
+      `;
+      assert.deepEqual(activityRows, [{ activityId: "checkpoint-only-activity" }]);
+
+      const planRows = yield* sql<{ readonly planId: string }>`
+        SELECT plan_id AS "planId"
+        FROM projection_thread_proposed_plans
+        WHERE thread_id = 'thread-revert'
+      `;
+      assert.deepEqual(planRows, [{ planId: "checkpoint-only-plan" }]);
     }),
   );
 });

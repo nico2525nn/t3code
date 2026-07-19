@@ -228,14 +228,24 @@ function retainProjectionTurnsAfterRevert(
   turns: ReadonlyArray<ProjectionTurn>,
   turnCount: number,
 ): ReadonlyArray<ProjectionTurn> {
-  return turns
+  const sortedTurns = turns
     .filter((turn) => turn.turnId !== null)
     .toSorted(
       (left, right) =>
         left.requestedAt.localeCompare(right.requestedAt) ||
         (left.turnId ?? "").localeCompare(right.turnId ?? ""),
-    )
-    .slice(0, turnCount);
+    );
+  const retainedTurnIds = new Set(
+    sortedTurns
+      .slice(0, turnCount)
+      .concat(
+        sortedTurns.filter(
+          (turn) => turn.checkpointTurnCount !== null && turn.checkpointTurnCount <= turnCount,
+        ),
+      )
+      .flatMap((turn) => (turn.turnId === null ? [] : [turn.turnId])),
+  );
+  return sortedTurns.filter((turn) => turn.turnId !== null && retainedTurnIds.has(turn.turnId));
 }
 
 function retainProjectionActivitiesAfterRevert(
