@@ -113,6 +113,10 @@ export interface AcpSessionRuntimeStartResult {
   readonly modelConfigId: string | undefined;
 }
 
+export interface AcpSessionActivationOptions {
+  readonly mcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
+}
+
 export class AcpSessionRuntime extends Context.Service<
   AcpSessionRuntime,
   {
@@ -206,12 +210,15 @@ export class AcpSessionRuntime extends Context.Service<
     readonly getConfigOptions: Effect.Effect<ReadonlyArray<EffectAcpSchema.SessionConfigOption>>;
     readonly loadSession: (
       sessionId: string,
+      options?: AcpSessionActivationOptions,
     ) => Effect.Effect<AcpSessionRuntimeStartResult, EffectAcpErrors.AcpError>;
     readonly resumeSession: (
       sessionId: string,
+      options?: AcpSessionActivationOptions,
     ) => Effect.Effect<AcpSessionRuntimeStartResult, EffectAcpErrors.AcpError>;
     readonly forkSession: (
       sessionId: string,
+      options?: AcpSessionActivationOptions,
     ) => Effect.Effect<AcpSessionRuntimeStartResult, EffectAcpErrors.AcpError>;
     readonly listSessions: (
       cursor?: string,
@@ -827,13 +834,13 @@ export const make = (
       }),
       getModeState: Ref.get(modeStateRef),
       getConfigOptions: Ref.get(configOptionsRef),
-      loadSession: (sessionId) =>
+      loadSession: (sessionId, activationOptions) =>
         start.pipe(
           Effect.flatMap(() => {
             const requestPayload = {
               sessionId,
               cwd: options.cwd,
-              mcpServers: options.mcpServers ?? [],
+              mcpServers: activationOptions?.mcpServers ?? options.mcpServers ?? [],
             } satisfies EffectAcpSchema.LoadSessionRequest;
             return runLoggedRequest(
               "session/load",
@@ -843,13 +850,13 @@ export const make = (
           }),
           Effect.flatMap((response) => adoptSession(sessionId, response)),
         ),
-      resumeSession: (sessionId) =>
+      resumeSession: (sessionId, activationOptions) =>
         start.pipe(
           Effect.flatMap(() => {
             const requestPayload = {
               sessionId,
               cwd: options.cwd,
-              mcpServers: options.mcpServers ?? [],
+              mcpServers: activationOptions?.mcpServers ?? options.mcpServers ?? [],
             } satisfies EffectAcpSchema.ResumeSessionRequest;
             return runLoggedRequest(
               "session/resume",
@@ -859,13 +866,13 @@ export const make = (
           }),
           Effect.flatMap((response) => adoptSession(sessionId, response)),
         ),
-      forkSession: (sessionId) =>
+      forkSession: (sessionId, activationOptions) =>
         start.pipe(
           Effect.flatMap(() => {
             const requestPayload = {
               sessionId,
               cwd: options.cwd,
-              mcpServers: options.mcpServers ?? [],
+              mcpServers: activationOptions?.mcpServers ?? options.mcpServers ?? [],
             } satisfies EffectAcpSchema.ForkSessionRequest;
             return runLoggedRequest(
               "session/fork",

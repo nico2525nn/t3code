@@ -1902,12 +1902,16 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
         const supportsImagePrompts =
           started.initializeResult.agentCapabilities?.promptCapabilities?.image === true;
 
-        const activateSession = Effect.fnUntraced(function* (sessionId: string) {
+        const activateSession = Effect.fnUntraced(function* (
+          sessionId: string,
+          threadId: ThreadId,
+        ) {
+          const activationOptions = { mcpServers: acpMcpServers(threadId) };
           if (canLoadSession) {
-            return yield* runtime.loadSession(sessionId);
+            return yield* runtime.loadSession(sessionId, activationOptions);
           }
           if (canResumeSession) {
-            return yield* runtime.resumeSession(sessionId);
+            return yield* runtime.resumeSession(sessionId, activationOptions);
           }
           return yield* new ProviderAdapterProtocolError({
             driver,
@@ -2123,7 +2127,7 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
             }
             const requestedSessionId = nativeThreadId(driver, turnInput.providerThread);
             if ((yield* Ref.get(activeSessionId)) !== requestedSessionId) {
-              const activated = yield* activateSession(requestedSessionId);
+              const activated = yield* activateSession(requestedSessionId, turnInput.threadId);
               yield* Ref.set(activeSessionId, activated.sessionId);
               yield* Ref.set(activeSessionSetup, activated);
               yield* configureSession(activated, turnInput.modelSelection, turnInput.runtimePolicy);
@@ -2330,7 +2334,10 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
                   loadingRole: null,
                   loadingIndex: 0,
                 });
-                const activated = yield* activateSession(sessionId);
+                const activated = yield* activateSession(
+                  sessionId,
+                  threadInput.providerThread.appThreadId,
+                );
                 yield* Ref.set(activeSessionId, activated.sessionId);
                 yield* Ref.set(activeSessionSetup, activated);
                 const nextSelection = threadInput.modelSelection ?? input.modelSelection;
@@ -2453,7 +2460,9 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
                   loadingRole: null,
                   loadingIndex: 0,
                 });
-                const activated = yield* runtime.loadSession(sessionId);
+                const activated = yield* runtime.loadSession(sessionId, {
+                  mcpServers: acpMcpServers(snapshotInput.providerThread.appThreadId),
+                });
                 yield* Ref.set(activeSessionId, activated.sessionId);
                 yield* Ref.set(activeSessionSetup, activated);
                 yield* Ref.set(activeSelection, null);
@@ -2512,7 +2521,9 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
                 });
               }
               const sourceSessionId = nativeThreadId(driver, forkInput.sourceProviderThread);
-              const forked = yield* runtime.forkSession(sourceSessionId);
+              const forked = yield* runtime.forkSession(sourceSessionId, {
+                mcpServers: acpMcpServers(forkInput.targetThreadId),
+              });
               yield* Ref.set(activeSessionId, forked.sessionId);
               yield* Ref.set(activeSessionSetup, forked);
               yield* Ref.set(activeSelection, null);
