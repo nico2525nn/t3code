@@ -136,12 +136,6 @@ function ThreadActivityThreadRow(props: {
     label = "Open created thread";
     providerInstanceId = item.targetProviderInstanceId;
     model = item.targetModel;
-  } else if (item.type === "subagent") {
-    targetThreadId = support.subagent?.childThreadId ?? item.childThreadId;
-    label = "Open subagent thread";
-    providerDriver = support.subagent?.driver ?? item.driver;
-    providerInstanceId = support.subagent?.providerInstanceId ?? item.providerInstanceId;
-    model = support.subagent?.model ?? model;
   } else if (item.type === "fork") {
     targetThreadId =
       item.targetThreadId === row.sourceThreadId && item.source.type === "run"
