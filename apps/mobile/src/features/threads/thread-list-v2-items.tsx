@@ -23,10 +23,14 @@ import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
 import {
+  resolveThreadListV2SnoozeGateExpiryMs,
+  resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2Status,
+  resolveThreadListV2SwipeActions,
   threadHasUnseenCompletion,
   type ThreadListV2Status,
 } from "./threadListV2";
+import { ThreadSearchMatchExcerpt } from "./thread-search-match";
 
 /**
  * Thread List v2 renders one flat native list: rich edge-to-edge rows for
@@ -713,7 +717,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         </View>
       ) : null}
       <View className="mt-1 flex-row items-center gap-2">
-        {status === "failed" && thread.session?.lastError ? (
+        {status === "failed" && thread.runtime?.lastError ? (
           <Text
             className={cn(
               "flex-1 text-xs",
@@ -723,7 +727,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             )}
             numberOfLines={1}
           >
-            {thread.session.lastError}
+            {thread.runtime.lastError}
           </Text>
         ) : thread.branch || props.environmentLabel ? (
           /* "branch · machine" share one truncating line. The machine sits
