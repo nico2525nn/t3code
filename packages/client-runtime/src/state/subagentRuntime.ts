@@ -18,7 +18,7 @@
  * metadata).
  */
 import * as DateTime from "effect/DateTime";
-import type { OrchestrationThreadActivity } from "@t3tools/contracts";
+import type { OrchestrationThreadActivity, OrchestrationV2Subagent } from "@t3tools/contracts";
 
 export type RuntimeSubagentStatus =
   | "pending"
@@ -724,56 +724,71 @@ export function emptyAgentPanelModel(): AgentPanelModel {
  * The panel/CTA components never see which source fed them.
  */
 export function projectedSubagentsToRuntime(
-  subagents: ReadonlyArray<{
-    readonly id: string;
-    readonly title: string | null;
-    readonly prompt: string;
-    readonly model: string | null;
-    readonly status:
-      | "pending"
-      | "running"
-      | "waiting"
-      | "completed"
-      | "failed"
-      | "cancelled"
-      | "interrupted";
-    readonly progress?: string | undefined;
-    readonly result: string | null;
-    readonly startedAt: DateTime.Utc | null;
-    readonly completedAt: DateTime.Utc | null;
-    readonly updatedAt: DateTime.Utc;
-  }>,
+  subagents: ReadonlyArray<OrchestrationV2Subagent>,
 ): ReadonlyArray<RuntimeSubagent> {
+  const subagentById = new Map(subagents.map((subagent) => [subagent.id, subagent]));
   return subagents.map((subagent) => {
     const updatedAt = DateTime.formatIso(subagent.updatedAt);
     const startedAt = subagent.startedAt === null ? null : DateTime.formatIso(subagent.startedAt);
+    const membership = subagent.workflowMembership;
+    const coordinator =
+      membership === null ? undefined : subagentById.get(membership.workflowSubagentId);
+    const phaseTitle =
+      membership?.phaseIndex === null || membership?.phaseIndex === undefined
+        ? null
+        : (coordinator?.workflow?.phases.find((phase) => phase.index === membership.phaseIndex)
+            ?.title ?? null);
+    const latestActivity = subagent.recentActivity.at(-1);
+    const workflow = subagent.workflow;
+    const runHandles =
+      workflow !== null &&
+      (workflow.runId !== undefined ||
+        workflow.scriptPath !== undefined ||
+        workflow.transcriptDir !== undefined ||
+        workflow.sessionUrl !== undefined)
+        ? {
+            ...(workflow.runId === undefined ? {} : { runId: workflow.runId }),
+            ...(workflow.scriptPath === undefined ? {} : { scriptPath: workflow.scriptPath }),
+            ...(workflow.transcriptDir === undefined
+              ? {}
+              : { transcriptDir: workflow.transcriptDir }),
+            ...(workflow.sessionUrl === undefined ? {} : { sessionUrl: workflow.sessionUrl }),
+          }
+        : null;
     return {
       id: subagent.id,
-      kind: "subagent" as const,
+      kind: subagent.kind,
       title:
         subagent.title ??
         (subagent.prompt.length > 80 ? `${subagent.prompt.slice(0, 77)}...` : subagent.prompt),
-      role: null,
+      role: subagent.role.name,
       model: subagent.model,
       effort: null,
       status: subagent.status,
-      activationCount: 1,
-      usage: null,
-      progress: subagent.progress ?? null,
+      activationCount: subagent.activationCount,
+      usage: subagent.usage === null ? null : (asUsage(subagent.usage) ?? null),
+      progress: subagent.progress ?? latestActivity?.summary ?? null,
       lastToolName: null,
       result: subagent.result,
       error: subagent.status === "failed" ? (subagent.result ?? null) : null,
       outputFile: null,
-      parentAgentId: null,
-      agentIndex: null,
-      phaseIndex: null,
-      phaseTitle: null,
-      attempt: null,
-      workflowName: null,
-      phases: [],
-      runHandles: null,
-      recentActivity: [],
-      firstSeenAt: startedAt ?? updatedAt,
+      parentAgentId: membership?.workflowSubagentId ?? null,
+      agentIndex: membership?.agentIndex ?? null,
+      phaseIndex: membership?.phaseIndex ?? null,
+      phaseTitle,
+      attempt: membership?.attempt ?? null,
+      workflowName: workflow?.name ?? null,
+      phases: workflow?.phases ?? [],
+      runHandles,
+      recentActivity: subagent.recentActivity.map((activity) => ({
+        at: DateTime.formatIso(activity.at),
+        summary: activity.summary,
+      })),
+      firstSeenAt:
+        startedAt ??
+        (subagent.recentActivity[0] === undefined
+          ? updatedAt
+          : DateTime.formatIso(subagent.recentActivity[0].at)),
       startedAt,
       completedAt: subagent.completedAt === null ? null : DateTime.formatIso(subagent.completedAt),
       updatedAt,
@@ -858,7 +873,9 @@ export function deriveAgentPanelModel({
       ).length;
       const state: "pending" | "running" | "done" =
         phaseMembers.length === 0
-          ? "pending"
+          ? isTerminalSubagentStatus(workflow.status)
+            ? "done"
+            : "pending"
           : activeCount > 0
             ? "running"
             : settledCount === phaseMembers.length
