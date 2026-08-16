@@ -161,7 +161,7 @@ export default function FileBrowserPanel({
     ) {
       suppressedSelectedPathRef.current = {
         path: selectedPath,
-        revealId: breadcrumbRevealId,
+        revealId: selectedPathRevealId,
       };
     }
   }, [breadcrumbRevealId, breadcrumbRevealPath, selectedPath, selectedPathRevealId]);
@@ -340,7 +340,10 @@ export default function FileBrowserPanel({
       return;
     }
 
-    if (suppressedSelectedPathRef.current?.path === selectedPath) {
+    if (
+      suppressedSelectedPathRef.current?.path === selectedPath &&
+      suppressedSelectedPathRef.current.revealId === selectedPathRevealId
+    ) {
       treeSelectionPathRef.current = null;
       handledRevealRef.current = revealRequest;
       suppressedSelectedPathRef.current = null;
@@ -361,6 +364,7 @@ export default function FileBrowserPanel({
       });
       return;
     }
+    suppressedSelectedPathRef.current = null;
     treeSelectionPathRef.current = null;
     handledRevealRef.current = revealRequest;
 
