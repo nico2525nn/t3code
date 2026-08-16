@@ -63,10 +63,12 @@ export function resolveThreadLineageWindow<Row>(
 }
 
 export function ThreadLineageRowList(props: {
+  readonly hidden?: boolean;
   readonly hiddenCount: number;
   readonly onShowMore: () => void;
   readonly children: ReactNode;
 }) {
+  if (props.hidden === true) return null;
   return (
     <>
       {/*
@@ -257,7 +259,17 @@ export function ThreadRelationshipsPanel(props: {
         </div>
       </div>
 
-      <ThreadLineageRowList hiddenCount={hiddenCount} onShowMore={showMore}>
+      {visibleRows.length === 0 ? (
+        <div className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted-foreground">
+          <BotIcon aria-hidden className={THREAD_RELATIONSHIP_ICON_CLASS} />
+          <span>Agent session connected</span>
+        </div>
+      ) : null}
+      <ThreadLineageRowList
+        hidden={visibleRows.length === 0}
+        hiddenCount={hiddenCount}
+        onShowMore={showMore}
+      >
         {visibleRows.map(({ threadId, edge }) => {
           const node = graph.nodes.get(threadId);
           const isSubagent = edge.kind === "subagent";

@@ -77,7 +77,9 @@ describe("ThreadRelationshipsPanel", () => {
     const markup = renderPanel();
 
     expect(markup).toContain("Lineage");
+    expect(markup).toContain("Agent session connected");
     expect(markup).toContain("Disconnect agent session");
+    expect(markup).not.toContain('aria-label="Related threads"');
     expect(markup).not.toContain("Subagent");
   });
 
