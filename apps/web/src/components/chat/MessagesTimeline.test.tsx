@@ -10,8 +10,8 @@ import {
 } from "@t3tools/contracts";
 import type {
   AgentPanelModel,
-  RuntimeSubagent,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+  AgentPanelSubagent,
+} from "@t3tools/client-runtime/state/thread-subagents";
 import type { TimelineEntry } from "../../session-logic";
 import { createRef, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -222,22 +222,18 @@ function buildProps() {
   };
 }
 
-function runtimeAgent(id: string, overrides: Partial<RuntimeSubagent> = {}): RuntimeSubagent {
+function runtimeAgent(id: string, overrides: Partial<AgentPanelSubagent> = {}): AgentPanelSubagent {
   return {
     id,
     kind: "subagent",
     title: id,
-    role: null,
+    role: "reviewer",
     model: null,
-    effort: null,
     status: "running",
     activationCount: 1,
     usage: null,
     progress: null,
-    lastToolName: null,
     result: null,
-    error: null,
-    outputFile: null,
     parentAgentId: null,
     agentIndex: null,
     phaseIndex: null,
@@ -246,7 +242,6 @@ function runtimeAgent(id: string, overrides: Partial<RuntimeSubagent> = {}): Run
     workflowName: null,
     phases: [],
     runHandles: null,
-    recentActivity: [],
     firstSeenAt: MESSAGE_CREATED_AT,
     startedAt: MESSAGE_CREATED_AT,
     completedAt: null,

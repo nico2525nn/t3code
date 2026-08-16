@@ -28,7 +28,6 @@ import {
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2RuntimeRequest,
   type OrchestrationV2Subagent,
-  type OrchestrationV2SubagentActivation,
   type OrchestrationV2TurnItem,
   OpenCodeSettings as OpenCodeSettingsSchema,
   type PlanId,
@@ -105,6 +104,7 @@ import { makeSubagentChildThread, subagentThreadTitle } from "../SubagentProject
 import {
   appendSubagentActivity,
   defaultSubagentRole,
+  subagentActivationFromSubagent,
   subagentActivationId,
 } from "../SubagentObservability.ts";
 
@@ -1269,19 +1269,12 @@ export function makeOpenCodeAdapterV2(options: OpenCodeAdapterV2Options): Provid
           yield* emitProviderEvent({
             type: "subagent_activation.updated",
             driver: OPENCODE_PROVIDER,
-            activation: {
-              id: activationId,
-              threadId: subagent.threadId,
-              subagentId: subagent.id,
-              runId: subagent.runId,
+            activation: subagentActivationFromSubagent({
+              subagent,
               providerTurnId: turn.providerTurnId,
               ordinal: 1,
               status: subagentStatus,
-              usage: null,
-              startedAt: context.startedAt,
-              completedAt,
-              updatedAt: now,
-            } satisfies OrchestrationV2SubagentActivation,
+            }),
           });
           yield* emitProviderEvent({
             type: "turn_item.updated",

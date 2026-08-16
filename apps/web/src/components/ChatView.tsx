@@ -263,10 +263,7 @@ import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel, type ThreadDetailsPanelProps } from "./chat/ThreadDetailsPanel";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { AgentsPanel } from "./AgentsPanel";
-import {
-  deriveAgentPanelModel,
-  projectedSubagentsToRuntime,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+import { deriveAgentPanelModel } from "@t3tools/client-runtime/state/thread-subagents";
 import { resolveEffectiveEnvMode, resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
   getProviderStatusBannerKey,
@@ -1274,15 +1271,9 @@ function ChatViewContent(props: ChatViewProps) {
   });
   const serverThreadProjection = useThreadProjection(routeThreadDetailRef);
   const serverProjection = serverThreadProjection?.projection ?? null;
-  // Agents surface (#5219): on orchestration-v2 the panel model comes from the
-  // projected subagent entities — the v2 leg of the spec's mapper swap. The
-  // native-activity fold never runs on this branch.
+  // The Agents surface reads the Orchestrator V2 projection directly.
   const agentPanelModel = useMemo(
-    () =>
-      deriveAgentPanelModel({
-        agents: [],
-        v2Projection: projectedSubagentsToRuntime(serverProjection?.subagents ?? []),
-      }),
+    () => deriveAgentPanelModel(serverProjection?.subagents ?? []),
     [serverProjection?.subagents],
   );
   const serverVisibleTurnItems = useThreadVisibleTurnItems(routeThreadDetailRef);

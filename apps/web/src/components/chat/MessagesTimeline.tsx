@@ -16,7 +16,7 @@ import {
   emptyAgentPanelModel,
   formatSubagentTokenCount,
   type AgentPanelModel,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+} from "@t3tools/client-runtime/state/thread-subagents";
 import { resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
 import {
   createContext,

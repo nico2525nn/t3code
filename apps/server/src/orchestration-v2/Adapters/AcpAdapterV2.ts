@@ -17,7 +17,6 @@ import {
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2RuntimeRequest,
   type OrchestrationV2Subagent,
-  type OrchestrationV2SubagentActivation,
   type OrchestrationV2TurnItem,
   type OrchestrationV2UserInputQuestion,
   type ProviderApprovalDecision,
@@ -72,7 +71,11 @@ import {
   makeSubagentConversationArtifacts,
   subagentThreadTitle,
 } from "../SubagentProjection.ts";
-import { defaultSubagentRole, subagentActivationId } from "../SubagentObservability.ts";
+import {
+  defaultSubagentRole,
+  subagentActivationFromSubagent,
+  subagentActivationId,
+} from "../SubagentObservability.ts";
 import {
   ProviderAdapterEnsureThreadError,
   ProviderAdapterForkThreadError,
@@ -1266,7 +1269,14 @@ interface ActiveAcpSubagent {
   terminalStatusProjected: boolean;
 }
 
-function acpSubagentStatusIsTerminal(status: OrchestrationV2Subagent["status"]): boolean {
+type AcpTerminalSubagentStatus = Extract<
+  OrchestrationV2Subagent["status"],
+  "completed" | "failed" | "interrupted" | "cancelled"
+>;
+
+function acpSubagentStatusIsTerminal(
+  status: OrchestrationV2Subagent["status"],
+): status is AcpTerminalSubagentStatus {
   return (
     status === "completed" ||
     status === "failed" ||
@@ -2344,21 +2354,12 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
           yield* emitProviderEvent({
             type: "subagent_activation.updated",
             driver,
-            activation: {
-              id: activationId,
-              threadId: subagent.task.threadId,
-              subagentId: subagent.task.id,
-              runId: subagent.task.runId,
+            activation: subagentActivationFromSubagent({
+              subagent: subagent.task,
               providerTurnId: subagent.providerTurnId,
               ordinal: 1,
               status: taskStatus,
-              usage: null,
-              startedAt: subagent.task.startedAt,
-              // Keep the activation aligned with the subagent record instead
-              // of re-stamping the completion time on rebuilt emits.
-              completedAt: settled ? (subagent.task.completedAt ?? now) : null,
-              updatedAt: now,
-            } satisfies OrchestrationV2SubagentActivation,
+            }),
           });
           yield* emitProviderEvent({
             type: "turn_item.updated",
@@ -3995,7 +3996,7 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
          */
         const mutateCarryoverSubagentStatus = Effect.fnUntraced(function* (
           subagent: ActiveAcpSubagent,
-          status: OrchestrationV2Subagent["status"],
+          status: AcpTerminalSubagentStatus,
           resultOverride?: string | null,
         ) {
           const now = yield* DateTime.now;
@@ -4008,6 +4009,7 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
             ...subagent.task,
             status,
             result,
+            currentActivationId: null,
             completedAt,
             updatedAt: now,
           };
@@ -4020,7 +4022,7 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
          */
         const projectCarryoverSubagentStatus = Effect.fnUntraced(function* (
           subagent: ActiveAcpSubagent,
-          status: OrchestrationV2Subagent["status"],
+          status: AcpTerminalSubagentStatus,
           resultOverride?: string | null,
         ) {
           yield* mutateCarryoverSubagentStatus(subagent, status, resultOverride);
@@ -4082,6 +4084,16 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
             subagent: subagent.task,
           });
           yield* emitProviderEvent({
+            type: "subagent_activation.updated",
+            driver,
+            activation: subagentActivationFromSubagent({
+              subagent: subagent.task,
+              providerTurnId: subagent.providerTurnId,
+              ordinal: 1,
+              status,
+            }),
+          });
+          yield* emitProviderEvent({
             type: "turn_item.updated",
             driver,
             turnItem: {
@@ -4125,7 +4137,7 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
          */
         const updateCarryoverSubagentStatus = Effect.fnUntraced(function* (
           nativeIdOrChildSessionId: string,
-          status: OrchestrationV2Subagent["status"],
+          status: AcpTerminalSubagentStatus,
           result?: string | null,
           options?: { readonly project?: boolean },
         ) {
@@ -4252,8 +4264,7 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
         ) {
           for (const subagent of subagents) {
             if (
-              subagent.task.status === "running" ||
-              subagent.task.status === "pending" ||
+              !acpSubagentStatusIsTerminal(subagent.task.status) ||
               subagent.terminalStatusProjected
             ) {
               continue;

@@ -15,7 +15,7 @@ import {
   type RunId,
 } from "@t3tools/contracts";
 import type { ThreadRunSummary } from "@t3tools/client-runtime/state/shell";
-import type { AgentPanelModel } from "@t3tools/client-runtime/state/subagentRuntime";
+import type { AgentPanelModel } from "@t3tools/client-runtime/state/thread-subagents";
 import { formatPendingBackgroundWorkLabel } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import {
   resolveT3McpToolPresentation,

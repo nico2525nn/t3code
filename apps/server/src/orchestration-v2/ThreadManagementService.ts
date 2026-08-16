@@ -13,6 +13,7 @@ import {
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2TurnItem,
+  isOrchestrationV2InternalSubagentThread,
   ProjectId,
   RunId,
   ThreadId,
@@ -312,14 +313,14 @@ export class ThreadManagementService extends Context.Service<
   ThreadManagementServiceShape
 >()("t3/orchestration-v2/ThreadManagementService") {}
 
-export const isInternalSubagentThread = (
-  thread: Pick<OrchestrationV2ThreadShell, "forkedFrom" | "lineage">,
-) => thread.lineage.relationshipToParent === "subagent" || thread.forkedFrom?.type === "node";
+export { isOrchestrationV2InternalSubagentThread as isInternalSubagentThread };
 
 export const userFacingShellSnapshot = (snapshot: OrchestrationV2ThreadShellSnapshot) => ({
   ...snapshot,
-  threads: snapshot.threads.filter((thread) => !isInternalSubagentThread(thread)),
-  archivedThreads: snapshot.archivedThreads.filter((thread) => !isInternalSubagentThread(thread)),
+  threads: snapshot.threads.filter((thread) => !isOrchestrationV2InternalSubagentThread(thread)),
+  archivedThreads: snapshot.archivedThreads.filter(
+    (thread) => !isOrchestrationV2InternalSubagentThread(thread),
+  ),
 });
 
 export function isActiveRun(run: OrchestrationV2Run): boolean {
@@ -466,7 +467,9 @@ const make = Effect.gen(function* () {
       Effect.map((snapshot) =>
         snapshot.threads
           .filter((thread) => thread.projectId === input.projectId)
-          .filter((thread) => input.includeSubagents || !isInternalSubagentThread(thread))
+          .filter(
+            (thread) => input.includeSubagents || !isOrchestrationV2InternalSubagentThread(thread),
+          )
           .toSorted(
             (left, right) =>
               DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt) ||

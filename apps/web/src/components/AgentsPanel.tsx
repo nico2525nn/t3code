@@ -1,5 +1,5 @@
 /**
- * Agents right-panel surface: the fleet view over the native subagent fold,
+ * Agents right-panel surface: the fleet view over the V2 subagent projection,
  * and the ONLY place the roster renders (the chat carries one CTA row per
  * spawn batch).
  *
@@ -14,13 +14,13 @@
 import { useAtomValue } from "@effect/atom-react";
 import type {
   AgentPanelModel,
+  AgentPanelSubagent,
   AgentPanelWorkflowGroup,
-  RuntimeSubagent,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+} from "@t3tools/client-runtime/state/thread-subagents";
 import {
   formatSubagentModelLabel,
   formatSubagentTokenCount,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+} from "@t3tools/client-runtime/state/thread-subagents";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { Bot, Braces, Check, ChevronDown, ChevronRight, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -36,7 +36,7 @@ import { Button } from "~/components/ui/button";
  * stalled/waiting/queued subagent is still the fleet doing its job, not a
  * user problem). Only settled states differentiate.
  */
-const STATUS_VISUALS: Record<RuntimeSubagent["status"], { dotClass: string; label: string }> = {
+const STATUS_VISUALS: Record<AgentPanelSubagent["status"], { dotClass: string; label: string }> = {
   pending: { dotClass: "bg-info", label: "Working" },
   running: { dotClass: "bg-info", label: "Working" },
   waiting: { dotClass: "bg-info", label: "Working" },
@@ -49,7 +49,7 @@ const STATUS_VISUALS: Record<RuntimeSubagent["status"], { dotClass: string; labe
   interrupted: { dotClass: "bg-muted-foreground/60", label: "Stopped" },
 };
 
-function StatusDot({ status }: { status: RuntimeSubagent["status"] }) {
+function StatusDot({ status }: { status: AgentPanelSubagent["status"] }) {
   return (
     <span
       aria-hidden
@@ -84,7 +84,7 @@ function elapsedBetween(startedAt: string, endIso: string | null): string {
  * Elapsed time for the current activation. Live agents self-tick via DOM
  * writes (zero React commits per tick); settled agents freeze at completedAt.
  */
-function AgentElapsed({ agent }: { agent: RuntimeSubagent }) {
+function AgentElapsed({ agent }: { agent: AgentPanelSubagent }) {
   const textRef = useRef<HTMLSpanElement>(null);
   const live = agent.status === "running" || agent.status === "waiting";
   const startedAt = agent.startedAt;
@@ -118,30 +118,20 @@ function AgentElapsed({ agent }: { agent: RuntimeSubagent }) {
  * settled rows lead with the outcome. Errors are the only inline previews on
  * failed rows because they explain a red row at a glance.
  */
-function agentActivityText(agent: RuntimeSubagent): string | null {
+function agentActivityText(agent: AgentPanelSubagent): string | null {
   const live =
     agent.status === "running" || agent.status === "pending" || agent.status === "waiting";
   if (live) {
-    return (
-      agent.progress ??
-      (agent.lastToolName ? `▸ ${agent.lastToolName}` : null) ??
-      agent.result ??
-      agent.error
-    );
+    return agent.progress ?? agent.result;
   }
-  return (
-    agent.error ??
-    agent.result ??
-    agent.progress ??
-    (agent.lastToolName ? `▸ ${agent.lastToolName}` : null)
-  );
+  return agent.result ?? agent.progress;
 }
 
 /** Flat, non-interactive agent status line. No unfold. */
-function AgentRow({ agent }: { agent: RuntimeSubagent }) {
+function AgentRow({ agent }: { agent: AgentPanelSubagent }) {
   const visuals = STATUS_VISUALS[agent.status];
   const activity = agentActivityText(agent);
-  const modelLabel = formatSubagentModelLabel(agent.model, agent.effort);
+  const modelLabel = formatSubagentModelLabel(agent.model);
   const role =
     agent.role?.trim().toLocaleLowerCase() === agent.title.trim().toLocaleLowerCase()
       ? null
@@ -200,7 +190,7 @@ function workflowIsLive(group: AgentPanelWorkflowGroup): boolean {
   );
 }
 
-function workflowMembers(group: AgentPanelWorkflowGroup): ReadonlyArray<RuntimeSubagent> {
+function workflowMembers(group: AgentPanelWorkflowGroup): ReadonlyArray<AgentPanelSubagent> {
   return [...group.phases.flatMap((phase) => phase.members), ...group.unphasedMembers];
 }
 

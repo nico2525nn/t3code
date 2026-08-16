@@ -1454,6 +1454,16 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
 });
 export type OrchestrationV2ThreadShell = typeof OrchestrationV2ThreadShell.Type;
 
+/** Internal child threads are implementation details of a V2 subagent run. */
+export const isOrchestrationV2InternalSubagentThread = (
+  thread: Pick<OrchestrationV2ThreadShell, "forkedFrom" | "lineage">,
+): boolean =>
+  thread.lineage.relationshipToParent === "subagent" || thread.forkedFrom?.type === "node";
+
+export const isOrchestrationV2UserFacingThread = (
+  thread: Pick<OrchestrationV2ThreadShell, "forkedFrom" | "lineage">,
+): boolean => !isOrchestrationV2InternalSubagentThread(thread);
+
 export const OrchestrationV2ThreadShellSnapshot = Schema.Struct({
   schemaVersion: PositiveInt,
   snapshotSequence: NonNegativeInt,

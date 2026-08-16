@@ -11,11 +11,17 @@ import {
   type EnvironmentThreadStatus,
   type ThreadHistoryMeta,
 } from "@t3tools/client-runtime/state/threads";
-import type { ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
-import type { EnvironmentId, OrchestrationV2ProjectedTurnItem, ThreadId } from "@t3tools/contracts";
+import {
+  isOrchestrationV2UserFacingThread,
+  type EnvironmentId,
+  type OrchestrationV2ProjectedTurnItem,
+  type ScopedProjectRef,
+  type ScopedThreadRef,
+  type ServerConfig,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { isUserFacingThread } from "../threadVisibility";
 import { environmentProjects } from "./projects";
 import { environmentServerConfigsAtom } from "./server";
 import { allEnvironmentShellsBootstrappedAtom } from "./shell";
@@ -114,7 +120,7 @@ export function useServerConfigs(): ReadonlyMap<EnvironmentId, ServerConfig> {
 
 export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   const threads = useAtomValue(environmentThreadShells.threadShellsAtom);
-  return useMemo(() => threads.filter(isUserFacingThread), [threads]);
+  return useMemo(() => threads.filter(isOrchestrationV2UserFacingThread), [threads]);
 }
 
 export function useAllEnvironmentShellsBootstrapped(): boolean {
@@ -125,7 +131,7 @@ export function useThreadShellsForProjectRefs(
   refs: ReadonlyArray<ScopedProjectRef>,
 ): ReadonlyArray<EnvironmentThreadShell> {
   const threads = useAtomValue(environmentThreadShells.threadShellsForProjectRefsAtom(refs));
-  return useMemo(() => threads.filter(isUserFacingThread), [threads]);
+  return useMemo(() => threads.filter(isOrchestrationV2UserFacingThread), [threads]);
 }
 
 export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | null {
@@ -259,14 +265,17 @@ export function readEnvironmentThreadRefs(
 ): ReadonlyArray<ScopedThreadRef> {
   return appAtomRegistry
     .get(environmentThreadShells.threadShellsAtom)
-    .filter((thread) => thread.environmentId === environmentId && isUserFacingThread(thread))
+    .filter(
+      (thread) =>
+        thread.environmentId === environmentId && isOrchestrationV2UserFacingThread(thread),
+    )
     .map((thread) => scopeThreadRef(thread.environmentId, thread.id));
 }
 
 export function readThreadRefs(): ReadonlyArray<ScopedThreadRef> {
   return appAtomRegistry
     .get(environmentThreadShells.threadShellsAtom)
-    .filter(isUserFacingThread)
+    .filter(isOrchestrationV2UserFacingThread)
     .map((thread) => scopeThreadRef(thread.environmentId, thread.id));
 }
 

@@ -1,7 +1,9 @@
 import * as React from "react";
-import type { ContextMenuItem } from "@t3tools/contracts";
+import {
+  isOrchestrationV2InternalSubagentThread as isSidebarSubagentThread,
+  type ContextMenuItem,
+} from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
-import { isInternalSubagentThread as isSidebarSubagentThread } from "../threadVisibility";
 
 export { isSidebarSubagentThread };
 import {

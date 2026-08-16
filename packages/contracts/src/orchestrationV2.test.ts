@@ -37,10 +37,61 @@ import {
   OrchestrationV2TurnItem,
   OrchestrationV2TurnItemJson,
   OrchestrationV2TurnItemStatus,
+  isOrchestrationV2InternalSubagentThread,
+  isOrchestrationV2UserFacingThread,
   orchestrationV2SubagentStatusAsTurnItemStatus,
 } from "./orchestrationV2.ts";
 
 const now = DateTime.makeUnsafe("2026-04-20T00:00:00.000Z");
+
+describe("Orchestrator V2 thread visibility", () => {
+  const rootId = ThreadId.make("thread:visibility:root");
+  const rootLineage = {
+    rootThreadId: rootId,
+    parentThreadId: null,
+    relationshipToParent: null,
+  } as const;
+
+  it("keeps roots and user forks visible", () => {
+    expect(isOrchestrationV2UserFacingThread({ lineage: rootLineage, forkedFrom: null })).toBe(
+      true,
+    );
+    expect(
+      isOrchestrationV2InternalSubagentThread({
+        lineage: {
+          rootThreadId: rootId,
+          parentThreadId: rootId,
+          relationshipToParent: "fork",
+        },
+        forkedFrom: {
+          type: "run",
+          threadId: rootId,
+          runId: RunId.make("run:visibility:fork"),
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("hides explicit and node-owned subagent children", () => {
+    expect(
+      isOrchestrationV2InternalSubagentThread({
+        lineage: {
+          rootThreadId: rootId,
+          parentThreadId: rootId,
+          relationshipToParent: "subagent",
+        },
+        forkedFrom: null,
+      }),
+    ).toBe(true);
+    expect(
+      isOrchestrationV2InternalSubagentThread({
+        lineage: rootLineage,
+        forkedFrom: { type: "node", nodeId: NodeId.make("node:visibility:subagent") },
+      }),
+    ).toBe(true);
+  });
+});
+
 const LegacyShellStreamItem = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("synchronized") }),
   Schema.Struct({

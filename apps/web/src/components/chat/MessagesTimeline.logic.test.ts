@@ -11,26 +11,22 @@ import {
 } from "./MessagesTimeline.logic";
 import type {
   AgentPanelModel,
-  RuntimeSubagent,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+  AgentPanelSubagent,
+} from "@t3tools/client-runtime/state/thread-subagents";
 import type { TimelineEntry } from "../../session-logic";
 
-function runtimeAgent(id: string, overrides: Partial<RuntimeSubagent> = {}): RuntimeSubagent {
+function runtimeAgent(id: string, overrides: Partial<AgentPanelSubagent> = {}): AgentPanelSubagent {
   return {
     id,
     kind: "subagent",
     title: id,
-    role: null,
+    role: "reviewer",
     model: null,
-    effort: null,
     status: "running",
     activationCount: 1,
     usage: null,
     progress: null,
-    lastToolName: null,
     result: null,
-    error: null,
-    outputFile: null,
     parentAgentId: null,
     agentIndex: null,
     phaseIndex: null,
@@ -39,7 +35,6 @@ function runtimeAgent(id: string, overrides: Partial<RuntimeSubagent> = {}): Run
     workflowName: null,
     phases: [],
     runHandles: null,
-    recentActivity: [],
     firstSeenAt: "2026-08-13T10:00:00.000Z",
     startedAt: "2026-08-13T10:00:00.000Z",
     completedAt: null,

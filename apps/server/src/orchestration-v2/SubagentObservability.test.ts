@@ -1,4 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
+import {
+  NodeId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ProviderTurnId,
+  RunId,
+  ThreadId,
+  type OrchestrationV2Subagent,
+} from "@t3tools/contracts";
 
 import {
   accumulateCumulativeSubagentUsage,
@@ -6,10 +15,65 @@ import {
   defaultSubagentRole,
   mergeCumulativeSubagentUsage,
   providerSubagentRole,
+  subagentActivationFromSubagent,
 } from "./SubagentObservability.ts";
 import * as DateTime from "effect/DateTime";
 
 describe("subagent observability", () => {
+  it("derives the provider activation from the same V2 subagent lifecycle record", () => {
+    const now = DateTime.makeUnsafe("2026-08-16T05:00:00.000Z");
+    const subagent = {
+      id: NodeId.make("subagent-1"),
+      threadId: ThreadId.make("thread-1"),
+      runId: RunId.make("run-1"),
+      parentNodeId: NodeId.make("root-1"),
+      origin: "provider_native",
+      createdBy: "agent",
+      driver: ProviderDriverKind.make("cursor"),
+      providerInstanceId: ProviderInstanceId.make("cursor"),
+      providerThreadId: null,
+      childThreadId: null,
+      nativeTaskRef: null,
+      prompt: "Review the implementation",
+      title: "Reviewer",
+      model: null,
+      kind: "subagent",
+      role: defaultSubagentRole(),
+      status: "completed",
+      result: "Done",
+      usage: { totalTokens: 120 },
+      currentActivationId: null,
+      activationCount: 1,
+      workflow: null,
+      workflowMembership: null,
+      recentActivity: [],
+      startedAt: now,
+      completedAt: now,
+      updatedAt: now,
+    } satisfies OrchestrationV2Subagent;
+
+    expect(
+      subagentActivationFromSubagent({
+        subagent,
+        providerTurnId: ProviderTurnId.make("provider-turn-1"),
+        ordinal: 1,
+        status: "completed",
+      }),
+    ).toEqual({
+      id: "subagent-1:activation:1",
+      threadId: subagent.threadId,
+      subagentId: subagent.id,
+      runId: subagent.runId,
+      providerTurnId: "provider-turn-1",
+      ordinal: 1,
+      status: "completed",
+      usage: { totalTokens: 120 },
+      startedAt: now,
+      completedAt: now,
+      updatedAt: now,
+    });
+  });
+
   it("preserves role provenance instead of using titles as roles", () => {
     expect(providerSubagentRole(" reviewer ")).toEqual({
       name: "reviewer",

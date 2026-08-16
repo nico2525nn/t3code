@@ -2,9 +2,11 @@ import {
   SubagentActivationId,
   type NodeId,
   type OrchestrationV2Subagent,
+  type OrchestrationV2SubagentActivation,
   type OrchestrationV2SubagentActivity,
   type OrchestrationV2SubagentRole,
   type OrchestrationV2SubagentUsage,
+  type ProviderTurnId,
 } from "@t3tools/contracts";
 import type * as DateTime from "effect/DateTime";
 
@@ -26,6 +28,26 @@ export const providerSubagentRole = (
 
 export const subagentActivationId = (subagentId: NodeId, ordinal: number) =>
   SubagentActivationId.make(`${subagentId}:activation:${ordinal}`);
+
+/** Build the activation record paired with a provider-native V2 subagent update. */
+export const subagentActivationFromSubagent = (input: {
+  readonly subagent: OrchestrationV2Subagent;
+  readonly providerTurnId: ProviderTurnId | null;
+  readonly ordinal: number;
+  readonly status: OrchestrationV2SubagentActivation["status"];
+}): OrchestrationV2SubagentActivation => ({
+  id: subagentActivationId(input.subagent.id, input.ordinal),
+  threadId: input.subagent.threadId,
+  subagentId: input.subagent.id,
+  runId: input.subagent.runId,
+  providerTurnId: input.providerTurnId,
+  ordinal: input.ordinal,
+  status: input.status,
+  usage: input.subagent.usage,
+  startedAt: input.subagent.startedAt,
+  completedAt: input.subagent.completedAt,
+  updatedAt: input.subagent.updatedAt,
+});
 
 const boundedActivityText = (value: string) => {
   const normalized = value.trim();

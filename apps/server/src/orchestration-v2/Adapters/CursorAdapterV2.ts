@@ -23,7 +23,6 @@ import {
   type OrchestrationV2ProviderThread,
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2Subagent,
-  type OrchestrationV2SubagentActivation,
   type OrchestrationV2TurnItem,
   orchestrationV2SubagentStatusAsTurnItemStatus,
   type ProviderInstanceId,
@@ -81,7 +80,11 @@ import {
   makeSubagentConversationArtifacts,
   subagentThreadTitle,
 } from "../SubagentProjection.ts";
-import { defaultSubagentRole, subagentActivationId } from "../SubagentObservability.ts";
+import {
+  defaultSubagentRole,
+  subagentActivationFromSubagent,
+  subagentActivationId,
+} from "../SubagentObservability.ts";
 import {
   CURSOR_PROVIDER,
   CursorAgentSdkRunner,
@@ -1666,19 +1669,12 @@ export function makeCursorAdapterV2(
           yield* emitProviderEvent({
             type: "subagent_activation.updated",
             driver: CURSOR_PROVIDER,
-            activation: {
-              id: activationId,
-              threadId: task.threadId,
-              subagentId: task.id,
-              runId: task.runId,
+            activation: subagentActivationFromSubagent({
+              subagent: task,
               providerTurnId: input.context.providerTurnId,
               ordinal: 1,
               status,
-              usage: null,
-              startedAt: task.startedAt,
-              completedAt,
-              updatedAt: now,
-            } satisfies OrchestrationV2SubagentActivation,
+            }),
           });
           yield* emitProviderEvent({
             type: "turn_item.updated",

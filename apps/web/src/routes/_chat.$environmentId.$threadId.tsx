@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { isOrchestrationV2InternalSubagentThread } from "@t3tools/contracts";
 
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
@@ -13,7 +14,6 @@ import { SidebarInset } from "~/components/ui/sidebar";
 import { useEnvironmentThreadRefs, useThreadShell } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
 import { environmentShell } from "../state/shell";
-import { isInternalSubagentThread } from "../threadVisibility";
 
 function ChatThreadRouteView() {
   const navigate = useNavigate();
@@ -48,7 +48,7 @@ function ChatThreadRouteView() {
   const serverThreadStarted = threadHasStarted(serverThreadShell);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
   const subagentParentThreadId =
-    serverThreadShell && isInternalSubagentThread(serverThreadShell)
+    serverThreadShell && isOrchestrationV2InternalSubagentThread(serverThreadShell)
       ? serverThreadShell.lineage.parentThreadId
       : null;
 
@@ -63,7 +63,11 @@ function ChatThreadRouteView() {
   }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, threadRef]);
 
   useEffect(() => {
-    if (!threadRef || !serverThreadShell || !isInternalSubagentThread(serverThreadShell)) {
+    if (
+      !threadRef ||
+      !serverThreadShell ||
+      !isOrchestrationV2InternalSubagentThread(serverThreadShell)
+    ) {
       return;
     }
     if (subagentParentThreadId === null) {
@@ -90,7 +94,7 @@ function ChatThreadRouteView() {
   if (
     !threadRef ||
     renderState !== "ready" ||
-    (serverThreadShell !== null && isInternalSubagentThread(serverThreadShell))
+    (serverThreadShell !== null && isOrchestrationV2InternalSubagentThread(serverThreadShell))
   ) {
     return null;
   }
