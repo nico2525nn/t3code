@@ -255,6 +255,10 @@ function subagentTimelineEntry(input: {
   readonly subagentId: string;
   readonly runId: string;
   readonly status: "pending" | "running" | "waiting" | "completed" | "failed" | "cancelled";
+  readonly title?: string;
+  readonly prompt?: string;
+  readonly progress?: string | null;
+  readonly result?: string | null;
 }): TimelineEntry {
   return {
     id: input.itemId,
@@ -276,7 +280,7 @@ function subagentTimelineEntry(input: {
         parentItemId: null,
         ordinal: 1,
         status: input.status,
-        title: input.subagentId,
+        title: input.title ?? input.subagentId,
         startedAt: null,
         completedAt: null,
         updatedAt: {},
@@ -286,8 +290,9 @@ function subagentTimelineEntry(input: {
         driver: "codex",
         providerInstanceId: "codex",
         childThreadId: null,
-        prompt: "",
-        result: null,
+        prompt: input.prompt ?? "",
+        progress: input.progress,
+        result: input.result ?? null,
       },
     } as never,
   };
@@ -1306,42 +1311,16 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         {...buildProps()}
         timelineEntries={[
-          {
-            id: "subagent-progress",
-            kind: "event",
-            createdAt: MESSAGE_CREATED_AT,
-            projectedItem: {
-              position: 0,
-              visibility: "local",
-              sourceThreadId: "thread-1",
-              sourceItemId: "subagent-progress",
-              item: {
-                id: "subagent-progress",
-                threadId: "thread-1",
-                runId: "run-1",
-                nodeId: "node-subagent-1",
-                providerThreadId: "provider-thread-1",
-                providerTurnId: "provider-turn-1",
-                nativeItemRef: null,
-                parentItemId: null,
-                ordinal: 1,
-                status: "running",
-                title: "Package audit",
-                startedAt: null,
-                completedAt: null,
-                updatedAt: {},
-                type: "subagent",
-                subagentId: "node-subagent-1",
-                origin: "provider_native",
-                driver: "claudeAgent",
-                providerInstanceId: "claudeAgent",
-                childThreadId: "thread-subagent-1",
-                prompt: "Inspect the package",
-                progress: "Reading src/index.ts",
-                result: null,
-              },
-            } as never,
-          },
+          subagentTimelineEntry({
+            itemId: "subagent-progress",
+            subagentId: "node-subagent-1",
+            runId: "run-1",
+            status: "running",
+            title: "Package audit",
+            prompt: "Inspect the package",
+            progress: "Reading src/index.ts",
+            result: "Partial streamed answer so far",
+          }),
         ]}
       />,
     );
@@ -1353,6 +1332,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("1 working");
     expect(markup).toContain("Open Agents");
     expect(markup).not.toContain("Reading src/index.ts");
+    expect(markup).not.toContain("Partial streamed answer so far");
     expect(markup).not.toContain("Inspect the package");
     expect(markup).not.toContain('data-v2-subagent-result-disclosure="true"');
     expect(markup).not.toContain("Work Log");
@@ -1364,41 +1344,15 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         {...buildProps()}
         timelineEntries={[
-          {
-            id: "codex-subagent-result",
-            kind: "event",
-            createdAt: MESSAGE_CREATED_AT,
-            projectedItem: {
-              position: 0,
-              visibility: "local",
-              sourceThreadId: "thread-1",
-              sourceItemId: "codex-subagent-result",
-              item: {
-                id: "codex-subagent-result",
-                threadId: "thread-1",
-                runId: "run-1",
-                nodeId: "node-subagent-1",
-                providerThreadId: "provider-thread-1",
-                providerTurnId: "provider-turn-1",
-                nativeItemRef: null,
-                parentItemId: null,
-                ordinal: 1,
-                status: "completed",
-                title: "Isolation report",
-                startedAt: null,
-                completedAt: null,
-                updatedAt: {},
-                type: "subagent",
-                subagentId: "node-subagent-1",
-                origin: "provider_native",
-                driver: "codex",
-                providerInstanceId: "codex",
-                childThreadId: "thread-subagent-1",
-                prompt: "Explain test isolation",
-                result: "Tests should be isolated.\n\nResult: no shared state.",
-              },
-            } as never,
-          },
+          subagentTimelineEntry({
+            itemId: "codex-subagent-result",
+            subagentId: "node-subagent-1",
+            runId: "run-1",
+            status: "completed",
+            title: "Isolation report",
+            prompt: "Explain test isolation",
+            result: "Tests should be isolated.\n\nResult: no shared state.",
+          }),
         ]}
       />,
     );
@@ -1415,103 +1369,22 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("Explain test isolation");
   });
 
-  it("keeps streaming subagent detail out of the CTA roster summary", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        {...buildProps()}
-        timelineEntries={[
-          {
-            id: "subagent-partial-result",
-            kind: "event",
-            createdAt: MESSAGE_CREATED_AT,
-            projectedItem: {
-              position: 0,
-              visibility: "local",
-              sourceThreadId: "thread-1",
-              sourceItemId: "subagent-partial-result",
-              item: {
-                id: "subagent-partial-result",
-                threadId: "thread-1",
-                runId: "run-1",
-                nodeId: "node-subagent-1",
-                providerThreadId: "provider-thread-1",
-                providerTurnId: "provider-turn-1",
-                nativeItemRef: null,
-                parentItemId: null,
-                ordinal: 1,
-                status: "running",
-                title: "Package audit",
-                startedAt: null,
-                completedAt: null,
-                updatedAt: {},
-                type: "subagent",
-                subagentId: "node-subagent-1",
-                origin: "provider_native",
-                driver: "codex",
-                providerInstanceId: "codex",
-                childThreadId: "thread-subagent-1",
-                prompt: "Inspect the package",
-                progress: "Reading src/index.ts",
-                result: "Partial streamed answer so far",
-              },
-            } as never,
-          },
-        ]}
-      />,
-    );
-
-    expect(markup).toContain('data-v2-item-type="subagent"');
-    expect(markup).not.toContain('aria-label="Open Package audit"');
-    expect(markup).toContain("Kicked off 1 subagent");
-    expect(markup).toContain("Open Agents");
-    expect(markup).not.toContain("Reading src/index.ts");
-    expect(markup).not.toContain("Partial streamed answer so far");
-    expect(markup).not.toContain('data-v2-subagent-result-disclosure="true"');
-  });
-
   it("renders a cancelled subagent batch as stopped", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
         timelineEntries={[
-          {
-            id: "subagent-cancelled-result",
-            kind: "event",
-            createdAt: MESSAGE_CREATED_AT,
-            projectedItem: {
-              position: 0,
-              visibility: "local",
-              sourceThreadId: "thread-1",
-              sourceItemId: "subagent-cancelled-result",
-              item: {
-                id: "subagent-cancelled-result",
-                threadId: "thread-1",
-                runId: "run-1",
-                nodeId: "node-subagent-1",
-                providerThreadId: "provider-thread-1",
-                providerTurnId: "provider-turn-1",
-                nativeItemRef: null,
-                parentItemId: null,
-                ordinal: 1,
-                status: "cancelled",
-                title: "Package audit",
-                startedAt: null,
-                completedAt: null,
-                updatedAt: {},
-                type: "subagent",
-                subagentId: "node-subagent-1",
-                origin: "provider_native",
-                driver: "codex",
-                providerInstanceId: "codex",
-                childThreadId: "thread-subagent-1",
-                prompt: "Inspect the package",
-                progress: "Reading src/index.ts",
-                result: "Partial output before cancel",
-              },
-            } as never,
-          },
+          subagentTimelineEntry({
+            itemId: "subagent-cancelled-result",
+            subagentId: "node-subagent-1",
+            runId: "run-1",
+            status: "cancelled",
+            title: "Package audit",
+            prompt: "Inspect the package",
+            progress: "Reading src/index.ts",
+            result: "Partial output before cancel",
+          }),
         ]}
       />,
     );

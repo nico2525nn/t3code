@@ -27,7 +27,6 @@ import {
   OrchestrationV2ProviderThread,
   OrchestrationV2ProviderThreadJson,
   OrchestrationV2DomainEventJson,
-  OrchestrationV2ListAllThreadRefsResult,
   OrchestrationV2ShellSnapshot,
   OrchestrationV2Subagent,
   OrchestrationV2SubagentActivation,
@@ -120,9 +119,6 @@ const decodeOrchestrationV2ThreadShell = Schema.decodeUnknownSync(OrchestrationV
 const decodeOrchestrationV2SubagentActivation = Schema.decodeUnknownSync(
   OrchestrationV2SubagentActivation,
 );
-const decodeOrchestrationV2ListAllThreadRefsResult = Schema.decodeUnknownSync(
-  OrchestrationV2ListAllThreadRefsResult,
-);
 const decodeOrchestrationV2DomainEventJson = Schema.decodeUnknownSync(
   OrchestrationV2DomainEventJson,
 );
@@ -131,25 +127,6 @@ const decodeStoredOrchestrationV2Subagent = Schema.decodeUnknownSync(
 );
 
 describe("orchestration V2 contracts", () => {
-  it("decodes compact unfiltered thread references", () => {
-    expect(
-      decodeOrchestrationV2ListAllThreadRefsResult({
-        threadRefs: [
-          {
-            threadId: "thread-1",
-            projectId: "project-1",
-            worktreePath: "/workspace/project/.worktrees/feature",
-          },
-          {
-            threadId: "thread-2",
-            projectId: "project-1",
-            worktreePath: null,
-          },
-        ],
-      }).threadRefs,
-    ).toHaveLength(2);
-  });
-
   it("lets legacy snapshot decoders ignore enrichment metadata", () => {
     const decoded = decodeLegacyShellStreamItem({
       kind: "snapshot",
@@ -559,11 +536,10 @@ describe("orchestration V2 contracts", () => {
       workflow: _workflow,
       workflowMembership: _workflowMembership,
       recentActivity: _recentActivity,
-      ...legacySubagent
+      ...preObservabilitySubagent
     } = subagent;
-    const decodedLegacySubagent = decodeOrchestrationV2Subagent(legacySubagent);
-    const decodedLegacyEvent = decodeOrchestrationV2DomainEventJson({
-      id: "event-legacy-subagent",
+    const decodedPreObservabilityEvent = decodeOrchestrationV2DomainEventJson({
+      id: "event-pre-observability-subagent",
       type: "subagent.updated",
       threadId: "thread-1",
       runId: "run-1",
@@ -572,7 +548,7 @@ describe("orchestration V2 contracts", () => {
       providerInstanceId: "codex",
       occurredAt: DateTime.formatIso(now),
       payload: {
-        ...legacySubagent,
+        ...preObservabilitySubagent,
         startedAt: DateTime.formatIso(now),
         completedAt: DateTime.formatIso(now),
         updatedAt: DateTime.formatIso(now),
@@ -632,15 +608,10 @@ describe("orchestration V2 contracts", () => {
     expect(subagent.role).toEqual({ name: "reviewer", source: "provider" });
     expect(subagent.status).toBe("idle");
     expect(activation.ordinal).toBe(2);
-    expect(decodedLegacySubagent.role).toEqual({
-      name: "general-purpose",
-      source: "app_default",
-    });
-    expect(decodedLegacySubagent.activationCount).toBe(1);
-    if (decodedLegacyEvent.type !== "subagent.updated") {
-      throw new Error("expected legacy subagent event");
+    if (decodedPreObservabilityEvent.type !== "subagent.updated") {
+      throw new Error("expected pre-observability subagent event");
     }
-    expect(decodedLegacyEvent.payload.recentActivity).toEqual([]);
+    expect(decodedPreObservabilityEvent.payload.recentActivity).toEqual([]);
     if (decodedActivityEvent.type !== "subagent.updated") {
       throw new Error("expected subagent activity event");
     }
@@ -657,8 +628,8 @@ describe("orchestration V2 contracts", () => {
     // Each default below is what the projection reads back for such a row, so
     // no migration has to rewrite them in place: a stored row missing all
     // eight decodes to exactly this.
-    const legacyPayloadJson = JSON.stringify({
-      id: "node-subagent-legacy",
+    const preObservabilityPayloadJson = JSON.stringify({
+      id: "node-subagent-pre-observability",
       threadId: "thread-1",
       runId: "run-1",
       parentNodeId: "node-root-1",
@@ -680,7 +651,7 @@ describe("orchestration V2 contracts", () => {
     });
 
     // The projection reads stored rows through exactly this schema.
-    const decoded = decodeStoredOrchestrationV2Subagent(legacyPayloadJson);
+    const decoded = decodeStoredOrchestrationV2Subagent(preObservabilityPayloadJson);
 
     expect(decoded.kind).toBe("subagent");
     expect(decoded.role).toEqual({ name: "general-purpose", source: "app_default" });

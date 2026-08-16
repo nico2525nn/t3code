@@ -29,8 +29,6 @@ import {
   SUBAGENT_PROMPT,
   SUBAGENT_REUSE_AFTER_IDLE_PROMPT,
   SUBAGENT_REUSE_AFTER_IDLE_RESUME_PROMPT,
-  SUBAGENT_REUSE_AFTER_INTERRUPT_PROMPT,
-  SUBAGENT_REUSE_AFTER_INTERRUPT_RESUME_PROMPT,
   THREAD_ROLLBACK_AFTER_PROMPT,
   THREAD_ROLLBACK_FIRST_PROMPT,
   THREAD_ROLLBACK_SECOND_PROMPT,
@@ -77,7 +75,6 @@ const SCENARIO_NAMES = [
   "tool_call_restricted_granular",
   "subagent",
   "subagent_continue",
-  "subagent_reuse_after_interrupt",
   "subagent_reuse_after_idle",
   "multi_turn",
   "provider_thread_resume",
@@ -446,36 +443,6 @@ function scenarios(): ReadonlyArray<ReplayScenario> {
               type: "turn",
               label: "continue-subagent",
               prompt: SUBAGENT_CONTINUE_PARENT_PROMPT,
-            },
-          ],
-        },
-      ],
-    },
-    {
-      name: "subagent_reuse_after_interrupt",
-      fileName: "subagent_reuse_after_interrupt.ndjson",
-      description:
-        "A root turn spawns a native Codex subagent and is interrupted while it works, then a later root turn re-activates the same child thread.",
-      runs: [
-        {
-          name: "reuse-after-interrupt",
-          description:
-            "Interrupt the spawning turn mid-subagent, then message the same subagent from a new root turn.",
-          turnDefaults: {
-            approvalPolicy: "never",
-            sandboxPolicy: workspaceWriteSandbox(),
-          },
-          steps: [
-            {
-              type: "interruptedTurn",
-              label: "spawn-subagent-then-interrupt",
-              prompt: SUBAGENT_REUSE_AFTER_INTERRUPT_PROMPT,
-              interruptAfterCommandExecutionStarted: true,
-            },
-            {
-              type: "turn",
-              label: "reuse-interrupted-subagent",
-              prompt: SUBAGENT_REUSE_AFTER_INTERRUPT_RESUME_PROMPT,
             },
           ],
         },

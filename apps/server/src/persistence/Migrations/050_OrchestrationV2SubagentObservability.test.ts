@@ -14,7 +14,8 @@ layer("050_OrchestrationV2SubagentObservability", (it) => {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 49 });
 
-      const legacyPayload = '{"id":"node:legacy-subagent","status":"completed"}';
+      const preObservabilityPayload =
+        '{"id":"node:pre-observability-subagent","status":"completed"}';
       yield* sql`
         INSERT INTO orchestration_v2_projection_subagents (
           subagent_id,
@@ -31,10 +32,10 @@ layer("050_OrchestrationV2SubagentObservability", (it) => {
           updated_at,
           payload_json
         ) VALUES (
-          'node:legacy-subagent',
-          'thread:legacy-subagent',
-          'run:legacy-subagent',
-          'node:legacy-root',
+          'node:pre-observability-subagent',
+          'thread:pre-observability-subagent',
+          'run:pre-observability-subagent',
+          'node:pre-observability-root',
           'codex',
           NULL,
           NULL,
@@ -43,7 +44,7 @@ layer("050_OrchestrationV2SubagentObservability", (it) => {
           '2026-07-26T00:00:00.000Z',
           '2026-07-26T00:01:00.000Z',
           '2026-07-26T00:01:00.000Z',
-          ${legacyPayload}
+          ${preObservabilityPayload}
         )
       `;
 
@@ -80,9 +81,9 @@ layer("050_OrchestrationV2SubagentObservability", (it) => {
       const rows = yield* sql<{ readonly payload_json: string }>`
         SELECT payload_json
         FROM orchestration_v2_projection_subagents
-        WHERE subagent_id = 'node:legacy-subagent'
+        WHERE subagent_id = 'node:pre-observability-subagent'
       `;
-      assert.deepStrictEqual(rows, [{ payload_json: legacyPayload }]);
+      assert.deepStrictEqual(rows, [{ payload_json: preObservabilityPayload }]);
     }),
   );
 });

@@ -9,9 +9,10 @@ import {
   resolveTimelineToolPresentation,
   shouldPreserveAssistantLineBreaks,
 } from "./MessagesTimeline.logic";
-import type {
-  AgentPanelModel,
-  AgentPanelSubagent,
+import {
+  emptyAgentPanelModel,
+  type AgentPanelModel,
+  type AgentPanelSubagent,
 } from "@t3tools/client-runtime/state/thread-subagents";
 import type { TimelineEntry } from "../../session-logic";
 
@@ -138,17 +139,6 @@ describe("collapseSubagentTimelineEntries", () => {
   });
 
   it("does not merge direct spawns from different or unknown runs", () => {
-    const emptyModel = {
-      workflows: [],
-      directAgents: [],
-      runningCount: 0,
-      waitingCount: 0,
-      idleCount: 0,
-      settledCount: 0,
-      totalTokens: 0,
-      hasAgents: false,
-      liveCount: 0,
-    } satisfies AgentPanelModel;
     const result = collapseSubagentTimelineEntries({
       timelineEntries: [
         subagentTimelineEntry("direct-1", "run-1"),
@@ -156,7 +146,7 @@ describe("collapseSubagentTimelineEntries", () => {
         subagentTimelineEntry("direct-3", null),
         subagentTimelineEntry("direct-4", null),
       ],
-      agentPanelModel: emptyModel,
+      agentPanelModel: emptyAgentPanelModel(),
     });
 
     expect(result.timelineEntries).toHaveLength(4);
@@ -164,23 +154,12 @@ describe("collapseSubagentTimelineEntries", () => {
   });
 
   it("keeps no-run lifecycle items distinct when they reuse a durable subagent", () => {
-    const emptyModel = {
-      workflows: [],
-      directAgents: [],
-      runningCount: 0,
-      waitingCount: 0,
-      idleCount: 0,
-      settledCount: 0,
-      totalTokens: 0,
-      hasAgents: false,
-      liveCount: 0,
-    } satisfies AgentPanelModel;
     const result = collapseSubagentTimelineEntries({
       timelineEntries: [
         subagentTimelineEntry("reused-agent", null, "reused-agent:first", "completed"),
         subagentTimelineEntry("reused-agent", null, "reused-agent:second", "running"),
       ],
-      agentPanelModel: emptyModel,
+      agentPanelModel: emptyAgentPanelModel(),
     });
 
     expect(result.timelineEntries.map((entry) => entry.id)).toEqual([

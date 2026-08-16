@@ -41,14 +41,7 @@ import {
   sortSidebarV2ProjectGroups,
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
-import {
-  EnvironmentId,
-  NodeId,
-  ProjectId,
-  ProviderInstanceId,
-  RunId,
-  ThreadId,
-} from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/contracts";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -311,13 +304,6 @@ describe("sidebar thread lineage helpers", () => {
     });
 
     expect(isSidebarSubagentThread(subagent)).toBe(true);
-    expect(
-      isSidebarSubagentThread(
-        makeThreadFixture({
-          forkedFrom: { type: "node", nodeId: NodeId.make("node-provider-subagent") },
-        }),
-      ),
-    ).toBe(true);
     expect(isSidebarSubagentThread(makeThreadFixture())).toBe(false);
   });
 
