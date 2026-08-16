@@ -786,6 +786,7 @@ export default function FilePreviewPanel({
   const [breadcrumbReveal, setBreadcrumbReveal] = useState<{ path: string; id: number } | null>(
     null,
   );
+  const breadcrumbRevealIdRef = useRef(0);
   // Reading markdown rendered is a preference, not a property of one file. Keeping
   // it on the panel meant a thread switch dropped it and forced source back.
   const [renderMarkdownPreferred, setRenderMarkdownPreferred] = useLocalStorage(
@@ -842,8 +843,12 @@ export default function FilePreviewPanel({
     } catch (error) {
       console.error(error);
     }
-    setBreadcrumbReveal((current) => ({ path, id: (current?.id ?? 0) + 1 }));
+    breadcrumbRevealIdRef.current += 1;
+    setBreadcrumbReveal({ path, id: breadcrumbRevealIdRef.current });
   };
+  const handleBreadcrumbRevealHandled = useCallback((revealId: number) => {
+    setBreadcrumbReveal((current) => (current?.id === revealId ? null : current));
+  }, []);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!absolutePath || !environmentHttpBaseUrl) return;
@@ -896,7 +901,7 @@ export default function FilePreviewPanel({
                   <button
                     type="button"
                     className={cn(
-                      "max-w-40 cursor-pointer truncate rounded-sm px-0.5 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "max-w-40 cursor-pointer truncate rounded-sm px-0.5 text-left hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       crumb.kind === "file"
                         ? "font-medium text-foreground"
                         : "text-muted-foreground",
@@ -1089,6 +1094,7 @@ export default function FilePreviewPanel({
               selectedPathRevealId={revealRequestId}
               breadcrumbRevealPath={breadcrumbReveal?.path ?? null}
               breadcrumbRevealId={breadcrumbReveal?.id ?? 0}
+              onBreadcrumbRevealHandled={handleBreadcrumbRevealHandled}
               onOpenFile={onOpenFile}
             />
           </aside>

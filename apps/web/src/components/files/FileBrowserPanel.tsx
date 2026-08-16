@@ -33,6 +33,7 @@ interface FileBrowserPanelProps {
   /** Breadcrumb target to reveal in the tree. An empty path reveals the project root. */
   breadcrumbRevealPath: string | null;
   breadcrumbRevealId: number;
+  onBreadcrumbRevealHandled: (revealId: number) => void;
   onOpenFile: (relativePath: string) => void;
 }
 
@@ -50,6 +51,22 @@ const TREE_UNSAFE_CSS = `
 
 function treePath(entry: ProjectEntry): string {
   return entry.kind === "directory" ? `${entry.path}/` : entry.path;
+}
+
+function visibleDirectoryTreePath(entries: readonly ProjectEntry[], directoryPath: string): string {
+  // Pierre flattens a directory row only while its sole direct child is another directory.
+  let currentPath = directoryPath;
+  while (true) {
+    const prefix = `${currentPath}/`;
+    const directChildren = entries.filter((entry) => {
+      if (!entry.path.startsWith(prefix)) return false;
+      return !entry.path.slice(prefix.length).includes("/");
+    });
+    if (directChildren.length !== 1 || directChildren[0]?.kind !== "directory") {
+      return `${currentPath}/`;
+    }
+    currentPath = directChildren[0].path;
+  }
 }
 
 function RefreshFilesButton(props: { isPending: boolean; onRefresh: () => void }) {
@@ -109,6 +126,7 @@ export default function FileBrowserPanel({
   selectedPathRevealId,
   breadcrumbRevealPath,
   breadcrumbRevealId,
+  onBreadcrumbRevealHandled,
   onOpenFile,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
@@ -343,9 +361,27 @@ export default function FileBrowserPanel({
         ? `${breadcrumbRevealPath}/`
         : breadcrumbRevealPath;
     const item = itemPath ? (model.getItem(itemPath) ?? model.getItem(breadcrumbRevealPath)) : null;
-    if ((breadcrumbRevealPath && !item) || (!breadcrumbRevealPath && !treePaths[0])) return;
+    const firstEntry = entries[0];
+    const rootItemPath = firstEntry
+      ? firstEntry.kind === "directory"
+        ? visibleDirectoryTreePath(entries, firstEntry.path)
+        : firstEntry.path
+      : null;
+    if ((breadcrumbRevealPath && !item) || (!breadcrumbRevealPath && !rootItemPath)) return;
 
+    const visibleItemPath = itemPath
+      ? entryKind === "directory"
+        ? visibleDirectoryTreePath(entries, breadcrumbRevealPath)
+        : itemPath
+      : null;
+    if (visibleItemPath && !model.getItem(visibleItemPath)) return;
+
+    handledBreadcrumbRevealRef.current = revealRequest;
+    syncingSelectionRef.current = true;
     model.closeSearch();
+    for (const path of model.getSelectedPaths()) {
+      model.getItem(path)?.deselect();
+    }
 
     const segments = breadcrumbRevealPath.split("/").filter(Boolean);
     let ancestorPath = "";
@@ -355,47 +391,25 @@ export default function FileBrowserPanel({
       if (ancestor && "expand" in ancestor) ancestor.expand();
     }
 
-    let visibleItemPath: string | null = null;
-    if (itemPath) {
-      // Hidden segments in a flattened chain resolve to their visible ancestor,
-      // so probe descendants until the projected row belongs to the clicked directory.
-      const candidates = [
-        itemPath,
-        ...(entryKind === "directory"
-          ? treePaths.filter(
-              (path) => path !== itemPath && path.startsWith(itemPath) && path.endsWith("/"),
-            )
-          : []),
-      ];
-      for (const candidate of candidates) {
-        const projectedPath = model.focusNearestPath(candidate);
-        const matchesTarget =
-          projectedPath === itemPath ||
-          (entryKind === "directory" && projectedPath?.startsWith(itemPath));
-        if (projectedPath && matchesTarget) {
-          visibleItemPath = projectedPath;
-          break;
-        }
-      }
-      if (!visibleItemPath) return;
-    }
-
-    handledBreadcrumbRevealRef.current = revealRequest;
-    syncingSelectionRef.current = true;
-    for (const path of model.getSelectedPaths()) {
-      model.getItem(path)?.deselect();
-    }
-
     if (visibleItemPath) {
       model.getItem(visibleItemPath)?.select();
       model.scrollToPath(visibleItemPath, { focus: true, offset: "center" });
-    } else if (treePaths[0]) {
-      model.scrollToPath(treePaths[0], { focus: true, offset: "top" });
+    } else if (rootItemPath) {
+      model.scrollToPath(rootItemPath, { focus: true, offset: "top" });
     }
+    onBreadcrumbRevealHandled(breadcrumbRevealId);
     queueMicrotask(() => {
       syncingSelectionRef.current = false;
     });
-  }, [breadcrumbRevealId, breadcrumbRevealPath, entryKinds, model, treePaths]);
+  }, [
+    breadcrumbRevealId,
+    breadcrumbRevealPath,
+    entries,
+    entryKinds,
+    model,
+    onBreadcrumbRevealHandled,
+    treePaths,
+  ]);
 
   // Tag tree drags with the composer mention payload. The row is read from
   // the composed event path (the tree's shadow root is open), so this does
