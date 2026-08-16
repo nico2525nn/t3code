@@ -144,15 +144,27 @@ export default function FileBrowserPanel({
   const treeSelectionPathRef = useRef<string | null>(null);
   const handledRevealRef = useRef<{ path: string; revealId: number } | null>(null);
   const handledBreadcrumbRevealRef = useRef<{ path: string; revealId: number } | null>(null);
-  const suppressSelectedPathScrollRef = useRef(breadcrumbRevealPath === "");
-  if (
-    breadcrumbRevealPath === "" &&
-    selectedPath &&
-    (handledRevealRef.current?.path !== selectedPath ||
-      handledRevealRef.current.revealId !== selectedPathRevealId)
-  ) {
-    suppressSelectedPathScrollRef.current = true;
-  }
+  const suppressedSelectedPathRef = useRef<{ path: string; revealId: number } | null>(null);
+  const capturedRootRevealIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (breadcrumbRevealPath !== "") {
+      if (breadcrumbRevealPath !== null) suppressedSelectedPathRef.current = null;
+      return;
+    }
+    if (capturedRootRevealIdRef.current === breadcrumbRevealId) return;
+    capturedRootRevealIdRef.current = breadcrumbRevealId;
+    const handledReveal = handledRevealRef.current;
+    if (
+      selectedPath &&
+      (handledReveal?.path !== selectedPath || handledReveal.revealId !== selectedPathRevealId)
+    ) {
+      suppressedSelectedPathRef.current = {
+        path: selectedPath,
+        revealId: breadcrumbRevealId,
+      };
+    }
+  }, [breadcrumbRevealId, breadcrumbRevealPath, selectedPath, selectedPathRevealId]);
 
   // The tree renders rows in shadow DOM and its anchor rect is unreliable, so
   // capture the right-click position ourselves; contextmenu is a composed
@@ -298,7 +310,7 @@ export default function FileBrowserPanel({
   useEffect(() => {
     if (!selectedPath) {
       handledRevealRef.current = null;
-      suppressSelectedPathScrollRef.current = false;
+      suppressedSelectedPathRef.current = null;
       return;
     }
     const revealRequest = { path: selectedPath, revealId: selectedPathRevealId };
@@ -328,10 +340,10 @@ export default function FileBrowserPanel({
       return;
     }
 
-    if (suppressSelectedPathScrollRef.current) {
+    if (suppressedSelectedPathRef.current?.path === selectedPath) {
       treeSelectionPathRef.current = null;
       handledRevealRef.current = revealRequest;
-      suppressSelectedPathScrollRef.current = false;
+      suppressedSelectedPathRef.current = null;
       syncingSelectionRef.current = true;
       const segments = selectedPath.split("/");
       let ancestorPath = "";
@@ -339,6 +351,9 @@ export default function FileBrowserPanel({
         ancestorPath = ancestorPath ? `${ancestorPath}/${segment}` : segment;
         const item = model.getItem(`${ancestorPath}/`) ?? model.getItem(ancestorPath);
         if (item && "expand" in item) item.expand();
+      }
+      for (const path of model.getSelectedPaths()) {
+        model.getItem(path)?.deselect();
       }
       selectedItem.select();
       queueMicrotask(() => {
