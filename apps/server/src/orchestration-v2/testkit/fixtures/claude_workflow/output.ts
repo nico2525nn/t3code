@@ -66,7 +66,7 @@ export function assertClaudeWorkflowOutput(
     ]),
     [
       ["Researcher", "completed", 0, "claude-sonnet-4-6", 400],
-      ["Implementer", "completed", 1, "claude-opus-4-1", 500],
+      ["Implementer", "completed", 1, "claude-opus-4-1", 600],
     ],
   );
   // Membership must point at the coordinator that actually reached the
@@ -74,6 +74,39 @@ export function assertClaudeWorkflowOutput(
   assert.deepEqual(
     [...new Set(members.map((member) => member.workflowMembership?.workflowSubagentId))],
     [coordinator?.id],
+  );
+  const coordinatorNode = projection.nodes.find((node) => node.id === coordinator?.id);
+  assert.isDefined(coordinatorNode);
+  for (const member of members) {
+    const memberNode = projection.nodes.find((node) => node.id === member.id);
+    assert.isDefined(memberNode);
+    assert.equal(memberNode?.parentNodeId, coordinator?.id);
+    assert.equal(
+      memberNode?.rootNodeId,
+      coordinatorNode?.rootNodeId,
+      "workflow members must remain attached to the run root",
+    );
+  }
+
+  const implementer = members.find((member) => member.title === "Implementer");
+  assert.isDefined(implementer);
+  assert.equal(implementer?.activationCount, 2);
+  assert.equal(implementer?.workflowMembership?.attempt, 2);
+  const implementerActivations = projection.subagentActivations
+    .filter((activation) => activation.subagentId === implementer?.id)
+    .toSorted((left, right) => left.ordinal - right.ordinal);
+  assert.deepEqual(
+    implementerActivations.map((activation) => [
+      activation.ordinal,
+      activation.status,
+      activation.usage?.totalTokens,
+      activation.completedAt !== null,
+    ]),
+    [
+      [1, "failed", 500, true],
+      [2, "completed", 100, true],
+    ],
+    "a workflow retry must settle the prior activation before opening the next",
   );
 
   // The panel groups by these three fields, so pin the values it reads rather

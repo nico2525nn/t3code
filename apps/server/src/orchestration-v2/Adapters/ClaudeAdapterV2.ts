@@ -2265,6 +2265,7 @@ export function shouldReopenClaudeSubagentActivation(input: {
 interface ActiveClaudeSubagent {
   task: OrchestrationV2Subagent;
   activation: OrchestrationV2SubagentActivation;
+  readonly rootNodeId: OrchestrationV2ExecutionNode["id"];
   readonly childThreadId: ThreadId;
   readonly childRootNodeId: OrchestrationV2ExecutionNode["id"];
   readonly turnItemId: OrchestrationV2TurnItem["id"];
@@ -3010,6 +3011,7 @@ export function makeClaudeAdapterV2(
           readonly workflow?: Partial<NonNullable<OrchestrationV2Subagent["workflow"]>>;
           readonly workflowMembership?: OrchestrationV2Subagent["workflowMembership"];
           readonly parentNodeId?: OrchestrationV2ExecutionNode["id"];
+          readonly rootNodeId?: OrchestrationV2ExecutionNode["id"];
           readonly allowCreateSettled?: boolean;
           readonly progress?: string;
           readonly result?: string;
@@ -3093,6 +3095,8 @@ export function makeClaudeAdapterV2(
               driver: CLAUDE_PROVIDER,
               nativeItemId: `${nativeItemId}:thread-root`,
             });
+          const rootNodeId =
+            existingSubagent?.rootNodeId ?? input.rootNodeId ?? input.context.input.rootNodeId;
           const childThreadId =
             existingSubagent?.childThreadId ??
             idAllocator.derive.threadFromProviderThread({
@@ -3217,6 +3221,7 @@ export function makeClaudeAdapterV2(
           const subagent = {
             task,
             activation,
+            rootNodeId,
             childThreadId,
             childRootNodeId,
             turnItemId:
@@ -3250,6 +3255,26 @@ export function makeClaudeAdapterV2(
           });
           if (!committed) {
             return;
+          }
+
+          if (
+            isReopen &&
+            !wasSettled &&
+            existingSubagent !== undefined &&
+            (existingSubagent.activation.status === "pending" ||
+              existingSubagent.activation.status === "running" ||
+              existingSubagent.activation.status === "waiting")
+          ) {
+            yield* emitProviderEvent({
+              type: "subagent_activation.updated",
+              driver: CLAUDE_PROVIDER,
+              activation: {
+                ...existingSubagent.activation,
+                status: "failed",
+                completedAt: existingSubagent.activation.completedAt ?? now,
+                updatedAt: now,
+              },
+            });
           }
 
           if (existingSubagent === undefined) {
@@ -3297,7 +3322,7 @@ export function makeClaudeAdapterV2(
                 threadId: task.threadId,
                 runId: task.runId,
                 parentNodeId: task.parentNodeId,
-                rootNodeId: task.parentNodeId,
+                rootNodeId,
                 kind: "subagent",
                 status: input.status,
                 countsForRun: false,
@@ -4400,6 +4425,7 @@ export function makeClaudeAdapterV2(
                   taskId: workerTaskId,
                   title: label.trim(),
                   parentNodeId: workflowParent.task.id,
+                  rootNodeId: workflowParent.rootNodeId,
                   kind: "workflow_agent",
                   roleFallback: "workflow-worker",
                   ...(typeof model === "string" && model.trim() ? { model: model.trim() } : {}),
