@@ -1699,7 +1699,7 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: {
       onClick={onOpenAgents}
       data-v2-item-type="subagent"
       data-agent-spawn-cta="true"
-      className="-mx-1 flex w-full items-center gap-2 rounded-md border border-border/60 bg-card/50 px-2.5 py-1.5 text-left text-[13px] transition hover:bg-accent/50"
+      className="-mx-1 flex w-full cursor-pointer items-center gap-2 rounded-md border border-border/60 bg-card/50 px-2.5 py-1.5 text-left text-[13px] transition hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
     >
       <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
       <BotIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
