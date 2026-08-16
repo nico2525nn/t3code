@@ -58,6 +58,7 @@ The goal is not to minimize CSS or class counts at any cost. The goal is to put 
 - Repeated native or virtualized overflow fades should use the shared virtualized-scroll-fade contract rather than component-named mask selectors.
 - Preserve runtime top and bottom overflow state. Do not replace dynamic fades with an always-on static mask.
 - Preserve fade geometry and keep the native scrollbar lane opaque so the track and thumb stay visible and usable. A visually similar mask that fades the scrollbar is a regression.
+- For path-driven tree actions with flattened directory rows, do not assume that every registered item path is currently visible. Resolve the target through the tree's visible projection before selecting, focusing, or scrolling, and verify intermediate directory actions against a real flattened chain.
 - Verify actual scroll behavior when changing virtualizers, masks, overflow ownership, or scrollbar selectors. Source-level class comparison is not enough.
 
 ## Visual and layout preservation

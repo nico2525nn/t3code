@@ -30,6 +30,9 @@ interface FileBrowserPanelProps {
   selectedPath: string | null;
   /** Bumped when the same path should be revealed again (e.g. re-opened from search). */
   selectedPathRevealId: number;
+  /** Breadcrumb target to reveal in the tree. An empty path reveals the project root. */
+  breadcrumbRevealPath: string | null;
+  breadcrumbRevealId: number;
   onOpenFile: (relativePath: string) => void;
 }
 
@@ -104,6 +107,8 @@ export default function FileBrowserPanel({
   projectName,
   selectedPath,
   selectedPathRevealId,
+  breadcrumbRevealPath,
+  breadcrumbRevealId,
   onOpenFile,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
@@ -120,6 +125,7 @@ export default function FileBrowserPanel({
   const syncingSelectionRef = useRef(false);
   const treeSelectionPathRef = useRef<string | null>(null);
   const handledRevealRef = useRef<{ path: string; revealId: number } | null>(null);
+  const handledBreadcrumbRevealRef = useRef<{ path: string; revealId: number } | null>(null);
 
   // The tree renders rows in shadow DOM and its anchor rect is unreliable, so
   // capture the right-click position ourselves; contextmenu is a composed
@@ -318,6 +324,78 @@ export default function FileBrowserPanel({
       syncingSelectionRef.current = false;
     });
   }, [entryKinds, model, selectedPath, selectedPathRevealId, treePaths]);
+
+  useEffect(() => {
+    if (breadcrumbRevealPath === null) return;
+    const revealRequest = { path: breadcrumbRevealPath, revealId: breadcrumbRevealId };
+    const handledReveal = handledBreadcrumbRevealRef.current;
+    if (
+      handledReveal?.path === revealRequest.path &&
+      handledReveal.revealId === revealRequest.revealId
+    ) {
+      return;
+    }
+
+    const entryKind = breadcrumbRevealPath ? entryKinds.get(breadcrumbRevealPath) : "directory";
+    if (!entryKind) return;
+    const itemPath =
+      entryKind === "directory" && breadcrumbRevealPath
+        ? `${breadcrumbRevealPath}/`
+        : breadcrumbRevealPath;
+    const item = itemPath ? (model.getItem(itemPath) ?? model.getItem(breadcrumbRevealPath)) : null;
+    if ((breadcrumbRevealPath && !item) || (!breadcrumbRevealPath && !treePaths[0])) return;
+
+    model.closeSearch();
+
+    const segments = breadcrumbRevealPath.split("/").filter(Boolean);
+    let ancestorPath = "";
+    for (const segment of entryKind === "directory" ? segments : segments.slice(0, -1)) {
+      ancestorPath = ancestorPath ? `${ancestorPath}/${segment}` : segment;
+      const ancestor = model.getItem(`${ancestorPath}/`) ?? model.getItem(ancestorPath);
+      if (ancestor && "expand" in ancestor) ancestor.expand();
+    }
+
+    let visibleItemPath: string | null = null;
+    if (itemPath) {
+      // Hidden segments in a flattened chain resolve to their visible ancestor,
+      // so probe descendants until the projected row belongs to the clicked directory.
+      const candidates = [
+        itemPath,
+        ...(entryKind === "directory"
+          ? treePaths.filter(
+              (path) => path !== itemPath && path.startsWith(itemPath) && path.endsWith("/"),
+            )
+          : []),
+      ];
+      for (const candidate of candidates) {
+        const projectedPath = model.focusNearestPath(candidate);
+        const matchesTarget =
+          projectedPath === itemPath ||
+          (entryKind === "directory" && projectedPath?.startsWith(itemPath));
+        if (projectedPath && matchesTarget) {
+          visibleItemPath = projectedPath;
+          break;
+        }
+      }
+      if (!visibleItemPath) return;
+    }
+
+    handledBreadcrumbRevealRef.current = revealRequest;
+    syncingSelectionRef.current = true;
+    for (const path of model.getSelectedPaths()) {
+      model.getItem(path)?.deselect();
+    }
+
+    if (visibleItemPath) {
+      model.getItem(visibleItemPath)?.select();
+      model.scrollToPath(visibleItemPath, { focus: true, offset: "center" });
+    } else if (treePaths[0]) {
+      model.scrollToPath(treePaths[0], { focus: true, offset: "top" });
+    }
+    queueMicrotask(() => {
+      syncingSelectionRef.current = false;
+    });
+  }, [breadcrumbRevealId, breadcrumbRevealPath, entryKinds, model, treePaths]);
 
   // Tag tree drags with the composer mention payload. The row is read from
   // the composed event path (the tree's shadow root is open), so this does
