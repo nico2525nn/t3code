@@ -220,6 +220,14 @@ export function cursorRuntimeAgentPolicy(
   };
 }
 
+export function cursorSubagentCompletedAt(input: {
+  readonly completed: boolean;
+  readonly previous: DateTime.Utc | null | undefined;
+  readonly now: DateTime.Utc;
+}): DateTime.Utc | null {
+  return input.completed ? (input.previous ?? input.now) : null;
+}
+
 export function cursorMcpServers(threadId: ThreadId): Record<string, McpServerConfig> | undefined {
   const session = McpProviderSession.readMcpProviderSession(threadId);
   if (session === undefined) {
@@ -1455,6 +1463,11 @@ export function makeCursorAdapterV2(
           const existing = input.context.subagents.get(input.callId);
           const now = yield* DateTime.now;
           const completed = input.completed || input.terminalStatus !== undefined;
+          const completedAt = cursorSubagentCompletedAt({
+            completed,
+            previous: existing?.task.completedAt,
+            now,
+          });
           const status: OrchestrationV2Subagent["status"] =
             input.terminalStatus ??
             (completed ? (cursorToolFailed(input.toolCall) ? "failed" : "completed") : "running");
@@ -1523,7 +1536,7 @@ export function makeCursorAdapterV2(
             status,
             result: resultText.length === 0 ? (existing?.task.result ?? null) : resultText,
             currentActivationId: completed ? null : activationId,
-            completedAt: completed ? now : null,
+            completedAt,
             updatedAt: now,
           };
           const subagent: ActiveCursorSubagent = {
@@ -1621,7 +1634,7 @@ export function makeCursorAdapterV2(
               runtimeRequestId: null,
               checkpointScopeId: null,
               startedAt: task.startedAt,
-              completedAt: completed ? now : null,
+              completedAt,
             },
           });
           yield* emitProviderEvent({
@@ -1642,7 +1655,7 @@ export function makeCursorAdapterV2(
               runtimeRequestId: null,
               checkpointScopeId: null,
               startedAt: task.startedAt,
-              completedAt: completed ? now : null,
+              completedAt,
             },
           });
           yield* emitProviderEvent({
@@ -1663,7 +1676,7 @@ export function makeCursorAdapterV2(
               status,
               usage: null,
               startedAt: task.startedAt,
-              completedAt: completed ? now : null,
+              completedAt,
               updatedAt: now,
             } satisfies OrchestrationV2SubagentActivation,
           });

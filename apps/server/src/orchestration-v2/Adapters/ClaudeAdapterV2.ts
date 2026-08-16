@@ -2246,6 +2246,22 @@ export function claudeSubagentStatusPinsSession(
   return status === "pending" || status === "running" || status === "waiting";
 }
 
+export function shouldReopenClaudeSubagentActivation(input: {
+  readonly requested: boolean;
+  readonly activeStart: boolean;
+  readonly wasSettled: boolean;
+  readonly previousWorkflowAttempt: number | null;
+  readonly nextWorkflowAttempt: number | null;
+}): boolean {
+  return (
+    input.requested &&
+    input.activeStart &&
+    (input.wasSettled ||
+      (input.nextWorkflowAttempt !== null &&
+        input.nextWorkflowAttempt > (input.previousWorkflowAttempt ?? 0)))
+  );
+}
+
 interface ActiveClaudeSubagent {
   task: OrchestrationV2Subagent;
   activation: OrchestrationV2SubagentActivation;
@@ -3040,7 +3056,13 @@ export function makeClaudeAdapterV2(
           // start, so a replayed blocked-worker snapshot must be refused too.
           const activeStart =
             input.status === "pending" || input.status === "running" || input.status === "waiting";
-          const isReopen = input.reopen === true && wasSettled && activeStart;
+          const isReopen = shouldReopenClaudeSubagentActivation({
+            requested: input.reopen === true,
+            activeStart,
+            wasSettled,
+            previousWorkflowAttempt: existingSubagent?.task.workflowMembership?.attempt ?? null,
+            nextWorkflowAttempt: input.workflowMembership?.attempt ?? null,
+          });
           if (existingSubagent !== undefined && wasSettled && activeStart && !isReopen) {
             return;
           }

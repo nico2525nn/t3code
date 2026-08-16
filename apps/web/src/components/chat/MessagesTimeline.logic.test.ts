@@ -48,13 +48,18 @@ function runtimeAgent(id: string, overrides: Partial<RuntimeSubagent> = {}): Run
   };
 }
 
-function subagentTimelineEntry(id: string, runId: string | null): TimelineEntry {
+function subagentTimelineEntry(
+  id: string,
+  runId: string | null,
+  itemId = id,
+  status: "running" | "completed" = "running",
+): TimelineEntry {
   return {
-    id: `entry:${id}`,
+    id: `entry:${itemId}`,
     kind: "event",
     createdAt: "2026-08-13T10:00:00.000Z",
     projectedItem: {
-      item: { id: `item:${id}`, type: "subagent", subagentId: id, runId, status: "running" },
+      item: { id: `item:${itemId}`, type: "subagent", subagentId: id, runId, status },
     } as never,
   };
 }
@@ -161,6 +166,38 @@ describe("collapseSubagentTimelineEntries", () => {
 
     expect(result.timelineEntries).toHaveLength(4);
     expect(result.ctaByItemId.size).toBe(4);
+  });
+
+  it("keeps no-run lifecycle items distinct when they reuse a durable subagent", () => {
+    const emptyModel = {
+      workflows: [],
+      directAgents: [],
+      runningCount: 0,
+      waitingCount: 0,
+      idleCount: 0,
+      settledCount: 0,
+      totalTokens: 0,
+      hasAgents: false,
+      liveCount: 0,
+    } satisfies AgentPanelModel;
+    const result = collapseSubagentTimelineEntries({
+      timelineEntries: [
+        subagentTimelineEntry("reused-agent", null, "reused-agent:first", "completed"),
+        subagentTimelineEntry("reused-agent", null, "reused-agent:second", "running"),
+      ],
+      agentPanelModel: emptyModel,
+    });
+
+    expect(result.timelineEntries.map((entry) => entry.id)).toEqual([
+      "entry:reused-agent:first",
+      "entry:reused-agent:second",
+    ]);
+    expect(result.ctaByItemId.get("item:reused-agent:first")?.itemStates[0]?.status).toBe(
+      "completed",
+    );
+    expect(result.ctaByItemId.get("item:reused-agent:second")?.itemStates[0]?.status).toBe(
+      "running",
+    );
   });
 });
 

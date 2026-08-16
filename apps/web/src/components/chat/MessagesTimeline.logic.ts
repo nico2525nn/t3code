@@ -283,7 +283,7 @@ export function collapseSubagentTimelineEntries(input: {
     const item = entry.projectedItem.item;
     const workflowId = workflowIdByAgentId.get(item.subagentId) ?? null;
     const groupKey =
-      workflowId === null ? `direct:${item.runId ?? item.subagentId}` : `workflow:${workflowId}`;
+      workflowId === null ? `direct:${item.runId ?? item.id}` : `workflow:${workflowId}`;
     const anchorItemId = anchorItemIdByGroup.get(groupKey);
     if (anchorItemId === undefined) {
       anchorItemIdByGroup.set(groupKey, item.id);

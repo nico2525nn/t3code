@@ -67,6 +67,7 @@ import {
   makeClaudeAdapterV2,
   makeClaudeAgentSdkProtocolLogger,
   makeClaudeQueryOptions,
+  shouldReopenClaudeSubagentActivation,
   type ClaudeAgentSdkQueryOptions,
   type ClaudeAgentSdkQueryOpenInput,
 } from "./ClaudeAdapterV2.ts";
@@ -212,6 +213,36 @@ describe("ClaudeAdapterV2 background-work status", () => {
         ),
       ),
       [true, true, true, false, false, false, false, false],
+    );
+  });
+});
+
+describe("ClaudeAdapterV2 subagent activations", () => {
+  it("reopens settled resumes and active workflow retries, but not duplicate active starts", () => {
+    const base = {
+      requested: true,
+      activeStart: true,
+      wasSettled: false,
+      previousWorkflowAttempt: null,
+      nextWorkflowAttempt: null,
+    };
+
+    assert.isTrue(shouldReopenClaudeSubagentActivation({ ...base, wasSettled: true }));
+    assert.isTrue(
+      shouldReopenClaudeSubagentActivation({
+        ...base,
+        previousWorkflowAttempt: 1,
+        nextWorkflowAttempt: 2,
+      }),
+    );
+    assert.isFalse(shouldReopenClaudeSubagentActivation(base));
+    assert.isFalse(
+      shouldReopenClaudeSubagentActivation({
+        ...base,
+        requested: false,
+        previousWorkflowAttempt: 1,
+        nextWorkflowAttempt: 2,
+      }),
     );
   });
 });
