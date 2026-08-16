@@ -20,7 +20,7 @@ import {
   providerMessageWithContextHandoffs,
 } from "./ContextHandoffService.ts";
 import { IdAllocatorV2 } from "./IdAllocator.ts";
-import { ProjectionStoreThreadNotFoundError, ProjectionStoreV2 } from "./ProjectionStore.ts";
+import { ProjectionStoreV2 } from "./ProjectionStore.ts";
 import { ProviderSessionManagerV2 } from "./ProviderSessionManager.ts";
 import {
   canReactivateSubagent,

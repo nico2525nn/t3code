@@ -486,7 +486,7 @@ describe("orchestration V2 contracts", () => {
       completedAt: now,
       updatedAt: now,
     });
-    const activation = Schema.decodeUnknownSync(OrchestrationV2SubagentActivation)({
+    const activation = decodeOrchestrationV2SubagentActivation({
       id: "node-subagent-1:activation:2",
       threadId: "thread-1",
       subagentId: subagent.id,
@@ -510,8 +510,8 @@ describe("orchestration V2 contracts", () => {
       recentActivity: _recentActivity,
       ...legacySubagent
     } = subagent;
-    const decodedLegacySubagent = Schema.decodeUnknownSync(OrchestrationV2Subagent)(legacySubagent);
-    const decodedLegacyEvent = Schema.decodeUnknownSync(OrchestrationV2DomainEventJson)({
+    const decodedLegacySubagent = decodeOrchestrationV2Subagent(legacySubagent);
+    const decodedLegacyEvent = decodeOrchestrationV2DomainEventJson({
       id: "event-legacy-subagent",
       type: "subagent.updated",
       threadId: "thread-1",
@@ -527,7 +527,7 @@ describe("orchestration V2 contracts", () => {
         updatedAt: DateTime.formatIso(now),
       },
     });
-    const decodedActivityEvent = Schema.decodeUnknownSync(OrchestrationV2DomainEventJson)({
+    const decodedActivityEvent = decodeOrchestrationV2DomainEventJson({
       id: "event-subagent-activity",
       type: "subagent.updated",
       threadId: "thread-1",
@@ -629,9 +629,7 @@ describe("orchestration V2 contracts", () => {
     });
 
     // The projection reads stored rows through exactly this schema.
-    const decoded = Schema.decodeUnknownSync(Schema.fromJsonString(OrchestrationV2SubagentJson))(
-      legacyPayloadJson,
-    );
+    const decoded = decodeStoredOrchestrationV2Subagent(legacyPayloadJson);
 
     expect(decoded.kind).toBe("subagent");
     expect(decoded.role).toEqual({ name: "general-purpose", source: "app_default" });
