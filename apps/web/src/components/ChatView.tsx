@@ -222,7 +222,11 @@ import {
 import { appendPreviewAnnotationPrompt } from "../lib/previewAnnotation";
 import { appendReviewCommentsToPrompt, type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
-import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
+import {
+  selectThreadTerminalCustomLabels,
+  selectThreadTerminalUiState,
+  useTerminalUiStateStore,
+} from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
@@ -659,6 +663,7 @@ interface PersistentThreadTerminalDrawerProps {
   newShortcutLabel: string | undefined;
   closeShortcutLabel: string | undefined;
   keybindings: ResolvedKeybindingsConfig;
+  onHide: () => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
 }
 
@@ -673,6 +678,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   newShortcutLabel,
   closeShortcutLabel,
   keybindings,
+  onHide,
   onAddTerminalContext,
 }: PersistentThreadTerminalDrawerProps) {
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
@@ -788,8 +794,14 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     ) {
       return;
     }
-    reconcileTerminalIds(threadRef, serverOrderedTerminalIds);
-  }, [reconcileTerminalIds, serverOrderedTerminalIds, terminalUiState.terminalIds, threadRef]);
+    reconcileTerminalIds(threadRef, serverOrderedTerminalIds, [...panelTerminalIds]);
+  }, [
+    panelTerminalIds,
+    reconcileTerminalIds,
+    serverOrderedTerminalIds,
+    terminalUiState.terminalIds,
+    threadRef,
+  ]);
   const [localFocusRequestId, setLocalFocusRequestId] = useState(0);
   const worktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const effectiveWorktreePath = useMemo(() => {
@@ -996,6 +1008,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
         onSplitTerminal={splitTerminal}
         onSplitTerminalVertical={splitTerminalVertical}
         onNewTerminal={createNewTerminal}
+        onHide={onHide}
         splitShortcutLabel={visible ? splitShortcutLabel : undefined}
         splitVerticalShortcutLabel={visible ? splitVerticalShortcutLabel : undefined}
         newShortcutLabel={visible ? newShortcutLabel : undefined}
@@ -1558,6 +1571,16 @@ function ChatViewContent(props: ChatViewProps) {
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
   const activeThreadEnvironmentId = activeThread?.environmentId ?? null;
+  const activeThreadRef = useMemo(
+    () =>
+      activeThreadEnvironmentId && activeThreadId
+        ? scopeThreadRef(activeThreadEnvironmentId, activeThreadId)
+        : null,
+    [activeThreadEnvironmentId, activeThreadId],
+  );
+  const activeTerminalCustomLabels = useTerminalUiStateStore((state) =>
+    selectThreadTerminalCustomLabels(state.terminalCustomLabelsByThreadKey, activeThreadRef),
+  );
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: activeThread?.environmentId ?? null,
     threadId: activeThreadId,
@@ -1587,18 +1610,15 @@ function ChatViewContent(props: ChatViewProps) {
     for (const session of activeThreadKnownSessions) {
       labels.set(
         session.target.terminalId,
-        resolveTerminalSessionLabel(session.target.terminalId, session.state.summary),
+        activeTerminalCustomLabels[session.target.terminalId] ??
+          resolveTerminalSessionLabel(session.target.terminalId, session.state.summary),
       );
     }
+    for (const [terminalId, label] of Object.entries(activeTerminalCustomLabels)) {
+      if (!labels.has(terminalId)) labels.set(terminalId, label);
+    }
     return labels;
-  }, [activeThreadKnownSessions]);
-  const activeThreadRef = useMemo(
-    () =>
-      activeThreadEnvironmentId && activeThreadId
-        ? scopeThreadRef(activeThreadEnvironmentId, activeThreadId)
-        : null,
-    [activeThreadEnvironmentId, activeThreadId],
-  );
+  }, [activeTerminalCustomLabels, activeThreadKnownSessions]);
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const changeRequestSnapshotByKey = useAtomValue(threadChangeRequestSnapshotsAtom);
   const [timelineAnchor, setTimelineAnchor] = useState<{
@@ -2835,6 +2855,7 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeThreadRef, storeSetTerminalOpen],
   );
+  const hideTerminal = useCallback(() => setTerminalOpen(false), [setTerminalOpen]);
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadRef) return;
     const nextOpen = !terminalUiState.terminalOpen;
@@ -6632,6 +6653,7 @@ function ChatViewContent(props: ChatViewProps) {
             newShortcutLabel={newTerminalShortcutLabel ?? undefined}
             closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
             keybindings={keybindings}
+            onHide={hideTerminal}
             onAddTerminalContext={addTerminalContextToDraft}
           />
         ))}
