@@ -144,8 +144,15 @@ export default function FileBrowserPanel({
   const treeSelectionPathRef = useRef<string | null>(null);
   const handledRevealRef = useRef<{ path: string; revealId: number } | null>(null);
   const handledBreadcrumbRevealRef = useRef<{ path: string; revealId: number } | null>(null);
-  const pendingBreadcrumbRevealPathRef = useRef(breadcrumbRevealPath);
-  pendingBreadcrumbRevealPathRef.current = breadcrumbRevealPath;
+  const suppressSelectedPathScrollRef = useRef(breadcrumbRevealPath === "");
+  if (
+    breadcrumbRevealPath === "" &&
+    selectedPath &&
+    (handledRevealRef.current?.path !== selectedPath ||
+      handledRevealRef.current.revealId !== selectedPathRevealId)
+  ) {
+    suppressSelectedPathScrollRef.current = true;
+  }
 
   // The tree renders rows in shadow DOM and its anchor rect is unreliable, so
   // capture the right-click position ourselves; contextmenu is a composed
@@ -291,12 +298,9 @@ export default function FileBrowserPanel({
   useEffect(() => {
     if (!selectedPath) {
       handledRevealRef.current = null;
+      suppressSelectedPathScrollRef.current = false;
       return;
     }
-    // Opening the explorer from a breadcrumb mounts this effect before the
-    // breadcrumb reveal below. Let the explicit breadcrumb request own the
-    // initial focus and scroll instead of centering the open file first.
-    if (pendingBreadcrumbRevealPathRef.current !== null) return;
     const revealRequest = { path: selectedPath, revealId: selectedPathRevealId };
     const handledReveal = handledRevealRef.current;
     // Entry refreshes rebuild treePaths while the same preview stays open.
@@ -321,6 +325,25 @@ export default function FileBrowserPanel({
     if (selectedInTree && treeSelectionPathRef.current === selectedPath) {
       treeSelectionPathRef.current = null;
       handledRevealRef.current = revealRequest;
+      return;
+    }
+
+    if (suppressSelectedPathScrollRef.current) {
+      treeSelectionPathRef.current = null;
+      handledRevealRef.current = revealRequest;
+      suppressSelectedPathScrollRef.current = false;
+      syncingSelectionRef.current = true;
+      const segments = selectedPath.split("/");
+      let ancestorPath = "";
+      for (const segment of segments.slice(0, -1)) {
+        ancestorPath = ancestorPath ? `${ancestorPath}/${segment}` : segment;
+        const item = model.getItem(`${ancestorPath}/`) ?? model.getItem(ancestorPath);
+        if (item && "expand" in item) item.expand();
+      }
+      selectedItem.select();
+      queueMicrotask(() => {
+        syncingSelectionRef.current = false;
+      });
       return;
     }
     treeSelectionPathRef.current = null;
@@ -370,6 +393,7 @@ export default function FileBrowserPanel({
         if (!scrollContainer) {
           attemptsRemaining -= 1;
           if (attemptsRemaining > 0) frameId = requestAnimationFrame(revealProjectRoot);
+          else onBreadcrumbRevealHandled(breadcrumbRevealId);
           return;
         }
         handledBreadcrumbRevealRef.current = revealRequest;
@@ -384,20 +408,29 @@ export default function FileBrowserPanel({
     }
 
     const entryKind = entryKinds.get(breadcrumbRevealPath);
-    if (!entryKind) return;
+    if (!entryKind) {
+      if (!entriesQuery.isPending) onBreadcrumbRevealHandled(breadcrumbRevealId);
+      return;
+    }
     const itemPath =
       entryKind === "directory" && breadcrumbRevealPath
         ? `${breadcrumbRevealPath}/`
         : breadcrumbRevealPath;
     const item = itemPath ? (model.getItem(itemPath) ?? model.getItem(breadcrumbRevealPath)) : null;
-    if (!item) return;
+    if (!item) {
+      if (!entriesQuery.isPending) onBreadcrumbRevealHandled(breadcrumbRevealId);
+      return;
+    }
 
     const visibleItemPath = itemPath
       ? entryKind === "directory"
         ? visibleDirectoryTreePath(entries, breadcrumbRevealPath)
         : itemPath
       : null;
-    if (visibleItemPath && !model.getItem(visibleItemPath)) return;
+    if (visibleItemPath && !model.getItem(visibleItemPath)) {
+      if (!entriesQuery.isPending) onBreadcrumbRevealHandled(breadcrumbRevealId);
+      return;
+    }
 
     handledBreadcrumbRevealRef.current = revealRequest;
     syncingSelectionRef.current = true;
@@ -428,6 +461,7 @@ export default function FileBrowserPanel({
     breadcrumbRevealId,
     breadcrumbRevealPath,
     entries,
+    entriesQuery.isPending,
     entryKinds,
     model,
     onBreadcrumbRevealHandled,
