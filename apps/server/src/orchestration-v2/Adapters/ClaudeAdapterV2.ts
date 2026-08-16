@@ -3044,9 +3044,7 @@ export function makeClaudeAdapterV2(
           // out-of-order task_progress must not.
           const previousSettled =
             existingSubagent !== undefined &&
-            (existingSubagent.task.status === "completed" ||
-              existingSubagent.task.status === "failed" ||
-              existingSubagent.task.status === "cancelled");
+            !claudeSubagentStatusPinsSession(existingSubagent.task.status);
           // The wake buffer may already have pre-opened a settled entry, hiding
           // the terminal status this check relies on. Treat that as settled too,
           // or the resume silently reuses the finished activation: its ordinal
@@ -3522,6 +3520,103 @@ export function makeClaudeAdapterV2(
               driver: CLAUDE_PROVIDER,
               turnItem: resultArtifacts.turnItem,
             });
+          }
+        });
+
+        const seedExistingSubagents = Effect.fnUntraced(function* (
+          context: ActiveClaudeTurnContext,
+        ) {
+          const existing = context.input.existingSubagents ?? [];
+          if (existing.length === 0) return;
+
+          const claudeEntries = existing.filter(
+            (entry) =>
+              entry.subagent.driver === CLAUDE_PROVIDER &&
+              entry.subagent.providerInstanceId === adapterOptions.instanceId &&
+              entry.subagent.nativeTaskRef?.driver === CLAUDE_PROVIDER,
+          );
+          if (claudeEntries.length === 0) return;
+
+          const entryBySubagentId = new Map(
+            claudeEntries.map((entry) => [entry.subagent.id, entry] as const),
+          );
+          const rootNodeIdFor = (
+            subagent: OrchestrationV2Subagent,
+            seen: ReadonlySet<OrchestrationV2Subagent["id"]> = new Set(),
+          ): OrchestrationV2ExecutionNode["id"] => {
+            if (seen.has(subagent.id)) return subagent.parentNodeId;
+            const parent = entryBySubagentId.get(subagent.parentNodeId)?.subagent;
+            if (parent === undefined) return subagent.parentNodeId;
+            return rootNodeIdFor(parent, new Set(seen).add(subagent.id));
+          };
+
+          const hydrated = yield* Ref.modify(sessionSubagentsByTaskId, (current) => {
+            const updated = new Map(current);
+            const selected = new Map<string, ActiveClaudeSubagent>();
+            for (const entry of claudeEntries) {
+              const nativeTaskId = entry.subagent.nativeTaskRef?.nativeId;
+              if (
+                nativeTaskId === undefined ||
+                nativeTaskId === null ||
+                selected.has(nativeTaskId)
+              ) {
+                continue;
+              }
+              const registered = updated.get(nativeTaskId);
+              if (registered !== undefined) {
+                selected.set(nativeTaskId, registered);
+                continue;
+              }
+
+              const taskStatus = claudeSubagentStatusPinsSession(entry.subagent.status)
+                ? ("idle" as const)
+                : entry.subagent.status;
+              const task = {
+                ...entry.subagent,
+                status: taskStatus,
+                currentActivationId: null,
+              } satisfies OrchestrationV2Subagent;
+              const activationOrdinal = Math.max(1, task.activationCount);
+              const activationStatus =
+                taskStatus === "idle" ? ("interrupted" as const) : taskStatus;
+              const seeded = {
+                task,
+                activation: {
+                  id: subagentActivationId(task.id, activationOrdinal),
+                  threadId: task.threadId,
+                  subagentId: task.id,
+                  runId: task.runId,
+                  providerTurnId: null,
+                  ordinal: activationOrdinal,
+                  status: activationStatus,
+                  usage: null,
+                  startedAt: task.startedAt,
+                  completedAt: task.completedAt,
+                  updatedAt: task.updatedAt,
+                },
+                rootNodeId: rootNodeIdFor(task),
+                childThreadId: entry.childThread.id,
+                childRootNodeId: idAllocator.derive.nodeFromProviderItem({
+                  driver: CLAUDE_PROVIDER,
+                  nativeItemId: `task:${nativeTaskId}:thread-root`,
+                }),
+                turnItemId: entry.turnItemId,
+                turnItemOrdinal: entry.turnItemOrdinal,
+                nextChildItemOrdinal: 100,
+                progressItemOrdinal: null,
+                progressStartedAt: null,
+                resultItemOrdinal: null,
+                resumePending: false,
+              } satisfies ActiveClaudeSubagent;
+              updated.set(nativeTaskId, seeded);
+              selected.set(nativeTaskId, seeded);
+            }
+            return [selected, updated] as const;
+          });
+
+          for (const [taskId, subagent] of hydrated) {
+            context.subagentsByTaskId.set(taskId, subagent);
+            context.subagentNodesByTaskId.set(taskId, subagent.task.id);
           }
         });
 
@@ -4989,6 +5084,7 @@ export function makeClaudeAdapterV2(
               subagentsByToolUseId: new Map(),
               subagentNodesByTaskId: new Map(),
             };
+            yield* seedExistingSubagents(context);
             // Continuation turns attach to the wake output the CLI already
             // produced instead of prompting it again: drain the buffered wake
             // messages into this turn and let any still-streaming messages

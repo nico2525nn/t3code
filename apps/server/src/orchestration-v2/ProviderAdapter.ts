@@ -401,7 +401,8 @@ export interface ProviderAdapterV2EnsureThreadInput {
 export interface ProviderAdapterV2ExistingSubagent {
   readonly subagent: OrchestrationV2Subagent;
   readonly childThread: OrchestrationV2AppThread;
-  readonly childProviderThread: OrchestrationV2ProviderThread;
+  /** Null for provider-native tasks, such as Claude agents, without a child provider thread. */
+  readonly childProviderThread: OrchestrationV2ProviderThread | null;
   readonly turnItemId: TurnItemId;
   readonly turnItemOrdinal: number;
   readonly ordinal: number;

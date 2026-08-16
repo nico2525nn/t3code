@@ -171,9 +171,12 @@ export const layer: Layer.Layer<
               }),
             );
             if (childProjection === null) return [];
-            const childProviderThread = childProjection.providerThreads.find(
-              (candidate) => candidate.id === subagent.providerThreadId,
-            );
+            const childProviderThread =
+              subagent.providerThreadId === null
+                ? null
+                : childProjection.providerThreads.find(
+                    (candidate) => candidate.id === subagent.providerThreadId,
+                  );
             if (childProviderThread === undefined) return [];
             return [
               {

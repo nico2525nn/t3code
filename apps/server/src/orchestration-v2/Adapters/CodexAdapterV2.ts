@@ -1621,13 +1621,15 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             yield* Ref.update(subagentThreads, (current) => {
               const updated = new Map(current);
               for (const entry of existing) {
-                const nativeThreadId = entry.childProviderThread.nativeThreadRef?.nativeId ?? null;
+                const childProviderThread = entry.childProviderThread;
+                if (childProviderThread === null) continue;
+                const nativeThreadId = childProviderThread.nativeThreadRef?.nativeId ?? null;
                 if (nativeThreadId === null || updated.has(nativeThreadId)) continue;
                 const nativeItemId = entry.subagent.nativeTaskRef?.nativeId ?? null;
                 if (nativeItemId === null || !nativeItemId.includes(":")) continue;
                 updated.set(nativeThreadId, {
                   parentContext: context,
-                  providerThread: entry.childProviderThread,
+                  providerThread: childProviderThread,
                   childThread: entry.childThread,
                   subagentNodeId: entry.subagent.id,
                   childRootNodeId: idAllocator.derive.nodeFromProviderItem({
@@ -1666,6 +1668,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             yield* Ref.update(nextProviderTurnOrdinals, (current) => {
               const updated = new Map(current);
               for (const entry of existing) {
+                if (entry.childProviderThread === null) continue;
                 const key = String(entry.childProviderThread.id);
                 if (updated.has(key)) continue;
                 // The map stores the last issued ordinal. A leftover with no

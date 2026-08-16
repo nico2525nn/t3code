@@ -224,6 +224,18 @@ function makeChildProjection(now: DateTime.Utc): OrchestrationV2ThreadProjection
   } as unknown as OrchestrationV2ThreadProjection;
 }
 
+function withoutChildProviderThread(
+  projection: OrchestrationV2ThreadProjection,
+): OrchestrationV2ThreadProjection {
+  return {
+    ...projection,
+    subagents: projection.subagents.map((subagent) => ({
+      ...subagent,
+      providerThreadId: null,
+    })),
+  };
+}
+
 function makeTestLayer(input: {
   readonly rootProjection: OrchestrationV2ThreadProjection;
   readonly childProjection: Effect.Effect<
@@ -358,6 +370,36 @@ it.effect("rehydrates an existing child projection before starting the provider 
         makeTestLayer({
           rootProjection: makeRootProjection(now),
           childProjection: Effect.succeed(makeChildProjection(now)),
+          existingSubagentCounts,
+          providerSessionOpens,
+          runningWrites,
+        }),
+      ),
+    );
+
+    assert.deepEqual(yield* Ref.get(existingSubagentCounts), [1]);
+    assert.equal(yield* Ref.get(providerSessionOpens), 1);
+    assert.equal(yield* Ref.get(runningWrites), 1);
+  }),
+);
+
+it.effect("rehydrates a provider-native subagent without a child provider thread", () =>
+  Effect.gen(function* () {
+    const now = yield* DateTime.now;
+    const existingSubagentCounts = yield* Ref.make<ReadonlyArray<number>>([]);
+    const providerSessionOpens = yield* Ref.make(0);
+    const runningWrites = yield* Ref.make(0);
+    yield* Effect.gen(function* () {
+      const service = yield* ProviderTurnStart.ProviderTurnStartServiceV2;
+      yield* service.start({ threadId, runId });
+    }).pipe(
+      Effect.provide(
+        makeTestLayer({
+          rootProjection: withoutChildProviderThread(makeRootProjection(now)),
+          childProjection: Effect.succeed({
+            ...makeChildProjection(now),
+            providerThreads: [],
+          }),
           existingSubagentCounts,
           providerSessionOpens,
           runningWrites,
