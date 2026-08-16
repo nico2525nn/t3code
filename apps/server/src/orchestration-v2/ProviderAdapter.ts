@@ -403,6 +403,8 @@ export interface ProviderAdapterV2ExistingSubagent {
   readonly childThread: OrchestrationV2AppThread;
   /** Null for provider-native tasks, such as Claude agents, without a child provider thread. */
   readonly childProviderThread: OrchestrationV2ProviderThread | null;
+  /** Latest persisted activation, used as the cumulative-usage baseline after recovery. */
+  readonly latestActivation?: OrchestrationV2SubagentActivation | null;
   readonly turnItemId: TurnItemId;
   readonly turnItemOrdinal: number;
   readonly ordinal: number;

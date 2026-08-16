@@ -20,6 +20,7 @@ import {
   ProviderTurnId,
   RunAttemptId,
   RunId,
+  SubagentActivationId,
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
@@ -1519,69 +1520,105 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       };
     });
   const makeWakeHarness = makeWakeHarnessWithOptions();
+  const RESTART_TASK_ID = "task-claude-restart-subagent";
+  const RESTART_SUBAGENT_ID = NodeId.make("node-claude-restart-subagent");
+  const RESTART_CHILD_THREAD_ID = ThreadId.make("thread-claude-restart-subagent");
+
+  const makeRestartExistingSubagent = (input: {
+    readonly parentThreadId: ThreadId;
+    readonly providerThread: OrchestrationV2ProviderThread;
+    readonly now: DateTime.Utc;
+    readonly status: "running" | "completed";
+    readonly taskTokens: number;
+    readonly activationTokens: number;
+  }) => {
+    const activationId = SubagentActivationId.make("activation-claude-restart-subagent-1");
+    const completed = input.status === "completed";
+    const childThread = {
+      ...makeClaudeTestAppThread({
+        threadId: RESTART_CHILD_THREAD_ID,
+        providerThread: input.providerThread,
+        now: input.now,
+      }),
+      activeProviderThreadId: null,
+      lineage: {
+        parentThreadId: input.parentThreadId,
+        relationshipToParent: "subagent" as const,
+        rootThreadId: input.parentThreadId,
+      },
+    };
+    return {
+      subagent: {
+        id: RESTART_SUBAGENT_ID,
+        threadId: input.parentThreadId,
+        runId: RunId.make("run-before-claude-restart"),
+        parentNodeId: NodeId.make("node-before-claude-restart-root"),
+        origin: "provider_native" as const,
+        createdBy: "agent" as const,
+        driver: CLAUDE_PROVIDER,
+        providerInstanceId: CLAUDE_DEFAULT_INSTANCE_ID,
+        providerThreadId: null,
+        childThreadId: RESTART_CHILD_THREAD_ID,
+        nativeTaskRef: {
+          driver: CLAUDE_PROVIDER,
+          nativeId: RESTART_TASK_ID,
+          strength: "strong" as const,
+        },
+        prompt: "Resume the existing Claude agent.",
+        title: "Existing Claude agent",
+        model: "claude-sonnet-4-6",
+        kind: "subagent" as const,
+        role: { name: "general-purpose", source: "app_default" as const },
+        status: input.status,
+        result: completed ? "FIRST_ACTIVATION_DONE" : null,
+        usage: { totalTokens: input.taskTokens },
+        currentActivationId: completed ? null : activationId,
+        activationCount: 1,
+        workflow: null,
+        workflowMembership: null,
+        recentActivity: [],
+        startedAt: input.now,
+        completedAt: completed ? input.now : null,
+        updatedAt: input.now,
+      },
+      childThread,
+      childProviderThread: null,
+      latestActivation: {
+        id: activationId,
+        threadId: input.parentThreadId,
+        subagentId: RESTART_SUBAGENT_ID,
+        runId: RunId.make("run-before-claude-restart"),
+        providerTurnId: null,
+        ordinal: 1,
+        status: input.status,
+        usage: { totalTokens: input.activationTokens },
+        startedAt: input.now,
+        completedAt: completed ? input.now : null,
+        updatedAt: input.now,
+      },
+      turnItemId: TurnItemId.make("turn-item-claude-restart-subagent"),
+      turnItemOrdinal: 2,
+      ordinal: 1,
+    } satisfies NonNullable<ProviderAdapterV2TurnInput["existingSubagents"]>[number];
+  };
 
   it.effect("rehydrates a projection-known subagent after the session registry is lost", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const taskId = "task-claude-restart-subagent";
+        const taskId = RESTART_TASK_ID;
         const toolUseId = "toolu-claude-restart-subagent";
-        const subagentId = NodeId.make("node-claude-restart-subagent");
-        const childThreadId = ThreadId.make("thread-claude-restart-subagent");
+        const subagentId = RESTART_SUBAGENT_ID;
+        const childThreadId = RESTART_CHILD_THREAD_ID;
         const harness = yield* makeWakeHarness;
         const now = yield* DateTime.now;
-        const childThread = {
-          ...makeClaudeTestAppThread({
-            threadId: childThreadId,
-            providerThread: harness.providerThread,
-            now,
-          }),
-          activeProviderThreadId: null,
-          lineage: {
-            parentThreadId: harness.threadId,
-            relationshipToParent: "subagent" as const,
-            rootThreadId: harness.threadId,
-          },
-        };
-        const existing = {
-          subagent: {
-            id: subagentId,
-            threadId: harness.threadId,
-            runId: RunId.make("run-before-claude-restart"),
-            parentNodeId: NodeId.make("node-before-claude-restart-root"),
-            origin: "provider_native" as const,
-            createdBy: "agent" as const,
-            driver: CLAUDE_PROVIDER,
-            providerInstanceId: CLAUDE_DEFAULT_INSTANCE_ID,
-            providerThreadId: null,
-            childThreadId,
-            nativeTaskRef: {
-              driver: CLAUDE_PROVIDER,
-              nativeId: taskId,
-              strength: "strong" as const,
-            },
-            prompt: "Resume the existing Claude agent.",
-            title: "Existing Claude agent",
-            model: "claude-sonnet-4-6",
-            kind: "subagent" as const,
-            role: { name: "general-purpose", source: "app_default" as const },
-            status: "completed" as const,
-            result: "FIRST_ACTIVATION_DONE",
-            usage: { totalTokens: 100 },
-            currentActivationId: null,
-            activationCount: 1,
-            workflow: null,
-            workflowMembership: null,
-            recentActivity: [],
-            startedAt: now,
-            completedAt: now,
-            updatedAt: now,
-          },
-          childThread,
-          childProviderThread: null,
-          turnItemId: TurnItemId.make("turn-item-claude-restart-subagent"),
-          turnItemOrdinal: 2,
-          ordinal: 1,
-        } satisfies NonNullable<ProviderAdapterV2TurnInput["existingSubagents"]>[number];
+        const existing = makeRestartExistingSubagent({
+          parentThreadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now,
+          status: "completed",
+          taskTokens: 100,
+          activationTokens: 100,
+        });
         const subagentEvents = () =>
           harness.events.filter(
             (event): event is Extract<ProviderAdapterV2Event, { type: "subagent.updated" }> =>
@@ -1670,6 +1707,87 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           harness.events.filter((event) => event.type === "app_thread.created"),
           0,
           "rehydration must not create a duplicate child thread",
+        );
+      }).pipe(Effect.provide(Layer.merge(idAllocatorLayer, NodeServices.layer))),
+    ),
+  );
+
+  it.effect("uses persisted activation usage for terminal recovery without a new start", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        const now = yield* DateTime.now;
+        const existing = makeRestartExistingSubagent({
+          parentThreadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now,
+          status: "running",
+          taskTokens: 100,
+          activationTokens: 80,
+        });
+        const subagentEvents = () =>
+          harness.events.filter(
+            (event): event is Extract<ProviderAdapterV2Event, { type: "subagent.updated" }> =>
+              event.type === "subagent.updated",
+          );
+        const activationEvents = () =>
+          harness.events.filter(
+            (
+              event,
+            ): event is Extract<ProviderAdapterV2Event, { type: "subagent_activation.updated" }> =>
+              event.type === "subagent_activation.updated",
+          );
+
+        yield* harness.runtime.startTurn({
+          ...makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-claude-restart-terminal-only"),
+            text: "Collect the recovered agent result.",
+            attachments: [],
+            providerTurnOrdinal: 2,
+          }),
+          existingSubagents: [existing],
+        });
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "system",
+            subtype: "task_notification",
+            task_id: RESTART_TASK_ID,
+            status: "completed",
+            output_file: "/tmp/task-claude-restart-terminal-only.output",
+            summary: "RECOVERED_TERMINAL_DONE",
+            usage: { input_tokens: 70, output_tokens: 30, total_tokens: 100, tool_uses: 3 },
+            uuid: "00000000-0000-4000-8000-000000000084",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          makeResultFrame({
+            uuid: "00000000-0000-4000-8000-000000000085",
+            result: "Recovered agent result collected.",
+          }),
+        );
+        yield* awaitUntil(
+          () => subagentEvents().at(-1)?.subagent.status === "completed",
+          "terminal-only Claude subagent recovery",
+        );
+
+        const latest = subagentEvents().at(-1)?.subagent;
+        assert.equal(latest?.id, RESTART_SUBAGENT_ID);
+        assert.equal(latest?.activationCount, 1);
+        assert.equal(latest?.usage?.totalTokens, 120);
+        assert.equal(latest?.result, "RECOVERED_TERMINAL_DONE");
+        assert.deepEqual(
+          activationEvents().map((event) => [
+            event.activation.ordinal,
+            event.activation.status,
+            event.activation.usage?.totalTokens,
+          ]),
+          [[1, "completed", 100]],
         );
       }).pipe(Effect.provide(Layer.merge(idAllocatorLayer, NodeServices.layer))),
     ),

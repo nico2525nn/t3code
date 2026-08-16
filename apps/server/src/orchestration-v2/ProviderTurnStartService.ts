@@ -5,6 +5,7 @@ import {
   type OrchestrationV2ProviderThread,
   type OrchestrationV2Run,
   type OrchestrationV2RunAttempt,
+  type OrchestrationV2SubagentActivation,
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -178,11 +179,19 @@ export const layer: Layer.Layer<
                     (candidate) => candidate.id === subagent.providerThreadId,
                   );
             if (childProviderThread === undefined) return [];
+            const latestActivation = (projection.subagentActivations ?? [])
+              .filter((activation) => activation.subagentId === subagent.id)
+              .reduce<OrchestrationV2SubagentActivation | null>(
+                (latest, activation) =>
+                  latest === null || activation.ordinal > latest.ordinal ? activation : latest,
+                null,
+              );
             return [
               {
                 subagent,
                 childThread: childProjection.thread,
                 childProviderThread,
+                latestActivation,
                 turnItemId: turnItem.id,
                 turnItemOrdinal: turnItem.ordinal,
                 ordinal: index + 1,
