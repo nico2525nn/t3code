@@ -144,6 +144,8 @@ export default function FileBrowserPanel({
   const treeSelectionPathRef = useRef<string | null>(null);
   const handledRevealRef = useRef<{ path: string; revealId: number } | null>(null);
   const handledBreadcrumbRevealRef = useRef<{ path: string; revealId: number } | null>(null);
+  const pendingBreadcrumbRevealPathRef = useRef(breadcrumbRevealPath);
+  pendingBreadcrumbRevealPathRef.current = breadcrumbRevealPath;
 
   // The tree renders rows in shadow DOM and its anchor rect is unreliable, so
   // capture the right-click position ourselves; contextmenu is a composed
@@ -291,6 +293,10 @@ export default function FileBrowserPanel({
       handledRevealRef.current = null;
       return;
     }
+    // Opening the explorer from a breadcrumb mounts this effect before the
+    // breadcrumb reveal below. Let the explicit breadcrumb request own the
+    // initial focus and scroll instead of centering the open file first.
+    if (pendingBreadcrumbRevealPathRef.current !== null) return;
     const revealRequest = { path: selectedPath, revealId: selectedPathRevealId };
     const handledReveal = handledRevealRef.current;
     // Entry refreshes rebuild treePaths while the same preview stays open.
@@ -354,20 +360,37 @@ export default function FileBrowserPanel({
       return;
     }
 
-    const entryKind = breadcrumbRevealPath ? entryKinds.get(breadcrumbRevealPath) : "directory";
+    if (breadcrumbRevealPath === "") {
+      let frameId: number | null = null;
+      let attemptsRemaining = 120;
+      const revealProjectRoot = () => {
+        const scrollContainer = model
+          .getFileTreeContainer()
+          ?.shadowRoot?.querySelector<HTMLElement>("[data-file-tree-virtualized-scroll]");
+        if (!scrollContainer) {
+          attemptsRemaining -= 1;
+          if (attemptsRemaining > 0) frameId = requestAnimationFrame(revealProjectRoot);
+          return;
+        }
+        handledBreadcrumbRevealRef.current = revealRequest;
+        model.closeSearch();
+        scrollContainer.scrollTop = 0;
+        onBreadcrumbRevealHandled(breadcrumbRevealId);
+      };
+      revealProjectRoot();
+      return () => {
+        if (frameId !== null) cancelAnimationFrame(frameId);
+      };
+    }
+
+    const entryKind = entryKinds.get(breadcrumbRevealPath);
     if (!entryKind) return;
     const itemPath =
       entryKind === "directory" && breadcrumbRevealPath
         ? `${breadcrumbRevealPath}/`
         : breadcrumbRevealPath;
     const item = itemPath ? (model.getItem(itemPath) ?? model.getItem(breadcrumbRevealPath)) : null;
-    const rootScrollContainer =
-      breadcrumbRevealPath === ""
-        ? model
-            .getFileTreeContainer()
-            ?.shadowRoot?.querySelector<HTMLElement>("[data-file-tree-virtualized-scroll]")
-        : null;
-    if ((breadcrumbRevealPath && !item) || (!breadcrumbRevealPath && !rootScrollContainer)) return;
+    if (!item) return;
 
     const visibleItemPath = itemPath
       ? entryKind === "directory"
@@ -396,8 +419,6 @@ export default function FileBrowserPanel({
     if (visibleItemPath) {
       model.getItem(visibleItemPath)?.select();
       model.scrollToPath(visibleItemPath, { focus: true, offset: "center" });
-    } else if (rootScrollContainer) {
-      rootScrollContainer.scrollTop = 0;
     }
     onBreadcrumbRevealHandled(breadcrumbRevealId);
     queueMicrotask(() => {
