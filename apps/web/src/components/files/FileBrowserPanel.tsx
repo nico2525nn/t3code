@@ -361,13 +361,13 @@ export default function FileBrowserPanel({
         ? `${breadcrumbRevealPath}/`
         : breadcrumbRevealPath;
     const item = itemPath ? (model.getItem(itemPath) ?? model.getItem(breadcrumbRevealPath)) : null;
-    const firstEntry = entries[0];
-    const rootItemPath = firstEntry
-      ? firstEntry.kind === "directory"
-        ? visibleDirectoryTreePath(entries, firstEntry.path)
-        : firstEntry.path
-      : null;
-    if ((breadcrumbRevealPath && !item) || (!breadcrumbRevealPath && !rootItemPath)) return;
+    const rootScrollContainer =
+      breadcrumbRevealPath === ""
+        ? model
+            .getFileTreeContainer()
+            ?.shadowRoot?.querySelector<HTMLElement>("[data-file-tree-virtualized-scroll]")
+        : null;
+    if ((breadcrumbRevealPath && !item) || (!breadcrumbRevealPath && !rootScrollContainer)) return;
 
     const visibleItemPath = itemPath
       ? entryKind === "directory"
@@ -379,8 +379,10 @@ export default function FileBrowserPanel({
     handledBreadcrumbRevealRef.current = revealRequest;
     syncingSelectionRef.current = true;
     model.closeSearch();
-    for (const path of model.getSelectedPaths()) {
-      model.getItem(path)?.deselect();
+    if (visibleItemPath) {
+      for (const path of model.getSelectedPaths()) {
+        model.getItem(path)?.deselect();
+      }
     }
 
     const segments = breadcrumbRevealPath.split("/").filter(Boolean);
@@ -394,8 +396,8 @@ export default function FileBrowserPanel({
     if (visibleItemPath) {
       model.getItem(visibleItemPath)?.select();
       model.scrollToPath(visibleItemPath, { focus: true, offset: "center" });
-    } else if (rootItemPath) {
-      model.scrollToPath(rootItemPath, { focus: true, offset: "top" });
+    } else if (rootScrollContainer) {
+      rootScrollContainer.scrollTop = 0;
     }
     onBreadcrumbRevealHandled(breadcrumbRevealId);
     queueMicrotask(() => {
@@ -408,7 +410,6 @@ export default function FileBrowserPanel({
     entryKinds,
     model,
     onBreadcrumbRevealHandled,
-    treePaths,
   ]);
 
   // Tag tree drags with the composer mention payload. The row is read from

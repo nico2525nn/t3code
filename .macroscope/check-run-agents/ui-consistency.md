@@ -59,7 +59,7 @@ The goal is not to minimize CSS or class counts at any cost. The goal is to put 
 - Preserve runtime top and bottom overflow state. Do not replace dynamic fades with an always-on static mask.
 - Preserve fade geometry and keep the native scrollbar lane opaque so the track and thumb stay visible and usable. A visually similar mask that fades the scrollbar is a regression.
 - For path-driven tree actions with flattened directory rows, do not assume that every registered item path is currently visible. Resolve the target through the tree's visible projection before selecting, focusing, or scrolling, and verify intermediate directory actions against a real flattened chain.
-- Treat external tree-reveal requests as one-shot events: resolve and validate the visible target without mutating search, focus, or selection, then acknowledge or clear the request after success so component remounts cannot replay stale navigation.
+- Treat external tree-reveal requests as one-shot events: resolve and validate the visible target without mutating search, focus, or selection, then acknowledge or clear the request after success so component remounts cannot replay stale navigation. A project-root reveal should scroll the tree viewport itself and preserve the current selected item; raw entry order is not visible row order.
 - Verify actual scroll behavior when changing virtualizers, masks, overflow ownership, or scrollbar selectors. Source-level class comparison is not enough.
 
 ## Visual and layout preservation
