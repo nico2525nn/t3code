@@ -1,7 +1,5 @@
 import { SymbolView } from "../../components/AppSymbol";
-import { Pressable, StyleSheet, View } from "react-native";
-
-import { useThemeColor } from "../../lib/useThemeColor";
+import { Pressable, View } from "react-native";
 
 export interface SidebarHeaderActionsProps {
   readonly onOpenSettings: () => void;
@@ -15,29 +13,24 @@ function FallbackHeaderButton(props: {
   readonly grouped?: boolean;
   readonly onPress: () => void;
 }) {
-  const iconColor = useThemeColor("--color-foreground");
-  const pressedBackgroundColor = useThemeColor("--color-subtle");
-  const idleBackgroundColor = useThemeColor("--color-glass-surface");
-  const borderColor = useThemeColor("--color-header-border");
-
   return (
     <Pressable
-      className="h-11 w-[50px] items-center justify-center rounded-[22px]"
+      className={
+        props.grouped
+          ? "h-11 w-[50px] items-center justify-center rounded-[22px] bg-transparent active:bg-subtle"
+          : "h-11 w-[50px] items-center justify-center rounded-[22px] border border-header-border bg-glass-surface active:bg-subtle"
+      }
       accessibilityLabel={props.accessibilityLabel}
       accessibilityRole="button"
       hitSlop={4}
       onPress={props.onPress}
-      style={({ pressed }) => [
-        props.grouped
-          ? { backgroundColor: pressed ? pressedBackgroundColor : "transparent", borderWidth: 0 }
-          : {
-              backgroundColor: pressed ? pressedBackgroundColor : idleBackgroundColor,
-              borderColor,
-              borderWidth: StyleSheet.hairlineWidth,
-            },
-      ]}
     >
-      <SymbolView name={props.icon} size={20} tintColor={iconColor} type="monochrome" />
+      <SymbolView
+        name={props.icon}
+        size={20}
+        tintColorClassName="accent-foreground"
+        type="monochrome"
+      />
     </Pressable>
   );
 }

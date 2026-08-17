@@ -184,6 +184,7 @@ describe("mobile connection storage", () => {
         lightThemeId: "iris",
         darkThemeId: "ocean",
         themeMode: "system",
+        themeTransition: "circle-bottom-left",
       }),
       10,
     );
@@ -193,7 +194,14 @@ describe("mobile connection storage", () => {
       lightThemeId: "iris",
       darkThemeId: "ocean",
       themeMode: "system",
+      themeTransition: "circle-bottom-left",
     });
+  });
+
+  it("drops an unknown theme transition preset", async () => {
+    mocks.setPreferencesJson(JSON.stringify({ themeTransition: "dissolve" }), 10);
+
+    await expect(loadPreferences()).resolves.toEqual({});
   });
 
   it("falls back to secure storage when SQLite cannot save preferences", async () => {

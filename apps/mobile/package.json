@@ -39,6 +39,8 @@
     "config:prod": "APP_VARIANT=production expo config",
     "profile:android:hermes": "mkdir -p profiles/review && react-native profile-hermes profiles/review",
     "sync:pierre-icons": "node modules/t3-markdown-text/scripts/sync-pierre-file-icons.mjs",
+    "themes:check": "node scripts/generateUniwindThemes.cjs --check && node scripts/checkUniwindThemeArchitecture.cjs",
+    "themes:generate": "node scripts/generateUniwindThemes.cjs",
     "test": "vp test run",
     "typecheck": "tsc --noEmit"
   },
@@ -108,7 +110,7 @@
     "react-native-image-viewing": "^0.2.2",
     "react-native-keyboard-controller": "1.21.13",
     "react-native-nitro-markdown": "^0.5.0",
-    "react-native-nitro-modules": "0.35.9",
+    "react-native-nitro-modules": "0.36.5",
     "react-native-reanimated": "4.3.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
@@ -118,7 +120,7 @@
     "react-native-worklets": "0.8.3",
     "shiki": "4.2.0",
     "tailwind-merge": "^3.5.0",
-    "uniwind": "^1.6.2"
+    "uniwind": "file:./uniwind-pro-demo-ios-rn.0.85.3.tgz"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

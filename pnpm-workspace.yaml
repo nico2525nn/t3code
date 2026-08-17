@@ -19,6 +19,7 @@ allowBuilds:
   msw: false
   node-pty: true
   sharp: true
+  uniwind@file:apps/mobile/uniwind-pro-demo-ios-rn.0.85.3.tgz: true
   utf-8-validate: false
   workerd: false
 
@@ -137,7 +138,7 @@ patchedDependencies:
   expo-modules-jsi@56.0.10: patches/expo-modules-jsi@56.0.10.patch
   react-native-gesture-handler@2.31.2: patches/react-native-gesture-handler@2.31.2.patch
   react-native-keyboard-controller@1.21.13: patches/react-native-keyboard-controller@1.21.13.patch
-  react-native-nitro-modules@0.35.9: patches/react-native-nitro-modules@0.35.9.patch
+  react-native-nitro-modules@0.36.5: patches/react-native-nitro-modules@0.36.5.patch
   react-native-screens@4.25.2: patches/react-native-screens@4.25.2.patch
 
 peerDependencyRules:

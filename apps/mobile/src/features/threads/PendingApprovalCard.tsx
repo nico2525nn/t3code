@@ -17,15 +17,15 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
   // Opaque for the same reason as PendingUserInputCard: nothing blurs the feed
   // behind this card, so a translucent surface bleeds messages through it.
   return (
-    <View className="gap-2.5 rounded-[20px] border border-neutral-200 bg-neutral-100 p-4 dark:border-white/6 dark:bg-neutral-900">
-      <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-sky-700 dark:text-sky-300">
+    <View className="gap-2.5 rounded-[20px] border border-adaptive-neutral-200-white-a6 bg-adaptive-neutral-100-900 p-4">
+      <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-adaptive-sky-700-300">
         Approval needed
       </Text>
-      <Text className="font-t3-bold text-lg text-neutral-950 dark:text-neutral-50">
+      <Text className="font-t3-bold text-lg text-adaptive-neutral-950-50">
         {props.approval.requestKind}
       </Text>
       {props.approval.detail ? (
-        <Text className="font-sans text-sm leading-normal text-neutral-600 dark:text-neutral-400">
+        <Text className="font-sans text-sm leading-normal text-adaptive-neutral-600-400">
           {props.approval.detail}
         </Text>
       ) : null}
@@ -38,20 +38,18 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
           <Text className="font-t3-extrabold text-sm text-white">Allow once</Text>
         </Pressable>
         <Pressable
-          className="items-center justify-center rounded-[14px] bg-neutral-200 px-3.5 py-3 dark:bg-neutral-800"
+          className="items-center justify-center rounded-[14px] bg-adaptive-neutral-200-800 px-3.5 py-3"
           disabled={props.respondingApprovalId === props.approval.requestId}
           onPress={() => void props.onRespond(props.approval.requestId, "acceptForSession")}
         >
-          <Text className="font-t3-bold text-sm text-neutral-950 dark:text-neutral-50">
-            Allow session
-          </Text>
+          <Text className="font-t3-bold text-sm text-adaptive-neutral-950-50">Allow session</Text>
         </Pressable>
         <Pressable
-          className="items-center justify-center rounded-[14px] bg-rose-100 px-3.5 py-3 dark:bg-rose-500/18"
+          className="items-center justify-center rounded-[14px] bg-adaptive-rose-100-500-a18 px-3.5 py-3"
           disabled={props.respondingApprovalId === props.approval.requestId}
           onPress={() => void props.onRespond(props.approval.requestId, "decline")}
         >
-          <Text className="font-t3-bold text-sm text-rose-700 dark:text-rose-300">Decline</Text>
+          <Text className="font-t3-bold text-sm text-adaptive-rose-700-300">Decline</Text>
         </Pressable>
       </View>
     </View>

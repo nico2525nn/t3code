@@ -53,8 +53,8 @@ const SidebarStack = createNativeStackNavigator();
  * navigation hooks used for header configuration inside the pane.
  */
 export function SidebarNavigationShell(props: { readonly children: ReactNode }) {
-  const { themeAppearance } = useAppearancePreferences();
-  const navigationTheme = useMobileNavigationTheme(themeAppearance);
+  const { themeAppearance, themeId } = useAppearancePreferences();
+  const navigationTheme = useMobileNavigationTheme(themeId, themeAppearance);
 
   return (
     <NavigationIndependentTree>
