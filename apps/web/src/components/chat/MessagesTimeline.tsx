@@ -1660,13 +1660,6 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: {
   const workflowName =
     workflowGroup?.workflow.workflowName ?? workflowGroup?.workflow.title ?? null;
   const working = running + waiting;
-  const dotClass = live
-    ? "bg-info"
-    : failed > 0 || coordinatorFailed
-      ? "bg-destructive"
-      : idle > 0 || stopped > 0 || coordinatorStopped
-        ? "bg-muted-foreground/50"
-        : "bg-success";
   const lead =
     workflowGroup !== undefined && agentCount === 0
       ? live
@@ -1701,7 +1694,6 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: {
       data-agent-spawn-cta="true"
       className="flex w-full cursor-pointer items-center gap-2 rounded-md border border-border/60 bg-card/50 px-2.5 py-1.5 text-left text-[13px] transition hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
     >
-      <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
       <T3CodeToolLogo ariaLabel={null} />
       <span className="min-w-0 truncate">
         <span className="font-medium">{lead}</span>
