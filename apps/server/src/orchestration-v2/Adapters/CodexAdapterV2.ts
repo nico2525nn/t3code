@@ -1679,7 +1679,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               }
               return updated;
             });
-        });
+          });
 
         const registerRootTurn = (input: {
           readonly turnInput: ProviderAdapterV2TurnInput;
