@@ -143,8 +143,16 @@ describe("deriveAgentPanelModel", () => {
 
   it("orders nested subagents beneath their parent", () => {
     const later = DateTime.makeUnsafe("2026-08-13T10:00:01.000Z");
-    const parent = subagent("parent", { startedAt: later, updatedAt: later });
-    const child = subagent("child", { parentNodeId: parent.id });
+    const childThreadId = ThreadId.make("child-thread");
+    const parent = subagent("parent", {
+      childThreadId,
+      startedAt: later,
+      updatedAt: later,
+    });
+    const child = subagent("child", {
+      threadId: childThreadId,
+      parentNodeId: NodeId.make("parent:thread-root"),
+    });
     const model = deriveAgentPanelModel([child, parent]);
 
     expect(model.directAgents.map((agent) => [agent.id, agent.parentAgentId])).toEqual([

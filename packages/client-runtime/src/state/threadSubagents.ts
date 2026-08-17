@@ -98,17 +98,22 @@ function isActiveStatus(status: AgentPanelSubagentStatus): boolean {
 function parentAgentId(
   subagent: OrchestrationV2Subagent,
   subagentById: ReadonlyMap<string, OrchestrationV2Subagent>,
+  parentIdByChildThreadId: ReadonlyMap<string, string>,
 ): string | null {
   const workflowParentId = subagent.workflowMembership?.workflowSubagentId;
   if (workflowParentId !== undefined) {
     return workflowParentId;
   }
-  return subagentById.has(subagent.parentNodeId) ? subagent.parentNodeId : null;
+  if (subagentById.has(subagent.parentNodeId)) {
+    return subagent.parentNodeId;
+  }
+  return parentIdByChildThreadId.get(subagent.threadId) ?? null;
 }
 
 function toPanelSubagent(
   subagent: OrchestrationV2Subagent,
   subagentById: ReadonlyMap<string, OrchestrationV2Subagent>,
+  parentIdByChildThreadId: ReadonlyMap<string, string>,
 ): AgentPanelSubagent {
   const updatedAt = DateTime.formatIso(subagent.updatedAt);
   const startedAt = subagent.startedAt === null ? null : DateTime.formatIso(subagent.startedAt);
@@ -137,7 +142,7 @@ function toPanelSubagent(
         }
       : null;
   const latestActivity = subagent.recentActivity.at(-1);
-  const resolvedParentAgentId = parentAgentId(subagent, subagentById);
+  const resolvedParentAgentId = parentAgentId(subagent, subagentById, parentIdByChildThreadId);
 
   return {
     id: subagent.id,
@@ -184,7 +189,14 @@ export function deriveAgentPanelModel(
   }
 
   const subagentById = new Map(subagents.map((subagent) => [subagent.id, subagent]));
-  const source = subagents.map((subagent) => toPanelSubagent(subagent, subagentById));
+  const parentIdByChildThreadId = new Map(
+    subagents.flatMap((subagent) =>
+      subagent.childThreadId === null ? [] : [[subagent.childThreadId, subagent.id] as const],
+    ),
+  );
+  const source = subagents.map((subagent) =>
+    toPanelSubagent(subagent, subagentById, parentIdByChildThreadId),
+  );
   const workflows = source
     .filter((agent) => agent.kind === "workflow")
     .slice()
