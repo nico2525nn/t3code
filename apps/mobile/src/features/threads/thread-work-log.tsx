@@ -3,12 +3,13 @@ import { Image } from "expo-image";
 import { type AppSymbolName, SymbolView } from "../../components/AppSymbol";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigation } from "@react-navigation/native";
-import { LayoutAnimation, Pressable, useColorScheme, View } from "react-native";
+import { LayoutAnimation, Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import { T3_CODE_BRAND_MARK_SOURCE } from "../../components/brandAssets";
 import { cn } from "../../lib/cn";
 import { threadFeedActivityIsVisible, type ThreadFeedActivity } from "../../lib/threadActivity";
+import { useThemeColor } from "../../lib/useThemeColor";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useV2ItemSupport } from "../../state/v2-item-support";
 import { ThreadActivityInspector } from "./ThreadActivityInspector";
@@ -225,8 +226,7 @@ export function ThreadWorkLog(props: {
   readonly onToggleRow: (rowId: string) => void;
   readonly workspaceRoot?: string | null;
 }) {
-  const colorScheme = useColorScheme();
-  const pressedBackground = colorScheme === "dark" ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.035)";
+  const pressedBackground = useThemeColor("--color-subtle");
   const rows = visibleWorkLogActivities(props.activities).map((activity) => ({
     ...activity,
     detail: compactActivityDetail(activity.detail),
@@ -421,8 +421,7 @@ export function ThreadWorkGroupToggle(props: {
   readonly onlyToolActivities: boolean;
   readonly onToggle: () => void;
 }) {
-  const colorScheme = useColorScheme();
-  const pressedBackground = colorScheme === "dark" ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.035)";
+  const pressedBackground = useThemeColor("--color-subtle");
   const noun = threadWorkLogOverflowNoun(props.onlyToolActivities, props.hiddenCount);
 
   return (
