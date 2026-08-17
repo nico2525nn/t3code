@@ -3222,6 +3222,108 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     ),
   );
 
+  it.effect("parents nested native agents from Claude's tool-use envelope", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const PARENT_TASK_ID = "task-parent-agent";
+        const PARENT_TOOL_USE_ID = "toolu-parent-agent";
+        const CHILD_TASK_ID = "task-child-agent";
+        const CHILD_TOOL_USE_ID = "toolu-child-agent";
+        const harness = yield* makeWakeHarness;
+        const now = yield* DateTime.now;
+        const subagentEvents = () =>
+          harness.events.filter(
+            (event): event is Extract<ProviderAdapterV2Event, { type: "subagent.updated" }> =>
+              event.type === "subagent.updated",
+          );
+
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-claude-nested-agent"),
+            text: "Delegate and ask the delegate to verify with another agent.",
+            attachments: [],
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "system",
+            subtype: "task_started",
+            task_id: PARENT_TASK_ID,
+            tool_use_id: PARENT_TOOL_USE_ID,
+            description: "Parent agent",
+            subagent_type: "general-purpose",
+            task_type: "local_agent",
+            prompt: "Delegate once more.",
+            uuid: "00000000-0000-4000-8000-000000000191",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* awaitUntil(
+          () =>
+            subagentEvents().some(
+              (event) => event.subagent.nativeTaskRef?.nativeId === PARENT_TASK_ID,
+            ),
+          "parent subagent created",
+        );
+
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "assistant",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: CHILD_TOOL_USE_ID,
+                  name: "Agent",
+                  input: { prompt: "Verify the result." },
+                },
+              ],
+            },
+            parent_tool_use_id: PARENT_TOOL_USE_ID,
+            uuid: "00000000-0000-4000-8000-000000000192",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "system",
+            subtype: "task_started",
+            task_id: CHILD_TASK_ID,
+            tool_use_id: CHILD_TOOL_USE_ID,
+            description: "Nested verifier",
+            subagent_type: "general-purpose",
+            task_type: "local_agent",
+            prompt: "Verify the result.",
+            uuid: "00000000-0000-4000-8000-000000000193",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* awaitUntil(
+          () =>
+            subagentEvents().some(
+              (event) => event.subagent.nativeTaskRef?.nativeId === CHILD_TASK_ID,
+            ),
+          "nested subagent created",
+        );
+
+        const parent = subagentEvents().find(
+          (event) => event.subagent.nativeTaskRef?.nativeId === PARENT_TASK_ID,
+        )?.subagent;
+        const child = subagentEvents().find(
+          (event) => event.subagent.nativeTaskRef?.nativeId === CHILD_TASK_ID,
+        )?.subagent;
+        assert.equal(child?.parentNodeId, parent?.id);
+      }).pipe(Effect.provide(Layer.merge(idAllocatorLayer, NodeServices.layer))),
+    ),
+  );
+
   it.effect("wakes and hydrates a subagent that completes after the root turn settled", () =>
     Effect.scoped(
       Effect.gen(function* () {

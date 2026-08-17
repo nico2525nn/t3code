@@ -127,8 +127,25 @@ function agentActivityText(agent: AgentPanelSubagent): string | null {
   return agent.result ?? agent.progress;
 }
 
-/** Flat, non-interactive agent status line. No unfold. */
-function AgentRow({ agent }: { agent: AgentPanelSubagent }) {
+function agentDepth(
+  agent: AgentPanelSubagent,
+  agentsById: ReadonlyMap<string, AgentPanelSubagent>,
+): number {
+  let depth = 0;
+  let parentId = agent.parentAgentId;
+  const seen = new Set([agent.id]);
+  while (parentId !== null && !seen.has(parentId)) {
+    seen.add(parentId);
+    const parent = agentsById.get(parentId);
+    if (parent === undefined) break;
+    depth += 1;
+    parentId = parent.parentAgentId;
+  }
+  return depth;
+}
+
+/** Non-interactive agent status line. Nested direct agents are indented. */
+function AgentRow({ agent, depth = 0 }: { agent: AgentPanelSubagent; depth?: number }) {
   const visuals = STATUS_VISUALS[agent.status];
   const activity = agentActivityText(agent);
   const modelLabel = formatSubagentModelLabel(agent.model);
@@ -144,7 +161,10 @@ function AgentRow({ agent }: { agent: AgentPanelSubagent }) {
   ].filter((value): value is string => value !== null);
 
   return (
-    <div className="grid h-[3.875rem] grid-cols-[0.375rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.125rem_1rem] items-center gap-x-2 rounded-md px-1.5 py-1">
+    <div
+      className="grid h-[3.875rem] grid-cols-[0.375rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.125rem_1rem] items-center gap-x-2 rounded-md px-1.5 py-1"
+      style={depth === 0 ? undefined : { paddingLeft: `${0.375 + depth * 0.75}rem` }}
+    >
       <span className="col-start-1 row-start-1 flex items-center">
         <StatusDot status={agent.status} />
       </span>
@@ -532,6 +552,8 @@ export function AgentsPanel({
     );
   }
 
+  const directAgentsById = new Map(model.directAgents.map((agent) => [agent.id, agent]));
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ScrollArea className="min-h-0 flex-1">
@@ -547,10 +569,14 @@ export function AgentsPanel({
           {model.directAgents.length > 0 ? (
             <section>
               <div className="px-1.5 pt-1 text-[.65rem] font-medium uppercase tracking-wider text-muted-foreground">
-                Direct spawns
+                Agents
               </div>
               {model.directAgents.map((agent) => (
-                <AgentRow key={agent.id} agent={agent} />
+                <AgentRow
+                  key={agent.id}
+                  agent={agent}
+                  depth={agentDepth(agent, directAgentsById)}
+                />
               ))}
             </section>
           ) : null}

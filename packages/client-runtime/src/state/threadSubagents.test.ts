@@ -141,6 +141,18 @@ describe("deriveAgentPanelModel", () => {
     expect(model.directAgents.map((agent) => agent.id)).toEqual(["orphan", "direct"]);
   });
 
+  it("orders nested subagents beneath their parent", () => {
+    const later = DateTime.makeUnsafe("2026-08-13T10:00:01.000Z");
+    const parent = subagent("parent", { startedAt: later, updatedAt: later });
+    const child = subagent("child", { parentNodeId: parent.id });
+    const model = deriveAgentPanelModel([child, parent]);
+
+    expect(model.directAgents.map((agent) => [agent.id, agent.parentAgentId])).toEqual([
+      ["parent", null],
+      ["child", "parent"],
+    ]);
+  });
+
   it("keeps unknown workflow phase members in the unphased list", () => {
     const workflowId = NodeId.make("workflow-2");
     const workflow = subagent(workflowId, {

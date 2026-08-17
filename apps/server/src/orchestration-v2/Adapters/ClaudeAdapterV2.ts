@@ -2188,6 +2188,8 @@ interface ActiveClaudeTurnContext {
   readonly ignoredTaskIds: Set<string>;
   readonly subagentsByTaskId: Map<string, ActiveClaudeSubagent>;
   readonly subagentsByToolUseId: Map<string, ActiveClaudeSubagent>;
+  /** Parent subagent captured from nested Agent/Workflow tool-use envelopes. */
+  readonly subagentParentsByLaunchToolUseId: Map<string, ActiveClaudeSubagent>;
   readonly subagentNodesByTaskId: Map<string, OrchestrationV2ExecutionNode["id"]>;
 }
 
@@ -4406,10 +4408,20 @@ export function makeClaudeAdapterV2(
               const agentType = recordField(message, "subagent_type");
               const isWorkflow = message.task_type === "local_workflow";
               const workflowName = trimmedRecordField(message, ["workflow_name", "workflowName"]);
+              const parentSubagent =
+                message.tool_use_id === undefined
+                  ? undefined
+                  : context.subagentParentsByLaunchToolUseId.get(message.tool_use_id);
               yield* updateClaudeSubagentNode({
                 context,
                 taskId: message.task_id,
                 ...(message.tool_use_id === undefined ? {} : { toolUseId: message.tool_use_id }),
+                ...(parentSubagent === undefined
+                  ? {}
+                  : {
+                      parentNodeId: parentSubagent.task.id,
+                      rootNodeId: parentSubagent.rootNodeId,
+                    }),
                 ...(message.prompt === undefined ? {} : { prompt: message.prompt }),
                 title: message.description,
                 ...(typeof agentType === "string" ? { agentType } : {}),
@@ -4423,6 +4435,9 @@ export function makeClaudeAdapterV2(
                 status: "running",
                 reopen: true,
               });
+              if (message.tool_use_id !== undefined) {
+                context.subagentParentsByLaunchToolUseId.delete(message.tool_use_id);
+              }
             }
           }
 
@@ -4621,6 +4636,14 @@ export function makeClaudeAdapterV2(
             // project as subagent rows (task_started arrives under the same
             // tool_use_id), and registering them too would double-render.
             if (toolUse.name === "Agent" || toolUse.name === "Workflow") {
+              const parentToolUseId = parentToolUseIdFromSdkMessage(message);
+              const parentSubagent =
+                parentToolUseId === null
+                  ? undefined
+                  : context.subagentsByToolUseId.get(parentToolUseId);
+              if (parentSubagent !== undefined) {
+                context.subagentParentsByLaunchToolUseId.set(toolUse.id, parentSubagent);
+              }
               continue;
             }
             yield* ensureToolCallStarted({
@@ -5088,6 +5111,7 @@ export function makeClaudeAdapterV2(
               ignoredTaskIds: new Set(),
               subagentsByTaskId: new Map(),
               subagentsByToolUseId: new Map(),
+              subagentParentsByLaunchToolUseId: new Map(),
               subagentNodesByTaskId: new Map(),
             };
             yield* seedExistingSubagents(context);

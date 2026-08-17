@@ -95,6 +95,17 @@ function isActiveStatus(status: AgentPanelSubagentStatus): boolean {
   return status === "pending" || status === "running" || status === "waiting";
 }
 
+function parentAgentId(
+  subagent: OrchestrationV2Subagent,
+  subagentById: ReadonlyMap<string, OrchestrationV2Subagent>,
+): string | null {
+  const workflowParentId = subagent.workflowMembership?.workflowSubagentId;
+  if (workflowParentId !== undefined) {
+    return workflowParentId;
+  }
+  return subagentById.has(subagent.parentNodeId) ? subagent.parentNodeId : null;
+}
+
 function toPanelSubagent(
   subagent: OrchestrationV2Subagent,
   subagentById: ReadonlyMap<string, OrchestrationV2Subagent>,
@@ -126,6 +137,7 @@ function toPanelSubagent(
         }
       : null;
   const latestActivity = subagent.recentActivity.at(-1);
+  const resolvedParentAgentId = parentAgentId(subagent, subagentById);
 
   return {
     id: subagent.id,
@@ -140,7 +152,7 @@ function toPanelSubagent(
     usage: subagent.usage,
     progress: subagent.progress ?? latestActivity?.summary ?? null,
     result: subagent.result,
-    parentAgentId: membership?.workflowSubagentId ?? null,
+    parentAgentId: resolvedParentAgentId,
     agentIndex: membership?.agentIndex ?? null,
     phaseIndex: membership?.phaseIndex ?? null,
     phaseTitle,
@@ -179,7 +191,7 @@ export function deriveAgentPanelModel(
     .sort((a, b) => a.firstSeenAt.localeCompare(b.firstSeenAt) || a.id.localeCompare(b.id));
   const workflowIds = new Set(workflows.map((workflow) => workflow.id));
   const members = new Map<string, AgentPanelSubagent[]>();
-  const direct: AgentPanelSubagent[] = [];
+  const directCandidates: AgentPanelSubagent[] = [];
 
   for (const agent of source) {
     if (agent.kind === "workflow") {
@@ -190,9 +202,41 @@ export function deriveAgentPanelModel(
       list.push(agent);
       members.set(agent.parentAgentId, list);
     } else {
-      direct.push(agent);
+      directCandidates.push(agent);
     }
   }
+
+  const compareFirstSeen = (a: AgentPanelSubagent, b: AgentPanelSubagent) =>
+    a.firstSeenAt.localeCompare(b.firstSeenAt) || a.id.localeCompare(b.id);
+  const directById = new Map(directCandidates.map((agent) => [agent.id, agent]));
+  const directChildren = new Map<string, AgentPanelSubagent[]>();
+  const directRoots: AgentPanelSubagent[] = [];
+  for (const agent of directCandidates) {
+    if (agent.parentAgentId !== null && directById.has(agent.parentAgentId)) {
+      const children = directChildren.get(agent.parentAgentId) ?? [];
+      children.push(agent);
+      directChildren.set(agent.parentAgentId, children);
+    } else {
+      directRoots.push(agent);
+    }
+  }
+  directRoots.sort(compareFirstSeen);
+  for (const children of directChildren.values()) {
+    children.sort(compareFirstSeen);
+  }
+  const directAgents: AgentPanelSubagent[] = [];
+  const visited = new Set<string>();
+  const appendAgentTree = (agent: AgentPanelSubagent) => {
+    if (visited.has(agent.id)) return;
+    visited.add(agent.id);
+    directAgents.push(agent);
+    for (const child of directChildren.get(agent.id) ?? []) {
+      appendAgentTree(child);
+    }
+  };
+  for (const root of directRoots) appendAgentTree(root);
+  // Malformed cycles stay visible rather than disappearing from the panel.
+  for (const agent of directCandidates.slice().sort(compareFirstSeen)) appendAgentTree(agent);
 
   const workflowGroups: AgentPanelWorkflowGroup[] = workflows.map((workflow) => {
     const workflowMembers = members.get(workflow.id) ?? [];
@@ -271,9 +315,7 @@ export function deriveAgentPanelModel(
 
   return {
     workflows: workflowGroups,
-    directAgents: direct
-      .slice()
-      .sort((a, b) => a.firstSeenAt.localeCompare(b.firstSeenAt) || a.id.localeCompare(b.id)),
+    directAgents,
     runningCount,
     waitingCount,
     idleCount,
