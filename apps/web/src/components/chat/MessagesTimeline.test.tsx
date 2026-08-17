@@ -1331,6 +1331,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Kicked off 1 subagent");
     expect(markup).toContain("1 working");
     expect(markup).toContain("Open Agents");
+    expect(markup).toContain('src="/apple-touch-icon.png"');
     expect(markup).not.toContain("Reading src/index.ts");
     expect(markup).not.toContain("Partial streamed answer so far");
     expect(markup).not.toContain("Inspect the package");

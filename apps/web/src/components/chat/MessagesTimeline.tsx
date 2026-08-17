@@ -1702,7 +1702,7 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: {
       className="flex w-full cursor-pointer items-center gap-2 rounded-md border border-border/60 bg-card/50 px-2.5 py-1.5 text-left text-[13px] transition hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
     >
       <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
-      <BotIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      <T3CodeToolLogo ariaLabel={null} />
       <span className="min-w-0 truncate">
         <span className="font-medium">{lead}</span>
         {workflowName ? <span className="text-muted-foreground"> · {workflowName}</span> : null}
@@ -2676,7 +2676,13 @@ function WorkEntryIconSvg({ name, className }: { name: WorkEntryIconName; classN
   }
 }
 
-function T3CodeToolLogo({ className }: { className?: string }) {
+function T3CodeToolLogo({
+  className,
+  ariaLabel = "T3 Code MCP tool",
+}: {
+  className?: string;
+  ariaLabel?: string | null;
+}) {
   const logoUrl = `${import.meta.env.BASE_URL}apple-touch-icon.png`;
   return (
     <span
@@ -2684,7 +2690,8 @@ function T3CodeToolLogo({ className }: { className?: string }) {
         "flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-[4px] bg-background ring-1 ring-border/65",
         className,
       )}
-      aria-label="T3 Code MCP tool"
+      aria-hidden={ariaLabel === null ? true : undefined}
+      aria-label={ariaLabel ?? undefined}
     >
       <img alt="" aria-hidden="true" className="size-4 object-cover" src={logoUrl} />
     </span>
