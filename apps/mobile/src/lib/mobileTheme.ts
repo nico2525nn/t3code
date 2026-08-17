@@ -20,23 +20,6 @@ export type MobileThemeAppearance = ThemeAppearance;
 export type MobileThemeMode = MobileThemeAppearance | "system";
 export type MobileThemeIds = Readonly<Record<MobileThemeAppearance, MobileThemeId>>;
 
-export const MOBILE_THEME_TRANSITIONS = [
-  "none",
-  "fade",
-  "slide-right-to-left",
-  "slide-left-to-right",
-  "circle-top-right",
-  "circle-top-left",
-  "circle-bottom-right",
-  "circle-bottom-left",
-  "circle-center",
-  "blur",
-  "blur-right-to-left",
-  "blur-left-to-right",
-] as const;
-export type MobileThemeTransition = (typeof MOBILE_THEME_TRANSITIONS)[number];
-export const DEFAULT_MOBILE_THEME_TRANSITION: MobileThemeTransition = "fade";
-
 export const MOBILE_THEME_OPTIONS: ReadonlyArray<{
   readonly id: MobileThemeId;
   readonly label: string;
@@ -56,13 +39,6 @@ export function normalizeMobileThemeId(value: unknown): MobileThemeId {
 
 export function normalizeMobileThemeMode(value: unknown): MobileThemeMode {
   return value === "light" || value === "dark" || value === "system" ? value : "system";
-}
-
-export function normalizeMobileThemeTransition(value: unknown): MobileThemeTransition {
-  return typeof value === "string" &&
-    (MOBILE_THEME_TRANSITIONS as readonly string[]).includes(value)
-    ? (value as MobileThemeTransition)
-    : DEFAULT_MOBILE_THEME_TRANSITION;
 }
 
 export function resolveMobileThemeIds(preferences: {

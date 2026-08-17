@@ -14,7 +14,6 @@ import {
   type MobileThemeId,
   type MobileThemeIds,
   type MobileThemeMode,
-  type MobileThemeTransition,
   type MobileThemeVariables,
 } from "../../../../lib/mobileTheme";
 import { cn } from "../../../../lib/cn";
@@ -27,24 +26,6 @@ const APPEARANCE_MODES: ReadonlyArray<{
   { id: "system", label: "System" },
   { id: "light", label: "Light" },
   { id: "dark", label: "Dark" },
-];
-
-const THEME_TRANSITION_OPTIONS: ReadonlyArray<{
-  readonly id: MobileThemeTransition;
-  readonly label: string;
-}> = [
-  { id: "none", label: "Instant" },
-  { id: "fade", label: "Fade" },
-  { id: "blur", label: "Blur" },
-  { id: "slide-right-to-left", label: "Slide left" },
-  { id: "slide-left-to-right", label: "Slide right" },
-  { id: "circle-center", label: "Center circle" },
-  { id: "circle-top-left", label: "Top-left circle" },
-  { id: "circle-top-right", label: "Top-right circle" },
-  { id: "circle-bottom-left", label: "Bottom-left circle" },
-  { id: "circle-bottom-right", label: "Bottom-right circle" },
-  { id: "blur-right-to-left", label: "Blur left" },
-  { id: "blur-left-to-right", label: "Blur right" },
 ];
 
 const previewPercentage = (value: number) => `${value * 100}%`;
@@ -142,11 +123,10 @@ function ThemeCard(props: {
       accessibilityLabel={`${props.label} ${appearance} theme`}
       accessibilityRole="button"
       accessibilityState={{ disabled: props.disabled, selected }}
-      className={
-        selected
-          ? "size-[66px] items-center justify-center rounded-full border-[3px] border-primary"
-          : "size-[66px] items-center justify-center rounded-full border-[3px] border-transparent"
-      }
+      className={cn(
+        "size-[66px] items-center justify-center rounded-full border-[3px] transition-transform duration-100 ease-out active:scale-[0.94]",
+        selected ? "border-primary" : "border-transparent",
+      )}
       disabled={props.disabled}
       onPress={() => props.onSelect(appearance)}
     >
@@ -314,11 +294,10 @@ function ModeCard(props: {
       accessibilityLabel={`${props.label} appearance`}
       accessibilityRole="radio"
       accessibilityState={{ checked: props.selected, disabled: props.disabled }}
-      className={
-        props.selected
-          ? "min-w-0 flex-1 gap-2 rounded-[24px] border-2 border-primary bg-subtle p-2"
-          : "min-w-0 flex-1 gap-2 rounded-[24px] border border-border bg-card p-2"
-      }
+      className={cn(
+        "min-w-0 flex-1 gap-2 rounded-[24px] p-2 transition-transform duration-100 ease-out active:scale-[0.97]",
+        props.selected ? "border-2 border-primary bg-subtle" : "border border-border bg-card",
+      )}
       disabled={props.disabled}
       onPress={props.onPress}
     >
@@ -340,62 +319,14 @@ function SectionLabel({ children }: { readonly children: string }) {
   return <Text className="px-2 text-sm font-t3-medium text-foreground-muted">{children}</Text>;
 }
 
-function ThemeTransitionPicker(props: {
-  readonly disabled: boolean;
-  readonly onSelect: (value: MobileThemeTransition) => void;
-  readonly selected: MobileThemeTransition;
-}) {
-  return (
-    <View className="gap-2">
-      <SectionLabel>Theme transition</SectionLabel>
-      <View className="flex-row flex-wrap gap-2">
-        {THEME_TRANSITION_OPTIONS.map((option) => {
-          const selected = option.id === props.selected;
-          return (
-            <Pressable
-              accessibilityHint="Used for the next color scheme or theme change"
-              accessibilityLabel={`${option.label} theme transition`}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: props.disabled, selected }}
-              className={
-                selected
-                  ? "min-h-10 min-w-24 flex-grow basis-[30%] items-center justify-center rounded-xl border-2 border-primary bg-subtle px-2 py-2 active:opacity-80"
-                  : "min-h-10 min-w-24 flex-grow basis-[30%] items-center justify-center rounded-xl border border-border bg-card px-2 py-2 active:bg-subtle"
-              }
-              disabled={props.disabled}
-              key={option.id}
-              onPress={() => props.onSelect(option.id)}
-            >
-              <Text
-                className={
-                  selected
-                    ? "text-center text-sm font-t3-bold text-foreground"
-                    : "text-center text-sm font-t3-medium text-foreground-secondary"
-                }
-              >
-                {option.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      <Text className="px-2 text-xs text-foreground-muted">
-        Choose an effect, then tap a theme to preview it.
-      </Text>
-    </View>
-  );
-}
-
 export function ThemeAppearanceSection() {
   const {
     isReady,
     setThemeIdForAppearance,
     setThemeIdForBothAppearances,
     setThemeMode,
-    setThemeTransition,
     themeIds,
     themeMode,
-    themeTransition,
   } = useAppearancePreferences();
 
   return (
@@ -416,12 +347,6 @@ export function ThemeAppearanceSection() {
           ))}
         </View>
       </View>
-
-      <ThemeTransitionPicker
-        disabled={!isReady}
-        onSelect={setThemeTransition}
-        selected={themeTransition}
-      />
 
       <View className="gap-3">
         <SectionLabel>Themes</SectionLabel>

@@ -14,7 +14,6 @@ import {
   MOBILE_THEME_IDS,
   normalizeMobileThemeId,
   normalizeMobileThemeMode,
-  normalizeMobileThemeTransition,
   resolveMobileThemeIds,
   themeColorWithAlpha,
   themeColorToNativeColor,
@@ -118,8 +117,6 @@ describe("mobile themes", () => {
     expect(normalizeMobileThemeId("missing-theme")).toBe(DEFAULT_MOBILE_THEME_ID);
     expect(normalizeMobileThemeMode("dark")).toBe("dark");
     expect(normalizeMobileThemeMode("sepia")).toBe("system");
-    expect(normalizeMobileThemeTransition("circle-center")).toBe("circle-center");
-    expect(normalizeMobileThemeTransition("dissolve")).toBe("fade");
   });
 
   it("migrates one theme choice to both appearances and preserves independent choices", () => {

@@ -5,7 +5,6 @@ import {
   type MobileThemeId,
   type MobileThemeIds,
   type MobileThemeMode,
-  type MobileThemeTransition,
 } from "./mobileTheme";
 
 export type MobileUniwindThemeName = `${MobileThemeId}-${MobileThemeAppearance}`;
@@ -28,7 +27,7 @@ export type MobileThemeRuntimeOperation =
       readonly appearance: MobileThemeAppearance;
       readonly themeMode: MobileThemeMode;
       readonly themeName: MobileUniwindThemeName;
-      readonly transition: MobileThemeTransition | null;
+      readonly animate: boolean;
     }
   | {
       readonly kind: "set-appearance-mode";
@@ -64,7 +63,7 @@ function activeThemeName(state: MobileThemeRuntimeState): MobileUniwindThemeName
 export function createMobileThemeRuntimeOperations(
   previous: MobileThemeRuntimeState | null,
   next: MobileThemeRuntimeState,
-  options: { readonly transition?: MobileThemeTransition } = {},
+  options: { readonly animate?: boolean } = {},
 ): ReadonlyArray<MobileThemeRuntimeOperation> {
   const operations: MobileThemeRuntimeOperation[] = [];
   const nextThemeName = activeThemeName(next);
@@ -88,7 +87,7 @@ export function createMobileThemeRuntimeOperations(
       appearance: next.themeAppearance,
       themeMode: next.themeMode,
       themeName: nextThemeName,
-      transition: previous === null ? null : (options.transition ?? null),
+      animate: previous !== null && (options.animate ?? false),
     });
   }
 

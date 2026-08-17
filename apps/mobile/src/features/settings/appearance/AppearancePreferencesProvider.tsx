@@ -27,13 +27,11 @@ import {
   createMobileThemePairPatch,
   createMobileThemeSelectionPatch,
   normalizeMobileThemeMode,
-  normalizeMobileThemeTransition,
   resolveMobileThemeIds,
   type MobileThemeAppearance,
   type MobileThemeId,
   type MobileThemeIds,
   type MobileThemeMode,
-  type MobileThemeTransition,
 } from "../../../lib/mobileTheme";
 import {
   createMobileThemeRuntimeOperations,
@@ -47,7 +45,6 @@ interface AppearancePreferencesContextValue {
   readonly themeId: MobileThemeId;
   readonly themeIds: MobileThemeIds;
   readonly themeMode: MobileThemeMode;
-  readonly themeTransition: MobileThemeTransition;
   readonly themeAppearance: MobileThemeAppearance;
   readonly isReady: boolean;
   readonly setThemeIdForAppearance: (
@@ -56,7 +53,6 @@ interface AppearancePreferencesContextValue {
   ) => void;
   readonly setThemeIdForBothAppearances: (value: MobileThemeId) => void;
   readonly setThemeMode: (value: MobileThemeMode) => void;
-  readonly setThemeTransition: (value: MobileThemeTransition) => void;
   readonly setBaseFontSize: (value: number) => void;
   /** Pass null to clear the override and follow the base font size. */
   readonly setTerminalFontSize: (value: number | null) => void;
@@ -66,23 +62,6 @@ interface AppearancePreferencesContextValue {
 }
 
 const AppearancePreferencesContext = createContext<AppearancePreferencesContextValue | null>(null);
-
-const UNIWIND_THEME_TRANSITION_PRESETS: Readonly<
-  Record<MobileThemeTransition, ThemeTransitionPreset>
-> = {
-  none: ThemeTransitionPreset.None,
-  fade: ThemeTransitionPreset.Fade,
-  "slide-right-to-left": ThemeTransitionPreset.SlideRightToLeft,
-  "slide-left-to-right": ThemeTransitionPreset.SlideLeftToRight,
-  "circle-top-right": ThemeTransitionPreset.CircleTopRight,
-  "circle-top-left": ThemeTransitionPreset.CircleTopLeft,
-  "circle-bottom-right": ThemeTransitionPreset.CircleBottomRight,
-  "circle-bottom-left": ThemeTransitionPreset.CircleBottomLeft,
-  "circle-center": ThemeTransitionPreset.CircleCenter,
-  blur: ThemeTransitionPreset.Blur,
-  "blur-right-to-left": ThemeTransitionPreset.BlurRightToLeft,
-  "blur-left-to-right": ThemeTransitionPreset.BlurLeftToRight,
-};
 
 interface IdleDeadlineLike {
   readonly didTimeout: boolean;
@@ -137,7 +116,6 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [storedPreferences],
   );
   const themeMode = normalizeMobileThemeMode(storedPreferences?.themeMode);
-  const themeTransition = normalizeMobileThemeTransition(storedPreferences?.themeTransition);
   const themeAppearance = themeMode === "system" ? systemColorScheme : themeMode;
   const themeIds = useMemo(
     () => resolveMobileThemeIds(storedPreferences ?? {}),
@@ -157,7 +135,6 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [preferences.baseFontSize, themeAppearance, themeIds, themeMode],
   );
   const appliedRuntimeStateRef = useRef<MobileThemeRuntimeState | null>(null);
-  const themeTransitionRef = useRef(themeTransition);
   const pendingThemePreferencesRef = useRef<Partial<Preferences> | null>(null);
   const postThemeIdleHandleRef = useRef<number | null>(null);
   const postThemeFrameHandleRef = useRef<number | null>(null);
@@ -188,7 +165,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
   }, [savePreferences]);
 
   const applyThemeRuntime = useCallback(
-    (next: MobileThemeRuntimeState, options?: { readonly transition?: MobileThemeTransition }) => {
+    (next: MobileThemeRuntimeState, options?: { readonly animate?: boolean }) => {
       const operations = createMobileThemeRuntimeOperations(
         appliedRuntimeStateRef.current,
         next,
@@ -208,9 +185,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
         postThemeGenerationRef.current += 1;
         Uniwind.setTheme(
           operation.themeName,
-          operation.transition === null
-            ? undefined
-            : { preset: UNIWIND_THEME_TRANSITION_PRESETS[operation.transition] },
+          operation.animate ? { preset: ThemeTransitionPreset.CircleBottomLeft } : undefined,
         );
         // A custom Uniwind theme resets React Native's appearance override to
         // `unspecified`. Restore it in the same event so native-stack headers,
@@ -226,7 +201,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
   );
 
   const syncThemeRuntime = useCallback(
-    (next: MobileThemeRuntimeState, options?: { readonly transition?: MobileThemeTransition }) => {
+    (next: MobileThemeRuntimeState, options?: { readonly animate?: boolean }) => {
       applyThemeRuntime(next, options);
     },
     [applyThemeRuntime],
@@ -256,10 +231,9 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
   );
 
   useLayoutEffect(() => {
-    themeTransitionRef.current = themeTransition;
     syncThemeRuntime(runtimeState);
     cacheTerminalFontSize(resolveAppearance(preferences).terminalFontSize);
-  }, [preferences, runtimeState, syncThemeRuntime, themeTransition]);
+  }, [preferences, runtimeState, syncThemeRuntime]);
 
   const updatePreferences = useCallback(
     (patch: Partial<Preferences>) => {
@@ -282,7 +256,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
           ...current,
           themeIds: resolveMobileThemeIds(patch),
         },
-        { transition: themeTransitionRef.current },
+        { animate: true },
       );
       saveThemePreferences(patch);
     },
@@ -298,7 +272,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
           ...current,
           themeIds: resolveMobileThemeIds(patch),
         },
-        { transition: themeTransitionRef.current },
+        { animate: true },
       );
       saveThemePreferences(patch);
     },
@@ -316,7 +290,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
           themeAppearance: nextAppearance,
           themeMode: value,
         },
-        { transition: themeTransitionRef.current },
+        { animate: true },
       );
       saveThemePreferences({ themeMode: value });
     },
@@ -330,14 +304,6 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       updatePreferences({ baseFontSize: value });
     },
     [runtimeState, syncThemeRuntime, updatePreferences],
-  );
-
-  const setThemeTransition = useCallback(
-    (value: MobileThemeTransition) => {
-      themeTransitionRef.current = value;
-      updatePreferences({ themeTransition: value });
-    },
-    [updatePreferences],
   );
 
   const setTerminalFontSize = useCallback(
@@ -367,13 +333,11 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       themeId,
       themeIds,
       themeMode,
-      themeTransition,
       themeAppearance,
       isReady,
       setThemeIdForAppearance,
       setThemeIdForBothAppearances,
       setThemeMode,
-      setThemeTransition,
       setBaseFontSize,
       setTerminalFontSize,
       setCodeFontSize,
@@ -384,13 +348,11 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       themeId,
       themeIds,
       themeMode,
-      themeTransition,
       themeAppearance,
       isReady,
       setThemeIdForAppearance,
       setThemeIdForBothAppearances,
       setThemeMode,
-      setThemeTransition,
       setBaseFontSize,
       setTerminalFontSize,
       setCodeFontSize,

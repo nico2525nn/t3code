@@ -6,13 +6,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type { SidebarProjectGroupingMode } from "@t3tools/contracts";
-import {
-  MOBILE_THEME_IDS,
-  MOBILE_THEME_TRANSITIONS,
-  type MobileThemeId,
-  type MobileThemeMode,
-  type MobileThemeTransition,
-} from "../lib/mobileTheme";
+import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 
 import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
@@ -27,7 +21,6 @@ export interface Preferences {
   readonly lightThemeId?: MobileThemeId;
   readonly darkThemeId?: MobileThemeId;
   readonly themeMode?: MobileThemeMode;
-  readonly themeTransition?: MobileThemeTransition;
   readonly baseFontSize?: number;
   readonly terminalFontSize?: number | null;
   readonly markdownFontSize?: number;
@@ -95,7 +88,6 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     lightThemeId?: MobileThemeId;
     darkThemeId?: MobileThemeId;
     themeMode?: MobileThemeMode;
-    themeTransition?: MobileThemeTransition;
     baseFontSize?: number;
     terminalFontSize?: number | null;
     markdownFontSize?: number;
@@ -137,12 +129,6 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     parsed.themeMode === "dark"
   ) {
     preferences.themeMode = parsed.themeMode;
-  }
-  if (
-    typeof parsed.themeTransition === "string" &&
-    (MOBILE_THEME_TRANSITIONS as readonly string[]).includes(parsed.themeTransition)
-  ) {
-    preferences.themeTransition = parsed.themeTransition as MobileThemeTransition;
   }
   if (typeof parsed.baseFontSize === "number") preferences.baseFontSize = parsed.baseFontSize;
   if (typeof parsed.terminalFontSize === "number" || parsed.terminalFontSize === null) {

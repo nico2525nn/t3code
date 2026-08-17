@@ -184,7 +184,6 @@ describe("mobile connection storage", () => {
         lightThemeId: "iris",
         darkThemeId: "ocean",
         themeMode: "system",
-        themeTransition: "circle-bottom-left",
       }),
       10,
     );
@@ -194,12 +193,11 @@ describe("mobile connection storage", () => {
       lightThemeId: "iris",
       darkThemeId: "ocean",
       themeMode: "system",
-      themeTransition: "circle-bottom-left",
     });
   });
 
-  it("drops an unknown theme transition preset", async () => {
-    mocks.setPreferencesJson(JSON.stringify({ themeTransition: "dissolve" }), 10);
+  it("drops the removed theme transition preference", async () => {
+    mocks.setPreferencesJson(JSON.stringify({ themeTransition: "circle-bottom-left" }), 10);
 
     await expect(loadPreferences()).resolves.toEqual({});
   });

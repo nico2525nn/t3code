@@ -19,9 +19,7 @@ describe("mobileThemeRuntime", () => {
   });
 
   it("hydrates text variables with the active theme last and does not animate startup", () => {
-    const operations = createMobileThemeRuntimeOperations(null, initialState, {
-      transition: "circle-center",
-    });
+    const operations = createMobileThemeRuntimeOperations(null, initialState, { animate: true });
     const variableOperations = operations.filter(
       (operation) => operation.kind === "update-text-variables",
     );
@@ -33,7 +31,7 @@ describe("mobileThemeRuntime", () => {
       appearance: "light",
       themeMode: "system",
       themeName: "t3-code-light",
-      transition: null,
+      animate: false,
     });
   });
 
@@ -44,7 +42,7 @@ describe("mobileThemeRuntime", () => {
         ...initialState,
         themeIds: { ...initialState.themeIds, light: "ocean" },
       },
-      { transition: "slide-right-to-left" },
+      { animate: true },
     );
 
     expect(operations).toEqual([
@@ -53,7 +51,7 @@ describe("mobileThemeRuntime", () => {
         appearance: "light",
         themeMode: "system",
         themeName: "ocean-light",
-        transition: "slide-right-to-left",
+        animate: true,
       },
     ]);
   });
@@ -76,7 +74,7 @@ describe("mobileThemeRuntime", () => {
         themeIds: { light: "t3-code", dark: "grove" },
         themeMode: "dark",
       },
-      { transition: "blur" },
+      { animate: true },
     );
 
     expect(operations).toEqual([
@@ -85,7 +83,7 @@ describe("mobileThemeRuntime", () => {
         appearance: "dark",
         themeMode: "dark",
         themeName: "grove-dark",
-        transition: "blur",
+        animate: true,
       },
     ]);
   });
