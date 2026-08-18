@@ -110,12 +110,15 @@ function refFrom(value: unknown): JsonObject | null {
   return ref && name && sha ? { ref: name, sha, repository: repositoryRefFrom(ref.repo) } : null;
 }
 
-function pullRequestFrom(value: unknown): JsonObject | null {
+function pullRequestFrom(value: unknown, repositoryId: number): JsonObject | null {
   const pullRequest = asObject(value);
   const number = numberValue(pullRequest?.number);
   const title = stringValue(pullRequest?.title);
   const state = stringValue(pullRequest?.state);
-  if (!pullRequest || number === null || !title || !state) return null;
+  const baseRepositoryId = numberValue(asObject(asObject(pullRequest?.base)?.repo)?.id);
+  if (!pullRequest || number === null || !title || !state || baseRepositoryId !== repositoryId) {
+    return null;
+  }
   return {
     number,
     title,
@@ -242,6 +245,8 @@ function pullRequestActionDetails(payload: JsonObject): JsonObject {
   const milestone = asObject(payload.milestone);
   return {
     changes: asObject(payload.changes),
+    reason: stringValue(payload.reason),
+    stack: asObject(payload.stack),
     beforeSha: stringValue(payload.before),
     afterSha: stringValue(payload.after),
     label: label
@@ -312,20 +317,14 @@ function pullRequestActionIsValid(action: string, payload: JsonObject): boolean 
   switch (action) {
     case "synchronize":
       return stringValue(payload.before) !== null && stringValue(payload.after) !== null;
-    case "labeled":
-    case "unlabeled":
-      return Object.hasOwn(payload, "label");
-    case "assigned":
-    case "unassigned":
-      return Object.hasOwn(payload, "assignee");
+    case "auto_merge_disabled":
+    case "dequeued":
+      return stringValue(payload.reason) !== null;
     case "review_requested":
     case "review_request_removed":
       return (
         Object.hasOwn(payload, "requested_reviewer") || Object.hasOwn(payload, "requested_team")
       );
-    case "milestoned":
-    case "demilestoned":
-      return Object.hasOwn(payload, "milestone");
     case "edited":
       return asObject(payload.changes) !== null;
     default:
@@ -336,6 +335,25 @@ function pullRequestActionIsValid(action: string, payload: JsonObject): boolean 
 function actionIsSupported(eventName: string, action: string | null): boolean {
   if (eventName === "status") return action === null;
   return action !== null && (SUPPORTED_ACTIONS[eventName]?.includes(action) ?? false);
+}
+
+function pullRequestMarkerMatches(
+  value: unknown,
+  repositoryFullName: string,
+  pullRequestNumber: number,
+): boolean {
+  const markerUrl = stringValue(asObject(value)?.url);
+  if (!markerUrl) return false;
+  try {
+    const url = new URL(markerUrl);
+    return (
+      url.hostname === "api.github.com" &&
+      url.pathname.toLowerCase() ===
+        `/repos/${repositoryFullName}/pulls/${pullRequestNumber}`.toLowerCase()
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function normalizeWebhook(input: NormalizeWebhookInput): GitHubEvent | null {
@@ -362,10 +380,16 @@ export function normalizeWebhook(input: NormalizeWebhookInput): GitHubEvent | nu
   };
 
   if (input.eventName === "pull_request") {
-    const pullRequest = pullRequestFrom(payload.pull_request);
+    const pullRequest = pullRequestFrom(payload.pull_request, repositoryId);
     const number = numberValue(pullRequest?.number);
     const head = asObject(pullRequest?.head);
-    if (!pullRequest || number === null || !action || !pullRequestActionIsValid(action, payload)) {
+    if (
+      !pullRequest ||
+      number === null ||
+      numberValue(payload.number) !== number ||
+      !action ||
+      !pullRequestActionIsValid(action, payload)
+    ) {
       return null;
     }
     return {
@@ -382,7 +406,7 @@ export function normalizeWebhook(input: NormalizeWebhookInput): GitHubEvent | nu
   }
 
   if (input.eventName === "pull_request_review") {
-    const pullRequest = pullRequestFrom(payload.pull_request);
+    const pullRequest = pullRequestFrom(payload.pull_request, repositoryId);
     const review = reviewFrom(payload.review);
     const number = numberValue(pullRequest?.number);
     const head = asObject(pullRequest?.head);
@@ -407,7 +431,7 @@ export function normalizeWebhook(input: NormalizeWebhookInput): GitHubEvent | nu
   }
 
   if (input.eventName === "pull_request_review_comment") {
-    const pullRequest = pullRequestFrom(payload.pull_request);
+    const pullRequest = pullRequestFrom(payload.pull_request, repositoryId);
     const comment = commentFrom(payload.comment);
     const number = numberValue(pullRequest?.number);
     const head = asObject(pullRequest?.head);
@@ -540,8 +564,7 @@ export function normalizeWebhook(input: NormalizeWebhookInput): GitHubEvent | nu
   }
 
   const issuePayload = asObject(payload.issue);
-  const pullRequestMarker = asObject(issuePayload?.pull_request);
-  if (input.eventName !== "issue_comment" || !stringValue(pullRequestMarker?.url)) {
+  if (input.eventName !== "issue_comment") {
     return null;
   }
 
@@ -551,19 +574,24 @@ export function normalizeWebhook(input: NormalizeWebhookInput): GitHubEvent | nu
     return null;
   }
   const pullRequestNumber = numberValue(issue.number);
-  if (pullRequestNumber === null) return null;
+  if (
+    pullRequestNumber === null ||
+    !pullRequestMarkerMatches(issuePayload?.pull_request, fullName, pullRequestNumber)
+  ) {
+    return null;
+  }
 
   return {
     ...base,
     pullRequestNumbers: [pullRequestNumber],
     headSha: null,
     occurredAt:
-      action === "deleted"
-        ? (input.receivedAt ?? stringValue(comment.updatedAt) ?? null)
-        : (stringValue(comment.updatedAt) ??
+      action === "created" || action === "edited"
+        ? (stringValue(comment.updatedAt) ??
           stringValue(comment.createdAt) ??
           input.receivedAt ??
-          null),
+          null)
+        : (input.receivedAt ?? stringValue(comment.updatedAt) ?? null),
     details: { issue, comment, changes: asObject(payload.changes) },
   };
 }

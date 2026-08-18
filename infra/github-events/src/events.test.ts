@@ -130,6 +130,7 @@ describe("normalizeWebhook", () => {
       receivedAt: "2026-08-18T12:01:01Z",
       payload: {
         action: "synchronize",
+        number: 42,
         before: "old-head-sha",
         after: "head-sha",
         repository,
@@ -216,7 +217,7 @@ describe("normalizeWebhook", () => {
           state: "open",
           user: actor,
           head: { ref: "fix/thing", sha: "head-sha" },
-          base: { ref: "main", sha: "base-sha" },
+          base: { ref: "main", sha: "base-sha", repo: { id: 1 } },
         },
         review: {
           id: 123,
@@ -260,7 +261,7 @@ describe("normalizeWebhook", () => {
           state: "open",
           user: actor,
           head: { ref: "fix/thing", sha: "head-sha" },
-          base: { ref: "main", sha: "base-sha" },
+          base: { ref: "main", sha: "base-sha", repo: { id: 1 } },
         },
         comment: {
           id: 124,
@@ -625,6 +626,144 @@ describe("normalizeWebhook", () => {
             state: "open",
             head: { ref: "fix/thing", sha: "head-sha" },
             base: { ref: "main", sha: "base-sha" },
+          },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects contradictory direct pull request associations", () => {
+    const pullRequest = {
+      number: 42,
+      title: "fix the thing",
+      state: "open",
+      head: { ref: "fix/thing", sha: "head-sha", repo: { id: 2 } },
+      base: { ref: "main", sha: "base-sha", repo: { id: 1 } },
+    };
+    const pullRequestPayload = {
+      action: "opened",
+      number: 42,
+      repository,
+      sender: actor,
+      pull_request: pullRequest,
+    };
+
+    expect(
+      normalizeWebhook({
+        deliveryId: "delivery-association-valid",
+        eventName: "pull_request",
+        payload: pullRequestPayload,
+      }),
+    ).toMatchObject({ pullRequestNumbers: [42] });
+    expect(
+      normalizeWebhook({
+        deliveryId: "delivery-association-base-mismatch",
+        eventName: "pull_request",
+        payload: {
+          ...pullRequestPayload,
+          pull_request: {
+            ...pullRequest,
+            base: { ...pullRequest.base, repo: { id: 999 } },
+          },
+        },
+      }),
+    ).toBeNull();
+    expect(
+      normalizeWebhook({
+        deliveryId: "delivery-association-number-mismatch",
+        eventName: "pull_request",
+        payload: { ...pullRequestPayload, number: 43 },
+      }),
+    ).toBeNull();
+    expect(
+      normalizeWebhook({
+        deliveryId: "delivery-review-base-mismatch",
+        eventName: "pull_request_review",
+        payload: {
+          action: "submitted",
+          repository,
+          sender: actor,
+          pull_request: {
+            ...pullRequest,
+            base: { ...pullRequest.base, repo: { id: 999 } },
+          },
+          review: { id: 1, state: "approved", user: actor },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("validates issue markers and preserves pull request action context", () => {
+    const pullRequest = {
+      number: 42,
+      title: "fix the thing",
+      state: "open",
+      head: { ref: "fix/thing", sha: "head-sha", repo: { id: 2 } },
+      base: { ref: "main", sha: "base-sha", repo: { id: 1 } },
+    };
+    const actionEvent = normalizeWebhook({
+      deliveryId: "delivery-dequeued",
+      eventName: "pull_request",
+      payload: {
+        action: "dequeued",
+        number: 42,
+        reason: "checks_failed",
+        repository,
+        sender: actor,
+        pull_request: pullRequest,
+      },
+    });
+    expect(actionEvent).toMatchObject({
+      details: { action: { reason: "checks_failed" } },
+    });
+    expect(
+      normalizeWebhook({
+        deliveryId: "delivery-dequeued-without-reason",
+        eventName: "pull_request",
+        payload: {
+          action: "dequeued",
+          number: 42,
+          repository,
+          sender: actor,
+          pull_request: pullRequest,
+        },
+      }),
+    ).toBeNull();
+    expect(
+      normalizeWebhook({
+        deliveryId: "delivery-optional-label",
+        eventName: "pull_request",
+        payload: {
+          action: "labeled",
+          number: 42,
+          repository,
+          sender: actor,
+          pull_request: pullRequest,
+        },
+      }),
+    ).not.toBeNull();
+
+    expect(
+      normalizeWebhook({
+        deliveryId: "delivery-marker-mismatch",
+        eventName: "issue_comment",
+        payload: {
+          action: "created",
+          repository,
+          sender: actor,
+          issue: {
+            number: 42,
+            title: "fix the thing",
+            state: "open",
+            pull_request: {
+              url: "https://api.github.com/repos/other/other/pulls/99",
+            },
+          },
+          comment: {
+            id: 1,
+            body: "hello",
+            created_at: "2026-08-18T12:00:00Z",
+            user: actor,
           },
         },
       }),
