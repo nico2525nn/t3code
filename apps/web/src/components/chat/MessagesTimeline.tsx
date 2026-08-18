@@ -1699,12 +1699,12 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: {
         <span className="font-medium">{lead}</span>
         {workflowName ? <span className="text-muted-foreground"> · {workflowName}</span> : null}
       </span>
-      <span className="ml-auto flex shrink-0 items-center gap-2 font-mono text-[.7rem] text-muted-foreground">
-        <span>{status}</span>
+      <span className="ml-auto flex min-w-0 items-center gap-2 font-mono text-[.7rem] text-muted-foreground">
+        <span className="truncate">{status}</span>
         {totalTokens > 0 ? (
-          <span className="tabular-nums">Σ {formatSubagentTokenCount(totalTokens)}</span>
+          <span className="shrink-0 tabular-nums">Σ {formatSubagentTokenCount(totalTokens)}</span>
         ) : null}
-        <span className="text-info-foreground">{live ? "Open Agents ▸" : "View ▸"}</span>
+        <span className="shrink-0 text-info-foreground">{live ? "Open Agents ▸" : "View ▸"}</span>
       </span>
     </button>
   );
