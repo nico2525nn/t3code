@@ -3664,7 +3664,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         assert.equal(firstCompletion?.subagent.status, "idle");
         assert.equal(firstCompletion?.subagent.result, "CODEX_FIRST_DONE");
         assert.equal(firstCompletion?.subagent.activationCount, 1);
-        assert.isNull(firstCompletion?.subagent.usage);
+        assert.equal(firstCompletion?.subagent.usage?.totalTokens, 100);
         assert.isNull(firstCompletion?.subagent.currentActivationId);
         const firstActivationUpdates = harness
           .subagentActivationUpdates()
@@ -3709,12 +3709,13 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           return (
             latest !== undefined &&
             latest.subagent.status === "idle" &&
-            latest.subagent.result === "CODEX_RESUME_DONE"
+            latest.subagent.result === "CODEX_RESUME_DONE" &&
+            latest.subagent.usage?.totalTokens === 180
           );
         }, "resumed subagent completion");
         const finalSubagent = harness.subagentUpdates().at(-1)?.subagent;
         assert.equal(finalSubagent?.activationCount, 2);
-        assert.isNull(finalSubagent?.usage);
+        assert.equal(finalSubagent?.usage?.totalTokens, 180);
         assert.isNull(finalSubagent?.currentActivationId);
         const activations = harness.subagentActivationUpdates();
         assert.lengthOf(new Set(activations.map((event) => event.activation.id)), 2);
@@ -3775,17 +3776,25 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         nativeThreadId: RESTART_NATIVE_THREAD,
         nativeTurnId: RESTART_NATIVE_TURN,
         prompt: RESTART_PROMPT,
-      }),
+      }).flatMap((entry) =>
+        entry.type === "emit_inbound" && entry.label === "turn/started"
+          ? [
+              // The recovered child can report activity before the root turn
+              // seeds projection-known identities into the fresh registry.
+              restartChildFrame({
+                label: "turn/started/child",
+                method: "turn/started",
+                params: {
+                  threadId: RESTART_CHILD_THREAD,
+                  turn: makeCodexReplayTurn({ id: RESTART_CHILD_TURN, status: "inProgress" }),
+                },
+              }),
+              entry,
+            ]
+          : [entry],
+      ),
       // No spawn frame: this process never saw the agent start. It only sees
       // the pre-existing native thread come back to life.
-      restartChildFrame({
-        label: "turn/started/child",
-        method: "turn/started",
-        params: {
-          threadId: RESTART_CHILD_THREAD,
-          turn: makeCodexReplayTurn({ id: RESTART_CHILD_TURN, status: "inProgress" }),
-        },
-      }),
       restartChildFrame({
         label: "item/completed/child-answer",
         method: "item/completed",
@@ -4062,7 +4071,11 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           () =>
             harness
               .subagentUpdates()
-              .some((event) => event.subagent.result === "CODEX_REHYDRATED_DONE"),
+              .some(
+                (event) =>
+                  event.subagent.result === "CODEX_REHYDRATED_DONE" &&
+                  event.subagent.usage?.totalTokens === 250,
+              ),
           "rehydrated subagent result",
         );
 
@@ -4078,7 +4091,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         assert.equal(latest?.childThreadId, existing.childThread.id);
         // Continues the prior activation rather than restarting the count.
         assert.equal(latest?.activationCount, 2);
-        assert.equal(latest?.usage?.totalTokens, 100);
+        assert.equal(latest?.usage?.totalTokens, 250);
         // The new activation takes the next ordinal, not a colliding ordinal 1.
         const activations = harness.subagentActivationUpdates();
         assert.deepStrictEqual(

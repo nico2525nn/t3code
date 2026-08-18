@@ -3165,7 +3165,7 @@ export function makeClaudeAdapterV2(
             ...(input.title === undefined ? {} : { title: input.title }),
             ...(input.model === undefined ? {} : { model: input.model }),
             ...(input.kind === undefined ? {} : { kind: input.kind }),
-            ...(input.agentType === undefined
+            ...(input.agentType === undefined && input.roleFallback === undefined
               ? {}
               : { role: providerSubagentRole(input.agentType, input.roleFallback) }),
             ...(input.workflow === undefined

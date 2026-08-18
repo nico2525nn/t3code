@@ -36,11 +36,13 @@ import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
+  THREAD_DETAILS_PANEL_ICON_CLASS,
   THREAD_DETAILS_PANEL_ICON_ACTION_CLASS,
   THREAD_DETAILS_PANEL_LINK_ROW_CLASS,
   THREAD_DETAILS_PANEL_LINK_SPLIT_GROUP_CLASS,
   THREAD_DETAILS_PANEL_LINK_SPLIT_PRIMARY_CLASS,
   THREAD_DETAILS_PANEL_LINK_SPLIT_SECONDARY_CLASS,
+  THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
   THREAD_DETAILS_PANEL_MENU_POPUP_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
 } from "./threadDetailsPanelStyles";
@@ -260,8 +262,13 @@ export function ThreadRelationshipsPanel(props: {
       </div>
 
       {visibleRows.length === 0 ? (
-        <div className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted-foreground">
-          <BotIcon aria-hidden className={THREAD_RELATIONSHIP_ICON_CLASS} />
+        <div
+          className={cn(
+            THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
+            "flex items-center font-normal text-muted-foreground",
+          )}
+        >
+          <BotIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
           <span>Agent session connected</span>
         </div>
       ) : null}

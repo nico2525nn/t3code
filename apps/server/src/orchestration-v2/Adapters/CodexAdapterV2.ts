@@ -1679,6 +1679,15 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               }
               return updated;
             });
+            const seededSubagents = yield* Ref.get(subagentThreads);
+            for (const entry of existing) {
+              const nativeThreadId = entry.childProviderThread?.nativeThreadRef?.nativeId ?? null;
+              if (nativeThreadId === null) continue;
+              const subagent = seededSubagents.get(nativeThreadId);
+              if (subagent !== undefined) {
+                yield* drainPendingSubagentTurns(nativeThreadId, subagent);
+              }
+            }
           });
 
         const registerRootTurn = (input: {
@@ -2158,6 +2167,22 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             });
           });
 
+        const drainPendingSubagentTurns = (
+          nativeThreadId: string,
+          subagent: CodexSubagentThreadContext,
+        ) =>
+          Effect.gen(function* () {
+            const pendingTurns = yield* Ref.modify(pendingSubagentTurns, (current) => {
+              const pending = current.get(nativeThreadId) ?? [];
+              const updated = new Map(current);
+              updated.delete(nativeThreadId);
+              return [pending, updated];
+            });
+            for (const pendingTurn of pendingTurns) {
+              yield* emitSubagentProviderTurnStarted(subagent, pendingTurn);
+            }
+          });
+
         const rememberSubagentTurnStarted = (input: {
           readonly nativeThreadId: string;
           readonly nativeTurnId: string;
@@ -2197,6 +2222,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               // Same agent thread referenced again by a later turn: keep the
               // identity and adopt it into the run now driving it.
               rebindSubagentToContext(existing, input.context);
+              yield* drainPendingSubagentTurns(input.nativeThreadId, existing);
               return;
             }
 
@@ -2402,15 +2428,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               status: "running",
             });
 
-            const pendingTurns = yield* Ref.modify(pendingSubagentTurns, (current) => {
-              const pending = current.get(input.nativeThreadId) ?? [];
-              const updated = new Map(current);
-              updated.delete(input.nativeThreadId);
-              return [pending, updated];
-            });
-            for (const pendingTurn of pendingTurns) {
-              yield* emitSubagentProviderTurnStarted(subagent, pendingTurn);
-            }
+            yield* drainPendingSubagentTurns(input.nativeThreadId, subagent);
           });
 
         const registerSubagentThreads = (input: {
@@ -3565,22 +3583,6 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             if (subagent === undefined || payload.tokenUsage.total.totalTokens <= 0) {
               return;
             }
-            if (subagent.task.currentActivationId !== null) {
-              const total = payload.tokenUsage.total;
-              const usage = {
-                totalTokens: total.totalTokens,
-                inputTokens: total.inputTokens,
-                cachedInputTokens: total.cachedInputTokens,
-                outputTokens: total.outputTokens,
-                reasoningOutputTokens: total.reasoningOutputTokens,
-              } satisfies OrchestrationV2SubagentUsage;
-              yield* emitSubagentTaskUpdate({
-                subagent,
-                status: subagent.task.status,
-                usage,
-              });
-            }
-
             const activeContext = (yield* Ref.get(activeTurns)).get(payload.turnId);
             const activation =
               activeContext?.subagent === subagent
@@ -3612,6 +3614,18 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               type: "subagent_activation.updated",
               driver: CODEX_PROVIDER,
               activation: updatedActivation,
+            });
+            const total = payload.tokenUsage.total;
+            yield* emitSubagentTaskUpdate({
+              subagent,
+              status: subagent.task.status,
+              usage: {
+                totalTokens: total.totalTokens,
+                inputTokens: total.inputTokens,
+                cachedInputTokens: total.cachedInputTokens,
+                outputTokens: total.outputTokens,
+                reasoningOutputTokens: total.reasoningOutputTokens,
+              },
             });
           }).pipe(Effect.orDie),
         );

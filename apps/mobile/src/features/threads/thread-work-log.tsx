@@ -142,6 +142,12 @@ function ThreadActivityThreadRow(props: {
         ? item.source.threadId
         : item.targetThreadId;
     label = targetThreadId === item.targetThreadId ? "Open forked thread" : "Open parent thread";
+  } else if (item.type === "subagent") {
+    targetThreadId = support.subagent?.childThreadId ?? item.childThreadId;
+    label = "Open agent thread";
+    providerDriver = support.subagent?.driver ?? item.driver;
+    providerInstanceId = support.subagent?.providerInstanceId ?? item.providerInstanceId;
+    model = support.subagent?.model ?? null;
   }
 
   const metadata = resolveThreadActivityMetadata({ providerDriver, providerInstanceId, model });

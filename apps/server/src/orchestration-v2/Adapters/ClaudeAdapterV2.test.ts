@@ -3324,6 +3324,73 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     ),
   );
 
+  it.effect("labels a generic subagent as a workflow coordinator when progress upgrades it", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const TASK_ID = "task-workflow-upgrade";
+        const TOOL_USE_ID = "toolu-workflow-upgrade";
+        const harness = yield* makeWakeHarness;
+        const now = yield* DateTime.now;
+        const subagentEvents = () =>
+          harness.events.filter(
+            (event): event is Extract<ProviderAdapterV2Event, { type: "subagent.updated" }> =>
+              event.type === "subagent.updated" &&
+              event.subagent.nativeTaskRef?.nativeId === TASK_ID,
+          );
+
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-claude-workflow-upgrade"),
+            text: "Run the release workflow.",
+            attachments: [],
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "system",
+            subtype: "task_started",
+            task_id: TASK_ID,
+            tool_use_id: TOOL_USE_ID,
+            description: "Release coordinator",
+            task_type: "local_agent",
+            prompt: "Coordinate the release workflow.",
+            uuid: "00000000-0000-4000-8000-000000000194",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* awaitUntil(() => subagentEvents().length > 0, "generic subagent created");
+        assert.equal(subagentEvents().at(-1)?.subagent.role.name, "general-purpose");
+
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            type: "system",
+            subtype: "task_progress",
+            task_id: TASK_ID,
+            tool_use_id: TOOL_USE_ID,
+            description: "Planning the release",
+            workflow_progress: [{ type: "workflow_phase", index: 0, title: "Plan" }],
+            uuid: "00000000-0000-4000-8000-000000000195",
+            session_id: WAKE_NATIVE_SESSION,
+          }),
+        );
+        yield* awaitUntil(
+          () => subagentEvents().at(-1)?.subagent.kind === "workflow",
+          "workflow upgrade",
+        );
+
+        assert.deepEqual(subagentEvents().at(-1)?.subagent.role, {
+          name: "workflow-coordinator",
+          source: "app_default",
+        });
+      }).pipe(Effect.provide(Layer.merge(idAllocatorLayer, NodeServices.layer))),
+    ),
+  );
+
   it.effect("wakes and hydrates a subagent that completes after the root turn settled", () =>
     Effect.scoped(
       Effect.gen(function* () {
