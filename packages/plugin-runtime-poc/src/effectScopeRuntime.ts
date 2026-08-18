@@ -27,11 +27,14 @@ interface LiveComposition {
   readonly snapshot: PluginRuntimeSnapshot;
 }
 
+const createNullPrototypeRecord = <Value>(): Record<string, Value> =>
+  Object.create(null) as Record<string, Value>;
+
 const emptySnapshot = (): PluginRuntimeSnapshot =>
   Object.freeze({
     active: Object.freeze([]),
-    blocked: Object.freeze({}),
-    contributions: Object.freeze({}),
+    blocked: Object.freeze(createNullPrototypeRecord<string>()),
+    contributions: Object.freeze(createNullPrototypeRecord<ReadonlyArray<Contribution>>()),
   });
 
 const planComposition = (definitions: ReadonlyArray<PluginDefinition>): PlannedComposition => {
@@ -120,7 +123,7 @@ const planComposition = (definitions: ReadonlyArray<PluginDefinition>): PlannedC
 
   for (const definition of definitions) addInDependencyOrder(definition);
 
-  const blockedRecord: Record<string, string> = {};
+  const blockedRecord = createNullPrototypeRecord<string>();
   for (const definition of definitions) {
     const reason = blocked.get(definition.id);
     if (reason !== undefined) blockedRecord[definition.id] = reason;
@@ -208,8 +211,16 @@ const affectedPluginIds = (
 };
 
 const closePlugins = async (plugins: ReadonlyArray<LivePlugin>): Promise<void> => {
+  const errors: Array<unknown> = [];
   for (const plugin of plugins.toReversed()) {
-    await Effect.runPromise(Scope.close(plugin.scope, Exit.void));
+    try {
+      await Effect.runPromise(Scope.close(plugin.scope, Exit.void));
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "Failed to close plugin scopes");
   }
 };
 
@@ -217,7 +228,7 @@ const snapshotOf = (
   plugins: ReadonlyArray<LivePlugin>,
   blocked: Readonly<Record<string, string>>,
 ): PluginRuntimeSnapshot => {
-  const contributions: Record<string, ReadonlyArray<Contribution>> = {};
+  const contributions = createNullPrototypeRecord<ReadonlyArray<Contribution>>();
   for (const plugin of plugins) {
     for (const [slot, registrations] of plugin.contributions) {
       const values = contributions[slot] ?? [];
@@ -231,7 +242,7 @@ const snapshotOf = (
   }
   return Object.freeze({
     active: Object.freeze(plugins.map((plugin) => plugin.definition.id)),
-    blocked: Object.freeze({ ...blocked }),
+    blocked: Object.freeze(Object.assign(createNullPrototypeRecord<string>(), blocked)),
     contributions: Object.freeze(contributions),
   });
 };

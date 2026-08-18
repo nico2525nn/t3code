@@ -30,24 +30,27 @@ const createSnapshot = (
   instances: ReadonlyArray<PluginInstance>,
   blocked: Readonly<Record<string, string>>,
 ): PluginRuntimeSnapshot => {
-  const contributions: Record<string, Array<Contribution>> = {};
+  const contributions: Record<string, Array<Contribution>> = Object.create(null);
 
   for (const instance of instances) {
     for (const [slot, registrations] of instance.contributions) {
-      const items = contributions[slot] ?? [];
+      const items = Object.hasOwn(contributions, slot) ? contributions[slot] : [];
+      if (items === undefined) continue;
       items.push(...registrations);
       contributions[slot] = items;
     }
   }
 
-  const frozenContributions: Record<string, ReadonlyArray<Contribution>> = {};
+  const frozenContributions: Record<string, ReadonlyArray<Contribution>> = Object.create(null);
   for (const [slot, registrations] of Object.entries(contributions)) {
     frozenContributions[slot] = Object.freeze([...registrations]);
   }
 
+  const frozenBlocked: Record<string, string> = Object.assign(Object.create(null), blocked);
+
   return Object.freeze({
     active: Object.freeze(instances.map(({ definition }) => definition.id)),
-    blocked: Object.freeze({ ...blocked }),
+    blocked: Object.freeze(frozenBlocked),
     contributions: Object.freeze(frozenContributions),
   });
 };
@@ -76,62 +79,94 @@ const planComposition = (definitions: ReadonlyArray<PluginDefinition>): Composit
     }
   }
 
+  interface VisitFrame {
+    readonly definition: PluginDefinition;
+    requirementIndex: number;
+    reason: string | undefined;
+  }
+
   const states = new Map<string, "visiting" | "visited">();
   const path: Array<string> = [];
+  const pathIndexes = new Map<string, number>();
   const active: Array<PluginDefinition> = [];
-  const blocked: Record<string, string> = {};
+  const blocked: Record<string, string> = Object.create(null);
 
-  const visit = (definition: PluginDefinition): void => {
-    const state = states.get(definition.id);
-    if (state === "visited") return;
-    if (state === "visiting") {
-      const cycleStart = path.indexOf(definition.id);
-      const cycle = [...path.slice(cycleStart), definition.id];
-      throw new Error(`dependency cycle detected: ${cycle.join(" -> ")}`);
-    }
+  for (const root of definitions) {
+    if (states.has(root.id)) continue;
 
-    states.set(definition.id, "visiting");
-    path.push(definition.id);
-    let reason: string | undefined;
+    const stack: Array<VisitFrame> = [{ definition: root, requirementIndex: 0, reason: undefined }];
+    states.set(root.id, "visiting");
+    pathIndexes.set(root.id, path.length);
+    path.push(root.id);
 
-    for (const capability of definition.requires ?? []) {
-      const provider = providers.get(capability);
-      if (provider === undefined) {
-        reason ??= `missing dependency: ${capability}`;
+    while (stack.length > 0) {
+      const frame = stack.at(-1);
+      if (frame === undefined) break;
+      const requirements = frame.definition.requires ?? [];
+      const capability = requirements[frame.requirementIndex];
+
+      if (capability !== undefined) {
+        const provider = providers.get(capability);
+        if (provider === undefined) {
+          frame.reason ??= `missing dependency: ${capability}`;
+          frame.requirementIndex += 1;
+          continue;
+        }
+
+        const state = states.get(provider.id);
+        if (state === "visiting") {
+          const cycleStart = pathIndexes.get(provider.id);
+          if (cycleStart === undefined) throw new Error(`missing dependency path: ${provider.id}`);
+          const cycle = [...path.slice(cycleStart), provider.id];
+          throw new Error(`dependency cycle detected: ${cycle.join(" -> ")}`);
+        }
+        if (state === undefined) {
+          stack.push({ definition: provider, requirementIndex: 0, reason: undefined });
+          states.set(provider.id, "visiting");
+          pathIndexes.set(provider.id, path.length);
+          path.push(provider.id);
+          continue;
+        }
+
+        if (Object.hasOwn(blocked, provider.id)) {
+          frame.reason ??= `dependency unavailable: ${capability}`;
+        }
+        frame.requirementIndex += 1;
         continue;
       }
 
-      visit(provider);
-      if (blocked[provider.id] !== undefined) {
-        reason ??= `dependency unavailable: ${capability}`;
+      stack.pop();
+      path.pop();
+      pathIndexes.delete(frame.definition.id);
+      states.set(frame.definition.id, "visited");
+      if (frame.reason === undefined) {
+        active.push(frame.definition);
+      } else {
+        blocked[frame.definition.id] = frame.reason;
       }
     }
-
-    path.pop();
-    states.set(definition.id, "visited");
-    if (reason === undefined) {
-      active.push(definition);
-    } else {
-      blocked[definition.id] = reason;
-    }
-  };
-
-  for (const definition of definitions) visit(definition);
+  }
   return { active, blocked, providers };
 };
 
 const sameDefinitionShape = (previous: PluginDefinition, desired: PluginDefinition) => {
   const previousRequires = previous.requires ?? [];
   const desiredRequires = desired.requires ?? [];
-  const previousProvides = Object.keys(previous.provides ?? {});
-  const desiredProvides = Object.keys(desired.provides ?? {});
+  const previousProvidedServices = previous.provides ?? {};
+  const desiredProvidedServices = desired.provides ?? {};
+  const previousProvides = Object.keys(previousProvidedServices);
+  const desiredProvides = Object.keys(desiredProvidedServices);
 
   return (
     previous.version === desired.version &&
     previousRequires.length === desiredRequires.length &&
     previousRequires.every((capability, index) => capability === desiredRequires[index]) &&
     previousProvides.length === desiredProvides.length &&
-    previousProvides.every((capability, index) => capability === desiredProvides[index])
+    previousProvides.every(
+      (capability, index) =>
+        capability === desiredProvides[index] &&
+        Object.is(previousProvidedServices[capability], desiredProvidedServices[capability]),
+    )
   );
 };
 

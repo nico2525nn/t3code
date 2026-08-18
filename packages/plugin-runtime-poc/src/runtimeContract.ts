@@ -164,6 +164,128 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
       await runtime.dispose();
     });
 
+    it("treats every plugin id and contribution slot as data", async () => {
+      const runtime = createRuntime();
+      const unusualProvider: PluginDefinition = {
+        id: "toString",
+        version: "1.0.0",
+        provides: { "acme.unusual@1": "available" },
+        activate(context) {
+          context.register("__proto__", { id: "provider", label: "provider" });
+        },
+      };
+      const unusualConsumer: PluginDefinition = {
+        id: "constructor",
+        version: "1.0.0",
+        requires: ["acme.unusual@1"],
+        activate(context) {
+          context.resolve("acme.unusual@1");
+          context.register("toString", { id: "consumer", label: "consumer" });
+        },
+      };
+      const unusualBlocked: PluginDefinition = {
+        id: "__proto__",
+        version: "1.0.0",
+        requires: ["acme.missing@1"],
+        activate() {
+          throw new Error("blocked plugin activated");
+        },
+      };
+
+      const snapshot = await runtime.reconcile([unusualConsumer, unusualProvider, unusualBlocked]);
+
+      expect(snapshot.active).toEqual(["toString", "constructor"]);
+      expect(Object.hasOwn(snapshot.blocked, "__proto__")).toBe(true);
+      expect(snapshot.blocked.__proto__).toContain("acme.missing@1");
+      expect(Object.hasOwn(snapshot.contributions, "__proto__")).toBe(true);
+      expect(Object.hasOwn(snapshot.contributions, "toString")).toBe(true);
+      expect(contributionLabels(snapshot, "__proto__")).toEqual(["provider"]);
+      expect(contributionLabels(snapshot, "toString")).toEqual(["consumer"]);
+      await runtime.dispose();
+    });
+
+    it("restarts dependents when a provided value changes", async () => {
+      const lifecycle: Array<string> = [];
+      const runtime = createRuntime({
+        onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
+      });
+      const serviceProvider = (name: string): PluginDefinition => ({
+        id: "acme.service",
+        version: "1.0.0",
+        provides: { "acme.service@1": { name } },
+        activate() {},
+      });
+      const serviceConsumer: PluginDefinition = {
+        id: "acme.service-consumer",
+        version: "1.0.0",
+        requires: ["acme.service@1"],
+        activate(context) {
+          const service = context.resolve<{ readonly name: string }>("acme.service@1");
+          context.register("commands", { id: "service", label: service.name });
+        },
+      };
+      await runtime.reconcile([serviceProvider("first"), serviceConsumer]);
+      lifecycle.length = 0;
+
+      const snapshot = await runtime.reconcile([serviceProvider("second"), serviceConsumer]);
+
+      expect(contributionLabels(snapshot, "commands")).toEqual(["second"]);
+      expect(lifecycle.filter((event) => event.startsWith("activate:"))).toEqual([
+        "activate:acme.service",
+        "activate:acme.service-consumer",
+      ]);
+      await runtime.dispose();
+    });
+
+    it("does not report a failed candidate as activated", async () => {
+      const lifecycle: Array<string> = [];
+      const runtime = createRuntime({
+        onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
+      });
+      const broken: PluginDefinition = {
+        id: "acme.broken",
+        version: "1.0.0",
+        activate() {
+          throw new Error("activation failed");
+        },
+      };
+
+      await expect(runtime.reconcile([broken])).rejects.toThrow("activation failed");
+
+      expect(lifecycle).toEqual([]);
+      await runtime.dispose();
+    });
+
+    it("attempts every plugin cleanup when one finalizer fails", async () => {
+      const disposed: Array<string> = [];
+      const runtime = createRuntime();
+      await runtime.reconcile([
+        {
+          id: "acme.first-cleanup",
+          version: "1.0.0",
+          activate(context) {
+            context.onDispose(() => {
+              disposed.push("first");
+            });
+          },
+        },
+        {
+          id: "acme.second-cleanup",
+          version: "1.0.0",
+          activate(context) {
+            context.onDispose(() => {
+              disposed.push("second");
+              throw new Error("cleanup failed");
+            });
+          },
+        },
+      ]);
+
+      await expect(runtime.dispose()).rejects.toThrow();
+
+      expect(disposed).toEqual(["second", "first"]);
+    });
+
     it("keeps the old plugin active when a replacement fails", async () => {
       const runtime = createRuntime();
       await runtime.reconcile([provider()]);

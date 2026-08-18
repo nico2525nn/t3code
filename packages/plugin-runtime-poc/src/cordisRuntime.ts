@@ -39,6 +39,7 @@ interface ActivePlugin {
   readonly fiber: CordisFiber;
   readonly contributions: ReadonlyMap<string, ReadonlyArray<Contribution>>;
   readonly providedLabels: ReadonlyMap<string, symbol>;
+  readonly cleanupErrors: Array<unknown>;
 }
 
 interface Composition {
@@ -53,7 +54,8 @@ function createSnapshot(
   blocked: Readonly<Record<string, string>>,
   contributions: ReadonlyMap<string, ReadonlyArray<Contribution>>,
 ): PluginRuntimeSnapshot {
-  const stableContributions: Record<string, ReadonlyArray<Contribution>> = {};
+  const stableBlocked = Object.assign(Object.create(null) as Record<string, string>, blocked);
+  const stableContributions = Object.create(null) as Record<string, ReadonlyArray<Contribution>>;
   for (const [slot, items] of contributions) {
     stableContributions[slot] = Object.freeze(
       items.map(({ id, label }) => Object.freeze({ id, label })),
@@ -62,7 +64,7 @@ function createSnapshot(
 
   return Object.freeze({
     active: Object.freeze([...active]),
-    blocked: Object.freeze({ ...blocked }),
+    blocked: Object.freeze(stableBlocked),
     contributions: Object.freeze(stableContributions),
   });
 }
@@ -125,7 +127,7 @@ function analyzeDefinitions(definitions: ReadonlyArray<PluginDefinition>) {
   };
   for (const definition of definitions) visit(definition.id);
 
-  const blocked: Record<string, string> = {};
+  const blocked = Object.create(null) as Record<string, string>;
   for (const definition of definitions) {
     const missing = (definition.requires ?? []).filter(
       (capability) => !providerByCapability.has(capability),
@@ -184,11 +186,17 @@ function sameStrings(left: ReadonlyArray<string>, right: ReadonlyArray<string>) 
 }
 
 function sameDefinition(left: PluginDefinition, right: PluginDefinition) {
+  const leftProvides = Object.entries(left.provides ?? {});
+  const rightProvides = Object.entries(right.provides ?? {});
   return (
     left.id === right.id &&
     left.version === right.version &&
     sameStrings(left.requires ?? [], right.requires ?? []) &&
-    sameStrings(Object.keys(left.provides ?? {}), Object.keys(right.provides ?? {}))
+    leftProvides.length === rightProvides.length &&
+    leftProvides.every(
+      ([capability, service], index) =>
+        rightProvides[index]?.[0] === capability && Object.is(rightProvides[index]?.[1], service),
+    )
   );
 }
 
@@ -272,13 +280,30 @@ function snapshotOf(
   );
 }
 
+function aggregateErrorWithCause(errors: ReadonlyArray<unknown>, message: string, cause: unknown) {
+  return new AggregateError(errors, message, { cause });
+}
+
 async function disposeComposition(
   composition: Composition,
   onDeactivate?: (pluginId: string) => void,
 ) {
+  const errors: Array<unknown> = [];
   for (const plugin of composition.plugins.toReversed()) {
-    onDeactivate?.(plugin.definition.id);
-    await plugin.fiber.dispose();
+    try {
+      onDeactivate?.(plugin.definition.id);
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      await plugin.fiber.dispose();
+    } catch (error) {
+      errors.push(error);
+    }
+    errors.push(...plugin.cleanupErrors.splice(0));
+  }
+  if (errors.length) {
+    throw new AggregateError(errors, "plugin composition cleanup failed");
   }
 }
 
@@ -340,12 +365,19 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
           }
 
           const contributions = new Map<string, Array<Contribution>>();
+          const cleanupErrors: Array<unknown> = [];
 
           const cordisPlugin: CordisPlugin = async (fiberContext) => {
             const finalizers: Array<() => void | Promise<void>> = [];
             fiberContext.effect(
               () => async () => {
-                for (const finalizer of finalizers.toReversed()) await finalizer();
+                for (const finalizer of finalizers.toReversed()) {
+                  try {
+                    await finalizer();
+                  } catch (error) {
+                    cleanupErrors.push(error);
+                  }
+                }
               },
               `${definition.id}:finalizers`,
             );
@@ -354,7 +386,6 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
               fiberContext.provide(capability, service);
             }
 
-            options.onLifecycle?.({ phase: "activate", pluginId: definition.id });
             await definition.activate({
               resolve: <Service>(capability: string) => fiberContext.get(capability) as Service,
               register(slot, contribution) {
@@ -373,23 +404,40 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
                 finalizers.push(finalizer);
               },
             });
+            options.onLifecycle?.({ phase: "activate", pluginId: definition.id });
           };
           cordisPlugin.inject = [...(definition.requires ?? [])];
           cordisPlugin.provide = Object.keys(definition.provides ?? {});
           Object.defineProperty(cordisPlugin, "name", { value: definition.id });
 
           const fiber = pluginContext.plugin(cordisPlugin);
-          const plugin = { definition, fiber, contributions, providedLabels };
+          const plugin = { definition, fiber, contributions, providedLabels, cleanupErrors };
           try {
             await fiber;
           } catch (error) {
-            await fiber.dispose();
+            try {
+              await disposeComposition({ plugins: [plugin], snapshot: emptySnapshot });
+            } catch (cleanupError) {
+              throw aggregateErrorWithCause(
+                [error, cleanupError],
+                `plugin ${definition.id} activation and cleanup failed`,
+                cleanupError,
+              );
+            }
             throw error;
           }
           staged.set(definition.id, plugin);
         }
       } catch (error) {
-        await disposeComposition({ plugins: [...staged.values()], snapshot: emptySnapshot });
+        try {
+          await disposeComposition({ plugins: [...staged.values()], snapshot: emptySnapshot });
+        } catch (cleanupError) {
+          throw aggregateErrorWithCause(
+            [error, cleanupError],
+            "plugin composition activation and rollback failed",
+            cleanupError,
+          );
+        }
         throw error;
       }
 
