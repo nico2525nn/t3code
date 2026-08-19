@@ -1578,6 +1578,8 @@ export function PullRequestDetailPanel({
         <div
           className={cn(
             "col-span-2 grid",
+            // Collapse before the scroll refund paints; only reopening eases back in. Animating
+            // both directions makes the shrinking track fight the scrollTop correction.
             condensed
               ? "grid-rows-[0fr]"
               : "grid-rows-[1fr] transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
@@ -1864,6 +1866,7 @@ export function PullRequestDetailPanel({
           setChromeCondensed((previous) => {
             let next = previous;
             const foldHeight = foldRef.current?.scrollHeight ?? 0;
+            // The condensed row remains mounted, so refund only the height that actually leaves.
             const chromeDelta = foldHeight - (condensedRowRef.current?.scrollHeight ?? 0);
             if (previous) {
               // The hard top reopens the chrome with no refund: the reader asked for the top,
