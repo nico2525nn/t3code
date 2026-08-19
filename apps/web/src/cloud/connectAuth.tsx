@@ -142,6 +142,9 @@ const LOGIN_WATCH_INTERVAL_MS = 2_000;
 export function DesktopConnectAuthProvider({ children }: { readonly children: ReactNode }) {
   const [state, setState] = useState<EnvironmentConnectAuthState | null>(null);
   const tokenCacheRef = useRef<{ accessToken: string; expiresAtEpochMs: number } | null>(null);
+  // Bumped on every cache invalidation so an in-flight token read started
+  // before a logout or account switch cannot repopulate the cache.
+  const tokenGenerationRef = useRef(0);
   const requestSeqRef = useRef(0);
 
   const applyState = useCallback((next: EnvironmentConnectAuthState) => {
@@ -151,6 +154,7 @@ export function DesktopConnectAuthProvider({ children }: { readonly children: Re
       // outlive the switch.
       if (!next.authorized || (previous?.accountId ?? null) !== next.accountId) {
         tokenCacheRef.current = null;
+        tokenGenerationRef.current += 1;
       }
       return next;
     });
@@ -216,9 +220,12 @@ export function DesktopConnectAuthProvider({ children }: { readonly children: Re
     if (cached && cached.expiresAtEpochMs - TOKEN_EXPIRY_SKEW_MS > Date.now()) {
       return cached.accessToken;
     }
+    const generation = tokenGenerationRef.current;
     try {
       const token = await runPrimaryHttp(readAuthToken);
-      tokenCacheRef.current = token;
+      if (generation === tokenGenerationRef.current) {
+        tokenCacheRef.current = token;
+      }
       return token.accessToken;
     } catch (cause) {
       console.warn("[t3-connect] Could not read the T3 Connect access token.", cause);

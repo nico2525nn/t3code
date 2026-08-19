@@ -1,6 +1,6 @@
 import { UserButton } from "@clerk/react";
 import { LogInIcon, LogOutIcon, ServerIcon, SmartphoneIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useT3ConnectAuth } from "../../cloud/connectAuth";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
@@ -74,6 +74,12 @@ type DesktopAccountPage = "t3-connect" | "mobile-clients";
 function DesktopConnectAvatar() {
   const { identity, isLoaded, isSignedIn, signOut } = useT3ConnectAuth();
   const [openPage, setOpenPage] = useState<DesktopAccountPage | null>(null);
+
+  // The component stays mounted across sign-out (it renders null); the open
+  // dialog must not survive into the next session.
+  useEffect(() => {
+    if (!isSignedIn) setOpenPage(null);
+  }, [isSignedIn]);
 
   if (!isLoaded || !isSignedIn) return null;
 

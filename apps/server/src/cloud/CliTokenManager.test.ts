@@ -591,6 +591,10 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
 
       const accepted = yield* manager.submitBrowserLoginCode(` clerk-code-456.${request!.state} `);
       assert.isTrue(accepted.accepted);
+      // A second paste for the same attempt is reported as rejected, not
+      // silently swallowed.
+      const doubled = yield* manager.submitBrowserLoginCode(`clerk-code-456.${request!.state}`);
+      assert.isFalse(doubled.accepted);
       yield* Deferred.await(persisted);
       yield* awaitPendingLoginSettled(manager);
 

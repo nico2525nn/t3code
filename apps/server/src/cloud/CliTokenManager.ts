@@ -712,7 +712,13 @@ export const make = Effect.gen(function* () {
     if (typeof checked === "string") {
       return { accepted: false, reason: checked } as const;
     }
-    yield* Deferred.succeed(pending.value.manualCode, checked.code);
+    const delivered = yield* Deferred.succeed(pending.value.manualCode, checked.code);
+    if (!delivered) {
+      return {
+        accepted: false,
+        reason: "A code was already submitted for this sign-in.",
+      } as const;
+    }
     return { accepted: true } as const;
   });
 
