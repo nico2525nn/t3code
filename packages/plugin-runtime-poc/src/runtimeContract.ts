@@ -1,9 +1,16 @@
+import * as NodeTimersPromises from "node:timers/promises";
+
 import { describe, expect, it } from "vite-plus/test";
 
 import type { PluginDefinition, PluginRuntimeFactory, PluginRuntimeSnapshot } from "./contract.ts";
 
 const contributionLabels = (snapshot: PluginRuntimeSnapshot, slot: string) =>
   snapshot.contributions[slot]?.map((item) => item.label) ?? [];
+
+const operationTimeout = () =>
+  NodeTimersPromises.setTimeout(100).then(() => {
+    throw new Error("operation timed out");
+  });
 
 const provider = (version = "1.0.0"): PluginDefinition => ({
   id: "acme.database",
@@ -394,6 +401,91 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
       expect(contributionLabels(snapshot, "commands")).toEqual(["new"]);
       expect(runtime.snapshot()).toBe(snapshot);
       expect(cleanupEvents).toEqual([{ phase: "retire", error: cleanupError }]);
+      await runtime.dispose();
+    });
+
+    it("does not let lifecycle observers interrupt a committed transition", async () => {
+      let oldDisposed = false;
+      const observerErrors: Array<string> = [];
+      const runtime = createRuntime({
+        onLifecycle: ({ phase, pluginId }) => {
+          throw new Error(`${phase}:${pluginId}`);
+        },
+        onLifecycleError: ({ phase, pluginId }) => {
+          observerErrors.push(`${phase}:${pluginId}`);
+        },
+      });
+      await runtime.reconcile([
+        {
+          id: "acme.lifecycle-observer",
+          version: "1.0.0",
+          activate(context) {
+            context.onDispose(() => {
+              oldDisposed = true;
+            });
+          },
+        },
+      ]);
+
+      const snapshot = await runtime.reconcile([
+        {
+          id: "acme.lifecycle-observer",
+          version: "2.0.0",
+          activate(context) {
+            context.register("commands", { id: "observer", label: "committed" });
+          },
+        },
+      ]);
+
+      expect(oldDisposed).toBe(true);
+      expect(contributionLabels(snapshot, "commands")).toEqual(["committed"]);
+      expect(observerErrors).toEqual([
+        "activate:acme.lifecycle-observer",
+        "activate:acme.lifecycle-observer",
+        "deactivate:acme.lifecycle-observer",
+      ]);
+      await runtime.dispose();
+    });
+
+    it("rejects runtime operations reentered from plugin activation", async () => {
+      const runtime = createRuntime();
+      const reentrant: PluginDefinition = {
+        id: "acme.reentrant",
+        version: "1.0.0",
+        async activate() {
+          await runtime.reconcile([]);
+        },
+      };
+      const timeout = operationTimeout();
+
+      await expect(Promise.race([runtime.reconcile([reentrant]), timeout])).rejects.toThrow(
+        "reentrant",
+      );
+    });
+
+    it("rejects runtime operations reentered from plugin finalizers", async () => {
+      let nestedFailure: unknown;
+      const runtime = createRuntime();
+      await runtime.reconcile([
+        {
+          id: "acme.reentrant-finalizer",
+          version: "1.0.0",
+          activate(context) {
+            context.onDispose(async () => {
+              try {
+                await runtime.dispose();
+              } catch (error) {
+                nestedFailure = error;
+              }
+            });
+          },
+        },
+      ]);
+      const timeout = operationTimeout();
+
+      await expect(Promise.race([runtime.reconcile([]), timeout])).resolves.toBeDefined();
+      expect(nestedFailure).toBeInstanceOf(Error);
+      expect((nestedFailure as Error).message).toContain("reentrant");
       await runtime.dispose();
     });
 
