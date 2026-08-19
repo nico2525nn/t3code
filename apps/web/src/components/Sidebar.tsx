@@ -91,7 +91,6 @@ import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { readLocalApi } from "../localApi";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import {
-  buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
@@ -100,7 +99,7 @@ import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { openCommandPalette } from "../commandPaletteBus";
-import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
+import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
@@ -194,7 +193,6 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 // Keep the v2 key so existing preferences survive the v2-to-default rename.
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:snoozed-expanded";
-const SIDEBAR_LIFECYCLE_ICON_CLASS = "size-3 shrink-0 text-current";
 
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -396,20 +394,20 @@ function SnoozePopoverButton(props: {
           render={
             <PopoverTrigger
               render={
-                <Button
-                  size="icon-micro"
-                  variant="ghost-muted"
+                <button
+                  type="button"
                   aria-label="Snooze thread"
                   onClick={(event) => event.stopPropagation()}
                   onDoubleClick={(event) => event.stopPropagation()}
+                  className="inline-flex h-full cursor-pointer items-center gap-0.5 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
                 />
               }
             />
           }
         >
-          <ClockIcon aria-hidden className={SIDEBAR_LIFECYCLE_ICON_CLASS} />
+          <ClockIcon className="size-3" />
         </TooltipTrigger>
-        <TooltipPopup side="top">Snooze thread</TooltipPopup>
+        <TooltipPopup>Snooze thread</TooltipPopup>
       </Tooltip>
       <PopoverPopup side="bottom" align="end" className="w-56" viewportClassName="p-1">
         {presets.map((preset) => (
@@ -1264,9 +1262,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                           type="button"
                           aria-label="Dismiss Woke notification"
                           onClick={handleAcknowledgeWokeClick}
-                          className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-sm text-xs font-medium text-amber-700 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring dark:text-amber-300"
+                          className="inline-flex cursor-pointer items-center gap-1 rounded-sm text-xs font-medium text-amber-700 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring dark:text-amber-300"
                         >
-                          <AlarmClockIcon aria-hidden className={SIDEBAR_LIFECYCLE_ICON_CLASS} />
+                          <AlarmClockIcon aria-hidden className="size-3" />
                           <span role="status">Woke</span>
                         </button>
                       }
@@ -1283,48 +1281,42 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               </span>
               {variantAction === "unsnooze" ? (
                 !props.snoozeSupported ? null : (
-                  <Button
+                  <button
                     type="button"
-                    size="icon-micro"
-                    variant="ghost-muted"
                     aria-label="Wake thread now"
                     onClick={handleUnsnoozeClick}
                     className={cn(
-                      "pointer-events-none absolute inset-y-0 right-0 -mr-1 my-auto opacity-0 transition-opacity focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
+                      "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
                       isWoke && "group-hover/sidebar-row:static",
                     )}
                   >
-                    <AlarmClockOffIcon aria-hidden className={SIDEBAR_LIFECYCLE_ICON_CLASS} />
-                  </Button>
+                    <AlarmClockOffIcon className="mb-px size-3" />
+                  </button>
                 )
               ) : !props.settlementSupported ? null : variantAction === "unsettle" ? (
-                <Button
+                <button
                   type="button"
-                  size="icon-micro"
-                  variant="ghost-muted"
                   aria-label="Un-settle thread"
                   onClick={handleUnsettleClick}
                   className={cn(
-                    "pointer-events-none absolute inset-y-0 right-0 -mr-1 my-auto opacity-0 transition-opacity focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
+                    "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
                     isWoke && "group-hover/sidebar-row:static",
                   )}
                 >
-                  <Undo2Icon aria-hidden className={SIDEBAR_LIFECYCLE_ICON_CLASS} />
-                </Button>
+                  <Undo2Icon className="mb-px size-3.5" />
+                </button>
               ) : (
-                <Button
+                <button
                   type="button"
-                  size="icon-micro"
-                  variant="ghost-muted"
                   aria-label="Settle thread"
                   onClick={handleSettleClick}
                   className={cn(
-                    "pointer-events-none absolute inset-y-0 right-0 my-auto opacity-0 transition-opacity focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
+                    "pointer-events-none absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100",
                     isWoke && "group-hover/sidebar-row:static",
                   )}
                 >
-                  <CheckIcon aria-hidden className={SIDEBAR_LIFECYCLE_ICON_CLASS} />
-                </Button>
+                  <CheckIcon className="size-3" />
+                </button>
               )}
             </span>
             {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
@@ -1392,151 +1384,136 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               ) : (
                 <span className="flex-1" />
               )}
-              <span className="ml-auto flex h-5 shrink-0 items-center">
-                {props.isPinned ? (
-                  props.pinningSupported ? (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            size="icon-micro"
-                            variant="ghost-muted"
-                            aria-label="Unpin thread"
-                            onClick={handleUnpinClick}
-                          />
-                        }
-                      >
-                        <PinIcon aria-hidden className={SIDEBAR_LIFECYCLE_ICON_CLASS} />
-                      </TooltipTrigger>
-                      <TooltipPopup side="top">Unpin thread</TooltipPopup>
-                    </Tooltip>
-                  ) : (
-                    <span className="inline-flex size-5 shrink-0 items-center justify-center">
-                      <PinIcon
-                        aria-label="Pinned"
-                        role="img"
-                        className={cn(SIDEBAR_LIFECYCLE_ICON_CLASS, "text-muted-foreground")}
-                      />
-                    </span>
-                  )
-                ) : null}
-                {/* Only the visible state owns this slot's width: the pin stays
-                    directly beside the idle status and beside the first action
-                    when the hover controls replace it. */}
+              {props.isPinned ? (
+                props.pinningSupported ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          aria-label="Unpin thread"
+                          onClick={handleUnpinClick}
+                          className="inline-flex cursor-pointer items-center rounded-sm text-muted-foreground/65 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                        />
+                      }
+                    >
+                      <PinIcon aria-hidden className="size-3 shrink-0" />
+                    </TooltipTrigger>
+                    <TooltipPopup>Unpin thread</TooltipPopup>
+                  </Tooltip>
+                ) : (
+                  <PinIcon
+                    aria-label="Pinned"
+                    role="img"
+                    className="size-3 shrink-0 text-muted-foreground/65"
+                  />
+                )
+              ) : null}
+              {/* The visible state owns this slot's width: status at rest,
+                  actions on hover/keyboard focus or while the popover is open. Keeping
+                  the hidden state out of flow lets the project label reclaim
+                  space without either state overlapping it. */}
+              <span className="group/sidebar-status-slot relative ml-auto flex h-5 min-w-8 shrink-0 items-stretch justify-end text-xs">
+                {/* Read-only status labels yield to the hover actions. Woke is
+                    itself an action, so it stays pointer-enabled and visible
+                    while the other controls appear beside it. */}
                 <span
                   className={cn(
-                    "group/sidebar-status-slot relative flex h-5 shrink-0 items-stretch justify-end text-xs",
-                    props.isPinned ? "min-w-0" : "min-w-8",
+                    isWokeStatus
+                      ? "pointer-events-auto"
+                      : "pointer-events-none group-has-[:focus-visible]/sidebar-status-slot:absolute group-has-[:focus-visible]/sidebar-status-slot:right-0 group-has-[:focus-visible]/sidebar-status-slot:opacity-0 group-hover/sidebar-row:absolute group-hover/sidebar-row:right-0 group-hover/sidebar-row:opacity-0",
+                    "self-center justify-self-end tabular-nums text-secondary-label transition-opacity",
+                    snoozeMenuOpen && "pointer-events-none absolute right-0 opacity-0",
                   )}
                 >
-                  {/* Read-only status labels yield to the hover actions. Woke is
-                      itself an action, so it stays pointer-enabled and visible
-                      while the other controls appear beside it. */}
-                  <span
-                    className={cn(
-                      isWokeStatus
-                        ? "pointer-events-auto"
-                        : "pointer-events-none group-has-[:focus-visible]/sidebar-status-slot:absolute group-has-[:focus-visible]/sidebar-status-slot:right-0 group-has-[:focus-visible]/sidebar-status-slot:opacity-0 group-hover/sidebar-row:absolute group-hover/sidebar-row:right-0 group-hover/sidebar-row:opacity-0",
-                      "self-center tabular-nums text-secondary-label transition-opacity",
-                      snoozeMenuOpen && "pointer-events-none absolute right-0 opacity-0",
-                    )}
-                  >
-                    {topStatus ? (
-                      isWokeStatus ? (
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <button
-                                type="button"
-                                aria-label="Dismiss Woke notification"
-                                onClick={handleAcknowledgeWokeClick}
-                                className={cn(
-                                  "inline-flex h-5 cursor-pointer items-center gap-1 rounded-sm font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring",
-                                  topStatus.className,
-                                )}
-                              >
-                                <AlarmClockIcon
-                                  aria-hidden
-                                  className={SIDEBAR_LIFECYCLE_ICON_CLASS}
-                                />
-                                <span role="status">{topStatus.label}</span>
-                              </button>
-                            }
-                          />
-                          <TooltipPopup side="top">Dismiss Woke notification</TooltipPopup>
-                        </Tooltip>
-                      ) : (
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-1 font-medium",
-                            topStatus.className,
-                          )}
-                        >
-                          {topStatus.icon === "working" ? (
-                            <CircleDashedIcon
-                              aria-hidden
-                              className={SIDEBAR_LIFECYCLE_ICON_CLASS}
-                            />
-                          ) : topStatus.icon === "done" ? (
-                            <CircleCheckIcon aria-hidden className={SIDEBAR_LIFECYCLE_ICON_CLASS} />
-                          ) : null}
-                          {/* The label alone is the live region: a role="status"
+                  {topStatus ? (
+                    isWokeStatus ? (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="button"
+                              aria-label="Dismiss Woke notification"
+                              onClick={handleAcknowledgeWokeClick}
+                              className={cn(
+                                "inline-flex cursor-pointer items-center gap-1 rounded-sm font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring",
+                                topStatus.className,
+                              )}
+                            >
+                              <AlarmClockIcon aria-hidden className="size-4 shrink-0" />
+                              <span role="status">{topStatus.label}</span>
+                            </button>
+                          }
+                        />
+                        <TooltipPopup side="top">Dismiss Woke notification</TooltipPopup>
+                      </Tooltip>
+                    ) : (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 font-medium",
+                          topStatus.className,
+                        )}
+                      >
+                        {topStatus.icon === "working" ? (
+                          <CircleDashedIcon aria-hidden className="size-4 shrink-0" />
+                        ) : topStatus.icon === "done" ? (
+                          <CircleCheckIcon aria-hidden className="size-4 shrink-0" />
+                        ) : null}
+                        {/* The label alone is the live region: a role="status"
                             wrapper around the ticking duration would make
                             screen readers announce every second. */}
-                          <span role="status">{topStatus.label}</span>
-                          {status === "working" ? (
-                            <span aria-hidden>
-                              <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
-                            </span>
-                          ) : null}
-                        </span>
-                      )
-                    ) : (
-                      threadTimeLabel(thread)
-                    )}
-                  </span>
-                  {props.settlementSupported || showSnoozeButton ? (
-                    <span
-                      className={cn(
-                        // focus-visible, not focus-within: a mouse click leaves
-                        // the Settle button focused, and a plain focus-within
-                        // would keep the controls pinned over the status label
-                        // once the pointer moves away (e.g. after a failed
-                        // settle) instead of cross-fading back.
-                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:static group-hover/sidebar-row:opacity-100",
-                        snoozeMenuOpen && "pointer-events-auto static opacity-100",
-                      )}
-                    >
-                      {showSnoozeButton ? (
-                        <SnoozePopoverButton
-                          open={snoozeMenuOpen}
-                          onOpenChange={setSnoozeMenuOpen}
-                          onSnooze={handleSnoozePreset}
-                          timestampFormat={props.timestampFormat}
-                        />
-                      ) : null}
-                      {props.settlementSupported ? (
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <Button
-                                size="micro"
-                                variant="ghost-muted"
-                                aria-label="Settle thread"
-                                onClick={handleSettleClick}
-                                className="-mr-1 ps-1 pe-1.5"
-                              />
-                            }
-                          >
-                            <CheckIcon aria-hidden className={SIDEBAR_LIFECYCLE_ICON_CLASS} />
-                            Settle
-                          </TooltipTrigger>
-                          <TooltipPopup side="top">Settle thread</TooltipPopup>
-                        </Tooltip>
-                      ) : null}
-                    </span>
-                  ) : null}
+                        <span role="status">{topStatus.label}</span>
+                        {status === "working" ? (
+                          <span aria-hidden>
+                            <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
+                          </span>
+                        ) : null}
+                      </span>
+                    )
+                  ) : (
+                    threadTimeLabel(thread)
+                  )}
                 </span>
+                {props.settlementSupported || showSnoozeButton ? (
+                  <span
+                    className={cn(
+                      // focus-visible, not focus-within: a mouse click leaves
+                      // the Settle button focused, and a plain focus-within
+                      // would keep the controls pinned over the status label
+                      // once the pointer moves away (e.g. after a failed
+                      // settle) instead of cross-fading back.
+                      "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:static group-hover/sidebar-row:opacity-100",
+                      snoozeMenuOpen && "pointer-events-auto static opacity-100",
+                    )}
+                  >
+                    {showSnoozeButton ? (
+                      <SnoozePopoverButton
+                        open={snoozeMenuOpen}
+                        onOpenChange={setSnoozeMenuOpen}
+                        onSnooze={handleSnoozePreset}
+                        timestampFormat={props.timestampFormat}
+                      />
+                    ) : null}
+                    {props.settlementSupported ? (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="button"
+                              aria-label="Settle thread"
+                              onClick={handleSettleClick}
+                              className="-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                            />
+                          }
+                        >
+                          <CheckIcon className="size-3.5" />
+                          Settle
+                        </TooltipTrigger>
+                        <TooltipPopup>Settle thread</TooltipPopup>
+                      </Tooltip>
+                    ) : null}
+                  </span>
+                ) : null}
               </span>
             </div>
             <div className="mt-1 flex min-w-0">
@@ -1943,26 +1920,6 @@ export default function Sidebar() {
         ? null
         : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null),
     [projectGroups, projectScopeKey],
-  );
-  const contextualProjectRef = useMemo(
-    () =>
-      resolveThreadActionProjectRef({
-        activeDraftThread: newThreadContext.activeDraftThread,
-        activeThread: newThreadContext.activeThread ?? undefined,
-        defaultProjectRef: newThreadContext.defaultProjectRef,
-        handleNewThread: newThreadContext.handleNewThread,
-      }),
-    [newThreadContext],
-  );
-  const scopedProjectTarget = useMemo(
-    () =>
-      scopedProjectGroup === null
-        ? null
-        : (buildSidebarProjectPickerEntries({
-            groups: [scopedProjectGroup],
-            preferredProjectRef: contextualProjectRef,
-          })[0]?.targetProject ?? null),
-    [contextualProjectRef, scopedProjectGroup],
   );
   const scopedProjectKeys = useMemo(
     () =>
@@ -3364,25 +3321,17 @@ export default function Sidebar() {
     autoAnimate(node, { duration: 150, easing: "ease-out" });
   }, []);
 
-  // A selected project scope owns creation: users should not have to choose
-  // the same project twice. "All projects" keeps the picker in multi-project
-  // setups, while Shift+click retains the direct-create shortcut.
+  // New thread defaults to the project you're in (active thread's project,
+  // falling back to the top project) — same resolution the command palette
+  // uses. The command palette already offers a "New thread in..." submenu
+  // for multi-project setups.
   const handleNewThreadClick = useCallback(
     (event?: ReactMouseEvent) => {
-      if (
-        shouldCreateNewThreadInCurrentProject(
-          event?.shiftKey ?? false,
-          projectGroups.length,
-          scopedProjectGroup !== null,
-        )
-      ) {
+      // One project: nothing to pick, create immediately. Shift+click creates
+      // directly in the current project even with several projects, skipping
+      // the palette picker.
+      if (shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)) {
         if (isMobile) setOpenMobile(false);
-        if (scopedProjectTarget) {
-          void newThreadContext.handleNewThread(
-            scopeProjectRef(scopedProjectTarget.environmentId, scopedProjectTarget.id),
-          );
-          return;
-        }
         void startNewThreadFromContext({
           activeDraftThread: newThreadContext.activeDraftThread,
           activeThread: newThreadContext.activeThread ?? undefined,
@@ -3394,26 +3343,20 @@ export default function Sidebar() {
       if (isMobile) setOpenMobile(false);
       openCommandPalette({ open: "new-thread-in" });
     },
-    [
-      isMobile,
-      newThreadContext,
-      projectGroups.length,
-      scopedProjectGroup,
-      scopedProjectTarget,
-      setOpenMobile,
-    ],
+    [isMobile, newThreadContext, projectGroups.length, setOpenMobile],
   );
 
-  // With no explicit scope the button mirrors chat.new. A scoped button has
-  // intentionally more specific behavior, so it does not advertise the
-  // broader command's shortcut.
+  // The button mirrors chat.new: in multi-project setups both route through
+  // the command palette's "New thread in..." picker, and in single-project
+  // setups both create immediately. In multi-project setups the label is only
+  // the picker's shortcut: falling back to chat.newLocal would advertise the
+  // same shortcut for both the picker and direct create. In single-project
+  // setups both commands create directly, so chat.newLocal is a valid
+  // fallback. The second tooltip line (multi-project only) advertises
+  // shift+click and its keyboard twin chat.newLocal for direct create.
   const newThreadShortcutLabel =
-    scopedProjectGroup === null
-      ? (shortcutLabelForCommand(keybindings, "chat.new") ??
-        (projectGroups.length <= 1
-          ? shortcutLabelForCommand(keybindings, "chat.newLocal")
-          : undefined))
-      : undefined;
+    shortcutLabelForCommand(keybindings, "chat.new") ??
+    (projectGroups.length <= 1 ? shortcutLabelForCommand(keybindings, "chat.newLocal") : undefined);
   const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
   return (
     <>
@@ -3481,11 +3424,7 @@ export default function Sidebar() {
                         className="relative focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                         onClick={handleNewThreadClick}
                         disabled={projects.length === 0}
-                        aria-label={
-                          scopedProjectGroup
-                            ? `New thread in ${scopedProjectGroup.displayName}`
-                            : "New thread"
-                        }
+                        aria-label="New thread"
                       />
                     }
                   >
@@ -3496,9 +3435,7 @@ export default function Sidebar() {
                     />
                   </TooltipTrigger>
                   <TooltipPopup side="right">
-                    {scopedProjectGroup ? (
-                      `New thread in ${scopedProjectGroup.displayName}`
-                    ) : projectGroups.length > 1 ? (
+                    {projectGroups.length > 1 ? (
                       <span className="flex flex-col gap-0.5">
                         <span>
                           {newThreadShortcutLabel
