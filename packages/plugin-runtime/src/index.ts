@@ -2,9 +2,13 @@ export type {
   Contribution,
   PluginActivationContext,
   PluginDefinition,
-  PluginRuntime,
-  PluginRuntimeFactory,
   PluginRuntimeOptions,
   PluginRuntimeSnapshot,
 } from "./contract.ts";
-export { createPluginRuntime } from "./runtime.ts";
+export {
+  layer,
+  make,
+  PluginRuntime,
+  type PluginRuntimeDisposeError,
+  type PluginRuntimeReconcileError,
+} from "./runtime.ts";

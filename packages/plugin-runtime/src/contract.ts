@@ -23,14 +23,6 @@ export interface PluginRuntimeSnapshot {
   readonly contributions: Readonly<Partial<Record<string, ReadonlyArray<Contribution>>>>;
 }
 
-export interface PluginRuntime {
-  readonly reconcile: (
-    definitions: ReadonlyArray<PluginDefinition>,
-  ) => Promise<PluginRuntimeSnapshot>;
-  readonly snapshot: () => PluginRuntimeSnapshot;
-  readonly dispose: () => Promise<void>;
-}
-
 export interface PluginRuntimeOptions {
   readonly onLifecycle?: (event: {
     readonly phase: "activate" | "deactivate";
@@ -46,5 +38,3 @@ export interface PluginRuntimeOptions {
     readonly error: unknown;
   }) => void;
 }
-
-export type PluginRuntimeFactory = (options?: PluginRuntimeOptions) => PluginRuntime;

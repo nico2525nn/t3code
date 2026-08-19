@@ -1,45 +1,92 @@
-import { describe, expect, it } from "vite-plus/test";
+import { it } from "@effect/vitest";
+import { describe, expect } from "vite-plus/test";
+import * as Effect from "effect/Effect";
 
-import type { PluginDefinition } from "../src/contract.ts";
-import { createPluginRuntime } from "../src/runtime.ts";
+import type { PluginDefinition, PluginRuntimeOptions } from "../src/contract.ts";
+import { layer, make, PluginRuntime } from "../src/runtime.ts";
 import { defineRuntimeContract } from "./runtimeContract.ts";
 
-defineRuntimeContract("plugin runtime", createPluginRuntime);
+const makeTestRuntime = (options: PluginRuntimeOptions = {}) => make(options);
+
+defineRuntimeContract("plugin runtime", makeTestRuntime);
 
 describe("plugin runtime errors", () => {
-  it("returns schema-tagged planning errors", async () => {
-    const runtime = createPluginRuntime();
-    const duplicate = {
-      id: "acme.duplicate",
-      version: "1.0.0",
-      activate() {},
-    };
+  it.effect("returns schema-tagged planning errors", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const runtime = yield* makeTestRuntime();
+        const duplicate = {
+          id: "acme.duplicate",
+          version: "1.0.0",
+          activate() {},
+        };
 
-    await expect(runtime.reconcile([duplicate, duplicate])).rejects.toMatchObject({
-      _tag: "DuplicatePluginIdError",
-      pluginId: "acme.duplicate",
-    });
-  });
+        const error = yield* Effect.flip(runtime.reconcile([duplicate, duplicate]));
+
+        expect(error).toMatchObject({
+          _tag: "DuplicatePluginIdError",
+          pluginId: "acme.duplicate",
+        });
+        yield* runtime.dispose;
+      }),
+    ),
+  );
 });
 
 describe("plugin runtime planner", () => {
-  it("plans a deep acyclic dependency chain without using the call stack", async () => {
-    const runtime = createPluginRuntime();
-    const pluginCount = 20_000;
-    const definitions: Array<PluginDefinition> = Array.from(
-      { length: pluginCount },
-      (_, index) => ({
-        id: `plugin-${index}`,
-        version: "1.0.0",
-        ...(index === 0 ? {} : { requires: [`capability-${index - 1}`] }),
-        provides: { [`capability-${index}`]: index },
-        activate() {},
+  it.effect("plans a deep acyclic dependency chain without using the call stack", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const runtime = yield* makeTestRuntime();
+        const pluginCount = 20_000;
+        const definitions: Array<PluginDefinition> = Array.from(
+          { length: pluginCount },
+          (_, index) => ({
+            id: `plugin-${index}`,
+            version: "1.0.0",
+            ...(index === 0 ? {} : { requires: [`capability-${index - 1}`] }),
+            provides: { [`capability-${index}`]: index },
+            activate() {},
+          }),
+        );
+
+        const snapshot = yield* runtime.reconcile(definitions.toReversed());
+
+        expect(snapshot.active).toHaveLength(pluginCount);
+        yield* runtime.dispose;
       }),
-    );
+    ),
+  );
+});
 
-    const snapshot = await runtime.reconcile(definitions.toReversed());
+describe("plugin runtime layer", () => {
+  it.effect("closes active plugin scopes when the layer is released", () =>
+    Effect.gen(function* () {
+      let disposed = false;
+      const lifecycle: Array<string> = [];
 
-    expect(snapshot.active).toHaveLength(pluginCount);
-    await runtime.dispose();
-  });
+      yield* PluginRuntime.use((runtime) =>
+        runtime.reconcile([
+          {
+            id: "acme.layer-owned",
+            version: "1.0.0",
+            activate(context) {
+              context.onDispose(() => {
+                disposed = true;
+              });
+            },
+          },
+        ]),
+      ).pipe(
+        Effect.provide(
+          layer({
+            onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
+          }),
+        ),
+      );
+
+      expect(disposed).toBe(true);
+      expect(lifecycle).toEqual(["activate:acme.layer-owned", "deactivate:acme.layer-owned"]);
+    }),
+  );
 });

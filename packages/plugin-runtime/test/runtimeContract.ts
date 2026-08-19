@@ -1,30 +1,51 @@
-import * as NodeTimersPromises from "node:timers/promises";
+import { it } from "@effect/vitest";
+import { describe, expect } from "vite-plus/test";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as Scope from "effect/Scope";
 
-import { describe, expect, it } from "vite-plus/test";
+import type { PluginRuntime, PluginRuntimeReconcileError } from "../src/runtime.ts";
 
 import type {
   PluginDefinition,
-  PluginRuntimeFactory,
+  PluginRuntimeOptions,
   PluginRuntimeSnapshot,
 } from "../src/contract.ts";
 
+type TestPluginRuntimeFactory = (
+  options?: PluginRuntimeOptions,
+) => Effect.Effect<PluginRuntime["Service"], never, Scope.Scope>;
+
+const makeEffectCallback = <A, E, R = never>() => {
+  let unsafeResume: (effect: Effect.Effect<A, E, R>) => void = () => {
+    throw new Error("effect callback has not started");
+  };
+  return {
+    await: Effect.callback<A, E, R>((resume) => {
+      unsafeResume = resume;
+    }),
+    resume: (effect: Effect.Effect<A, E, R>) => unsafeResume(effect),
+  } as const;
+};
+
+const failureOf = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.exit(effect).pipe(
+    Effect.map((exit) => (Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined)),
+  );
+
+const settlePromise = (
+  exit: Exit.Exit<unknown, unknown>,
+  resolve: () => void,
+  reject: (error: unknown) => void,
+) => {
+  if (Exit.isFailure(exit)) reject(Cause.squash(exit.cause));
+  else resolve();
+};
+
 const contributionLabels = (snapshot: PluginRuntimeSnapshot, slot: string) =>
   snapshot.contributions[slot]?.map((item) => item.label) ?? [];
-
-const withOperationTimeout = async <Result>(operation: Promise<Result>): Promise<Result> => {
-  const controller = new AbortController();
-  const timeout = NodeTimersPromises.setTimeout(100, undefined, {
-    ref: false,
-    signal: controller.signal,
-  }).then(() => {
-    throw new Error("operation timed out");
-  });
-  try {
-    return await Promise.race([operation, timeout]);
-  } finally {
-    controller.abort();
-  }
-};
 
 const failureCause = (error: unknown): unknown =>
   typeof error === "object" && error !== null && "cause" in error
@@ -55,814 +76,982 @@ const consumer = (): PluginDefinition => ({
   },
 });
 
-export function defineRuntimeContract(name: string, createRuntime: PluginRuntimeFactory) {
+export function defineRuntimeContract(name: string, createRuntime: TestPluginRuntimeFactory) {
   describe(name, () => {
-    it("activates providers before consumers regardless of manifest order", async () => {
-      const runtime = createRuntime();
+    it.effect("activates providers before consumers regardless of manifest order", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* createRuntime();
 
-      const snapshot = await runtime.reconcile([consumer(), provider()]);
+          const snapshot = yield* runtime.reconcile([consumer(), provider()]);
 
-      expect(snapshot.active).toEqual(["acme.database", "acme.issues"]);
-      expect(contributionLabels(snapshot, "commands")).toEqual(["database-1.0.0"]);
-      await runtime.dispose();
-    });
+          expect(snapshot.active).toEqual(["acme.database", "acme.issues"]);
+          expect(contributionLabels(snapshot, "commands")).toEqual(["database-1.0.0"]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
 
-    it("blocks missing dependencies without blocking independent plugins", async () => {
-      const runtime = createRuntime();
-      const independent: PluginDefinition = {
-        id: "acme.clock",
-        version: "1.0.0",
-        activate(context) {
-          context.register("status", { id: "clock", label: "clock" });
-        },
-      };
+    it.effect("blocks missing dependencies without blocking independent plugins", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* createRuntime();
+          const independent: PluginDefinition = {
+            id: "acme.clock",
+            version: "1.0.0",
+            activate(context) {
+              context.register("status", { id: "clock", label: "clock" });
+            },
+          };
 
-      const snapshot = await runtime.reconcile([consumer(), independent]);
+          const snapshot = yield* runtime.reconcile([consumer(), independent]);
 
-      expect(snapshot.active).toEqual(["acme.clock"]);
-      expect(snapshot.blocked["acme.issues"]).toContain("acme.database@1");
-      expect(contributionLabels(snapshot, "status")).toEqual(["clock"]);
-      await runtime.dispose();
-    });
+          expect(snapshot.active).toEqual(["acme.clock"]);
+          expect(snapshot.blocked["acme.issues"]).toContain("acme.database@1");
+          expect(contributionLabels(snapshot, "status")).toEqual(["clock"]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
 
-    it("deactivates dependents before providers", async () => {
-      const lifecycle: Array<string> = [];
-      const runtime = createRuntime({
-        onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
-      });
-      await runtime.reconcile([provider(), consumer()]);
-      lifecycle.length = 0;
-
-      await runtime.reconcile([]);
-
-      expect(lifecycle).toEqual(["deactivate:acme.issues", "deactivate:acme.database"]);
-      await runtime.dispose();
-    });
-
-    it("runs plugin finalizers in reverse registration order", async () => {
-      const disposed: Array<string> = [];
-      const runtime = createRuntime();
-      await runtime.reconcile([
-        {
-          id: "acme.finalizers",
-          version: "1.0.0",
-          activate(context) {
-            context.onDispose(() => {
-              disposed.push("first");
-            });
-            context.onDispose(() => {
-              disposed.push("second");
-            });
-          },
-        },
-      ]);
-
-      await runtime.reconcile([]);
-
-      expect(disposed).toEqual(["second", "first"]);
-      await runtime.dispose();
-    });
-
-    it("keeps unchanged plugin scopes alive across reconciliation", async () => {
-      let activations = 0;
-      let disposals = 0;
-      const stable: PluginDefinition = {
-        id: "acme.stable",
-        version: "1.0.0",
-        activate(context) {
-          activations += 1;
-          context.onDispose(() => {
-            disposals += 1;
+    it.effect("deactivates dependents before providers", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const lifecycle: Array<string> = [];
+          const runtime = yield* createRuntime({
+            onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
           });
-        },
-      };
-      const runtime = createRuntime();
+          yield* runtime.reconcile([provider(), consumer()]);
+          lifecycle.length = 0;
 
-      await runtime.reconcile([stable]);
-      await runtime.reconcile([stable]);
+          yield* runtime.reconcile([]);
 
-      expect(activations).toBe(1);
-      expect(disposals).toBe(0);
-      await runtime.dispose();
-      expect(disposals).toBe(1);
-    });
+          expect(lifecycle).toEqual(["deactivate:acme.issues", "deactivate:acme.database"]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
 
-    it("treats reordered requirements and providers as the same definition", async () => {
-      let activations = 0;
-      const firstService = {};
-      const secondService = {};
-      const activate: PluginDefinition["activate"] = () => {
-        activations += 1;
-      };
-      const dependencies: ReadonlyArray<PluginDefinition> = [
-        {
-          id: "acme.first-dependency",
-          version: "1.0.0",
-          provides: { "acme.first@1": true },
-          activate() {},
-        },
-        {
-          id: "acme.second-dependency",
-          version: "1.0.0",
-          provides: { "acme.second@1": true },
-          activate() {},
-        },
-      ];
-      const runtime = createRuntime();
-      await runtime.reconcile([
-        ...dependencies,
-        {
-          id: "acme.stable-order",
-          version: "1.0.0",
-          requires: ["acme.first@1", "acme.second@1"],
-          provides: { "acme.output-one@1": firstService, "acme.output-two@1": secondService },
-          activate,
-        },
-      ]);
-
-      await runtime.reconcile([
-        ...dependencies,
-        {
-          id: "acme.stable-order",
-          version: "1.0.0",
-          requires: ["acme.second@1", "acme.first@1"],
-          provides: { "acme.output-two@1": secondService, "acme.output-one@1": firstService },
-          activate,
-        },
-      ]);
-
-      expect(activations).toBe(1);
-      await runtime.dispose();
-    });
-
-    it("restarts a plugin when its activation implementation changes", async () => {
-      const runtime = createRuntime();
-      const first: PluginDefinition = {
-        id: "acme.implementation",
-        version: "1.0.0",
-        activate(context) {
-          context.register("commands", { id: "implementation", label: "first" });
-        },
-      };
-      const second: PluginDefinition = {
-        id: "acme.implementation",
-        version: "1.0.0",
-        activate(context) {
-          context.register("commands", { id: "implementation", label: "second" });
-        },
-      };
-
-      await runtime.reconcile([first]);
-      const snapshot = await runtime.reconcile([second]);
-
-      expect(contributionLabels(snapshot, "commands")).toEqual(["second"]);
-      await runtime.dispose();
-    });
-
-    it("restarts a changed provider and its dependents without touching independent plugins", async () => {
-      let independentActivations = 0;
-      const lifecycle: Array<string> = [];
-      const independent: PluginDefinition = {
-        id: "acme.independent",
-        version: "1.0.0",
-        activate() {
-          independentActivations += 1;
-        },
-      };
-      const runtime = createRuntime({
-        onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
-      });
-      await runtime.reconcile([consumer(), independent, provider()]);
-      lifecycle.length = 0;
-
-      const snapshot = await runtime.reconcile([consumer(), independent, provider("2.0.0")]);
-
-      expect(independentActivations).toBe(1);
-      expect(lifecycle).not.toContain("activate:acme.independent");
-      expect(lifecycle).not.toContain("deactivate:acme.independent");
-      expect(lifecycle.filter((event) => event.startsWith("activate:"))).toEqual([
-        "activate:acme.database",
-        "activate:acme.issues",
-      ]);
-      expect(lifecycle.filter((event) => event.startsWith("deactivate:"))).toEqual([
-        "deactivate:acme.issues",
-        "deactivate:acme.database",
-      ]);
-      expect(contributionLabels(snapshot, "commands")).toEqual(["database-2.0.0"]);
-      await runtime.dispose();
-    });
-
-    it("returns deeply frozen snapshots", async () => {
-      const runtime = createRuntime();
-
-      const snapshot = await runtime.reconcile([provider()]);
-      const status = snapshot.contributions.status;
-
-      expect(Object.isFrozen(snapshot)).toBe(true);
-      expect(Object.isFrozen(snapshot.active)).toBe(true);
-      expect(Object.isFrozen(snapshot.blocked)).toBe(true);
-      expect(Object.isFrozen(snapshot.contributions)).toBe(true);
-      expect(Object.isFrozen(status)).toBe(true);
-      expect(Object.isFrozen(status?.[0])).toBe(true);
-      await runtime.dispose();
-    });
-
-    it("detaches registered contributions from later plugin mutation", async () => {
-      const contribution = { id: "mutable", label: "original" };
-      const plugin: PluginDefinition = {
-        id: "acme.mutable-contribution",
-        version: "1.0.0",
-        activate(context) {
-          context.register("commands", contribution);
-        },
-      };
-      const unrelated: PluginDefinition = {
-        id: "acme.unrelated-contribution",
-        version: "1.0.0",
-        activate() {},
-      };
-      const runtime = createRuntime();
-      await runtime.reconcile([plugin]);
-
-      contribution.label = "changed";
-      const snapshot = await runtime.reconcile([plugin, unrelated]);
-
-      expect(contributionLabels(snapshot, "commands")).toEqual(["original"]);
-      await runtime.dispose();
-    });
-
-    it("treats every plugin id and contribution slot as data", async () => {
-      const runtime = createRuntime();
-      const unusualProvider: PluginDefinition = {
-        id: "toString",
-        version: "1.0.0",
-        provides: { "acme.unusual@1": "available" },
-        activate(context) {
-          context.register("__proto__", { id: "provider", label: "provider" });
-        },
-      };
-      const unusualConsumer: PluginDefinition = {
-        id: "constructor",
-        version: "1.0.0",
-        requires: ["acme.unusual@1"],
-        activate(context) {
-          context.resolve("acme.unusual@1");
-          context.register("toString", { id: "consumer", label: "consumer" });
-        },
-      };
-      const unusualBlocked: PluginDefinition = {
-        id: "__proto__",
-        version: "1.0.0",
-        requires: ["acme.missing@1"],
-        activate() {
-          throw new Error("blocked plugin activated");
-        },
-      };
-
-      const snapshot = await runtime.reconcile([unusualConsumer, unusualProvider, unusualBlocked]);
-
-      expect(snapshot.active).toEqual(["toString", "constructor"]);
-      expect(Object.hasOwn(snapshot.blocked, "__proto__")).toBe(true);
-      expect(snapshot.blocked.__proto__).toContain("acme.missing@1");
-      expect(Object.hasOwn(snapshot.contributions, "__proto__")).toBe(true);
-      expect(Object.hasOwn(snapshot.contributions, "toString")).toBe(true);
-      expect(contributionLabels(snapshot, "__proto__")).toEqual(["provider"]);
-      expect(contributionLabels(snapshot, "toString")).toEqual(["consumer"]);
-      await runtime.dispose();
-    });
-
-    it("restarts dependents when a provided value changes", async () => {
-      const lifecycle: Array<string> = [];
-      const runtime = createRuntime({
-        onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
-      });
-      const serviceProvider = (name: string): PluginDefinition => ({
-        id: "acme.service",
-        version: "1.0.0",
-        provides: { "acme.service@1": { name } },
-        activate() {},
-      });
-      const serviceConsumer: PluginDefinition = {
-        id: "acme.service-consumer",
-        version: "1.0.0",
-        requires: ["acme.service@1"],
-        activate(context) {
-          const service = context.resolve<{ readonly name: string }>("acme.service@1");
-          context.register("commands", { id: "service", label: service.name });
-        },
-      };
-      await runtime.reconcile([serviceProvider("first"), serviceConsumer]);
-      lifecycle.length = 0;
-
-      const snapshot = await runtime.reconcile([serviceProvider("second"), serviceConsumer]);
-
-      expect(contributionLabels(snapshot, "commands")).toEqual(["second"]);
-      expect(lifecycle.filter((event) => event.startsWith("activate:"))).toEqual([
-        "activate:acme.service",
-        "activate:acme.service-consumer",
-      ]);
-      await runtime.dispose();
-    });
-
-    it("does not report a rolled-back candidate as activated", async () => {
-      const lifecycle: Array<string> = [];
-      const runtime = createRuntime({
-        onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
-      });
-      const staged: PluginDefinition = {
-        id: "acme.staged",
-        version: "1.0.0",
-        activate() {},
-      };
-      const broken: PluginDefinition = {
-        id: "acme.broken",
-        version: "1.0.0",
-        activate() {
-          throw new Error("activation failed");
-        },
-      };
-
-      let stagingFailure: unknown;
-      try {
-        await runtime.reconcile([staged, broken]);
-      } catch (error) {
-        stagingFailure = error;
-      }
-      expect(failureMessage(stagingFailure)).toContain("activation failed");
-
-      expect(lifecycle).toEqual([]);
-      await runtime.dispose();
-    });
-
-    it("preserves activation failures when rollback cleanup also fails", async () => {
-      const activationError = new Error("activation failed");
-      const cleanupError = new Error("rollback cleanup failed");
-      const cleanupEvents: Array<{ readonly phase: string; readonly error: unknown }> = [];
-      const runtime = createRuntime({
-        onCleanupError: (event) => {
-          cleanupEvents.push(event);
-          throw new Error("cleanup observer failed");
-        },
-      });
-      const broken: PluginDefinition = {
-        id: "acme.rollback-error",
-        version: "1.0.0",
-        activate(context) {
-          context.onDispose(() => {
-            throw cleanupError;
-          });
-          throw activationError;
-        },
-      };
-
-      let activationFailure: unknown;
-      try {
-        await runtime.reconcile([broken]);
-      } catch (error) {
-        activationFailure = error;
-      }
-      expect(failureCause(activationFailure)).toBe(activationError);
-      expect(cleanupEvents).toHaveLength(1);
-      expect(cleanupEvents[0]?.phase).toBe("rollback");
-      expect(failureCause(cleanupEvents[0]?.error)).toBe(cleanupError);
-      await runtime.dispose();
-    });
-
-    it("returns the committed snapshot when retiring an old plugin reports cleanup errors", async () => {
-      const cleanupError = new Error("retirement cleanup failed");
-      const cleanupEvents: Array<{ readonly phase: string; readonly error: unknown }> = [];
-      const runtime = createRuntime({
-        onCleanupError: (event) => {
-          cleanupEvents.push(event);
-          throw new Error("cleanup observer failed");
-        },
-      });
-      await runtime.reconcile([
-        {
-          id: "acme.retirement-error",
-          version: "1.0.0",
-          activate(context) {
-            context.register("commands", { id: "retirement", label: "old" });
-            context.onDispose(() => {
-              throw cleanupError;
-            });
-          },
-        },
-      ]);
-
-      const snapshot = await runtime.reconcile([
-        {
-          id: "acme.retirement-error",
-          version: "2.0.0",
-          activate(context) {
-            context.register("commands", { id: "retirement", label: "new" });
-          },
-        },
-      ]);
-
-      expect(contributionLabels(snapshot, "commands")).toEqual(["new"]);
-      expect(runtime.snapshot()).toBe(snapshot);
-      expect(cleanupEvents).toHaveLength(1);
-      expect(cleanupEvents[0]?.phase).toBe("retire");
-      expect(failureCause(cleanupEvents[0]?.error)).toBe(cleanupError);
-      await runtime.dispose();
-    });
-
-    it("does not let lifecycle observers interrupt a committed transition", async () => {
-      let oldDisposed = false;
-      const observerErrors: Array<string> = [];
-      const runtime = createRuntime({
-        onLifecycle: ({ phase, pluginId }) => {
-          throw new Error(`${phase}:${pluginId}`);
-        },
-        onLifecycleError: ({ phase, pluginId }) => {
-          observerErrors.push(`${phase}:${pluginId}`);
-        },
-      });
-      await runtime.reconcile([
-        {
-          id: "acme.lifecycle-observer",
-          version: "1.0.0",
-          activate(context) {
-            context.onDispose(() => {
-              oldDisposed = true;
-            });
-          },
-        },
-      ]);
-
-      const snapshot = await runtime.reconcile([
-        {
-          id: "acme.lifecycle-observer",
-          version: "2.0.0",
-          activate(context) {
-            context.register("commands", { id: "observer", label: "committed" });
-          },
-        },
-      ]);
-
-      expect(oldDisposed).toBe(true);
-      expect(contributionLabels(snapshot, "commands")).toEqual(["committed"]);
-      expect(observerErrors).toEqual([
-        "activate:acme.lifecycle-observer",
-        "activate:acme.lifecycle-observer",
-        "deactivate:acme.lifecycle-observer",
-      ]);
-      await runtime.dispose();
-    });
-
-    it("rejects runtime operations reentered from plugin activation", async () => {
-      const runtime = createRuntime();
-      const reentrant: PluginDefinition = {
-        id: "acme.reentrant",
-        version: "1.0.0",
-        async activate() {
-          await runtime.reconcile([]);
-        },
-      };
-      await expect(withOperationTimeout(runtime.reconcile([reentrant]))).rejects.toThrow(
-        "reentrant",
-      );
-    });
-
-    it("rejects runtime operations reentered from plugin finalizers", async () => {
-      let nestedFailure: unknown;
-      const runtime = createRuntime();
-      await runtime.reconcile([
-        {
-          id: "acme.reentrant-finalizer",
-          version: "1.0.0",
-          activate(context) {
-            context.onDispose(async () => {
-              try {
-                await runtime.dispose();
-              } catch (error) {
-                nestedFailure = error;
-              }
-            });
-          },
-        },
-      ]);
-      await expect(withOperationTimeout(runtime.reconcile([]))).resolves.toBeDefined();
-      expect(nestedFailure).toBeInstanceOf(Error);
-      expect((nestedFailure as Error).message).toContain("reentrant");
-      await runtime.dispose();
-    });
-
-    it("allows descendant tasks to use the runtime after their plugin callback settles", async () => {
-      let releaseBackground!: () => void;
-      const gate = new Promise<void>((resolve) => {
-        releaseBackground = resolve;
-      });
-      let backgroundResult: Promise<PluginRuntimeSnapshot> | undefined;
-      const runtime = createRuntime();
-
-      await runtime.reconcile([
-        {
-          id: "acme.background-task",
-          version: "1.0.0",
-          activate() {
-            backgroundResult = gate.then(() => runtime.reconcile([]));
-          },
-        },
-      ]);
-
-      releaseBackground();
-      await expect(withOperationTimeout(backgroundResult!)).resolves.toBeDefined();
-      await runtime.dispose();
-    });
-
-    it("allows microtasks spawned by synchronous plugin callbacks to use the runtime", async () => {
-      let backgroundResult: Promise<PluginRuntimeSnapshot> | undefined;
-      const runtime = createRuntime();
-
-      await runtime.reconcile([
-        {
-          id: "acme.microtask",
-          version: "1.0.0",
-          activate() {
-            queueMicrotask(() => {
-              backgroundResult = runtime.reconcile([]);
-            });
-          },
-        },
-      ]);
-
-      expect(backgroundResult).toBeDefined();
-      await expect(withOperationTimeout(backgroundResult!)).resolves.toBeDefined();
-      await runtime.dispose();
-    });
-
-    it("allows microtasks spawned by synchronous callbacks that return plain functions", async () => {
-      let backgroundResult: Promise<PluginRuntimeSnapshot> | undefined;
-      const runtime = createRuntime();
-      const activate = (() => {
-        queueMicrotask(() => {
-          backgroundResult = runtime.reconcile([]);
-        });
-        return () => undefined;
-      }) as unknown as PluginDefinition["activate"];
-
-      await runtime.reconcile([
-        {
-          id: "acme.function-return",
-          version: "1.0.0",
-          activate,
-        },
-      ]);
-
-      expect(backgroundResult).toBeDefined();
-      await expect(withOperationTimeout(backgroundResult!)).resolves.toBeDefined();
-      await runtime.dispose();
-    });
-
-    it("rejects activation-context calls from microtasks queued by synchronous callbacks", async () => {
-      let lateFailure: unknown;
-      let disposed = false;
-      const runtime = createRuntime();
-
-      await runtime.reconcile([
-        {
-          id: "acme.microtask-context",
-          version: "1.0.0",
-          activate(context) {
-            queueMicrotask(() => {
-              try {
+    it.effect("runs plugin finalizers in reverse registration order", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const disposed: Array<string> = [];
+          const runtime = yield* createRuntime();
+          yield* runtime.reconcile([
+            {
+              id: "acme.finalizers",
+              version: "1.0.0",
+              activate(context) {
                 context.onDispose(() => {
-                  disposed = true;
+                  disposed.push("first");
                 });
-              } catch (error) {
-                lateFailure = error;
-              }
-            });
-          },
-        },
-      ]);
+                context.onDispose(() => {
+                  disposed.push("second");
+                });
+              },
+            },
+          ]);
 
-      expect(lateFailure).toBeInstanceOf(Error);
-      expect((lateFailure as Error).message).toContain("no longer active");
-      await runtime.dispose();
-      expect(disposed).toBe(false);
-    });
+          yield* runtime.reconcile([]);
 
-    it("rejects finalizers registered after activation settles", async () => {
-      let registerLateFinalizer!: () => void;
-      let disposed = false;
-      const runtime = createRuntime();
-      await runtime.reconcile([
-        {
-          id: "acme.late-finalizer",
-          version: "1.0.0",
-          activate(context) {
-            registerLateFinalizer = () =>
+          expect(disposed).toEqual(["second", "first"]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("keeps unchanged plugin scopes alive across reconciliation", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          let activations = 0;
+          let disposals = 0;
+          const stable: PluginDefinition = {
+            id: "acme.stable",
+            version: "1.0.0",
+            activate(context) {
+              activations += 1;
               context.onDispose(() => {
-                disposed = true;
+                disposals += 1;
               });
-          },
-        },
-      ]);
+            },
+          };
+          const runtime = yield* createRuntime();
 
-      expect(registerLateFinalizer).toThrow("no longer active");
-      await runtime.dispose();
-      expect(disposed).toBe(false);
-    });
+          yield* runtime.reconcile([stable]);
+          yield* runtime.reconcile([stable]);
 
-    it("snapshots the requested definitions before waiting for an earlier transition", async () => {
-      let releaseActivation!: () => void;
-      const activationGate = new Promise<void>((resolve) => {
-        releaseActivation = resolve;
-      });
-      const runtime = createRuntime();
-      const first = runtime.reconcile([
-        {
-          id: "acme.blocking",
-          version: "1.0.0",
-          async activate() {
-            await activationGate;
-          },
-        },
-      ]);
-      const requested: Array<PluginDefinition> = [provider()];
-      const second = runtime.reconcile(requested);
-      requested.splice(0);
+          expect(activations).toBe(1);
+          expect(disposals).toBe(0);
+          yield* runtime.dispose;
+          expect(disposals).toBe(1);
+        }),
+      ),
+    );
 
-      releaseActivation();
-      await first;
-      const snapshot = await second;
+    it.effect("treats reordered requirements and providers as the same definition", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          let activations = 0;
+          const firstService = {};
+          const secondService = {};
+          const activate: PluginDefinition["activate"] = () => {
+            activations += 1;
+          };
+          const dependencies: ReadonlyArray<PluginDefinition> = [
+            {
+              id: "acme.first-dependency",
+              version: "1.0.0",
+              provides: { "acme.first@1": true },
+              activate() {},
+            },
+            {
+              id: "acme.second-dependency",
+              version: "1.0.0",
+              provides: { "acme.second@1": true },
+              activate() {},
+            },
+          ];
+          const runtime = yield* createRuntime();
+          yield* runtime.reconcile([
+            ...dependencies,
+            {
+              id: "acme.stable-order",
+              version: "1.0.0",
+              requires: ["acme.first@1", "acme.second@1"],
+              provides: { "acme.output-one@1": firstService, "acme.output-two@1": secondService },
+              activate,
+            },
+          ]);
 
-      expect(snapshot.active).toEqual(["acme.database"]);
-      await runtime.dispose();
-    });
+          yield* runtime.reconcile([
+            ...dependencies,
+            {
+              id: "acme.stable-order",
+              version: "1.0.0",
+              requires: ["acme.second@1", "acme.first@1"],
+              provides: { "acme.output-two@1": secondService, "acme.output-one@1": firstService },
+              activate,
+            },
+          ]);
 
-    it("snapshots each requested definition and its declarations before queueing", async () => {
-      let releaseActivation!: () => void;
-      const activationGate = new Promise<void>((resolve) => {
-        releaseActivation = resolve;
-      });
-      const runtime = createRuntime();
-      const first = runtime.reconcile([
-        {
-          id: "acme.blocking",
-          version: "1.0.0",
-          async activate() {
-            await activationGate;
-          },
-        },
-      ]);
-      const requires = ["acme.database@1"];
-      const provides: Record<string, unknown> = { "acme.consumer@1": true };
-      const requestedDefinition: PluginDefinition = {
-        id: "acme.consumer",
-        version: "1.0.0",
-        requires,
-        provides,
-        activate() {},
-      };
-      const second = runtime.reconcile([provider(), requestedDefinition]);
+          expect(activations).toBe(1);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
 
-      (requestedDefinition as { id: string }).id = "acme.changed";
-      requires[0] = "acme.missing@1";
-      delete provides["acme.consumer@1"];
+    it.effect("restarts a plugin when its activation implementation changes", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* createRuntime();
+          const first: PluginDefinition = {
+            id: "acme.implementation",
+            version: "1.0.0",
+            activate(context) {
+              context.register("commands", { id: "implementation", label: "first" });
+            },
+          };
+          const second: PluginDefinition = {
+            id: "acme.implementation",
+            version: "1.0.0",
+            activate(context) {
+              context.register("commands", { id: "implementation", label: "second" });
+            },
+          };
 
-      releaseActivation();
-      await first;
-      const snapshot = await second;
+          yield* runtime.reconcile([first]);
+          const snapshot = yield* runtime.reconcile([second]);
 
-      expect(snapshot.active).toEqual(["acme.database", "acme.consumer"]);
-      await runtime.dispose();
-    });
+          expect(contributionLabels(snapshot, "commands")).toEqual(["second"]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
 
-    it("rejects capabilities that the plugin did not declare", async () => {
-      const runtime = createRuntime();
-      const undeclaredConsumer: PluginDefinition = {
-        id: "acme.undeclared-consumer",
-        version: "1.0.0",
-        activate(context) {
-          context.resolve("acme.database@1");
-        },
-      };
+    it.effect(
+      "restarts a changed provider and its dependents without touching independent plugins",
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            let independentActivations = 0;
+            const lifecycle: Array<string> = [];
+            const independent: PluginDefinition = {
+              id: "acme.independent",
+              version: "1.0.0",
+              activate() {
+                independentActivations += 1;
+              },
+            };
+            const runtime = yield* createRuntime({
+              onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
+            });
+            yield* runtime.reconcile([consumer(), independent, provider()]);
+            lifecycle.length = 0;
 
-      let undeclaredFailure: unknown;
-      try {
-        await runtime.reconcile([provider(), undeclaredConsumer]);
-      } catch (error) {
-        undeclaredFailure = error;
-      }
-      expect(failureMessage(undeclaredFailure)).toContain("did not declare");
-      expect(runtime.snapshot().active).toEqual([]);
-      await runtime.dispose();
-    });
+            const snapshot = yield* runtime.reconcile([consumer(), independent, provider("2.0.0")]);
 
-    it("rolls back a plugin scope when contribution snapshotting throws", async () => {
-      let disposed = false;
-      const runtime = createRuntime();
-      const badContribution = {
-        get id(): string {
-          throw new Error("bad contribution getter");
-        },
-        label: "bad",
-      };
+            expect(independentActivations).toBe(1);
+            expect(lifecycle).not.toContain("activate:acme.independent");
+            expect(lifecycle).not.toContain("deactivate:acme.independent");
+            expect(lifecycle.filter((event) => event.startsWith("activate:"))).toEqual([
+              "activate:acme.database",
+              "activate:acme.issues",
+            ]);
+            expect(lifecycle.filter((event) => event.startsWith("deactivate:"))).toEqual([
+              "deactivate:acme.issues",
+              "deactivate:acme.database",
+            ]);
+            expect(contributionLabels(snapshot, "commands")).toEqual(["database-2.0.0"]);
+            yield* runtime.dispose;
+          }),
+        ),
+    );
 
-      let snapshotFailure: unknown;
-      try {
-        await runtime.reconcile([
-          {
-            id: "acme.snapshot-defect",
+    it.effect("returns deeply frozen snapshots", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* createRuntime();
+
+          const snapshot = yield* runtime.reconcile([provider()]);
+          const status = snapshot.contributions.status;
+
+          expect(Object.isFrozen(snapshot)).toBe(true);
+          expect(Object.isFrozen(snapshot.active)).toBe(true);
+          expect(Object.isFrozen(snapshot.blocked)).toBe(true);
+          expect(Object.isFrozen(snapshot.contributions)).toBe(true);
+          expect(Object.isFrozen(status)).toBe(true);
+          expect(Object.isFrozen(status?.[0])).toBe(true);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("detaches registered contributions from later plugin mutation", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const contribution = { id: "mutable", label: "original" };
+          const plugin: PluginDefinition = {
+            id: "acme.mutable-contribution",
+            version: "1.0.0",
+            activate(context) {
+              context.register("commands", contribution);
+            },
+          };
+          const unrelated: PluginDefinition = {
+            id: "acme.unrelated-contribution",
+            version: "1.0.0",
+            activate() {},
+          };
+          const runtime = yield* createRuntime();
+          yield* runtime.reconcile([plugin]);
+
+          contribution.label = "changed";
+          const snapshot = yield* runtime.reconcile([plugin, unrelated]);
+
+          expect(contributionLabels(snapshot, "commands")).toEqual(["original"]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("treats every plugin id and contribution slot as data", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* createRuntime();
+          const unusualProvider: PluginDefinition = {
+            id: "toString",
+            version: "1.0.0",
+            provides: { "acme.unusual@1": "available" },
+            activate(context) {
+              context.register("__proto__", { id: "provider", label: "provider" });
+            },
+          };
+          const unusualConsumer: PluginDefinition = {
+            id: "constructor",
+            version: "1.0.0",
+            requires: ["acme.unusual@1"],
+            activate(context) {
+              context.resolve("acme.unusual@1");
+              context.register("toString", { id: "consumer", label: "consumer" });
+            },
+          };
+          const unusualBlocked: PluginDefinition = {
+            id: "__proto__",
+            version: "1.0.0",
+            requires: ["acme.missing@1"],
+            activate() {
+              throw new Error("blocked plugin activated");
+            },
+          };
+
+          const snapshot = yield* runtime.reconcile([
+            unusualConsumer,
+            unusualProvider,
+            unusualBlocked,
+          ]);
+
+          expect(snapshot.active).toEqual(["toString", "constructor"]);
+          expect(Object.hasOwn(snapshot.blocked, "__proto__")).toBe(true);
+          expect(snapshot.blocked.__proto__).toContain("acme.missing@1");
+          expect(Object.hasOwn(snapshot.contributions, "__proto__")).toBe(true);
+          expect(Object.hasOwn(snapshot.contributions, "toString")).toBe(true);
+          expect(contributionLabels(snapshot, "__proto__")).toEqual(["provider"]);
+          expect(contributionLabels(snapshot, "toString")).toEqual(["consumer"]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("restarts dependents when a provided value changes", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const lifecycle: Array<string> = [];
+          const runtime = yield* createRuntime({
+            onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
+          });
+          const serviceProvider = (name: string): PluginDefinition => ({
+            id: "acme.service",
+            version: "1.0.0",
+            provides: { "acme.service@1": { name } },
+            activate() {},
+          });
+          const serviceConsumer: PluginDefinition = {
+            id: "acme.service-consumer",
+            version: "1.0.0",
+            requires: ["acme.service@1"],
+            activate(context) {
+              const service = context.resolve<{ readonly name: string }>("acme.service@1");
+              context.register("commands", { id: "service", label: service.name });
+            },
+          };
+          yield* runtime.reconcile([serviceProvider("first"), serviceConsumer]);
+          lifecycle.length = 0;
+
+          const snapshot = yield* runtime.reconcile([serviceProvider("second"), serviceConsumer]);
+
+          expect(contributionLabels(snapshot, "commands")).toEqual(["second"]);
+          expect(lifecycle.filter((event) => event.startsWith("activate:"))).toEqual([
+            "activate:acme.service",
+            "activate:acme.service-consumer",
+          ]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("does not report a rolled-back candidate as activated", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const lifecycle: Array<string> = [];
+          const runtime = yield* createRuntime({
+            onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
+          });
+          const staged: PluginDefinition = {
+            id: "acme.staged",
+            version: "1.0.0",
+            activate() {},
+          };
+          const broken: PluginDefinition = {
+            id: "acme.broken",
+            version: "1.0.0",
+            activate() {
+              throw new Error("activation failed");
+            },
+          };
+
+          const stagingFailure = yield* failureOf(runtime.reconcile([staged, broken]));
+          expect(failureMessage(stagingFailure)).toContain("activation failed");
+
+          expect(lifecycle).toEqual([]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("preserves activation failures when rollback cleanup also fails", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const activationError = new Error("activation failed");
+          const cleanupError = new Error("rollback cleanup failed");
+          const cleanupEvents: Array<{ readonly phase: string; readonly error: unknown }> = [];
+          const runtime = yield* createRuntime({
+            onCleanupError: (event) => {
+              cleanupEvents.push(event);
+              throw new Error("cleanup observer failed");
+            },
+          });
+          const broken: PluginDefinition = {
+            id: "acme.rollback-error",
             version: "1.0.0",
             activate(context) {
               context.onDispose(() => {
-                disposed = true;
+                throw cleanupError;
               });
-              context.register("commands", badContribution);
+              throw activationError;
             },
-          },
-        ]);
-      } catch (error) {
-        snapshotFailure = error;
-      }
+          };
 
-      expect(failureMessage(snapshotFailure)).toContain("bad contribution getter");
-      expect(disposed).toBe(true);
-      expect(runtime.snapshot().active).toEqual([]);
-      await runtime.dispose();
-    });
+          const activationFailure = yield* failureOf(runtime.reconcile([broken]));
+          expect(failureCause(activationFailure)).toBe(activationError);
+          expect(cleanupEvents).toHaveLength(1);
+          expect(cleanupEvents[0]?.phase).toBe("rollback");
+          expect(failureCause(cleanupEvents[0]?.error)).toBe(cleanupError);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
 
-    it("attempts every plugin cleanup when one finalizer fails", async () => {
-      const disposed: Array<string> = [];
-      const runtime = createRuntime();
-      await runtime.reconcile([
-        {
-          id: "acme.first-cleanup",
-          version: "1.0.0",
-          activate(context) {
-            context.onDispose(() => {
-              disposed.push("first");
+    it.effect(
+      "returns the committed snapshot when retiring an old plugin reports cleanup errors",
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const cleanupError = new Error("retirement cleanup failed");
+            const cleanupEvents: Array<{ readonly phase: string; readonly error: unknown }> = [];
+            const runtime = yield* createRuntime({
+              onCleanupError: (event) => {
+                cleanupEvents.push(event);
+                throw new Error("cleanup observer failed");
+              },
             });
-          },
-        },
-        {
-          id: "acme.second-cleanup",
-          version: "1.0.0",
-          activate(context) {
-            context.onDispose(() => {
-              disposed.push("second");
-              throw new Error("cleanup failed");
+            yield* runtime.reconcile([
+              {
+                id: "acme.retirement-error",
+                version: "1.0.0",
+                activate(context) {
+                  context.register("commands", { id: "retirement", label: "old" });
+                  context.onDispose(() => {
+                    throw cleanupError;
+                  });
+                },
+              },
+            ]);
+
+            const snapshot = yield* runtime.reconcile([
+              {
+                id: "acme.retirement-error",
+                version: "2.0.0",
+                activate(context) {
+                  context.register("commands", { id: "retirement", label: "new" });
+                },
+              },
+            ]);
+
+            expect(contributionLabels(snapshot, "commands")).toEqual(["new"]);
+            expect(yield* runtime.snapshot).toBe(snapshot);
+            expect(cleanupEvents).toHaveLength(1);
+            expect(cleanupEvents[0]?.phase).toBe("retire");
+            expect(failureCause(cleanupEvents[0]?.error)).toBe(cleanupError);
+            yield* runtime.dispose;
+          }),
+        ),
+    );
+
+    it.effect("does not let lifecycle observers interrupt a committed transition", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          let oldDisposed = false;
+          const observerErrors: Array<string> = [];
+          const runtime = yield* createRuntime({
+            onLifecycle: ({ phase, pluginId }) => {
+              throw new Error(`${phase}:${pluginId}`);
+            },
+            onLifecycleError: ({ phase, pluginId }) => {
+              observerErrors.push(`${phase}:${pluginId}`);
+            },
+          });
+          yield* runtime.reconcile([
+            {
+              id: "acme.lifecycle-observer",
+              version: "1.0.0",
+              activate(context) {
+                context.onDispose(() => {
+                  oldDisposed = true;
+                });
+              },
+            },
+          ]);
+
+          const snapshot = yield* runtime.reconcile([
+            {
+              id: "acme.lifecycle-observer",
+              version: "2.0.0",
+              activate(context) {
+                context.register("commands", { id: "observer", label: "committed" });
+              },
+            },
+          ]);
+
+          expect(oldDisposed).toBe(true);
+          expect(contributionLabels(snapshot, "commands")).toEqual(["committed"]);
+          expect(observerErrors).toEqual([
+            "activate:acme.lifecycle-observer",
+            "activate:acme.lifecycle-observer",
+            "deactivate:acme.lifecycle-observer",
+          ]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("rejects runtime operations reentered from plugin activation", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* createRuntime();
+          const nested = makeEffectCallback<Exit.Exit<PluginRuntimeSnapshot, unknown>, never>();
+          const nestedFiber = yield* Effect.forkChild(nested.await);
+          yield* Effect.yieldNow;
+          let settleActivation!: (exit: Exit.Exit<unknown, unknown>) => void;
+          const activationGate = new Promise<void>((resolve, reject) => {
+            settleActivation = (exit) => settlePromise(exit, resolve, reject);
+          });
+          const reentrant: PluginDefinition = {
+            id: "acme.reentrant",
+            version: "1.0.0",
+            activate() {
+              nested.resume(
+                Effect.exit(runtime.reconcile([])).pipe(
+                  Effect.tap((exit) => Effect.sync(() => settleActivation(exit))),
+                ),
+              );
+              return activationGate;
+            },
+          };
+          const activationFailure = yield* failureOf(runtime.reconcile([reentrant]));
+          yield* Fiber.join(nestedFiber);
+
+          expect(failureMessage(activationFailure)).toContain("reentrant");
+        }),
+      ),
+    );
+
+    it.effect("rejects runtime operations reentered from plugin finalizers", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* createRuntime();
+          const nested = makeEffectCallback<Exit.Exit<void, unknown>, never>();
+          const nestedFiber = yield* Effect.forkChild(nested.await);
+          yield* Effect.yieldNow;
+          let finishFinalizer!: (exit: Exit.Exit<void, unknown>) => void;
+          const finalizerGate = new Promise<void>((resolve) => {
+            finishFinalizer = () => resolve();
+          });
+          yield* runtime.reconcile([
+            {
+              id: "acme.reentrant-finalizer",
+              version: "1.0.0",
+              activate(context) {
+                context.onDispose(() => {
+                  nested.resume(
+                    Effect.exit(runtime.dispose).pipe(
+                      Effect.tap((exit) => Effect.sync(() => finishFinalizer(exit))),
+                    ),
+                  );
+                  return finalizerGate;
+                });
+              },
+            },
+          ]);
+          const snapshot = yield* runtime.reconcile([]);
+          const nestedExit = yield* Fiber.join(nestedFiber);
+          const nestedFailure = Exit.isFailure(nestedExit)
+            ? Cause.squash(nestedExit.cause)
+            : undefined;
+
+          expect(snapshot).toBeDefined();
+          expect(nestedFailure).toBeInstanceOf(Error);
+          expect((nestedFailure as Error).message).toContain("reentrant");
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect(
+      "allows descendant tasks to use the runtime after their plugin callback settles",
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            let releaseBackground!: () => void;
+            const gate = new Promise<void>((resolve) => {
+              releaseBackground = resolve;
             });
-          },
-        },
-      ]);
+            const runtime = yield* createRuntime();
+            const background = makeEffectCallback<
+              PluginRuntimeSnapshot,
+              PluginRuntimeReconcileError
+            >();
+            const backgroundFiber = yield* Effect.forkChild(background.await);
+            yield* Effect.yieldNow;
 
-      await expect(runtime.dispose()).rejects.toThrow();
+            yield* runtime.reconcile([
+              {
+                id: "acme.background-task",
+                version: "1.0.0",
+                activate() {
+                  void gate.then(() => background.resume(runtime.reconcile([])));
+                },
+              },
+            ]);
 
-      expect(disposed).toEqual(["second", "first"]);
-    });
+            releaseBackground();
+            expect(yield* Fiber.join(backgroundFiber)).toBeDefined();
+            yield* runtime.dispose;
+          }),
+        ),
+    );
 
-    it("keeps the old plugin active when a replacement fails", async () => {
-      const runtime = createRuntime();
-      await runtime.reconcile([provider()]);
-      const broken: PluginDefinition = {
-        ...provider("2.0.0"),
-        async activate(context) {
-          context.register("status", { id: "database", label: "database 2.0.0" });
-          throw new Error("candidate failed");
-        },
-      };
+    it.effect("allows microtasks spawned by synchronous plugin callbacks to use the runtime", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          let backgroundScheduled = false;
+          const runtime = yield* createRuntime();
+          const background = makeEffectCallback<
+            PluginRuntimeSnapshot,
+            PluginRuntimeReconcileError
+          >();
+          const backgroundFiber = yield* Effect.forkChild(background.await);
+          yield* Effect.yieldNow;
 
-      let candidateFailure: unknown;
-      try {
-        await runtime.reconcile([broken]);
-      } catch (error) {
-        candidateFailure = error;
-      }
-      expect(failureMessage(candidateFailure)).toContain("candidate failed");
+          yield* runtime.reconcile([
+            {
+              id: "acme.microtask",
+              version: "1.0.0",
+              activate() {
+                queueMicrotask(() => {
+                  backgroundScheduled = true;
+                  background.resume(runtime.reconcile([]));
+                });
+              },
+            },
+          ]);
 
-      expect(runtime.snapshot().active).toEqual(["acme.database"]);
-      expect(contributionLabels(runtime.snapshot(), "status")).toEqual(["database 1.0.0"]);
-      await runtime.dispose();
-    });
+          expect(backgroundScheduled).toBe(true);
+          expect(yield* Fiber.join(backgroundFiber)).toBeDefined();
+          yield* runtime.dispose;
+        }),
+      ),
+    );
 
-    it("rejects dependency cycles without disturbing the current composition", async () => {
-      const runtime = createRuntime();
-      await runtime.reconcile([provider()]);
-      const alpha: PluginDefinition = {
-        id: "acme.alpha",
-        version: "1.0.0",
-        requires: ["acme.beta@1"],
-        provides: { "acme.alpha@1": true },
-        activate() {},
-      };
-      const beta: PluginDefinition = {
-        id: "acme.beta",
-        version: "1.0.0",
-        requires: ["acme.alpha@1"],
-        provides: { "acme.beta@1": true },
-        activate() {},
-      };
+    it.effect(
+      "allows microtasks spawned by synchronous callbacks that return plain functions",
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            let backgroundScheduled = false;
+            const runtime = yield* createRuntime();
+            const background = makeEffectCallback<
+              PluginRuntimeSnapshot,
+              PluginRuntimeReconcileError
+            >();
+            const backgroundFiber = yield* Effect.forkChild(background.await);
+            yield* Effect.yieldNow;
+            const activate = (() => {
+              queueMicrotask(() => {
+                backgroundScheduled = true;
+                background.resume(runtime.reconcile([]));
+              });
+              return () => undefined;
+            }) as unknown as PluginDefinition["activate"];
 
-      await expect(runtime.reconcile([alpha, beta])).rejects.toThrow("cycle");
+            yield* runtime.reconcile([
+              {
+                id: "acme.function-return",
+                version: "1.0.0",
+                activate,
+              },
+            ]);
 
-      expect(runtime.snapshot().active).toEqual(["acme.database"]);
-      await runtime.dispose();
-    });
+            expect(backgroundScheduled).toBe(true);
+            expect(yield* Fiber.join(backgroundFiber)).toBeDefined();
+            yield* runtime.dispose;
+          }),
+        ),
+    );
+
+    it.effect(
+      "rejects activation-context calls from microtasks queued by synchronous callbacks",
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            let lateFailure: unknown;
+            let disposed = false;
+            const runtime = yield* createRuntime();
+
+            yield* runtime.reconcile([
+              {
+                id: "acme.microtask-context",
+                version: "1.0.0",
+                activate(context) {
+                  queueMicrotask(() => {
+                    try {
+                      context.onDispose(() => {
+                        disposed = true;
+                      });
+                    } catch (error) {
+                      lateFailure = error;
+                    }
+                  });
+                },
+              },
+            ]);
+
+            expect(lateFailure).toBeInstanceOf(Error);
+            expect((lateFailure as Error).message).toContain("no longer active");
+            yield* runtime.dispose;
+            expect(disposed).toBe(false);
+          }),
+        ),
+    );
+
+    it.effect("rejects finalizers registered after activation settles", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          let registerLateFinalizer!: () => void;
+          let disposed = false;
+          const runtime = yield* createRuntime();
+          yield* runtime.reconcile([
+            {
+              id: "acme.late-finalizer",
+              version: "1.0.0",
+              activate(context) {
+                registerLateFinalizer = () =>
+                  context.onDispose(() => {
+                    disposed = true;
+                  });
+              },
+            },
+          ]);
+
+          expect(registerLateFinalizer).toThrow("no longer active");
+          yield* runtime.dispose;
+          expect(disposed).toBe(false);
+        }),
+      ),
+    );
+
+    it.effect("snapshots the requested definitions before waiting for an earlier transition", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          let releaseActivation!: () => void;
+          const activationGate = new Promise<void>((resolve) => {
+            releaseActivation = resolve;
+          });
+          const runtime = yield* createRuntime();
+          const first = yield* Effect.forkChild(
+            runtime.reconcile([
+              {
+                id: "acme.blocking",
+                version: "1.0.0",
+                async activate() {
+                  await activationGate;
+                },
+              },
+            ]),
+          );
+          yield* Effect.yieldNow;
+          const requested: Array<PluginDefinition> = [provider()];
+          const second = yield* Effect.forkChild(runtime.reconcile(requested));
+          requested.splice(0);
+
+          releaseActivation();
+          yield* Fiber.join(first);
+          const snapshot = yield* Fiber.join(second);
+
+          expect(snapshot.active).toEqual(["acme.database"]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("snapshots each requested definition and its declarations before queueing", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          let releaseActivation!: () => void;
+          const activationGate = new Promise<void>((resolve) => {
+            releaseActivation = resolve;
+          });
+          const runtime = yield* createRuntime();
+          const first = yield* Effect.forkChild(
+            runtime.reconcile([
+              {
+                id: "acme.blocking",
+                version: "1.0.0",
+                async activate() {
+                  await activationGate;
+                },
+              },
+            ]),
+          );
+          yield* Effect.yieldNow;
+          const requires = ["acme.database@1"];
+          const provides: Record<string, unknown> = { "acme.consumer@1": true };
+          const requestedDefinition: PluginDefinition = {
+            id: "acme.consumer",
+            version: "1.0.0",
+            requires,
+            provides,
+            activate() {},
+          };
+          const second = yield* Effect.forkChild(
+            runtime.reconcile([provider(), requestedDefinition]),
+          );
+
+          (requestedDefinition as { id: string }).id = "acme.changed";
+          requires[0] = "acme.missing@1";
+          delete provides["acme.consumer@1"];
+
+          releaseActivation();
+          yield* Fiber.join(first);
+          const snapshot = yield* Fiber.join(second);
+
+          expect(snapshot.active).toEqual(["acme.database", "acme.consumer"]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("rejects capabilities that the plugin did not declare", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* createRuntime();
+          const undeclaredConsumer: PluginDefinition = {
+            id: "acme.undeclared-consumer",
+            version: "1.0.0",
+            activate(context) {
+              context.resolve("acme.database@1");
+            },
+          };
+
+          const undeclaredFailure = yield* failureOf(
+            runtime.reconcile([provider(), undeclaredConsumer]),
+          );
+          expect(failureMessage(undeclaredFailure)).toContain("did not declare");
+          expect((yield* runtime.snapshot).active).toEqual([]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("rolls back a plugin scope when contribution snapshotting throws", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          let disposed = false;
+          const runtime = yield* createRuntime();
+          const badContribution = {
+            get id(): string {
+              throw new Error("bad contribution getter");
+            },
+            label: "bad",
+          };
+
+          const snapshotFailure = yield* failureOf(
+            runtime.reconcile([
+              {
+                id: "acme.snapshot-defect",
+                version: "1.0.0",
+                activate(context) {
+                  context.onDispose(() => {
+                    disposed = true;
+                  });
+                  context.register("commands", badContribution);
+                },
+              },
+            ]),
+          );
+
+          expect(failureMessage(snapshotFailure)).toContain("bad contribution getter");
+          expect(disposed).toBe(true);
+          expect((yield* runtime.snapshot).active).toEqual([]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("attempts every plugin cleanup when one finalizer fails", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const disposed: Array<string> = [];
+          const runtime = yield* createRuntime();
+          yield* runtime.reconcile([
+            {
+              id: "acme.first-cleanup",
+              version: "1.0.0",
+              activate(context) {
+                context.onDispose(() => {
+                  disposed.push("first");
+                });
+              },
+            },
+            {
+              id: "acme.second-cleanup",
+              version: "1.0.0",
+              activate(context) {
+                context.onDispose(() => {
+                  disposed.push("second");
+                  throw new Error("cleanup failed");
+                });
+              },
+            },
+          ]);
+
+          expect(yield* failureOf(runtime.dispose)).toBeInstanceOf(Error);
+
+          expect(disposed).toEqual(["second", "first"]);
+        }),
+      ),
+    );
+
+    it.effect("keeps the old plugin active when a replacement fails", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* createRuntime();
+          yield* runtime.reconcile([provider()]);
+          const broken: PluginDefinition = {
+            ...provider("2.0.0"),
+            async activate(context) {
+              context.register("status", { id: "database", label: "database 2.0.0" });
+              throw new Error("candidate failed");
+            },
+          };
+
+          const candidateFailure = yield* failureOf(runtime.reconcile([broken]));
+          expect(failureMessage(candidateFailure)).toContain("candidate failed");
+
+          expect((yield* runtime.snapshot).active).toEqual(["acme.database"]);
+          expect(contributionLabels(yield* runtime.snapshot, "status")).toEqual(["database 1.0.0"]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
+
+    it.effect("rejects dependency cycles without disturbing the current composition", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* createRuntime();
+          yield* runtime.reconcile([provider()]);
+          const alpha: PluginDefinition = {
+            id: "acme.alpha",
+            version: "1.0.0",
+            requires: ["acme.beta@1"],
+            provides: { "acme.alpha@1": true },
+            activate() {},
+          };
+          const beta: PluginDefinition = {
+            id: "acme.beta",
+            version: "1.0.0",
+            requires: ["acme.alpha@1"],
+            provides: { "acme.beta@1": true },
+            activate() {},
+          };
+
+          expect(failureMessage(yield* failureOf(runtime.reconcile([alpha, beta])))).toContain(
+            "cycle",
+          );
+
+          expect((yield* runtime.snapshot).active).toEqual(["acme.database"]);
+          yield* runtime.dispose;
+        }),
+      ),
+    );
   });
 }
