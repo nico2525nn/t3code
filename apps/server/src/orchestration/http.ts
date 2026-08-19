@@ -111,9 +111,10 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
               }),
             )
             .pipe(
-              Effect.catchTag("ServerSelfUpdateError", (cause) =>
-                failEnvironmentInternal("orchestration_dispatch_failed", cause),
-              ),
+              Effect.catchTags({
+                ServerSelfUpdateError: (cause) =>
+                  failEnvironmentInternal("orchestration_dispatch_failed", cause),
+              }),
             );
         }),
       );
