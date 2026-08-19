@@ -181,19 +181,25 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
 
   const invokePluginCallback = async <Result>(
     invoke: () => Result | PromiseLike<Result>,
+    onSettled?: () => void,
   ): Promise<Result> => {
     const callbackState = { active: true };
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      callbackState.active = false;
+      onSettled?.();
+    };
     try {
       const result = callbackContext.run(callbackState, invoke);
       if (typeof result === "object" && result !== null && "then" in result) {
-        return await Promise.resolve(result).finally(() => {
-          callbackState.active = false;
-        });
+        return await Promise.resolve(result).finally(settle);
       }
-      callbackState.active = false;
+      settle();
       return result;
     } catch (error) {
-      callbackState.active = false;
+      settle();
       throw error;
     }
   };
@@ -315,26 +321,30 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
         };
 
         try {
-          await invokePluginCallback(() =>
-            definition.activate({
-              resolve: <Service>(capability: string): Service => {
-                assertActivating();
-                if (!services.has(capability)) {
-                  throw new Error(`plugin ${definition.id} could not resolve ${capability}`);
-                }
-                return services.get(capability) as Service;
-              },
-              register: (slot, contribution) => {
-                assertActivating();
-                const items = instance.contributions.get(slot) ?? [];
-                items.push(Object.freeze({ id: contribution.id, label: contribution.label }));
-                instance.contributions.set(slot, items);
-              },
-              onDispose: (finalizer) => {
-                assertActivating();
-                instance.finalizers.push(finalizer);
-              },
-            }),
+          await invokePluginCallback(
+            () =>
+              definition.activate({
+                resolve: <Service>(capability: string): Service => {
+                  assertActivating();
+                  if (!services.has(capability)) {
+                    throw new Error(`plugin ${definition.id} could not resolve ${capability}`);
+                  }
+                  return services.get(capability) as Service;
+                },
+                register: (slot, contribution) => {
+                  assertActivating();
+                  const items = instance.contributions.get(slot) ?? [];
+                  items.push(Object.freeze({ id: contribution.id, label: contribution.label }));
+                  instance.contributions.set(slot, items);
+                },
+                onDispose: (finalizer) => {
+                  assertActivating();
+                  instance.finalizers.push(finalizer);
+                },
+              }),
+            () => {
+              activating = false;
+            },
           );
         } finally {
           activating = false;

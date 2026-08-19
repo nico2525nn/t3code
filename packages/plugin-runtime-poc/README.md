@@ -21,9 +21,9 @@ it also fits t3's existing effect runtime. adding cordis did not remove the need
 
 | variant                 | source lines | new runtime dependency                              | result                                                             |
 | ----------------------- | -----------: | --------------------------------------------------- | ------------------------------------------------------------------ |
-| `effectScopeRuntime.ts` |          646 | none, effect is already used by t3                  | best base for production                                           |
-| `cordisRuntime.ts`      |          547 | cordis rc.8 and about 300 kib of installed packages | works, but adds a second lifecycle runtime and the largest adapter |
-| `pureRuntime.ts`        |          415 | none                                                | simplest planner, but manual finalizers are too easy to misuse     |
+| `effectScopeRuntime.ts` |          682 | none, effect is already used by t3                  | best base for production                                           |
+| `cordisRuntime.ts`      |          557 | cordis rc.8 and about 300 kib of installed packages | works, but adds a second lifecycle runtime and the largest adapter |
+| `pureRuntime.ts`        |          425 | none                                                | simplest planner, but manual finalizers are too easy to misuse     |
 
 `cordisRuntime.ts` uses real cordis `Context`, `Fiber`, `inject`, `provide`, `effect`, and `isolate` behavior. it still needs its own graph analysis and differential reconciliation so unchanged fibers survive an update and failed candidates never replace the live composition.
 
@@ -31,7 +31,7 @@ cordis `4.0.0-rc.8` also ships extensionless declaration re-exports that do not 
 
 ## behavior proved
 
-all variants run the same contract suite. the full package currently has 82 tests. it checks:
+all variants run the same contract suite. the full package currently has 85 tests. it checks:
 
 - dependency-first activation from unordered manifests
 - blocked plugins when required capabilities are missing

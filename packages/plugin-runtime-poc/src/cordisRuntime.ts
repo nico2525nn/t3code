@@ -329,19 +329,25 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
 
   const invokePluginCallback = async <Result>(
     invoke: () => Result | PromiseLike<Result>,
+    onSettled?: () => void,
   ): Promise<Result> => {
     const callbackState = { active: true };
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      callbackState.active = false;
+      onSettled?.();
+    };
     try {
       const result = callbackContext.run(callbackState, invoke);
       if (typeof result === "object" && result !== null && "then" in result) {
-        return await Promise.resolve(result).finally(() => {
-          callbackState.active = false;
-        });
+        return await Promise.resolve(result).finally(settle);
       }
-      callbackState.active = false;
+      settle();
       return result;
     } catch (error) {
-      callbackState.active = false;
+      settle();
       throw error;
     }
   };
@@ -452,30 +458,34 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
             }
 
             try {
-              await invokePluginCallback(() =>
-                definition.activate({
-                  resolve: <Service>(capability: string) => {
-                    assertActivating();
-                    return fiberContext.get(capability) as Service;
-                  },
-                  register(slot, contribution) {
-                    assertActivating();
-                    fiberContext.effect(() => {
-                      const items = contributions.get(slot) ?? [];
-                      items.push(contribution);
-                      contributions.set(slot, items);
-                      return () => {
-                        const index = items.indexOf(contribution);
-                        if (index >= 0) items.splice(index, 1);
-                        if (!items.length) contributions.delete(slot);
-                      };
-                    }, `${definition.id}:contribution:${slot}`);
-                  },
-                  onDispose(finalizer) {
-                    assertActivating();
-                    finalizers.push(finalizer);
-                  },
-                }),
+              await invokePluginCallback(
+                () =>
+                  definition.activate({
+                    resolve: <Service>(capability: string) => {
+                      assertActivating();
+                      return fiberContext.get(capability) as Service;
+                    },
+                    register(slot, contribution) {
+                      assertActivating();
+                      fiberContext.effect(() => {
+                        const items = contributions.get(slot) ?? [];
+                        items.push(contribution);
+                        contributions.set(slot, items);
+                        return () => {
+                          const index = items.indexOf(contribution);
+                          if (index >= 0) items.splice(index, 1);
+                          if (!items.length) contributions.delete(slot);
+                        };
+                      }, `${definition.id}:contribution:${slot}`);
+                    },
+                    onDispose(finalizer) {
+                      assertActivating();
+                      finalizers.push(finalizer);
+                    },
+                  }),
+                () => {
+                  activating = false;
+                },
               );
             } finally {
               activating = false;
