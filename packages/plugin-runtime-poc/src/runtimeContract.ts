@@ -565,6 +565,29 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
       await runtime.dispose();
     });
 
+    it("allows microtasks spawned by synchronous callbacks that return plain functions", async () => {
+      let backgroundResult: Promise<PluginRuntimeSnapshot> | undefined;
+      const runtime = createRuntime();
+      const activate = (() => {
+        queueMicrotask(() => {
+          backgroundResult = runtime.reconcile([]);
+        });
+        return () => undefined;
+      }) as unknown as PluginDefinition["activate"];
+
+      await runtime.reconcile([
+        {
+          id: "acme.function-return",
+          version: "1.0.0",
+          activate,
+        },
+      ]);
+
+      expect(backgroundResult).toBeDefined();
+      await expect(withOperationTimeout(backgroundResult!)).resolves.toBeDefined();
+      await runtime.dispose();
+    });
+
     it("rejects finalizers registered after activation settles", async () => {
       let registerLateFinalizer!: () => void;
       let disposed = false;
