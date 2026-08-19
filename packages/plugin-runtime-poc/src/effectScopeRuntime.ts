@@ -158,16 +158,14 @@ class PluginRuntimeCleanupError extends Schema.TaggedErrorClass<PluginRuntimeCle
   }
 }
 
-type PluginPlanningError = DuplicatePluginIdError | DuplicateCapabilityError | DependencyCycleError;
+const PluginPlanningError = Schema.Union([
+  DuplicatePluginIdError,
+  DuplicateCapabilityError,
+  DependencyCycleError,
+]);
+type PluginPlanningError = typeof PluginPlanningError.Type;
 
-const isDuplicatePluginIdError = Schema.is(DuplicatePluginIdError);
-const isDuplicateCapabilityError = Schema.is(DuplicateCapabilityError);
-const isDependencyCycleError = Schema.is(DependencyCycleError);
-
-const isPluginPlanningError = (error: unknown): error is PluginPlanningError =>
-  isDuplicatePluginIdError(error) ||
-  isDuplicateCapabilityError(error) ||
-  isDependencyCycleError(error);
+const isPluginPlanningError = Schema.is(PluginPlanningError);
 
 type PluginReconcileError =
   | PluginPlanningError
