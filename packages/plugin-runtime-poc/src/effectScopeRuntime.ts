@@ -36,6 +36,7 @@ type RuntimeOperation = "reconcile" | "dispose";
 type PluginCallback = "activate" | "finalizer";
 
 interface PluginCallbackContext {
+  active: boolean;
   readonly callback: PluginCallback;
   readonly pluginId: string;
 }
@@ -98,8 +99,6 @@ class PluginCallbackError extends Schema.TaggedErrorClass<PluginCallbackError>()
   }
 }
 
-const isPluginCallbackError = Schema.is(PluginCallbackError);
-
 class PluginStagingError extends Schema.TaggedErrorClass<PluginStagingError>()(
   "PluginStagingError",
   { pluginId: Schema.String },
@@ -133,10 +132,17 @@ class PluginRuntimeReentrancyError extends Schema.TaggedErrorClass<PluginRuntime
 
 class PluginRuntimeCleanupError extends Schema.TaggedErrorClass<PluginRuntimeCleanupError>()(
   "PluginRuntimeCleanupError",
-  { errors: Schema.Array(Schema.Defect()) },
+  {
+    failures: Schema.Array(
+      Schema.Struct({
+        cause: Schema.Defect(),
+        pluginId: Schema.String,
+      }),
+    ),
+  },
 ) {
   override get message(): string {
-    return `Failed to close plugin scopes (${this.errors.length} cleanup error${this.errors.length === 1 ? "" : "s"})`;
+    return `Failed to close plugin scopes (${this.failures.length} cleanup error${this.failures.length === 1 ? "" : "s"})`;
   }
 }
 
@@ -442,7 +448,14 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
     invoke: () => Result | PromiseLike<Result>,
   ): Effect.Effect<Result, PluginCallbackError> =>
     Effect.tryPromise({
-      try: () => callbackContext.run({ callback, pluginId }, () => Promise.resolve().then(invoke)),
+      try: async () => {
+        const callbackState: PluginCallbackContext = { active: true, callback, pluginId };
+        try {
+          return await callbackContext.run(callbackState, () => Promise.resolve().then(invoke));
+        } finally {
+          callbackState.active = false;
+        }
+      },
       catch: (cause) => new PluginCallbackError({ callback, cause, pluginId }),
     });
 
@@ -451,9 +464,8 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
     capabilities: ReadonlyMap<string, unknown>,
   ): Effect.Effect<LivePlugin, PluginCallbackError> =>
     Effect.gen(function* () {
-      const scope = yield* Scope.make("sequential");
       const parentScope = yield* getRuntimeScope();
-      yield* Scope.addFinalizer(parentScope, Scope.close(scope, Exit.void));
+      const scope = yield* Scope.fork(parentScope, "sequential");
       const contributions = new Map<string, Array<Contribution>>();
       const cleanupErrors: Array<unknown> = [];
       const finalizers: Array<() => void | Promise<void>> = [];
@@ -483,7 +495,7 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
         const finalizerEffect = invokePluginCallback("finalizer", definition.id, finalizer).pipe(
           Effect.catch((error) =>
             Effect.sync(() => {
-              cleanupErrors.push(error.cause);
+              cleanupErrors.push(error);
             }),
           ),
         );
@@ -577,7 +589,7 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
       }
       if (failures.length > 0) {
         return yield* new PluginRuntimeCleanupError({
-          errors: failures.map(({ error }) => error),
+          failures: failures.map(({ error, pluginId }) => ({ cause: error, pluginId })),
         });
       }
     });
@@ -587,7 +599,7 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
     effect: () => Effect.Effect<Result, Failure>,
   ): Promise<Result> => {
     const callback = callbackContext.getStore();
-    if (callback !== undefined) {
+    if (callback?.active === true) {
       return Promise.reject(
         new PluginRuntimeReentrancyError({
           callback: callback.callback,
@@ -597,12 +609,7 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
       );
     }
 
-    const result = transition
-      .then(() => Effect.runPromise(effect()))
-      .catch((error: unknown) => {
-        if (isPluginCallbackError(error)) throw error.cause;
-        throw error;
-      });
+    const result = transition.then(() => Effect.runPromise(effect()));
     transition = result.then(
       () => undefined,
       () => undefined,

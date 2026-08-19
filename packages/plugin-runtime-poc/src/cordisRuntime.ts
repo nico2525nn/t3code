@@ -325,10 +325,21 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
   let context: CordisContext | undefined = new Context();
   let disposed = false;
   let queue = Promise.resolve();
-  const callbackContext = new NodeAsyncHooks.AsyncLocalStorage<boolean>();
+  const callbackContext = new NodeAsyncHooks.AsyncLocalStorage<{ active: boolean }>();
+
+  const invokePluginCallback = async <Result>(
+    invoke: () => Result | PromiseLike<Result>,
+  ): Promise<Result> => {
+    const callbackState = { active: true };
+    try {
+      return await callbackContext.run(callbackState, () => Promise.resolve().then(invoke));
+    } finally {
+      callbackState.active = false;
+    }
+  };
 
   const runExclusive = <Result>(operation: () => Promise<Result>) => {
-    if (callbackContext.getStore()) {
+    if (callbackContext.getStore()?.active === true) {
       return Promise.reject(new Error("reentrant plugin runtime operation"));
     }
     const result = queue.then(operation);
@@ -412,7 +423,7 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
               () => async () => {
                 for (const finalizer of finalizers.toReversed()) {
                   try {
-                    await callbackContext.run(true, finalizer);
+                    await invokePluginCallback(finalizer);
                   } catch (error) {
                     cleanupErrors.push(error);
                   }
@@ -425,7 +436,7 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
               fiberContext.provide(capability, service);
             }
 
-            await callbackContext.run(true, () =>
+            await invokePluginCallback(() =>
               definition.activate({
                 resolve: <Service>(capability: string) => fiberContext.get(capability) as Service,
                 register(slot, contribution) {
