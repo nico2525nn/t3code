@@ -241,6 +241,246 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   );
 });
 
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-shell-summary-cost-")))(
+  "OrchestrationProjectionPipeline shell-summary cost",
+  (it) => {
+    it.effect("does not hydrate large activity history for shell-only updates", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const projectId = ProjectId.make("project-shell-summary-cost");
+        const threadId = ThreadId.make("thread-shell-summary-cost");
+        const createdAt = "2026-08-19T00:00:00.000Z";
+        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+          eventStore
+            .append(event)
+            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+        const readPendingUserInputCount = Effect.gen(function* () {
+          const rows = yield* sql<{ readonly count: number }>`
+          SELECT pending_user_input_count AS "count"
+          FROM projection_threads
+          WHERE thread_id = ${threadId}
+        `;
+          return rows[0]?.count;
+        });
+
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.make("evt-shell-summary-cost-project"),
+          aggregateKind: "project",
+          aggregateId: projectId,
+          occurredAt: createdAt,
+          commandId: CommandId.make("cmd-shell-summary-cost-project"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-shell-summary-cost-project"),
+          metadata: {},
+          payload: {
+            projectId,
+            title: "Shell summary cost",
+            workspaceRoot: "/tmp/project-shell-summary-cost",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt,
+            updatedAt: createdAt,
+          },
+        });
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.make("evt-shell-summary-cost-thread"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: createdAt,
+          commandId: CommandId.make("cmd-shell-summary-cost-thread"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-shell-summary-cost-thread"),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId,
+            title: "Shell summary cost",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        });
+
+        yield* sql`
+        WITH RECURSIVE history(index_value) AS (
+          SELECT 1
+          UNION ALL
+          SELECT index_value + 1
+          FROM history
+          WHERE index_value < 10000
+        )
+        INSERT INTO projection_thread_activities (
+          activity_id,
+          thread_id,
+          turn_id,
+          tone,
+          kind,
+          summary,
+          payload_json,
+          sequence,
+          created_at
+        )
+        SELECT
+          'activity-shell-summary-history-' || printf('%05d', index_value),
+          ${threadId},
+          NULL,
+          'info',
+          'history.item',
+          'Historical activity',
+          json_object('blob', replace(hex(zeroblob(2048)), '00', 'x')),
+          index_value,
+          ${createdAt}
+        FROM history
+      `;
+        // If the shell update reads the collection, this sentinel makes the
+        // accidental JSON decode fail instead of hiding behind timing variance.
+        yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id,
+          thread_id,
+          turn_id,
+          tone,
+          kind,
+          summary,
+          payload_json,
+          sequence,
+          created_at
+        ) VALUES (
+          'activity-shell-summary-invalid-sentinel',
+          ${threadId},
+          NULL,
+          'info',
+          'history.sentinel',
+          'Must not be decoded',
+          '{',
+          NULL,
+          ${createdAt}
+        )
+      `;
+
+        yield* appendAndProject({
+          type: "thread.message-sent",
+          eventId: EventId.make("evt-shell-summary-assistant-message"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-08-19T00:00:01.000Z",
+          commandId: CommandId.make("cmd-shell-summary-assistant-message"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-shell-summary-assistant-message"),
+          metadata: {},
+          payload: {
+            threadId,
+            messageId: MessageId.make("message-shell-summary-assistant"),
+            role: "assistant",
+            text: "Still working",
+            attachments: [],
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-08-19T00:00:01.000Z",
+            updatedAt: "2026-08-19T00:00:01.000Z",
+          },
+        });
+        assert.equal(yield* readPendingUserInputCount, 0);
+
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-shell-summary-routine-activity"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-08-19T00:00:01.000Z",
+          commandId: CommandId.make("cmd-shell-summary-routine-activity"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-shell-summary-routine-activity"),
+          metadata: {},
+          payload: {
+            threadId,
+            activity: {
+              id: EventId.make("activity-shell-summary-routine"),
+              tone: "info",
+              kind: "task.progress",
+              summary: "Running tests",
+              payload: { taskId: "task-1", status: "running" },
+              turnId: null,
+              createdAt: "2026-08-19T00:00:01.000Z",
+            },
+          },
+        });
+        assert.equal(yield* readPendingUserInputCount, 0);
+
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-shell-summary-user-input-requested"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-08-19T00:00:02.000Z",
+          commandId: CommandId.make("cmd-shell-summary-user-input-requested"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-shell-summary-user-input-requested"),
+          metadata: {},
+          payload: {
+            threadId,
+            activity: {
+              id: EventId.make("activity-shell-summary-user-input-requested"),
+              tone: "info",
+              kind: "user-input.requested",
+              summary: "User input requested",
+              payload: { requestId: "request-shell-summary-cost" },
+              sequence: 2,
+              turnId: null,
+              createdAt: "2026-08-19T00:00:02.000Z",
+            },
+          },
+        });
+        assert.equal(yield* readPendingUserInputCount, 1);
+
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-shell-summary-user-input-resolved"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-08-19T00:00:03.000Z",
+          commandId: CommandId.make("cmd-shell-summary-user-input-resolved"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-shell-summary-user-input-resolved"),
+          metadata: {},
+          payload: {
+            threadId,
+            activity: {
+              id: EventId.make("activity-shell-summary-user-input-resolved"),
+              tone: "info",
+              kind: "user-input.resolved",
+              summary: "User input resolved",
+              payload: { requestId: "request-shell-summary-cost" },
+              sequence: 1,
+              turnId: null,
+              createdAt: "2026-08-19T00:00:03.000Z",
+            },
+          },
+        });
+        assert.equal(yield* readPendingUserInputCount, 0);
+
+        const activityRows = yield* sql<{ readonly count: number }>`
+        SELECT COUNT(*) AS "count"
+        FROM projection_thread_activities
+        WHERE thread_id = ${threadId}
+      `;
+        assert.deepEqual(activityRows, [{ count: 10004 }]);
+      }),
+    );
+  },
+);
+
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
   "OrchestrationProjectionPipeline",
   (it) => {

@@ -22,6 +22,23 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
     sequence: Schema.NullOr(NonNegativeInt),
   }),
 );
+type ProjectionThreadActivityDbRow = typeof ProjectionThreadActivityDbRowSchema.Type;
+
+const fromDbRow = (row: ProjectionThreadActivityDbRow): ProjectionThreadActivity => ({
+  activityId: row.activityId,
+  threadId: row.threadId,
+  turnId: row.turnId,
+  tone: row.tone,
+  kind: row.kind,
+  summary: row.summary,
+  payload: row.payload,
+  ...(row.sequence !== null ? { sequence: row.sequence } : {}),
+  createdAt: row.createdAt,
+});
+
+const PendingUserInputCountRowSchema = Schema.Struct({
+  count: NonNegativeInt,
+});
 
 function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
   return (cause: unknown) =>
@@ -97,6 +114,68 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
       `,
   });
 
+  const readPendingUserInputCount = SqlSchema.findOne({
+    Request: ListProjectionThreadActivitiesInput,
+    Result: PendingUserInputCountRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        WITH extracted AS (
+          SELECT
+            activity_id,
+            kind,
+            created_at,
+            CASE
+              WHEN json_type(payload_json, '$.requestId') = 'text'
+                THEN json_extract(payload_json, '$.requestId')
+              ELSE NULL
+            END AS request_id,
+            lower(
+              CASE
+                WHEN json_type(payload_json, '$.detail') = 'text'
+                  THEN json_extract(payload_json, '$.detail')
+                ELSE ''
+              END
+            ) AS detail
+          FROM projection_thread_activities
+          WHERE thread_id = ${threadId}
+            AND kind IN (
+              'user-input.requested',
+              'user-input.resolved',
+              'provider.user-input.respond.failed'
+            )
+        ),
+        latest_state_change AS (
+          SELECT
+            kind,
+            ROW_NUMBER() OVER (
+              PARTITION BY request_id
+              ORDER BY
+                created_at DESC,
+                activity_id DESC
+            ) AS row_number
+          FROM extracted
+          WHERE request_id IS NOT NULL
+            AND length(request_id) > 0
+            AND (
+              kind IN ('user-input.requested', 'user-input.resolved')
+              OR (
+                kind = 'provider.user-input.respond.failed'
+                AND (
+                  detail LIKE '%stale pending user-input request%'
+                  OR detail LIKE '%unknown pending user-input request%'
+                  OR detail LIKE '%unknown pending user input request%'
+                  OR detail LIKE '%unknown pending codex user input request%'
+                )
+              )
+            )
+        )
+        SELECT COUNT(*) AS "count"
+        FROM latest_state_change
+        WHERE row_number = 1
+          AND kind = 'user-input.requested'
+      `,
+  });
+
   const deleteProjectionThreadActivityRows = SqlSchema.void({
     Request: DeleteProjectionThreadActivitiesInput,
     execute: ({ threadId }) =>
@@ -124,20 +203,20 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
           "ProjectionThreadActivityRepository.listByThreadId:decodeRows",
         ),
       ),
-      Effect.map((rows) =>
-        rows.map((row) => ({
-          activityId: row.activityId,
-          threadId: row.threadId,
-          turnId: row.turnId,
-          tone: row.tone,
-          kind: row.kind,
-          summary: row.summary,
-          payload: row.payload,
-          ...(row.sequence !== null ? { sequence: row.sequence } : {}),
-          createdAt: row.createdAt,
-        })),
-      ),
+      Effect.map((rows) => rows.map(fromDbRow)),
     );
+
+  const countPendingUserInputsByThreadId: ProjectionThreadActivityRepositoryShape["countPendingUserInputsByThreadId"] =
+    (input) =>
+      readPendingUserInputCount(input).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionThreadActivityRepository.countPendingUserInputsByThreadId:query",
+            "ProjectionThreadActivityRepository.countPendingUserInputsByThreadId:decodeRow",
+          ),
+        ),
+        Effect.map((row) => row.count),
+      );
 
   const deleteByThreadId: ProjectionThreadActivityRepositoryShape["deleteByThreadId"] = (input) =>
     deleteProjectionThreadActivityRows(input).pipe(
@@ -149,6 +228,7 @@ const makeProjectionThreadActivityRepository = Effect.gen(function* () {
   return {
     upsert,
     listByThreadId,
+    countPendingUserInputsByThreadId,
     deleteByThreadId,
   } satisfies ProjectionThreadActivityRepositoryShape;
 });

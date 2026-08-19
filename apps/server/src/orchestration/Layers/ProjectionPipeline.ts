@@ -130,6 +130,18 @@ function isStalePendingApprovalFailureDetail(detail: string | null): boolean {
   );
 }
 
+function isStalePendingUserInputFailureDetail(detail: string | null): boolean {
+  if (detail === null) {
+    return false;
+  }
+  return (
+    detail.includes("stale pending user-input request") ||
+    detail.includes("unknown pending user-input request") ||
+    detail.includes("unknown pending user input request") ||
+    detail.includes("unknown pending codex user input request")
+  );
+}
+
 function derivePendingUserInputCountFromActivities(
   activities: ReadonlyArray<ProjectionThreadActivity>,
 ): number {
@@ -163,11 +175,7 @@ function derivePendingUserInputCountFromActivities(
 
     if (
       activity.kind === "provider.user-input.respond.failed" &&
-      detail !== null &&
-      (detail.includes("stale pending user-input request") ||
-        detail.includes("unknown pending user-input request") ||
-        detail.includes("unknown pending user input request") ||
-        detail.includes("unknown pending codex user input request"))
+      isStalePendingUserInputFailureDetail(detail)
     ) {
       openRequestIds.delete(requestId);
     }
@@ -552,7 +560,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
-    const refreshThreadShellSummary = Effect.fn("refreshThreadShellSummary")(function* (
+    const rebuildThreadShellSummary = Effect.fn("rebuildThreadShellSummary")(function* (
       threadId: ThreadId,
     ) {
       const existingRow = yield* projectionThreadRepository.getById({
@@ -861,11 +869,104 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           if (Option.isNone(existingRow)) {
             return;
           }
+
+          let latestUserMessageAt = existingRow.value.latestUserMessageAt;
+          let pendingApprovalCount = existingRow.value.pendingApprovalCount;
+          let pendingUserInputCount = existingRow.value.pendingUserInputCount;
+          let hasActionableProposedPlan = existingRow.value.hasActionableProposedPlan;
+
+          switch (event.type) {
+            case "thread.message-sent": {
+              if (event.payload.role !== "user") {
+                break;
+              }
+              const projectedMessage = yield* projectionThreadMessageRepository.getByMessageId({
+                messageId: event.payload.messageId,
+              });
+              if (
+                Option.isSome(projectedMessage) &&
+                projectedMessage.value.role === "user" &&
+                (latestUserMessageAt === null ||
+                  projectedMessage.value.createdAt > latestUserMessageAt)
+              ) {
+                latestUserMessageAt = projectedMessage.value.createdAt;
+              }
+              break;
+            }
+
+            case "thread.proposed-plan-upserted": {
+              const proposedPlans = yield* projectionThreadProposedPlanRepository.listByThreadId({
+                threadId: event.payload.threadId,
+              });
+              hasActionableProposedPlan = deriveHasActionableProposedPlan({
+                latestTurnId: existingRow.value.latestTurnId,
+                proposedPlans,
+              })
+                ? 1
+                : 0;
+              break;
+            }
+
+            case "thread.activity-appended": {
+              const payload =
+                typeof event.payload.activity.payload === "object" &&
+                event.payload.activity.payload !== null
+                  ? (event.payload.activity.payload as Record<string, unknown>)
+                  : null;
+              const detail =
+                typeof payload?.detail === "string" ? payload.detail.toLowerCase() : null;
+              const kind = event.payload.activity.kind;
+
+              if (
+                kind === "approval.requested" ||
+                kind === "approval.resolved" ||
+                (kind === "provider.approval.respond.failed" &&
+                  isStalePendingApprovalFailureDetail(detail))
+              ) {
+                const pendingApprovals = yield* projectionPendingApprovalRepository.listByThreadId({
+                  threadId: event.payload.threadId,
+                });
+                pendingApprovalCount = pendingApprovals.filter(
+                  (approval) => approval.status === "pending",
+                ).length;
+              }
+
+              if (
+                kind === "user-input.requested" ||
+                kind === "user-input.resolved" ||
+                (kind === "provider.user-input.respond.failed" &&
+                  isStalePendingUserInputFailureDetail(detail))
+              ) {
+                pendingUserInputCount =
+                  yield* projectionThreadActivityRepository.countPendingUserInputsByThreadId({
+                    threadId: event.payload.threadId,
+                  });
+              }
+              break;
+            }
+
+            case "thread.approval-response-requested": {
+              const pendingApprovals = yield* projectionPendingApprovalRepository.listByThreadId({
+                threadId: event.payload.threadId,
+              });
+              pendingApprovalCount = pendingApprovals.filter(
+                (approval) => approval.status === "pending",
+              ).length;
+              break;
+            }
+
+            case "thread.user-input-response-requested":
+              break;
+          }
+
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             updatedAt: event.occurredAt,
+            latestUserMessageAt,
+            pendingApprovalCount,
+            pendingUserInputCount,
+            hasActionableProposedPlan,
           });
-          yield* refreshThreadShellSummary(event.payload.threadId);
           return;
         }
 
@@ -876,13 +977,22 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           if (Option.isNone(existingRow)) {
             return;
           }
+          const proposedPlans = yield* projectionThreadProposedPlanRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const latestTurnId = event.payload.session.activeTurnId ?? existingRow.value.latestTurnId;
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             // activeTurnId describes current work; a terminal session must not erase history.
-            latestTurnId: event.payload.session.activeTurnId ?? existingRow.value.latestTurnId,
+            latestTurnId,
             updatedAt: event.occurredAt,
+            hasActionableProposedPlan: deriveHasActionableProposedPlan({
+              latestTurnId,
+              proposedPlans,
+            })
+              ? 1
+              : 0,
           });
-          yield* refreshThreadShellSummary(event.payload.threadId);
           return;
         }
 
@@ -893,12 +1003,20 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           if (Option.isNone(existingRow)) {
             return;
           }
+          const proposedPlans = yield* projectionThreadProposedPlanRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             latestTurnId: event.payload.turnId,
             updatedAt: event.occurredAt,
+            hasActionableProposedPlan: deriveHasActionableProposedPlan({
+              latestTurnId: event.payload.turnId,
+              proposedPlans,
+            })
+              ? 1
+              : 0,
           });
-          yield* refreshThreadShellSummary(event.payload.threadId);
           return;
         }
 
@@ -936,7 +1054,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             latestTurnId,
             updatedAt: event.occurredAt,
           });
-          yield* refreshThreadShellSummary(event.payload.threadId);
+          yield* rebuildThreadShellSummary(event.payload.threadId);
           return;
         }
 
