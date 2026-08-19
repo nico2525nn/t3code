@@ -33,6 +33,7 @@ import {
   useState,
 } from "react";
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import { readTextFromClipboard, writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useResizableWidth } from "~/hooks/useResizableWidth";
 import { cn } from "~/lib/utils";
@@ -1354,8 +1355,8 @@ export default function ThreadTerminalDrawer({
     : "Close Terminal";
   const terminalToggleShortcutLabel = shortcutLabelForCommand(keybindings, "terminal.toggle");
   const hideTerminalActionLabel = terminalToggleShortcutLabel
-    ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
-    : "Toggle terminal drawer";
+    ? `Hide terminal drawer (${terminalToggleShortcutLabel})`
+    : "Hide terminal drawer";
   const onSplitTerminalAction = useCallback(() => {
     if (hasReachedSplitLimit) return;
     onSplitTerminal();
@@ -1777,11 +1778,12 @@ export default function ThreadTerminalDrawer({
                             <XIcon className="hidden size-3 group-hover/tab:block group-focus-visible/close:block pointer-coarse:block" />
                           </button>
                           {isRenaming ? (
-                            <input
+                            <Input
                               autoFocus
+                              size="compact"
                               value={terminalRenameDraft}
                               aria-label="Rename terminal"
-                              className="h-6 min-w-0 flex-1 rounded border border-input bg-background px-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
+                              className="min-w-0 flex-1"
                               onFocus={(event) => event.currentTarget.select()}
                               onChange={(event) =>
                                 setTerminalRenameDraft(event.currentTarget.value)
