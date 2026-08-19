@@ -332,9 +332,20 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
   ): Promise<Result> => {
     const callbackState = { active: true };
     try {
-      return await callbackContext.run(callbackState, () => Promise.resolve().then(invoke));
-    } finally {
+      const result = callbackContext.run(callbackState, invoke);
+      if (
+        (typeof result === "object" && result !== null && "then" in result) ||
+        typeof result === "function"
+      ) {
+        return await Promise.resolve(result).finally(() => {
+          callbackState.active = false;
+        });
+      }
       callbackState.active = false;
+      return result;
+    } catch (error) {
+      callbackState.active = false;
+      throw error;
     }
   };
 
@@ -372,13 +383,14 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
     }
   };
 
-  const reconcile = (definitions: ReadonlyArray<PluginDefinition>) =>
-    runExclusive(async () => {
+  const reconcile = (definitions: ReadonlyArray<PluginDefinition>) => {
+    const desired = [...definitions];
+    return runExclusive(async () => {
       if (disposed) throw new Error("plugin runtime is disposed");
 
       // Validation and cycle detection happen before any candidate fibers are created,
       // so an invalid graph cannot touch the currently active composition.
-      const { blocked, ordered, providerByCapability } = analyzeDefinitions(definitions);
+      const { blocked, ordered, providerByCapability } = analyzeDefinitions(desired);
       const affected = affectedPluginIds(composition.plugins, ordered);
       const currentById = new Map(
         composition.plugins.map((plugin) => [plugin.definition.id, plugin]),
@@ -419,6 +431,12 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
 
           const cordisPlugin: CordisPlugin = async (fiberContext) => {
             const finalizers: Array<() => void | Promise<void>> = [];
+            let activating = true;
+            const assertActivating = () => {
+              if (!activating) {
+                throw new Error(`activation context for ${definition.id} is no longer active`);
+              }
+            };
             fiberContext.effect(
               () => async () => {
                 for (const finalizer of finalizers.toReversed()) {
@@ -436,26 +454,35 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
               fiberContext.provide(capability, service);
             }
 
-            await invokePluginCallback(() =>
-              definition.activate({
-                resolve: <Service>(capability: string) => fiberContext.get(capability) as Service,
-                register(slot, contribution) {
-                  fiberContext.effect(() => {
-                    const items = contributions.get(slot) ?? [];
-                    items.push(contribution);
-                    contributions.set(slot, items);
-                    return () => {
-                      const index = items.indexOf(contribution);
-                      if (index >= 0) items.splice(index, 1);
-                      if (!items.length) contributions.delete(slot);
-                    };
-                  }, `${definition.id}:contribution:${slot}`);
-                },
-                onDispose(finalizer) {
-                  finalizers.push(finalizer);
-                },
-              }),
-            );
+            try {
+              await invokePluginCallback(() =>
+                definition.activate({
+                  resolve: <Service>(capability: string) => {
+                    assertActivating();
+                    return fiberContext.get(capability) as Service;
+                  },
+                  register(slot, contribution) {
+                    assertActivating();
+                    fiberContext.effect(() => {
+                      const items = contributions.get(slot) ?? [];
+                      items.push(contribution);
+                      contributions.set(slot, items);
+                      return () => {
+                        const index = items.indexOf(contribution);
+                        if (index >= 0) items.splice(index, 1);
+                        if (!items.length) contributions.delete(slot);
+                      };
+                    }, `${definition.id}:contribution:${slot}`);
+                  },
+                  onDispose(finalizer) {
+                    assertActivating();
+                    finalizers.push(finalizer);
+                  },
+                }),
+              );
+            } finally {
+              activating = false;
+            }
           };
           cordisPlugin.inject = [...(definition.requires ?? [])];
           cordisPlugin.provide = Object.keys(definition.provides ?? {});
@@ -502,6 +529,7 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
       reportCleanupErrors("retire", cleanupErrors);
       return candidate.snapshot;
     });
+  };
 
   return {
     reconcile,
