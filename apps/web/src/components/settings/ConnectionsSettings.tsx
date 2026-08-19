@@ -1394,14 +1394,27 @@ function AutomaticServerUpdateControl({
   );
 
   if (compact) {
-    return (
+    const compactControl = (
       <label
-        className="flex w-fit cursor-pointer items-center gap-2 pt-1 text-xs text-muted-foreground"
+        className={cn(
+          "flex w-fit items-center gap-2 pt-1 text-xs text-muted-foreground",
+          supported ? "cursor-pointer" : "cursor-not-allowed",
+        )}
         onClick={(event) => event.stopPropagation()}
       >
-        {controlWithExplanation}
+        {control}
         <span>Auto-update when idle</span>
       </label>
+    );
+    return disabledReason ? (
+      <Tooltip>
+        <TooltipTrigger render={compactControl} />
+        <TooltipPopup side="top" className="max-w-80">
+          {disabledReason}
+        </TooltipPopup>
+      </Tooltip>
+    ) : (
+      compactControl
     );
   }
 
@@ -3189,7 +3202,7 @@ export function ConnectionsSettings() {
                 }
               />
             ) : null}
-            {primaryEnvironmentId !== null ? (
+            {primaryEnvironmentId !== null && primaryServerConfig !== null ? (
               <AutomaticServerUpdateControl
                 environmentId={primaryEnvironmentId}
                 serverConfig={primaryServerConfig}
