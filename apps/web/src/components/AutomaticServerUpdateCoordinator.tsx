@@ -11,8 +11,10 @@ import { serverEnvironment } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 function EnvironmentAutomaticServerUpdate({
+  connected,
   environmentId,
 }: {
+  readonly connected: boolean;
   readonly environmentId: EnvironmentId;
 }) {
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
@@ -24,7 +26,7 @@ function EnvironmentAutomaticServerUpdate({
   });
   const attemptedTargetRef = useRef<string | null>(null);
   const decision = automaticServerUpdateDecision({
-    enabled: serverConfig?.settings.automaticallyUpdateWhenIdle ?? false,
+    enabled: connected && (serverConfig?.settings.automaticallyUpdateWhenIdle ?? false),
     selfUpdate: serverConfig?.environment.capabilities.serverSelfUpdate ?? null,
     clientVersion: APP_VERSION,
     serverVersion: serverConfig?.environment.serverVersion ?? "",
@@ -114,6 +116,7 @@ export function AutomaticServerUpdateCoordinator() {
   return environments.map((environment) => (
     <EnvironmentAutomaticServerUpdate
       key={environment.environmentId}
+      connected={environment.connection.phase === "connected"}
       environmentId={environment.environmentId}
     />
   ));
