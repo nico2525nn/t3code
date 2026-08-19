@@ -95,6 +95,9 @@ function DesktopConnectAvatar() {
             <MenuGroupLabel className="max-w-56 truncate">
               {identity ?? "Signed in to T3 Connect"}
             </MenuGroupLabel>
+            <p className="max-w-56 px-2 pb-1 text-xs text-muted-foreground">
+              Shared with the t3 CLI on this machine
+            </p>
           </MenuGroup>
           <MenuSeparator />
           <MenuItem onClick={() => setOpenPage("t3-connect")}>

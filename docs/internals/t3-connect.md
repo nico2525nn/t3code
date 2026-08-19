@@ -94,6 +94,9 @@ In **Clerk Dashboard > OAuth applications**:
 4. Enable the `openid`, `profile`, and `email` scopes.
 5. Set `T3CODE_CLERK_CLI_OAUTH_CLIENT_ID` in the repository-root `.env` file and release build
    environment to the generated public client ID.
+6. Set the same client ID as `CLERK_CLI_OAUTH_CLIENT_ID` in the relay deployment environment. The
+   relay then rejects OAuth bearer tokens minted by any other OAuth application in the Clerk
+   instance; unset, any OAuth app's tokens grant relay access for their user.
 
 Both CLI flows start at the hosted `/connect` page (`buildConnectAuthorizeRequestUrl` in
 `packages/shared/src/connectAuth.ts`), which waits for a Clerk session and then forwards the request
@@ -188,6 +191,12 @@ consumes the hook and does not know which backend is active.
 No Clerk Native API configuration, custom-scheme redirect allowlist, `allowed_origins` entry, or
 macOS passkey entitlements are needed for desktop. The `t3code://` scheme only serves the renderer
 inside Electron; it is not registered with the OS.
+
+`/api/connect/auth/token` returns the raw OAuth access token to any admin-scoped session, local or
+remote, with no-store headers. This is deliberate: admin sessions belong to the environment owner,
+and remote admin access already implies control of the credential through link and unlink. The
+sign-in state and credential are shared with the CLI on the same T3 home, and desktop sign-out
+removes that shared credential (the account menu says so).
 
 The current mobile UI uses Clerk's native authentication view. If a future mobile browser OAuth
 flow uses a custom redirect URI, add that exact URI to Clerk's mobile SSO redirect allowlist.

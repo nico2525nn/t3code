@@ -441,6 +441,73 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
     }),
   );
 
+  it.effect("a fresh sign-in right after a sign-out completes cleanly", () =>
+    Effect.gen(function* () {
+      const requests: Array<RecordedTokenRequest> = [];
+      const memory = makeMemorySecretStore();
+      // Each launch signals after its loopback listener is up.
+      const launches = yield* Queue.make<void>();
+      const persisted = yield* Deferred.make<void>();
+      const store: ServerSecretStore.ServerSecretStore["Service"] = {
+        ...memory.service,
+        set: (name, value) =>
+          memory.service
+            .set(name, value)
+            .pipe(Effect.andThen(Deferred.succeed(persisted, undefined))),
+      };
+
+      const manager = yield* CliTokenManager.make.pipe(
+        Effect.provideService(ServerSecretStore.ServerSecretStore, store),
+        Effect.provideService(Terminal.Terminal, unusedTerminal),
+        Effect.provideService(ExternalLauncher.ExternalLauncher, {
+          resolveAvailableEditors: () => Effect.succeed([]),
+          launchBrowser: () => Queue.offer(launches, undefined).pipe(Effect.asVoid),
+          launchEditor: () => Effect.die("unused launchEditor"),
+        }),
+        Effect.provide(
+          makeTokenEndpointLayer(requests, {
+            idToken: makeTestIdToken({ email: "theo@example.test", sub: "user_retry" }),
+          }),
+        ),
+        provideTestEnv,
+      );
+
+      // First attempt gets cancelled by a sign-out; the second must not lose
+      // its pending state to the first fiber's cleanup, and must be able to
+      // rebind the loopback port.
+      const first = yield* manager.beginBrowserLogin.pipe(provideTestEnv);
+      yield* Queue.take(launches);
+      yield* manager.clear;
+      const second = yield* manager.beginBrowserLogin.pipe(provideTestEnv);
+      assert.notEqual(second.authorizationUrl, first.authorizationUrl);
+      yield* Queue.take(launches);
+
+      const pendingState = yield* manager.clientAuthState.pipe(provideTestEnv);
+      assert.isTrue(pendingState.pendingLogin);
+      assert.equal(pendingState.authorizationUrl, second.authorizationUrl);
+
+      const request = readConnectAuthorizeRequest(new URL(second.authorizationUrl));
+      assert.isNotNull(request);
+      const callback = yield* Effect.gen(function* () {
+        const client = yield* HttpClient.HttpClient;
+        return yield* client.execute(
+          HttpClientRequest.get(
+            `http://127.0.0.1:34338/callback?code=clerk-code-789&state=${encodeURIComponent(request!.state)}`,
+          ),
+        );
+      }).pipe(Effect.provide(FetchHttpClient.layer));
+      assert.equal(callback.status, 200);
+      yield* Deferred.await(persisted);
+      yield* awaitPendingLoginSettled(manager);
+
+      const state = yield* manager.clientAuthState.pipe(provideTestEnv);
+      assert.isTrue(state.authorized);
+      assert.equal(state.accountId, "user_retry");
+      assert.lengthOf(requests, 1);
+      assert.equal(requests[0]!.params.get("code"), "clerk-code-789");
+    }),
+  );
+
   it.effect("a denied authorization fails the pending attempt promptly", () =>
     Effect.gen(function* () {
       const requests: Array<RecordedTokenRequest> = [];

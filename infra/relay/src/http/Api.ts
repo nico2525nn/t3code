@@ -1201,6 +1201,15 @@ function verifyClerkOAuthBearerToken(
       if (!state.isAuthenticated || !auth.userId) {
         throw new Error("Clerk OAuth token is not authenticated.");
       }
+      // Any OAuth app in the Clerk instance can mint tokens for its user;
+      // only the CLI/desktop application's tokens grant relay access when the
+      // expected client id is configured.
+      if (
+        config.clerkCliOAuthClientId !== undefined &&
+        auth.clientId !== config.clerkCliOAuthClientId
+      ) {
+        throw new Error("Clerk OAuth token was issued to an unexpected client.");
+      }
       return { sub: auth.userId };
     },
     catch: (cause) => new ClerkTokenVerificationFailed({ cause }),

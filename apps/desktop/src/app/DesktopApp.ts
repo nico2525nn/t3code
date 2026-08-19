@@ -1,5 +1,6 @@
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -254,6 +255,13 @@ const startup = Effect.gen(function* () {
   yield* electronApp.setPath("userData", userDataPath);
   yield* logStartupInfo("runtime logging configured", { logDir: environment.logDir });
   yield* desktopSettings.load;
+
+  // Releases before browser sign-in stored an encrypted Clerk session via
+  // @clerk/electron; nothing reads it anymore, so drop it on upgrade.
+  const fs = yield* FileSystem.FileSystem;
+  yield* fs
+    .remove(environment.path.join(environment.stateDir, "clerk-tokens.json"))
+    .pipe(Effect.ignore);
 
   if (linuxElectronOptions !== null) {
     yield* logStartupInfo("linux password store configured", {

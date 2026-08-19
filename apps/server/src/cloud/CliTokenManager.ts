@@ -11,6 +11,7 @@ import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -467,6 +468,7 @@ export const make = Effect.gen(function* () {
     }>(),
   );
   const loginSemaphore = yield* Semaphore.make(1);
+  const activeLoginFiberRef = yield* Ref.make(Option.none<Fiber.Fiber<void>>());
 
   // A sign-out must also cancel a waiting browser sign-in, or its late
   // completion would re-authorize the device. Cancelling here aborts the flow
@@ -614,6 +616,13 @@ export const make = Effect.gen(function* () {
       if (Option.isSome(pending)) {
         return pending.value;
       }
+      // A cancelled attempt's fiber may still be releasing the loopback
+      // port; wait for it to finish before binding again. This also orders
+      // its pending-state cleanup strictly before this attempt registers.
+      const previousFiber = yield* Ref.get(activeLoginFiberRef);
+      if (Option.isSome(previousFiber)) {
+        yield* Fiber.await(previousFiber.value);
+      }
       const metadata = yield* cloudCliOAuthConfig;
       const hostedAppUrl = yield* hostedAppUrlConfig;
       const { verifier, challenge, state } = yield* makePkceRequest;
@@ -625,7 +634,7 @@ export const make = Effect.gen(function* () {
       });
       const manualCode = yield* Deferred.make<string, CloudCliAuthorizationError>();
       yield* Ref.set(pendingLoginRef, Option.some({ authorizationUrl, state, manualCode }));
-      yield* Effect.scoped(
+      const loginFiber = yield* Effect.scoped(
         Effect.gen(function* () {
           const { awaitCode } = yield* makeLoopbackCallbackServer(metadata, state);
           yield* externalLauncher
@@ -669,9 +678,17 @@ export const make = Effect.gen(function* () {
         Effect.catch((cause) =>
           Effect.logWarning("T3 Connect browser sign-in did not complete.", { cause }),
         ),
-        Effect.ensuring(Ref.set(pendingLoginRef, Option.none())),
+        // Compare-and-clear: a sign-out may have already replaced this
+        // attempt with a newer one, whose pending state must survive this
+        // fiber's death.
+        Effect.ensuring(
+          Ref.update(pendingLoginRef, (current) =>
+            Option.isSome(current) && current.value.state === state ? Option.none() : current,
+          ),
+        ),
         Effect.forkDetach,
       );
+      yield* Ref.set(activeLoginFiberRef, Option.some(loginFiber));
       return { authorizationUrl };
     }).pipe(
       Effect.mapError((cause) => new CloudCliAuthorizationError({ cause })),
