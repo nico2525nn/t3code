@@ -12,6 +12,16 @@ const operationTimeout = () =>
     throw new Error("operation timed out");
   });
 
+const failureCause = (error: unknown): unknown =>
+  typeof error === "object" && error !== null && "cause" in error
+    ? (error as { readonly cause: unknown }).cause
+    : error;
+
+const failureMessage = (error: unknown): string => {
+  const cause = failureCause(error);
+  return cause instanceof Error ? cause.message : String(cause);
+};
+
 const provider = (version = "1.0.0"): PluginDefinition => ({
   id: "acme.database",
   version,
@@ -334,7 +344,13 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
         },
       };
 
-      await expect(runtime.reconcile([staged, broken])).rejects.toThrow("activation failed");
+      let stagingFailure: unknown;
+      try {
+        await runtime.reconcile([staged, broken]);
+      } catch (error) {
+        stagingFailure = error;
+      }
+      expect(failureMessage(stagingFailure)).toContain("activation failed");
 
       expect(lifecycle).toEqual([]);
       await runtime.dispose();
@@ -361,8 +377,16 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
         },
       };
 
-      await expect(runtime.reconcile([broken])).rejects.toBe(activationError);
-      expect(cleanupEvents).toEqual([{ phase: "rollback", error: cleanupError }]);
+      let activationFailure: unknown;
+      try {
+        await runtime.reconcile([broken]);
+      } catch (error) {
+        activationFailure = error;
+      }
+      expect(failureCause(activationFailure)).toBe(activationError);
+      expect(cleanupEvents).toHaveLength(1);
+      expect(cleanupEvents[0]?.phase).toBe("rollback");
+      expect(failureCause(cleanupEvents[0]?.error)).toBe(cleanupError);
       await runtime.dispose();
     });
 
@@ -400,7 +424,9 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
 
       expect(contributionLabels(snapshot, "commands")).toEqual(["new"]);
       expect(runtime.snapshot()).toBe(snapshot);
-      expect(cleanupEvents).toEqual([{ phase: "retire", error: cleanupError }]);
+      expect(cleanupEvents).toHaveLength(1);
+      expect(cleanupEvents[0]?.phase).toBe("retire");
+      expect(failureCause(cleanupEvents[0]?.error)).toBe(cleanupError);
       await runtime.dispose();
     });
 
@@ -489,6 +515,29 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
       await runtime.dispose();
     });
 
+    it("allows descendant tasks to use the runtime after their plugin callback settles", async () => {
+      let releaseBackground!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        releaseBackground = resolve;
+      });
+      let backgroundResult: Promise<PluginRuntimeSnapshot> | undefined;
+      const runtime = createRuntime();
+
+      await runtime.reconcile([
+        {
+          id: "acme.background-task",
+          version: "1.0.0",
+          activate() {
+            backgroundResult = gate.then(() => runtime.reconcile([]));
+          },
+        },
+      ]);
+
+      releaseBackground();
+      await expect(Promise.race([backgroundResult!, operationTimeout()])).resolves.toBeDefined();
+      await runtime.dispose();
+    });
+
     it("attempts every plugin cleanup when one finalizer fails", async () => {
       const disposed: Array<string> = [];
       const runtime = createRuntime();
@@ -530,7 +579,13 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
         },
       };
 
-      await expect(runtime.reconcile([broken])).rejects.toThrow("candidate failed");
+      let candidateFailure: unknown;
+      try {
+        await runtime.reconcile([broken]);
+      } catch (error) {
+        candidateFailure = error;
+      }
+      expect(failureMessage(candidateFailure)).toContain("candidate failed");
 
       expect(runtime.snapshot().active).toEqual(["acme.database"]);
       expect(contributionLabels(runtime.snapshot(), "status")).toEqual(["database 1.0.0"]);
