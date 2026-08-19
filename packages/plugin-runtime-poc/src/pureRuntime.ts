@@ -177,7 +177,18 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
   let current = emptyComposition();
   let disposed = false;
   let transition = Promise.resolve();
-  const callbackContext = new NodeAsyncHooks.AsyncLocalStorage<boolean>();
+  const callbackContext = new NodeAsyncHooks.AsyncLocalStorage<{ active: boolean }>();
+
+  const invokePluginCallback = async <Result>(
+    invoke: () => Result | PromiseLike<Result>,
+  ): Promise<Result> => {
+    const callbackState = { active: true };
+    try {
+      return await callbackContext.run(callbackState, () => Promise.resolve().then(invoke));
+    } finally {
+      callbackState.active = false;
+    }
+  };
 
   const reportLifecycle = (phase: "activate" | "deactivate", pluginId: string) => {
     try {
@@ -202,7 +213,7 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
       const finalizer = instance.finalizers[index];
       if (finalizer === undefined) continue;
       try {
-        await callbackContext.run(true, finalizer);
+        await invokePluginCallback(finalizer);
       } catch (error) {
         errors.push(error);
       }
@@ -296,7 +307,7 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
         };
 
         try {
-          await callbackContext.run(true, () =>
+          await invokePluginCallback(() =>
             definition.activate({
               resolve: <Service>(capability: string): Service => {
                 assertActivating();
@@ -345,7 +356,7 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
   };
 
   const runExclusive = <Result>(operation: () => Promise<Result>): Promise<Result> => {
-    if (callbackContext.getStore() === true) {
+    if (callbackContext.getStore()?.active === true) {
       return Promise.reject(new Error("reentrant plugin runtime operation"));
     }
     const result = transition.then(operation);

@@ -14,7 +14,7 @@ this is the smallest and fastest planner in the experiment. for production, its 
 
 ## proved
 
-- 26 tests cover dependency order, blocking, rollback, cycles, unchanged instance reuse, order-insensitive declarations, activation implementation replacement, callback reentrancy, observer isolation, cleanup reporting, unusual ids and slots, immutable snapshots, and a 20,000-plugin stack-safe chain
+- 27 tests cover dependency order, blocking, rollback, cycles, unchanged instance reuse, order-insensitive declarations, activation implementation replacement, active callback reentrancy, descendant async tasks, observer isolation, cleanup reporting, unusual ids and slots, immutable snapshots, and a 20,000-plugin stack-safe chain
 - manifest validation enforces semver, prevents entrypoint path escape, and keeps mobile declarative
 - the demo exercises activation, replacement, teardown, and a 250-plugin chain
 
