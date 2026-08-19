@@ -86,6 +86,18 @@ class PluginResolutionError extends Schema.TaggedErrorClass<PluginResolutionErro
   }
 }
 
+class PluginActivationContextExpiredError extends Schema.TaggedErrorClass<PluginActivationContextExpiredError>()(
+  "PluginActivationContextExpiredError",
+  {
+    method: Schema.Literals(["resolve", "register", "onDispose"]),
+    pluginId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `activation context for ${this.pluginId} is no longer active (${this.method})`;
+  }
+}
+
 class PluginCallbackError extends Schema.TaggedErrorClass<PluginCallbackError>()(
   "PluginCallbackError",
   {
@@ -147,6 +159,15 @@ class PluginRuntimeCleanupError extends Schema.TaggedErrorClass<PluginRuntimeCle
 }
 
 type PluginPlanningError = DuplicatePluginIdError | DuplicateCapabilityError | DependencyCycleError;
+
+const isDuplicatePluginIdError = Schema.is(DuplicatePluginIdError);
+const isDuplicateCapabilityError = Schema.is(DuplicateCapabilityError);
+const isDependencyCycleError = Schema.is(DependencyCycleError);
+
+const isPluginPlanningError = (error: unknown): error is PluginPlanningError =>
+  isDuplicatePluginIdError(error) ||
+  isDuplicateCapabilityError(error) ||
+  isDependencyCycleError(error);
 
 type PluginReconcileError =
   | PluginPlanningError
@@ -446,21 +467,27 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
     callback: PluginCallback,
     pluginId: string,
     invoke: () => Result | PromiseLike<Result>,
+    onSettled?: () => void,
   ): Effect.Effect<Result, PluginCallbackError> =>
     Effect.tryPromise({
       try: async () => {
         const callbackState: PluginCallbackContext = { active: true, callback, pluginId };
+        let settled = false;
+        const settle = () => {
+          if (settled) return;
+          settled = true;
+          callbackState.active = false;
+          onSettled?.();
+        };
         try {
           const result = callbackContext.run(callbackState, invoke);
           if (typeof result === "object" && result !== null && "then" in result) {
-            return await Promise.resolve(result).finally(() => {
-              callbackState.active = false;
-            });
+            return await Promise.resolve(result).finally(settle);
           }
-          callbackState.active = false;
+          settle();
           return result;
         } catch (error) {
-          callbackState.active = false;
+          settle();
           throw error;
         }
       },
@@ -479,36 +506,42 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
       const finalizers: Array<() => void | Promise<void>> = [];
       const plugin: LivePlugin = { definition, scope, contributions, cleanupErrors };
       let activating = true;
-      const assertActivating = () => {
+      const assertActivating = (method: "resolve" | "register" | "onDispose") => {
         if (!activating) {
-          throw new Error(`activation context for ${definition.id} is no longer active`);
+          throw new PluginActivationContextExpiredError({ method, pluginId: definition.id });
         }
       };
 
       const context: PluginActivationContext = {
         resolve: <Service>(capability: string): Service => {
-          assertActivating();
+          assertActivating("resolve");
           if (!capabilities.has(capability)) {
             throw new PluginResolutionError({ capability, pluginId: definition.id });
           }
           return capabilities.get(capability) as Service;
         },
         register: (slot, contribution) => {
-          assertActivating();
+          assertActivating("register");
           const values = contributions.get(slot) ?? [];
           values.push(contribution);
           contributions.set(slot, values);
         },
         onDispose: (finalizer) => {
-          assertActivating();
+          assertActivating("onDispose");
           finalizers.push(finalizer);
         },
       };
 
       const activationExit = yield* Effect.exit(
-        invokePluginCallback("activate", definition.id, () => definition.activate(context)),
+        invokePluginCallback(
+          "activate",
+          definition.id,
+          () => definition.activate(context),
+          () => {
+            activating = false;
+          },
+        ),
       );
-      activating = false;
       for (const finalizer of finalizers) {
         const finalizerEffect = invokePluginCallback("finalizer", definition.id, finalizer).pipe(
           Effect.catch((error) =>
@@ -538,7 +571,10 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
 
       const plan = yield* Effect.try({
         try: () => planComposition(definitions),
-        catch: (error) => error as PluginPlanningError,
+        catch: (error) => {
+          if (!isPluginPlanningError(error)) throw error;
+          return error;
+        },
       });
       const affected = affectedPluginIds(current.plugins, plan.definitions);
       const currentById = new Map(current.plugins.map((plugin) => [plugin.definition.id, plugin]));

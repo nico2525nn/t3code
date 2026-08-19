@@ -588,6 +588,35 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
       await runtime.dispose();
     });
 
+    it("rejects activation-context calls from microtasks queued by synchronous callbacks", async () => {
+      let lateFailure: unknown;
+      let disposed = false;
+      const runtime = createRuntime();
+
+      await runtime.reconcile([
+        {
+          id: "acme.microtask-context",
+          version: "1.0.0",
+          activate(context) {
+            queueMicrotask(() => {
+              try {
+                context.onDispose(() => {
+                  disposed = true;
+                });
+              } catch (error) {
+                lateFailure = error;
+              }
+            });
+          },
+        },
+      ]);
+
+      expect(lateFailure).toBeInstanceOf(Error);
+      expect((lateFailure as Error).message).toContain("no longer active");
+      await runtime.dispose();
+      expect(disposed).toBe(false);
+    });
+
     it("rejects finalizers registered after activation settles", async () => {
       let registerLateFinalizer!: () => void;
       let disposed = false;
