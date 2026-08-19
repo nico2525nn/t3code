@@ -138,7 +138,9 @@ function TerminalToolbarAction({
             variant="ghost"
             aria-label={label}
             aria-disabled={disabled || undefined}
-            className={cn(disabled && "cursor-not-allowed opacity-64")}
+            className={cn(
+              disabled && "cursor-not-allowed opacity-64 [:hover,[data-pressed]]:bg-transparent",
+            )}
             onClick={onClick}
           />
         }
