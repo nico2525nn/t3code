@@ -1516,16 +1516,23 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                         />
                       ) : null}
                       {props.settlementSupported ? (
-                        <Button
-                          size="micro"
-                          variant="ghost-muted"
-                          aria-label="Settle thread"
-                          onClick={handleSettleClick}
-                          className="-mr-1 ps-1 pe-1.5"
-                        >
-                          <CheckIcon aria-hidden className={SIDEBAR_LIFECYCLE_ICON_CLASS} />
-                          Settle
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                size="micro"
+                                variant="ghost-muted"
+                                aria-label="Settle thread"
+                                onClick={handleSettleClick}
+                                className="-mr-1 ps-1 pe-1.5"
+                              />
+                            }
+                          >
+                            <CheckIcon aria-hidden className={SIDEBAR_LIFECYCLE_ICON_CLASS} />
+                            Settle
+                          </TooltipTrigger>
+                          <TooltipPopup side="top">Settle thread</TooltipPopup>
+                        </Tooltip>
                       ) : null}
                     </span>
                   ) : null}
