@@ -6,6 +6,7 @@ import {
   type ServerSelfUpdateResult,
 } from "@t3tools/contracts";
 import { HostProcessExecutablePath } from "@t3tools/shared/hostProcess";
+import { hasAutomaticServerUpdateActiveWork } from "@t3tools/shared/automaticServerUpdate";
 import { compareSemverVersions } from "@t3tools/shared/semver";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -18,6 +19,7 @@ import * as Semaphore from "effect/Semaphore";
 
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
   ensurePinnedRuntimeInstalled,
   PinnedRuntimeInstallError,
@@ -44,13 +46,44 @@ export class ServerSelfUpdate extends Context.Service<
     readonly update: (
       input: ServerSelfUpdateInput,
       reportProgress?: (stage: ServerSelfUpdateProgressStage) => Effect.Effect<void>,
-      confirmAutomaticUpdateIdle?: () => Effect.Effect<void, ServerSelfUpdateError>,
     ) => Effect.Effect<ServerSelfUpdateResult, ServerSelfUpdateError>;
     readonly withCommandAdmission: <A, E, R>(
       effect: Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E | ServerSelfUpdateError, R>;
   }
 >()("t3/cloud/selfUpdate/ServerSelfUpdate") {}
+
+export class ServerSelfUpdateIdleCheck extends Context.Service<
+  ServerSelfUpdateIdleCheck,
+  { readonly assertIdle: Effect.Effect<void, ServerSelfUpdateError> }
+>()("t3/cloud/selfUpdate/ServerSelfUpdateIdleCheck") {}
+
+const idleCheckLayer = Layer.effect(
+  ServerSelfUpdateIdleCheck,
+  Effect.gen(function* () {
+    const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+    return ServerSelfUpdateIdleCheck.of({
+      assertIdle: projections.getShellSnapshot().pipe(
+        Effect.mapError(
+          (cause) =>
+            new ServerSelfUpdateError({
+              reason: "Automatic update could not verify that this server is idle.",
+              cause,
+            }),
+        ),
+        Effect.flatMap((snapshot) =>
+          hasAutomaticServerUpdateActiveWork(snapshot.threads)
+            ? Effect.fail(
+                new ServerSelfUpdateError({
+                  reason: "Automatic update paused because new work started while downloading.",
+                }),
+              )
+            : Effect.void,
+        ),
+      ),
+    });
+  }),
+);
 
 export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
@@ -59,6 +92,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const execPath = yield* HostProcessExecutablePath;
+  const idleCheck = yield* ServerSelfUpdateIdleCheck;
   const inFlight = yield* Ref.make(false);
   const lastFailedTarget = yield* Ref.make<string | null>(null);
   const automaticHandoffPending = yield* Ref.make(false);
@@ -89,7 +123,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
 
   const update: ServerSelfUpdate["Service"]["update"] = Effect.fn(
     "cloud.server_self_update.update",
-  )(function* (input, reportProgress = () => Effect.void, confirmAutomaticUpdateIdle) {
+  )(function* (input, reportProgress = () => Effect.void) {
     if (capability === "desktop-managed") {
       return yield* failWith(
         "This server is managed by the T3 Code desktop app on its machine; update the desktop app to update it.",
@@ -111,7 +145,8 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
     ) {
       return yield* failWith("Automatic updates must move the server to a newer version.");
     }
-    if (input.automatic === true && (yield* Ref.get(lastFailedTarget)) === targetVersion) {
+    const previousFailedTarget = yield* Ref.get(lastFailedTarget);
+    if (input.automatic === true && previousFailedTarget === targetVersion) {
       return yield* failWith(
         "An automatic update to this version already failed. Retry it manually before automatic updates resume.",
       );
@@ -119,7 +154,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
     if (yield* Ref.getAndSet(inFlight, true)) {
       return yield* failWith("A server update is already in progress.");
     }
-    if (input.automatic !== true) {
+    if (input.automatic !== true && previousFailedTarget === targetVersion) {
       yield* Ref.set(lastFailedTarget, null);
     }
 
@@ -211,10 +246,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
       if (input.automatic === true) {
         yield* commandAdmission.withPermits(1)(
           Effect.gen(function* () {
-            if (confirmAutomaticUpdateIdle === undefined) {
-              return yield* failWith("Automatic update could not verify that this server is idle.");
-            }
-            yield* confirmAutomaticUpdateIdle();
+            yield* idleCheck.assertIdle;
             yield* Ref.set(automaticHandoffPending, true);
           }),
         );
@@ -249,7 +281,14 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
           [
             Ref.set(inFlight, false),
             Ref.set(automaticHandoffPending, false),
-            Ref.set(lastFailedTarget, targetVersion),
+            Ref.set(
+              lastFailedTarget,
+              input.automatic === true ||
+                previousFailedTarget === null ||
+                previousFailedTarget === targetVersion
+                ? targetVersion
+                : previousFailedTarget,
+            ),
           ],
           { discard: true },
         ),
@@ -263,4 +302,5 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
 
 export const layer = Layer.effect(ServerSelfUpdate, make()).pipe(
   Layer.provide(ProcessRunner.layer),
+  Layer.provide(idleCheckLayer),
 );

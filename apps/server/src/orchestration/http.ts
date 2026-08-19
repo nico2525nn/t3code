@@ -18,7 +18,7 @@ import {
 } from "../auth/http.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
-import { ServerSelfUpdate } from "../cloud/selfUpdate.ts";
+import * as ServerSelfUpdate from "../cloud/selfUpdate.ts";
 
 export const orchestrationHttpApiLayer = HttpApiBuilder.group(
   EnvironmentHttpApi,
@@ -26,7 +26,7 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
-    const serverSelfUpdate = yield* ServerSelfUpdate;
+    const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
 
     return handlers
       .handle(

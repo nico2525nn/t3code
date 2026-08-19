@@ -59,7 +59,7 @@ import {
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
-import { hasAutomaticServerUpdateActiveWork } from "@t3tools/shared/automaticServerUpdate";
+
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
@@ -489,25 +489,6 @@ const makeWsRpcLayer = (
       const serverEventId = randomUUID.pipe(Effect.map(EventId.make));
       const serverCommandId = (tag: string) =>
         randomUUID.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
-      const confirmAutomaticUpdateIdle = () =>
-        projectionSnapshotQuery.getShellSnapshot().pipe(
-          Effect.mapError(
-            (cause) =>
-              new ServerSelfUpdateError({
-                reason: "Automatic update could not verify that this server is idle.",
-                cause,
-              }),
-          ),
-          Effect.flatMap((snapshot) =>
-            hasAutomaticServerUpdateActiveWork(snapshot.threads)
-              ? Effect.fail(
-                  new ServerSelfUpdateError({
-                    reason: "Automatic update paused because new work started while downloading.",
-                  }),
-                )
-              : Effect.void,
-          ),
-        );
 
       const loadAuthAccessSnapshot = () =>
         Effect.all({
@@ -1487,26 +1468,19 @@ const makeWsRpcLayer = (
             },
           ),
         [WS_METHODS.serverUpdateServer]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.serverUpdateServer,
-            serverSelfUpdate.update(input, undefined, confirmAutomaticUpdateIdle),
-            {
-              "rpc.aggregate": "server",
-            },
-          ),
+          observeRpcEffect(WS_METHODS.serverUpdateServer, serverSelfUpdate.update(input), {
+            "rpc.aggregate": "server",
+          }),
         [WS_METHODS.serverUpdateServerWithProgress]: (input) =>
           observeRpcStream(
             WS_METHODS.serverUpdateServerWithProgress,
             Stream.callback<ServerSelfUpdateProgressEvent, ServerSelfUpdateError>((queue) =>
               serverSelfUpdate
-                .update(
-                  input,
-                  (stage) =>
-                    Queue.offer(queue, {
-                      type: "progress",
-                      stage,
-                    }).pipe(Effect.asVoid),
-                  confirmAutomaticUpdateIdle,
+                .update(input, (stage) =>
+                  Queue.offer(queue, {
+                    type: "progress",
+                    stage,
+                  }).pipe(Effect.asVoid),
                 )
                 .pipe(
                   Effect.flatMap((result) =>

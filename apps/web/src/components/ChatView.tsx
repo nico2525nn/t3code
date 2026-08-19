@@ -2133,8 +2133,8 @@ function ChatViewContent(props: ChatViewProps) {
       (serverUpdateState.status !== "idle" ||
         (showVersionMismatchBanner && versionMismatch && versionMismatchDismissKey))
     ) {
-      const updateInProgress =
-        serverUpdateState.status === "running" || serverUpdateState.status === "pending";
+      const updateInProgress = serverUpdateState.status === "running";
+      const updatePending = serverUpdateState.status === "pending";
       const updateFailed = serverUpdateState.status === "failed";
       items.push({
         id: `server-version:${serverUpdateEnvironmentId}`,
@@ -2145,15 +2145,15 @@ function ChatViewContent(props: ChatViewProps) {
         // In-flight and failed states carry their own status dot inside
         // ServerUpdateProgress; only the idle offer needs an icon.
         icon:
-          updateInProgress || updateFailed ? null : (
+          updateInProgress || updatePending || updateFailed ? null : (
             <span
               className="size-1.5 rounded-full border border-muted-foreground/40"
               aria-hidden="true"
             />
           ),
         title:
-          updateInProgress || updateFailed ? (
-            `${updateFailed ? "Could not update" : "Updating"} ${versionMismatchServerLabel}`
+          updateInProgress || updatePending || updateFailed ? (
+            `${updateFailed ? "Could not update" : updatePending ? "Automatic update waiting for" : "Updating"} ${versionMismatchServerLabel}`
           ) : versionMismatch ? (
             <Tooltip>
               <TooltipTrigger
@@ -2172,7 +2172,7 @@ function ChatViewContent(props: ChatViewProps) {
             "Server update available"
           ),
         description:
-          updateInProgress || updateFailed ? (
+          updateInProgress || updatePending || updateFailed ? (
             <ServerUpdateProgress state={serverUpdateState} />
           ) : versionMismatchSelfUpdate === "desktop-managed" ? (
             serverUpdateGuidance(versionMismatchSelfUpdate, versionMismatchServerLabel)

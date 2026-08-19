@@ -19,6 +19,7 @@ interface HarnessOptions {
   readonly mode?: "web" | "desktop";
   readonly managed?: boolean;
   readonly preflight?: "ready" | "blocked";
+  readonly automaticUpdateIdle?: (order: string[]) => Effect.Effect<void, ServerSelfUpdateError>;
   readonly requestUpdate?: ServiceLauncherClient.ServiceLauncherClient["Service"]["requestUpdate"];
 }
 
@@ -90,6 +91,12 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
     Effect.provideService(ProcessRunner.ProcessRunner, runner),
     Effect.provideService(ServiceLauncherClient.ServiceLauncherClient, launcher),
     Effect.provideService(HostProcessExecutablePath, "/usr/bin/node"),
+    Effect.provideService(
+      ServerSelfUpdate.ServerSelfUpdateIdleCheck,
+      ServerSelfUpdate.ServerSelfUpdateIdleCheck.of({
+        assertIdle: options.automaticUpdateIdle?.(order) ?? Effect.void,
+      }),
+    ),
     Effect.provide(ServerConfig.layer({ ...config, mode: options.mode ?? "web" })),
   );
   return { selfUpdate, order };
@@ -135,7 +142,7 @@ it.layer(NodeServices.layer)("server self update", (it) => {
     Effect.gen(function* () {
       const { selfUpdate, order } = yield* makeHarness();
       const error = yield* selfUpdate
-        .update({ targetVersion: "0.0.1", automatic: true }, undefined, () => Effect.void)
+        .update({ targetVersion: "0.0.1", automatic: true })
         .pipe(Effect.flip);
 
       expect(error.reason).toContain("newer version");
@@ -159,28 +166,24 @@ it.layer(NodeServices.layer)("server self update", (it) => {
           ),
       });
 
-      yield* selfUpdate
-        .update({ targetVersion: "1.1.0", automatic: true }, undefined, () => Effect.void)
-        .pipe(Effect.flip);
-      yield* selfUpdate
-        .update({ targetVersion: "1.1.0", automatic: true }, undefined, () => Effect.void)
-        .pipe(Effect.flip);
+      yield* selfUpdate.update({ targetVersion: "1.1.0", automatic: true }).pipe(Effect.flip);
+      yield* selfUpdate.update({ targetVersion: "1.1.0", automatic: true }).pipe(Effect.flip);
+      expect(requests).toBe(1);
+
+      yield* selfUpdate.update({ targetVersion: "1.2.0" }).pipe(Effect.flip);
+      expect(requests).toBe(1);
+      yield* selfUpdate.update({ targetVersion: "1.1.0", automatic: true }).pipe(Effect.flip);
       expect(requests).toBe(1);
 
       yield* selfUpdate.update({ targetVersion: "1.1.0" }).pipe(Effect.flip);
-      expect(requests).toBe(2);
-      yield* selfUpdate
-        .update({ targetVersion: "1.1.0", automatic: true }, undefined, () => Effect.void)
-        .pipe(Effect.flip);
       expect(requests).toBe(2);
     }),
   );
 
   it.effect("rechecks automatic updates after staging and before activation", () =>
     Effect.gen(function* () {
-      const { selfUpdate, order } = yield* makeHarness();
-      const error = yield* selfUpdate
-        .update({ targetVersion: "1.1.0", automatic: true }, undefined, () =>
+      const { selfUpdate, order } = yield* makeHarness({
+        automaticUpdateIdle: (order) =>
           Effect.sync(() => order.push("idle-check")).pipe(
             Effect.andThen(
               Effect.fail(
@@ -190,7 +193,9 @@ it.layer(NodeServices.layer)("server self update", (it) => {
               ),
             ),
           ),
-        )
+      });
+      const error = yield* selfUpdate
+        .update({ targetVersion: "1.1.0", automatic: true })
         .pipe(Effect.flip);
 
       expect(error.reason).toContain("new work started");
@@ -210,7 +215,7 @@ it.layer(NodeServices.layer)("server self update", (it) => {
           ),
       });
       const updateFiber = yield* selfUpdate
-        .update({ targetVersion: "1.1.0", automatic: true }, undefined, () => Effect.void)
+        .update({ targetVersion: "1.1.0", automatic: true })
         .pipe(Effect.forkChild);
       yield* Deferred.await(requestStarted);
       const interruptFiber = yield* Fiber.interrupt(updateFiber).pipe(Effect.forkChild);
@@ -234,11 +239,7 @@ it.layer(NodeServices.layer)("server self update", (it) => {
   it.effect("blocks new commands after an automatic handoff is accepted", () =>
     Effect.gen(function* () {
       const { selfUpdate } = yield* makeHarness();
-      yield* selfUpdate.update(
-        { targetVersion: "1.1.0", automatic: true },
-        undefined,
-        () => Effect.void,
-      );
+      yield* selfUpdate.update({ targetVersion: "1.1.0", automatic: true });
 
       const error = yield* selfUpdate
         .withCommandAdmission(Effect.succeed("started"))

@@ -1529,11 +1529,13 @@ function SavedBackendListRow({
               </TooltipPopup>
             </Tooltip>
           ) : null}
-          <AutomaticServerUpdateControl
-            environmentId={environmentId}
-            serverConfig={environment.serverConfig}
-            compact
-          />
+          {environment.serverConfig !== null ? (
+            <AutomaticServerUpdateControl
+              environmentId={environmentId}
+              serverConfig={environment.serverConfig}
+              compact
+            />
+          ) : null}
           {environment.connection.error && !resumingServerUpdate ? (
             <p className="flex min-w-0 items-center gap-2 text-destructive text-xs">
               <span className="truncate">{connectionStatusText(environment.connection)}</span>
@@ -1818,6 +1820,15 @@ function CloudRemoteEnvironmentRows({
 export function ConnectionsSettings() {
   const desktopBridge = window.desktopBridge;
   const { environments } = useEnvironments();
+  const automaticUpdateEnvironments = useMemo(
+    () =>
+      environments.filter(
+        (environment) =>
+          environment.connection.phase === "connected" &&
+          resolveServerSelfUpdateCapability(environment.serverConfig) === "boot-service",
+      ),
+    [environments],
+  );
   const primaryEnvironment = usePrimaryEnvironment();
   const connectPairing = useAtomCommand(connectPairingAtom, { reportFailure: false });
   const connectSshEnvironment = useAtomCommand(connectSshEnvironmentAtom, {
@@ -2322,15 +2333,12 @@ export function ConnectionsSettings() {
   ]);
 
   const handleEnableAutomaticUpdates = async () => {
-    const connectedEnvironments = environments.filter(
-      (environment) => environment.connection.phase === "connected",
-    );
-    if (connectedEnvironments.length === 0) return;
+    if (automaticUpdateEnvironments.length === 0) return;
 
     setIsEnablingAutomaticUpdates(true);
     try {
       const results = await Promise.all(
-        connectedEnvironments.map((environment) =>
+        automaticUpdateEnvironments.map((environment) =>
           updateEnvironmentSettings({
             environmentId: environment.environmentId,
             input: { patch: { automaticallyUpdateWhenIdle: true } },
@@ -3508,21 +3516,34 @@ export function ConnectionsSettings() {
         {...searchableSetting("remote-environments")}
         headerAction={
           <div className="flex items-center gap-1">
-            <Button
-              size="xs"
-              variant="ghost"
-              className="h-5 gap-1 rounded-sm px-1 text-[11px] font-normal text-muted-foreground/60 hover:text-muted-foreground"
-              disabled={
-                isEnablingAutomaticUpdates ||
-                !environments.some((environment) => environment.connection.phase === "connected")
-              }
-              onClick={() => void handleEnableAutomaticUpdates()}
-            >
-              {isEnablingAutomaticUpdates ? (
-                <RefreshCwIcon className="size-3 animate-spin" />
-              ) : null}
-              <span>{isEnablingAutomaticUpdates ? "Applying…" : "Enable auto-updates"}</span>
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="inline-flex">
+                    <Button
+                      size="xs"
+                      variant="ghost-muted"
+                      disabled={
+                        isEnablingAutomaticUpdates || automaticUpdateEnvironments.length === 0
+                      }
+                      onClick={() => void handleEnableAutomaticUpdates()}
+                    >
+                      {isEnablingAutomaticUpdates ? (
+                        <RefreshCwIcon className="size-3 animate-spin" />
+                      ) : null}
+                      <span>
+                        {isEnablingAutomaticUpdates ? "Applying…" : "Enable auto-updates"}
+                      </span>
+                    </Button>
+                  </span>
+                }
+              />
+              <TooltipPopup side="top">
+                {automaticUpdateEnvironments.length === 0
+                  ? "Connect a background-service environment to enable automatic updates."
+                  : "Enable automatic updates for every connected background-service environment."}
+              </TooltipPopup>
+            </Tooltip>
             <Dialog
               open={addBackendDialogOpen}
               onOpenChange={(open) => {
@@ -3537,12 +3558,7 @@ export function ConnectionsSettings() {
                   render={
                     <DialogTrigger
                       render={
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          className="h-5 gap-1 rounded-sm px-1 text-[11px] font-normal text-muted-foreground/60 hover:text-muted-foreground"
-                          aria-label="Add environment"
-                        >
+                        <Button size="xs" variant="ghost-muted" aria-label="Add environment">
                           <PlusIcon className="size-3" />
                           <span>Add environment</span>
                         </Button>

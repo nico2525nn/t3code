@@ -252,7 +252,15 @@ export function serverUpdateStateForAutomaticDecision(
   current: ServerUpdateState,
   pending: Extract<ServerUpdateState, { status: "pending" }> | null,
 ): ServerUpdateState {
-  if (current.status === "running" || current.status === "failed") {
+  if (current.status === "running") {
+    return current;
+  }
+  if (
+    current.status === "failed" &&
+    pending !== null &&
+    current.fromVersion === pending.fromVersion &&
+    current.targetVersion === pending.targetVersion
+  ) {
     return current;
   }
   return pending ?? IDLE_SERVER_UPDATE_STATE;

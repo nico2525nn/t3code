@@ -73,7 +73,15 @@ function EnvironmentAutomaticServerUpdate({
     }
 
     const targetKey = `${fromVersion}->${targetVersion}`;
-    if (updateState.status === "running" || updateState.status === "failed") {
+    if (updateState.status === "running") {
+      attemptedTargetRef.current = targetKey;
+      return;
+    }
+    if (
+      updateState.status === "failed" &&
+      updateState.fromVersion === fromVersion &&
+      updateState.targetVersion === targetVersion
+    ) {
       attemptedTargetRef.current = targetKey;
       return;
     }

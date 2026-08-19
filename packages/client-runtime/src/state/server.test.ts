@@ -353,6 +353,12 @@ describe("server state projection", () => {
     expect(serverUpdateStateForAutomaticDecision(pending, null)).toEqual({ status: "idle" });
     expect(serverUpdateStateForAutomaticDecision(running, pending)).toBe(running);
     expect(serverUpdateStateForAutomaticDecision(failed, pending)).toBe(failed);
+    expect(
+      serverUpdateStateForAutomaticDecision(failed, {
+        ...pending,
+        targetVersion: "0.0.32",
+      }),
+    ).toEqual({ ...pending, targetVersion: "0.0.32" });
   });
 
   it.effect("correlates launcher outcomes and fails immediately after rollback", () =>
