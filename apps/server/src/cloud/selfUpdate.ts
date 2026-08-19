@@ -8,6 +8,7 @@ import {
 import { HostProcessExecutablePath } from "@t3tools/shared/hostProcess";
 import { hasAutomaticServerUpdateActiveWork } from "@t3tools/shared/automaticServerUpdate";
 import { compareSemverVersions } from "@t3tools/shared/semver";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -243,22 +244,8 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
             ? failWith(error.reason, error)
             : failWith(`Could not prepare t3@${targetVersion}.`, error),
         ),
+        Effect.interruptible,
       );
-
-      if (input.automatic === true) {
-        yield* commandAdmission.withPermits(1)(
-          Effect.gen(function* () {
-            yield* idleCheck.assertIdle.pipe(
-              Effect.tapError((error) =>
-                Effect.sync(() => {
-                  retryWhenIdleFailure = error.retryWhenIdle === true;
-                }),
-              ),
-            );
-            yield* Ref.set(automaticHandoffPending, true);
-          }),
-        );
-      }
 
       const activatePreparedUpdate = Effect.gen(function* () {
         yield* reportProgress("installing");
@@ -282,16 +269,31 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
         });
         return { targetVersion, method: "boot-service" as const, updateId };
       });
-      return yield* activatePreparedUpdate;
+      if (input.automatic !== true) return yield* activatePreparedUpdate;
+
+      return yield* commandAdmission
+        .withPermits(1)(
+          Effect.gen(function* () {
+            yield* idleCheck.assertIdle.pipe(
+              Effect.tapError((error) =>
+                Effect.sync(() => {
+                  retryWhenIdleFailure = error.retryWhenIdle === true;
+                }),
+              ),
+            );
+            yield* Ref.set(automaticHandoffPending, true);
+          }),
+        )
+        .pipe(Effect.andThen(activatePreparedUpdate));
     }).pipe(
-      Effect.onError(() =>
+      Effect.onError((cause) =>
         Effect.all(
           [
             Ref.set(inFlight, false),
             Ref.set(automaticHandoffPending, false),
             Ref.set(
               lastFailedTarget,
-              retryWhenIdleFailure
+              retryWhenIdleFailure || Cause.hasInterruptsOnly(cause)
                 ? previousFailedTarget
                 : input.automatic === true ||
                     previousFailedTarget === null ||

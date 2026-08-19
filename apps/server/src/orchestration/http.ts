@@ -95,13 +95,23 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.dispatch")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
-          const normalizedCommand = yield* normalizeDispatchCommand(args.payload).pipe(
-            Effect.catch(() => failEnvironmentInvalidRequest("invalid_command")),
-          );
           return yield* serverSelfUpdate
-            .withCommandAdmission(orchestrationEngine.dispatch(normalizedCommand))
+            .withCommandAdmission(
+              Effect.gen(function* () {
+                const normalizedCommand = yield* normalizeDispatchCommand(args.payload).pipe(
+                  Effect.catch(() => failEnvironmentInvalidRequest("invalid_command")),
+                );
+                return yield* orchestrationEngine
+                  .dispatch(normalizedCommand)
+                  .pipe(
+                    Effect.catch((cause) =>
+                      failEnvironmentInternal("orchestration_dispatch_failed", cause),
+                    ),
+                  );
+              }),
+            )
             .pipe(
-              Effect.catch((cause) =>
+              Effect.catchTag("ServerSelfUpdateError", (cause) =>
                 failEnvironmentInternal("orchestration_dispatch_failed", cause),
               ),
             );

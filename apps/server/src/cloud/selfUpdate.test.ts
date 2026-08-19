@@ -20,6 +20,7 @@ interface HarnessOptions {
   readonly managed?: boolean;
   readonly preflight?: "ready" | "blocked";
   readonly automaticUpdateIdle?: (order: string[]) => Effect.Effect<void, ServerSelfUpdateError>;
+  readonly install?: (order: string[]) => Effect.Effect<void>;
   readonly requestUpdate?: ServiceLauncherClient.ServiceLauncherClient["Service"]["requestUpdate"];
 }
 
@@ -35,6 +36,7 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
       Effect.gen(function* () {
         if (input.command === "npm") {
           order.push("install");
+          yield* options.install?.(order) ?? Effect.void;
           const prefix = input.args[input.args.indexOf("--prefix") + 1];
           if (prefix === undefined) return yield* Effect.die("missing npm prefix");
           const entry = path.join(prefix, "node_modules", "t3", "dist", "bin.mjs");
@@ -233,6 +235,38 @@ it.layer(NodeServices.layer)("server self update", (it) => {
         .pipe(Effect.flip);
       expect(afterAcceptance.reason).toContain("cannot start new work");
       expect(order).toEqual(["install", "preflight"]);
+    }),
+  );
+
+  it.effect("allows automatic update staging to be interrupted before handoff", () =>
+    Effect.gen(function* () {
+      const installStarted = yield* Deferred.make<void>();
+      const releaseInstall = yield* Deferred.make<void>();
+      let installs = 0;
+      const { selfUpdate, order } = yield* makeHarness({
+        install: () => {
+          installs += 1;
+          return installs === 1
+            ? Deferred.succeed(installStarted, undefined).pipe(
+                Effect.andThen(Deferred.await(releaseInstall)),
+              )
+            : Effect.void;
+        },
+      });
+      const updateFiber = yield* selfUpdate
+        .update({ targetVersion: "1.1.0", automatic: true })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(installStarted);
+      const interruptFiber = yield* Fiber.interrupt(updateFiber).pipe(Effect.forkChild);
+      yield* Deferred.succeed(releaseInstall, undefined);
+      yield* Fiber.join(interruptFiber);
+
+      expect(order).toEqual(["install"]);
+      expect(yield* selfUpdate.update({ targetVersion: "1.1.0", automatic: true })).toEqual({
+        targetVersion: "1.1.0",
+        method: "boot-service",
+        updateId: "launcher-id",
+      });
     }),
   );
 

@@ -2130,8 +2130,11 @@ function ChatViewContent(props: ChatViewProps) {
     if (
       serverUpdateEnvironmentId &&
       !reconnectingThroughVersionSkew &&
-      (serverUpdateState.status !== "idle" ||
-        (showVersionMismatchBanner && versionMismatch && versionMismatchDismissKey))
+      (serverUpdateState.status === "running" ||
+        serverUpdateState.status === "failed" ||
+        (showVersionMismatchBanner &&
+          (serverUpdateState.status === "pending" ||
+            (versionMismatch && versionMismatchDismissKey))))
     ) {
       const updateInProgress = serverUpdateState.status === "running";
       const updatePending = serverUpdateState.status === "pending";
@@ -2181,6 +2184,7 @@ function ChatViewContent(props: ChatViewProps) {
         // slot would only repeat it.
         actions:
           updateInProgress ||
+          updatePending ||
           !versionMismatch ||
           versionMismatchSelfUpdate === "desktop-managed" ? undefined : (
             <ServerUpdateAction

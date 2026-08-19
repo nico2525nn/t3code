@@ -1395,10 +1395,13 @@ function AutomaticServerUpdateControl({
 
   if (compact) {
     return (
-      <div className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
+      <label
+        className="flex w-fit cursor-pointer items-center gap-2 pt-1 text-xs text-muted-foreground"
+        onClick={(event) => event.stopPropagation()}
+      >
         {controlWithExplanation}
         <span>Auto-update when idle</span>
-      </div>
+      </label>
     );
   }
 
