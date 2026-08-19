@@ -409,6 +409,14 @@ export const EnvironmentConnectAuthToken = Schema.Struct({
 });
 export type EnvironmentConnectAuthToken = typeof EnvironmentConnectAuthToken.Type;
 
+// Fallback for a browser that landed on the hosted out-of-band code page
+// instead of the loopback callback: the pasted code completes the pending
+// sign-in.
+export const EnvironmentConnectAuthCodeRequest = Schema.Struct({
+  code: Schema.String,
+});
+export type EnvironmentConnectAuthCodeRequest = typeof EnvironmentConnectAuthCodeRequest.Type;
+
 export const AuthPairingLinkRevokeResult = Schema.Struct({
   revoked: Schema.Boolean,
 });
@@ -618,6 +626,14 @@ export class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
   .add(
     HttpApiEndpoint.post("authLogin", "/api/connect/auth/login", {
       headers: OptionalBearerHeaders,
+      success: EnvironmentConnectAuthState,
+      error: EnvironmentHttpCloudErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("authCode", "/api/connect/auth/code", {
+      headers: OptionalBearerHeaders,
+      payload: EnvironmentConnectAuthCodeRequest,
       success: EnvironmentConnectAuthState,
       error: EnvironmentHttpCloudErrors,
     }).middleware(EnvironmentAuthenticatedAuth),

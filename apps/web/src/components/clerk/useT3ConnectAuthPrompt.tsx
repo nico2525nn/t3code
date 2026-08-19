@@ -12,16 +12,22 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
+import { Input } from "../ui/input";
 
 /**
  * Opens T3 Connect sign-in. On the web this is Clerk's modal; on desktop the
  * system browser handles the whole flow, so `authPrompt` renders a small
  * waiting dialog that closes itself once the environment server reports the
- * session.
+ * session. The dialog also accepts a pasted authorization code for browsers
+ * that landed on the hosted out-of-band page instead of the loopback
+ * callback.
  */
 export function useT3ConnectAuthPrompt() {
   const auth = useT3ConnectAuth();
   const [promptOpen, setPromptOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [submittingCode, setSubmittingCode] = useState(false);
 
   useEffect(() => {
     if (auth.isSignedIn) {
@@ -32,7 +38,22 @@ export function useT3ConnectAuthPrompt() {
   const openAuthPrompt = () => {
     auth.signIn();
     if (isElectron) {
+      setCode("");
+      setCodeError(null);
       setPromptOpen(true);
+    }
+  };
+
+  const submitCode = async () => {
+    const value = code.trim();
+    if (!auth.submitLoginCode || !value || submittingCode) return;
+    setSubmittingCode(true);
+    setCodeError(null);
+    const error = await auth.submitLoginCode(value);
+    setSubmittingCode(false);
+    setCodeError(error);
+    if (error === null) {
+      setCode("");
     }
   };
 
@@ -62,6 +83,34 @@ export function useT3ConnectAuthPrompt() {
               </>
             ) : null}
           </p>
+          {auth.submitLoginCode ? (
+            <div className="mt-4 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Got an authorization code instead? Paste it here.
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  aria-label="Authorization code"
+                  autoComplete="off"
+                  placeholder="Authorization code"
+                  spellCheck={false}
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void submitCode();
+                  }}
+                />
+                <Button
+                  disabled={submittingCode || code.trim().length === 0}
+                  variant="outline"
+                  onClick={() => void submitCode()}
+                >
+                  Use code
+                </Button>
+              </div>
+              {codeError ? <p className="text-xs text-destructive">{codeError}</p> : null}
+            </div>
+          ) : null}
         </DialogPanel>
         <DialogFooter>
           <Button variant="ghost" onClick={() => setPromptOpen(false)}>

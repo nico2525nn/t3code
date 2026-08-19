@@ -849,6 +849,19 @@ const connectAuthLoginHandler = Effect.fn("environment.cloud.authLogin")(functio
     .clientAuthState) satisfies EnvironmentConnectAuthState;
 }, Effect.catchTags(cloudCliTokenManagerErrorHandlers));
 
+const connectAuthCodeHandler = Effect.fn("environment.cloud.authCode")(function* (
+  dependencies: CloudHttpDependencies,
+  payload: { readonly code: string },
+) {
+  yield* requireEnvironmentScope(AuthRelayWriteScope);
+  const result = yield* dependencies.cliTokenManager.submitBrowserLoginCode(payload.code);
+  if (!result.accepted) {
+    return yield* new EnvironmentHttpBadRequestError({ message: result.reason });
+  }
+  return (yield* dependencies.cliTokenManager
+    .clientAuthState) satisfies EnvironmentConnectAuthState;
+}, Effect.catchTags(cloudCliTokenManagerErrorHandlers));
+
 const connectAuthLogoutHandler = Effect.fn("environment.cloud.authLogout")(function* (
   dependencies: CloudHttpDependencies,
 ) {
@@ -1128,6 +1141,7 @@ export const connectHttpApiLayer = HttpApiBuilder.group(
       .handle("preferences", ({ payload }) => cloudPreferencesHandler(dependencies, payload))
       .handle("authState", () => connectAuthStateHandler(dependencies))
       .handle("authLogin", () => connectAuthLoginHandler(dependencies))
+      .handle("authCode", ({ payload }) => connectAuthCodeHandler(dependencies, payload))
       .handle("authLogout", () => connectAuthLogoutHandler(dependencies))
       .handle("authToken", () => connectAuthTokenHandler(dependencies))
       .handle("health", ({ payload }) => cloudEnvironmentHealthHandler(dependencies, payload))

@@ -257,6 +257,11 @@ export class CloudCliTokenManager extends Context.Service<
       { readonly authorizationUrl: string },
       CloudCliTokenManagerError
     >;
+    readonly submitBrowserLoginCode: (
+      value: string,
+    ) => Effect.Effect<
+      { readonly accepted: true } | { readonly accepted: false; readonly reason: string }
+    >;
   }
 >()("t3/cloud/CliTokenManager/CloudCliTokenManager") {}
 
@@ -558,7 +563,13 @@ export const make = Effect.gen(function* () {
     );
   });
 
-  const pendingLoginRef = yield* Ref.make(Option.none<{ readonly authorizationUrl: string }>());
+  const pendingLoginRef = yield* Ref.make(
+    Option.none<{
+      readonly authorizationUrl: string;
+      readonly state: string;
+      readonly manualCode: Deferred.Deferred<string>;
+    }>(),
+  );
   const loginSemaphore = yield* Semaphore.make(1);
 
   // Desktop sign-in: the same loopback authorization-code + PKCE flow as the
@@ -581,7 +592,8 @@ export const make = Effect.gen(function* () {
         challenge,
         loopbackPort: metadata.loopbackPort,
       });
-      yield* Ref.set(pendingLoginRef, Option.some({ authorizationUrl }));
+      const manualCode = yield* Deferred.make<string>();
+      yield* Ref.set(pendingLoginRef, Option.some({ authorizationUrl, state, manualCode }));
       yield* Effect.scoped(
         Effect.gen(function* () {
           const { awaitCode } = yield* makeLoopbackCallbackServer(metadata, state);
@@ -592,11 +604,21 @@ export const make = Effect.gen(function* () {
                 Effect.logWarning("Could not open a browser for T3 Connect sign-in.", { cause }),
               ),
             );
-          const code = yield* awaitCode;
+          // A browser that lost the loopback port (e.g. a hosted app predating
+          // #6285) lands on the out-of-band code page instead of the loopback
+          // callback. A code pasted into the client completes the same
+          // attempt — Clerk issued it against the hosted callback redirect
+          // URI, so the exchange must name that URI.
+          const authorization = yield* Effect.raceFirst(
+            awaitCode.pipe(Effect.map((code) => ({ code, redirectUri: metadata.redirectUri }))),
+            Deferred.await(manualCode).pipe(
+              Effect.map((code) => ({ code, redirectUri: connectCallbackUrl(hostedAppUrl) })),
+            ),
+          );
           const { token } = yield* exchangeToken(metadata, {
             grant_type: "authorization_code",
-            code,
-            redirect_uri: metadata.redirectUri,
+            code: authorization.code,
+            redirect_uri: authorization.redirectUri,
             client_id: metadata.clientId,
             code_verifier: verifier,
           });
@@ -615,6 +637,26 @@ export const make = Effect.gen(function* () {
       Effect.provide(services),
     ),
   );
+
+  // Completes a pending browser login with a code pasted from the hosted
+  // out-of-band page. Validation mirrors the CLI's headless prompt.
+  const submitBrowserLoginCode = Effect.fn("cloud.cli_token.submit_browser_login_code")(function* (
+    value: string,
+  ) {
+    const pending = yield* Ref.get(pendingLoginRef);
+    if (Option.isNone(pending)) {
+      return {
+        accepted: false,
+        reason: "No sign-in is waiting for a code. Start the sign-in again.",
+      } as const;
+    }
+    const checked = checkConnectAuthCode(value.trim(), pending.value.state);
+    if (typeof checked === "string") {
+      return { accepted: false, reason: checked } as const;
+    }
+    yield* Deferred.succeed(pending.value.manualCode, checked.code);
+    return { accepted: true } as const;
+  });
 
   const clientAuthState = semaphore.withPermits(1)(
     Effect.gen(function* () {
@@ -672,6 +714,7 @@ export const make = Effect.gen(function* () {
     clear,
     clientAuthState,
     beginBrowserLogin,
+    submitBrowserLoginCode,
   });
 });
 

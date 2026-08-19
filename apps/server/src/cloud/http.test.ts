@@ -225,6 +225,7 @@ describe("reconcileDesiredCloudLink", () => {
           clear: unusedSecretStoreOperation(),
           clientAuthState: unusedSecretStoreOperation(),
           beginBrowserLogin: unusedSecretStoreOperation(),
+          submitBrowserLoginCode: () => unusedSecretStoreOperation(),
         }),
       ),
       Effect.provideService(
@@ -325,6 +326,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
             clear: unusedSecretStoreOperation(),
             clientAuthState: unusedSecretStoreOperation(),
             beginBrowserLogin: unusedSecretStoreOperation(),
+            submitBrowserLoginCode: () => unusedSecretStoreOperation(),
           }),
         ),
         Effect.provideService(

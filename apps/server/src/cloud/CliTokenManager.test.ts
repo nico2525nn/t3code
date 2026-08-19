@@ -312,6 +312,15 @@ const readStoredToken = (secrets: Map<string, Uint8Array>) => {
   return bytes === undefined ? null : decodeStoredToken(new TextDecoder().decode(bytes));
 };
 
+// The login fiber clears the pending flag in an `ensuring` just after it
+// persists the credential; yield until that final step lands.
+const awaitPendingLoginSettled = (manager: CliTokenManager.CloudCliTokenManager["Service"]) =>
+  Effect.gen(function* () {
+    while ((yield* manager.clientAuthState.pipe(provideTestEnv)).pendingLogin) {
+      yield* Effect.yieldNow;
+    }
+  });
+
 const unusedTerminal = Terminal.make({
   columns: Effect.succeed(80),
   rows: Effect.succeed(24),
@@ -383,6 +392,7 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
       }).pipe(Effect.provide(FetchHttpClient.layer));
       assert.equal(callback.status, 200);
       yield* Deferred.await(persisted);
+      yield* awaitPendingLoginSettled(manager);
 
       const state = yield* manager.clientAuthState.pipe(provideTestEnv);
       assert.isTrue(state.authorized);
@@ -396,6 +406,67 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
       assert.equal(exchange.params.get("grant_type"), "authorization_code");
       assert.equal(exchange.params.get("code"), "clerk-code-123");
       assert.equal(exchange.params.get("redirect_uri"), "http://127.0.0.1:34338/callback");
+    }),
+  );
+
+  it.effect("completes a pending browser login with a pasted out-of-band code", () =>
+    Effect.gen(function* () {
+      const requests: Array<RecordedTokenRequest> = [];
+      const memory = makeMemorySecretStore();
+      const persisted = yield* Deferred.make<void>();
+      const store: ServerSecretStore.ServerSecretStore["Service"] = {
+        ...memory.service,
+        set: (name, value) =>
+          memory.service
+            .set(name, value)
+            .pipe(Effect.andThen(Deferred.succeed(persisted, undefined))),
+      };
+
+      const manager = yield* CliTokenManager.make.pipe(
+        Effect.provideService(ServerSecretStore.ServerSecretStore, store),
+        Effect.provideService(Terminal.Terminal, unusedTerminal),
+        Effect.provideService(ExternalLauncher.ExternalLauncher, {
+          resolveAvailableEditors: () => Effect.succeed([]),
+          launchBrowser: () => Effect.void,
+          launchEditor: () => Effect.die("unused launchEditor"),
+        }),
+        Effect.provide(
+          makeTokenEndpointLayer(requests, {
+            idToken: makeTestIdToken({ email: "theo@example.test", sub: "user_oob" }),
+          }),
+        ),
+        provideTestEnv,
+      );
+
+      const rejectedWithoutLogin = yield* manager.submitBrowserLoginCode("code.state");
+      assert.isFalse(rejectedWithoutLogin.accepted);
+
+      const { authorizationUrl } = yield* manager.beginBrowserLogin.pipe(provideTestEnv);
+      const request = readConnectAuthorizeRequest(new URL(authorizationUrl));
+      assert.isNotNull(request);
+
+      const rejected = yield* manager.submitBrowserLoginCode("clerk-code-456.wrong-state");
+      assert.isFalse(rejected.accepted);
+      assert.lengthOf(requests, 0);
+
+      const accepted = yield* manager.submitBrowserLoginCode(` clerk-code-456.${request!.state} `);
+      assert.isTrue(accepted.accepted);
+      yield* Deferred.await(persisted);
+      yield* awaitPendingLoginSettled(manager);
+
+      const state = yield* manager.clientAuthState.pipe(provideTestEnv);
+      assert.isTrue(state.authorized);
+      assert.isFalse(state.pendingLogin);
+
+      // The out-of-band code was issued against the hosted callback redirect
+      // URI, so the exchange must name it instead of the loopback URI.
+      assert.lengthOf(requests, 1);
+      const exchange = requests[0]!;
+      assert.equal(exchange.params.get("code"), "clerk-code-456");
+      assert.equal(
+        exchange.params.get("redirect_uri"),
+        "https://hosted.example.test/connect/callback",
+      );
     }),
   );
 

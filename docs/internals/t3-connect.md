@@ -174,7 +174,10 @@ the hosted `/connect` page, waits on `http://127.0.0.1:34338/callback`, exchange
 persists the credential as the `cloud-cli-oauth-token` secret. The renderer watches
 `/api/connect/auth/state` while the sign-in is pending and reads the access token from
 `/api/connect/auth/token` for relay calls, so one stored credential serves the desktop app and the
-CLI on the same T3 home in both directions. Passkeys, sign-up, and account management all happen in
+CLI on the same T3 home in both directions. A browser that lands on the hosted out-of-band code
+page instead of the loopback callback (a hosted app predating #6285 drops the loopback port through
+sign-in) can be recovered without restarting: the waiting dialog accepts the displayed code through
+`/api/connect/auth/code`, and the server exchanges it against the hosted callback redirect URI. Passkeys, sign-up, and account management all happen in
 the browser, where they work.
 
 The renderer-side split lives in `apps/web/src/cloud/connectAuth.tsx`: `useT3ConnectAuth` is the one

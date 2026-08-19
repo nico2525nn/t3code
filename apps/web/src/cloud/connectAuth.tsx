@@ -1,6 +1,10 @@
 import { useAuth, useClerk } from "@clerk/react";
-import type { EnvironmentConnectAuthState } from "@t3tools/contracts";
+import {
+  EnvironmentHttpBadRequestError,
+  type EnvironmentConnectAuthState,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import {
   createContext,
   useCallback,
@@ -36,6 +40,12 @@ export interface T3ConnectAuth {
   readonly getToken: () => Promise<string | null>;
   readonly signIn: () => void;
   readonly signOut: () => Promise<void>;
+  /**
+   * Desktop only: completes a pending sign-in with a code pasted from the
+   * hosted out-of-band page. Resolves with an error message to display, or
+   * null when the code was accepted.
+   */
+  readonly submitLoginCode?: (code: string) => Promise<string | null>;
 }
 
 // Rendered when no auth provider is mounted (cloud config absent). Cloud UI
@@ -100,6 +110,26 @@ const readAuthToken = Effect.gen(function* () {
   const client = yield* PrimaryEnvironmentHttpClient;
   return yield* client.connect.authToken({ headers: {} });
 });
+
+const submitAuthCode = (code: string) =>
+  Effect.gen(function* () {
+    const client = yield* PrimaryEnvironmentHttpClient;
+    return yield* client.connect.authCode({ headers: {}, payload: { code } });
+  });
+
+const isBadRequest = Schema.is(EnvironmentHttpBadRequestError);
+
+// The server reports a rejected code as a 400 with a human-readable message;
+// dig it out of the wrapped client error.
+function loginCodeErrorMessage(cause: unknown): string {
+  for (let current = cause; typeof current === "object" && current !== null; ) {
+    if (isBadRequest(current)) {
+      return current.message;
+    }
+    current = "cause" in current ? current.cause : null;
+  }
+  return "Could not use that code. Start the sign-in again.";
+}
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const LOGIN_WATCH_INTERVAL_MS = 2_000;
@@ -192,6 +222,18 @@ export function DesktopConnectAuthProvider({ children }: { readonly children: Re
     }
   }, [applyState]);
 
+  const submitLoginCode = useCallback(
+    async (code: string) => {
+      try {
+        applyState(await runPrimaryHttp(submitAuthCode(code)));
+        return null;
+      } catch (cause) {
+        return loginCodeErrorMessage(cause);
+      }
+    },
+    [applyState],
+  );
+
   const value = useMemo<T3ConnectAuth>(
     () => ({
       isLoaded,
@@ -206,8 +248,9 @@ export function DesktopConnectAuthProvider({ children }: { readonly children: Re
       getToken,
       signIn,
       signOut,
+      submitLoginCode,
     }),
-    [getToken, isLoaded, pendingLogin, signIn, signOut, state],
+    [getToken, isLoaded, pendingLogin, signIn, signOut, state, submitLoginCode],
   );
   return <T3ConnectAuthContext.Provider value={value}>{children}</T3ConnectAuthContext.Provider>;
 }

@@ -6,7 +6,15 @@ import { useT3ConnectAuth } from "../../cloud/connectAuth";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
 import { isElectron } from "../../env";
 import { Dialog, DialogPanel, DialogPopup } from "../ui/dialog";
-import { Menu, MenuGroupLabel, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "../ui/menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
 import { MobileClientsUserProfilePage } from "./MobileClientsUserProfilePage";
 import { T3ConnectUserProfilePage } from "./T3ConnectUserProfilePage";
@@ -83,9 +91,11 @@ function DesktopConnectAvatar() {
           </span>
         </MenuTrigger>
         <MenuPopup align="start">
-          <MenuGroupLabel className="max-w-56 truncate">
-            {identity ?? "Signed in to T3 Connect"}
-          </MenuGroupLabel>
+          <MenuGroup>
+            <MenuGroupLabel className="max-w-56 truncate">
+              {identity ?? "Signed in to T3 Connect"}
+            </MenuGroupLabel>
+          </MenuGroup>
           <MenuSeparator />
           <MenuItem onClick={() => setOpenPage("t3-connect")}>
             <ServerIcon className="size-4" />
