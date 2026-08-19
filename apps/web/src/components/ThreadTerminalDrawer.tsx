@@ -1761,7 +1761,8 @@ export default function ThreadTerminalDrawer({
                         <div
                           key={terminalId}
                           className={cn(
-                            "group/tab flex h-6 items-center gap-0.5 rounded-md pr-2 text-xs",
+                            "group/tab flex items-center gap-0.5 rounded-md pr-2 text-xs",
+                            isRenaming ? "min-h-6" : "h-6",
                             isSplitGroup ? "pl-0.5" : "pl-1.5",
                             isActive
                               ? "bg-accent text-foreground"
