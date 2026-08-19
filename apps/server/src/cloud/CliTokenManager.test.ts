@@ -1,6 +1,7 @@
 import { readConnectAuthorizeRequest } from "@t3tools/shared/connectAuth";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import { afterEach } from "vite-plus/test";
 import * as Clock from "effect/Clock";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Crypto from "effect/Crypto";
@@ -286,6 +287,17 @@ const TestUserinfoJson = Schema.fromJsonString(
 );
 const encodeUserinfo = Schema.encodeSync(TestUserinfoJson);
 
+// The loopback tests share one real origin across sequential tests; send
+// connection: close so the global fetch dispatcher never reuses a socket the
+// previous test's server already closed.
+const fetchLoopbackCallback = (url: string) =>
+  Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient;
+    return yield* client.execute(
+      HttpClientRequest.get(url).pipe(HttpClientRequest.setHeader("connection", "close")),
+    );
+  }).pipe(Effect.provide(FetchHttpClient.layer));
+
 const makeMemorySecretStore = () => {
   const secrets = new Map<string, Uint8Array>();
   const service: ServerSecretStore.ServerSecretStore["Service"] = {
@@ -330,6 +342,22 @@ const unusedTerminal = Terminal.make({
 });
 
 it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
+  // A failed test must not leave its attempt fiber holding the loopback port
+  // for the 10-minute callback timeout, poisoning every later test.
+  let activeManager: CliTokenManager.CloudCliTokenManager["Service"] | null = null;
+  afterEach(async () => {
+    const manager = activeManager;
+    activeManager = null;
+    if (manager) {
+      await Effect.runPromise(
+        manager.clear.pipe(
+          Effect.ignore,
+          Effect.andThen(awaitPendingLoginSettled(manager).pipe(Effect.ignore)),
+        ),
+      );
+    }
+  });
+
   it.effect("opens the browser, exchanges the callback code, and persists the credential", () =>
     Effect.gen(function* () {
       const requests: Array<RecordedTokenRequest> = [];
@@ -363,6 +391,7 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
         ),
         provideTestEnv,
       );
+      activeManager = manager;
 
       const { authorizationUrl } = yield* manager.beginBrowserLogin.pipe(provideTestEnv);
       const request = readConnectAuthorizeRequest(new URL(authorizationUrl));
@@ -382,14 +411,9 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
       // launch signal is the receipt that the callback URL is reachable.
       yield* Deferred.await(browserOpened);
       assert.deepEqual(opened, [authorizationUrl]);
-      const callback = yield* Effect.gen(function* () {
-        const client = yield* HttpClient.HttpClient;
-        return yield* client.execute(
-          HttpClientRequest.get(
-            `http://127.0.0.1:34338/callback?code=clerk-code-123&state=${encodeURIComponent(request!.state)}`,
-          ),
-        );
-      }).pipe(Effect.provide(FetchHttpClient.layer));
+      const callback = yield* fetchLoopbackCallback(
+        `http://127.0.0.1:34338/callback?code=clerk-code-123&state=${encodeURIComponent(request!.state)}`,
+      );
       assert.equal(callback.status, 200);
       yield* Deferred.await(persisted);
       yield* awaitPendingLoginSettled(manager);
@@ -426,6 +450,7 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
         Effect.provide(makeTokenEndpointLayer(requests)),
         provideTestEnv,
       );
+      activeManager = manager;
 
       yield* manager.beginBrowserLogin.pipe(provideTestEnv);
       yield* Deferred.await(browserOpened);
@@ -471,6 +496,7 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
         ),
         provideTestEnv,
       );
+      activeManager = manager;
 
       // First attempt gets cancelled by a sign-out; the second must not lose
       // its pending state to the first fiber's cleanup, and must be able to
@@ -488,14 +514,9 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
 
       const request = readConnectAuthorizeRequest(new URL(second.authorizationUrl));
       assert.isNotNull(request);
-      const callback = yield* Effect.gen(function* () {
-        const client = yield* HttpClient.HttpClient;
-        return yield* client.execute(
-          HttpClientRequest.get(
-            `http://127.0.0.1:34338/callback?code=clerk-code-789&state=${encodeURIComponent(request!.state)}`,
-          ),
-        );
-      }).pipe(Effect.provide(FetchHttpClient.layer));
+      const callback = yield* fetchLoopbackCallback(
+        `http://127.0.0.1:34338/callback?code=clerk-code-789&state=${encodeURIComponent(request!.state)}`,
+      );
       assert.equal(callback.status, 200);
       yield* Deferred.await(persisted);
       yield* awaitPendingLoginSettled(manager);
@@ -525,20 +546,16 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
         Effect.provide(makeTokenEndpointLayer(requests)),
         provideTestEnv,
       );
+      activeManager = manager;
 
       const { authorizationUrl } = yield* manager.beginBrowserLogin.pipe(provideTestEnv);
       const request = readConnectAuthorizeRequest(new URL(authorizationUrl));
       assert.isNotNull(request);
       yield* Deferred.await(browserOpened);
 
-      const callback = yield* Effect.gen(function* () {
-        const client = yield* HttpClient.HttpClient;
-        return yield* client.execute(
-          HttpClientRequest.get(
-            `http://127.0.0.1:34338/callback?error=access_denied&state=${encodeURIComponent(request!.state)}`,
-          ),
-        );
-      }).pipe(Effect.provide(FetchHttpClient.layer));
+      const callback = yield* fetchLoopbackCallback(
+        `http://127.0.0.1:34338/callback?error=access_denied&state=${encodeURIComponent(request!.state)}`,
+      );
       assert.equal(callback.status, 200);
       yield* awaitPendingLoginSettled(manager);
 
@@ -577,6 +594,7 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
         ),
         provideTestEnv,
       );
+      activeManager = manager;
 
       const rejectedWithoutLogin = yield* manager.submitBrowserLoginCode("code.state");
       assert.isFalse(rejectedWithoutLogin.accepted);
@@ -656,6 +674,7 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
         Effect.provide(userinfoLayer),
         provideTestEnv,
       );
+      activeManager = manager;
 
       const state = yield* manager.clientAuthState.pipe(provideTestEnv);
       assert.isTrue(state.authorized);
