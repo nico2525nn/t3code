@@ -216,6 +216,7 @@ export const make = (options: PluginRuntimeOptions = {}) =>
     const parentScope = yield* Effect.scope;
     const transitionSemaphore = yield* Semaphore.make(1);
     let current: LiveComposition = { plugins: [], snapshot: emptySnapshot() };
+    let disposalStarted = false;
     let disposed = false;
     const callbackContext = new NodeAsyncHooks.AsyncLocalStorage<PluginCallbackContext>();
 
@@ -278,17 +279,18 @@ export const make = (options: PluginRuntimeOptions = {}) =>
       pluginId: string,
       invoke: () => Result | PromiseLike<Result>,
       onSettled?: () => void,
-    ): Effect.Effect<Result, PluginCallbackError> =>
-      Effect.tryPromise({
+    ): Effect.Effect<Result, PluginCallbackError> => {
+      const callbackState: PluginCallbackContext = { active: true, callback, pluginId };
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        callbackState.active = false;
+        onSettled?.();
+      };
+
+      return Effect.tryPromise({
         try: async () => {
-          const callbackState: PluginCallbackContext = { active: true, callback, pluginId };
-          let settled = false;
-          const settle = () => {
-            if (settled) return;
-            settled = true;
-            callbackState.active = false;
-            onSettled?.();
-          };
           try {
             const result = callbackContext.run(callbackState, invoke);
             if (typeof result === "object" && result !== null && "then" in result) {
@@ -302,7 +304,8 @@ export const make = (options: PluginRuntimeOptions = {}) =>
           }
         },
         catch: (cause) => new PluginCallbackError({ callback, cause, pluginId }),
-      });
+      }).pipe(Effect.ensuring(Effect.sync(settle)));
+    };
 
     const activatePlugin = (
       definition: PluginDefinition,
@@ -377,7 +380,7 @@ export const make = (options: PluginRuntimeOptions = {}) =>
       definitions: ReadonlyArray<PluginDefinition>,
     ): Effect.Effect<PluginRuntimeSnapshot, PluginRuntimeReconcileError> =>
       Effect.gen(function* () {
-        if (disposed) {
+        if (disposalStarted) {
           return yield* new PluginRuntimeDisposedError({ operation: "reconcile" });
         }
 
@@ -446,18 +449,21 @@ export const make = (options: PluginRuntimeOptions = {}) =>
       });
 
     const disposeEffect = (): Effect.Effect<void, PluginRuntimeCleanupError> =>
-      Effect.gen(function* () {
-        if (disposed) return;
-        disposed = true;
-        const previous = current.plugins;
-        current = { plugins: [], snapshot: emptySnapshot() };
-        const failures = [...(yield* closePlugins(previous, true))];
-        if (failures.length > 0) {
-          return yield* new PluginRuntimeCleanupError({
-            failures: failures.map(({ error, pluginId }) => ({ cause: error, pluginId })),
-          });
-        }
-      });
+      Effect.uninterruptible(
+        Effect.gen(function* () {
+          if (disposed) return;
+          disposalStarted = true;
+          const previous = current.plugins;
+          const failures = [...(yield* closePlugins(previous, true))];
+          current = { plugins: [], snapshot: emptySnapshot() };
+          disposed = true;
+          if (failures.length > 0) {
+            return yield* new PluginRuntimeCleanupError({
+              failures: failures.map(({ error, pluginId }) => ({ cause: error, pluginId })),
+            });
+          }
+        }),
+      );
 
     const runTransition = <Result, Failure>(
       operation: RuntimeOperation,
@@ -478,12 +484,14 @@ export const make = (options: PluginRuntimeOptions = {}) =>
       });
 
     yield* Effect.addFinalizer(() =>
-      disposeEffect().pipe(
+      runTransition("dispose", disposeEffect).pipe(
         Effect.catch((error) =>
-          reportCleanupErrors(
-            "retire",
-            error.failures.map(({ cause, pluginId }) => ({ error: cause, pluginId })),
-          ),
+          "failures" in error
+            ? reportCleanupErrors(
+                "retire",
+                error.failures.map(({ cause, pluginId }) => ({ error: cause, pluginId })),
+              )
+            : Effect.void,
         ),
       ),
     );
