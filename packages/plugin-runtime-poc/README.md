@@ -14,7 +14,7 @@ cordis satisfies the contract, but the adapter still needs a t3-specific planner
 
 ## proved
 
-- 30 tests cover dependency order, blocking, rollback, cycles, unchanged fiber reuse, order-insensitive declarations, activation implementation replacement, active callback reentrancy, synchronous callback microtasks, plain-function callback returns, descendant async tasks, late activation-context calls, queued input snapshots, observer isolation, cleanup reporting, unusual ids and slots, and immutable snapshots
+- 31 tests cover dependency order, blocking, rollback, cycles, unchanged fiber reuse, order-insensitive declarations, activation implementation replacement, active callback reentrancy, synchronous callback microtasks, plain-function callback returns, prompt activation-context expiry, descendant async tasks, late activation-context calls, queued input snapshots, observer isolation, cleanup reporting, unusual ids and slots, and immutable snapshots
 - manifest validation enforces semver, prevents entrypoint path escape, and keeps mobile declarative
 - the demo exercises activation, replacement, teardown, and a 250-plugin chain
 
