@@ -5,10 +5,4 @@ export type {
   PluginRuntimeOptions,
   PluginRuntimeSnapshot,
 } from "./contract.ts";
-export {
-  layer,
-  make,
-  PluginRuntime,
-  type PluginRuntimeDisposeError,
-  type PluginRuntimeReconcileError,
-} from "./runtime.ts";
+export * as PluginRuntime from "./runtime.ts";

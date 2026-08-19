@@ -311,70 +311,78 @@ export const make = (options: PluginRuntimeOptions = {}) =>
       definition: PluginDefinition,
       capabilities: ReadonlyMap<string, unknown>,
     ): Effect.Effect<LivePlugin, PluginCallbackError> =>
-      Effect.gen(function* () {
-        const scope = yield* Scope.fork(parentScope, "sequential");
-        const contributions = new Map<string, Array<Contribution>>();
-        const cleanupErrors: Array<unknown> = [];
-        const finalizers: Array<() => void | Promise<void>> = [];
-        const plugin: LivePlugin = { definition, scope, contributions, cleanupErrors };
-        let activating = true;
-        const assertActivating = (method: "resolve" | "register" | "onDispose") => {
-          if (!activating) {
-            throw new PluginActivationContextExpiredError({ method, pluginId: definition.id });
-          }
-        };
-
-        const context: PluginActivationContext = {
-          resolve: <Service>(capability: string): Service => {
-            assertActivating("resolve");
-            if (!(definition.requires ?? []).includes(capability)) {
-              throw new PluginUndeclaredCapabilityError({ capability, pluginId: definition.id });
+      Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const scope = yield* Scope.fork(parentScope, "sequential");
+          const contributions = new Map<string, Array<Contribution>>();
+          const cleanupErrors: Array<unknown> = [];
+          const finalizers: Array<() => void | Promise<void>> = [];
+          const plugin: LivePlugin = { definition, scope, contributions, cleanupErrors };
+          let activating = true;
+          const assertActivating = (method: "resolve" | "register" | "onDispose") => {
+            if (!activating) {
+              throw new PluginActivationContextExpiredError({ method, pluginId: definition.id });
             }
-            if (!capabilities.has(capability)) {
-              throw new PluginResolutionError({ capability, pluginId: definition.id });
-            }
-            return capabilities.get(capability) as Service;
-          },
-          register: (slot, contribution) => {
-            assertActivating("register");
-            const values = contributions.get(slot) ?? [];
-            values.push(Object.freeze({ id: contribution.id, label: contribution.label }));
-            contributions.set(slot, values);
-          },
-          onDispose: (finalizer) => {
-            assertActivating("onDispose");
-            finalizers.push(finalizer);
-          },
-        };
+          };
 
-        const activationExit = yield* Effect.exit(
-          invokePluginCallback(
-            "activate",
-            definition.id,
-            () => definition.activate(context),
-            () => {
-              activating = false;
+          const context: PluginActivationContext = {
+            resolve: <Service>(capability: string): Service => {
+              assertActivating("resolve");
+              if (!(definition.requires ?? []).includes(capability)) {
+                throw new PluginUndeclaredCapabilityError({ capability, pluginId: definition.id });
+              }
+              if (!capabilities.has(capability)) {
+                throw new PluginResolutionError({ capability, pluginId: definition.id });
+              }
+              return capabilities.get(capability) as Service;
             },
-          ),
-        );
-        for (const finalizer of finalizers) {
-          const finalizerEffect = invokePluginCallback("finalizer", definition.id, finalizer).pipe(
-            Effect.catch((error) =>
-              Effect.sync(() => {
-                cleanupErrors.push(error);
-              }),
+            register: (slot, contribution) => {
+              assertActivating("register");
+              const values = contributions.get(slot) ?? [];
+              values.push(Object.freeze({ id: contribution.id, label: contribution.label }));
+              contributions.set(slot, values);
+            },
+            onDispose: (finalizer) => {
+              assertActivating("onDispose");
+              finalizers.push(finalizer);
+            },
+          };
+
+          const activationExit = yield* Effect.exit(
+            restore(
+              invokePluginCallback(
+                "activate",
+                definition.id,
+                () => definition.activate(context),
+                () => {
+                  activating = false;
+                },
+              ),
             ),
           );
-          yield* Scope.addFinalizer(scope, finalizerEffect);
-        }
+          for (const finalizer of finalizers) {
+            const finalizerEffect = invokePluginCallback(
+              "finalizer",
+              definition.id,
+              finalizer,
+            ).pipe(
+              Effect.catch((error) =>
+                Effect.sync(() => {
+                  cleanupErrors.push(error);
+                }),
+              ),
+            );
+            yield* Scope.addFinalizer(scope, finalizerEffect);
+          }
 
-        if (Exit.isFailure(activationExit)) {
-          const failures = yield* closePlugins([plugin], false);
-          yield* reportCleanupErrors("rollback", failures);
-          return yield* Effect.failCause(activationExit.cause);
-        }
-        return plugin;
-      });
+          if (Exit.isFailure(activationExit)) {
+            const failures = yield* closePlugins([plugin], false);
+            yield* reportCleanupErrors("rollback", failures);
+            return yield* Effect.failCause(activationExit.cause);
+          }
+          return plugin;
+        }),
+      );
 
     const reconcileEffect = (
       definitions: ReadonlyArray<PluginDefinition>,
@@ -406,46 +414,52 @@ export const make = (options: PluginRuntimeOptions = {}) =>
           }
         }
 
-        const staged = new Map<string, LivePlugin>();
-        const candidateExit = yield* Effect.exit(
+        return yield* Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
-            for (const definition of plan.definitions) {
-              if (!affected.has(definition.id)) continue;
-              const plugin = yield* activatePlugin(definition, capabilities);
-              staged.set(definition.id, plugin);
-              for (const [capability, service] of Object.entries(definition.provides ?? {})) {
-                capabilities.set(capability, service);
-              }
+            const staged = new Map<string, LivePlugin>();
+            const candidateExit = yield* Effect.exit(
+              restore(
+                Effect.gen(function* () {
+                  for (const definition of plan.definitions) {
+                    if (!affected.has(definition.id)) continue;
+                    const plugin = yield* activatePlugin(definition, capabilities);
+                    staged.set(definition.id, plugin);
+                    for (const [capability, service] of Object.entries(definition.provides ?? {})) {
+                      capabilities.set(capability, service);
+                    }
+                  }
+
+                  const nextPlugins: Array<LivePlugin> = [];
+                  for (const definition of plan.definitions) {
+                    const plugin = staged.get(definition.id) ?? currentById.get(definition.id);
+                    if (plugin === undefined) {
+                      return yield* new PluginStagingError({ pluginId: definition.id });
+                    }
+                    nextPlugins.push(plugin);
+                  }
+                  return {
+                    plugins: nextPlugins,
+                    snapshot: snapshotOf(nextPlugins, plan.blocked),
+                  };
+                }),
+              ),
+            );
+            if (Exit.isFailure(candidateExit)) {
+              const failures = yield* closePlugins([...staged.values()], false);
+              yield* reportCleanupErrors("rollback", failures);
+              return yield* Effect.failCause(candidateExit.cause);
             }
 
-            const nextPlugins: Array<LivePlugin> = [];
-            for (const definition of plan.definitions) {
-              const plugin = staged.get(definition.id) ?? currentById.get(definition.id);
-              if (plugin === undefined) {
-                return yield* new PluginStagingError({ pluginId: definition.id });
-              }
-              nextPlugins.push(plugin);
+            const previous = current.plugins.filter((plugin) => affected.has(plugin.definition.id));
+            current = candidateExit.value;
+            for (const plugin of staged.values()) {
+              yield* reportLifecycle("activate", plugin.definition.id);
             }
-            return {
-              plugins: nextPlugins,
-              snapshot: snapshotOf(nextPlugins, plan.blocked),
-            };
+            const failures = yield* closePlugins(previous, true);
+            yield* reportCleanupErrors("retire", failures);
+            return current.snapshot;
           }),
         );
-        if (Exit.isFailure(candidateExit)) {
-          const failures = yield* closePlugins([...staged.values()], false);
-          yield* reportCleanupErrors("rollback", failures);
-          return yield* Effect.failCause(candidateExit.cause);
-        }
-
-        const previous = current.plugins.filter((plugin) => affected.has(plugin.definition.id));
-        current = candidateExit.value;
-        for (const plugin of staged.values()) {
-          yield* reportLifecycle("activate", plugin.definition.id);
-        }
-        const failures = yield* closePlugins(previous, true);
-        yield* reportCleanupErrors("retire", failures);
-        return current.snapshot;
       });
 
     const disposeEffect = (): Effect.Effect<void, PluginRuntimeCleanupError> =>
@@ -485,14 +499,14 @@ export const make = (options: PluginRuntimeOptions = {}) =>
 
     yield* Effect.addFinalizer(() =>
       runTransition("dispose", disposeEffect).pipe(
-        Effect.catch((error) =>
-          "failures" in error
-            ? reportCleanupErrors(
-                "retire",
-                error.failures.map(({ cause, pluginId }) => ({ error: cause, pluginId })),
-              )
-            : Effect.void,
-        ),
+        Effect.catchTags({
+          PluginRuntimeCleanupError: (error) =>
+            reportCleanupErrors(
+              "retire",
+              error.failures.map(({ cause, pluginId }) => ({ error: cause, pluginId })),
+            ),
+          PluginRuntimeReentrancyError: () => Effect.void,
+        }),
       ),
     );
 

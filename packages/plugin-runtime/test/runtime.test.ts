@@ -8,10 +8,10 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 
 import type { PluginDefinition, PluginRuntimeOptions } from "../src/contract.ts";
-import { layer, make, PluginRuntime } from "../src/runtime.ts";
+import * as PluginRuntime from "../src/runtime.ts";
 import { defineRuntimeContract } from "./runtimeContract.ts";
 
-const makeTestRuntime = (options: PluginRuntimeOptions = {}) => make(options);
+const makeTestRuntime = (options: PluginRuntimeOptions = {}) => PluginRuntime.make(options);
 
 defineRuntimeContract("plugin runtime", makeTestRuntime);
 
@@ -70,7 +70,7 @@ describe("plugin runtime layer", () => {
       let disposed = false;
       const lifecycle: Array<string> = [];
 
-      yield* PluginRuntime.use((runtime) =>
+      yield* PluginRuntime.PluginRuntime.use((runtime) =>
         runtime.reconcile([
           {
             id: "acme.layer-owned",
@@ -84,7 +84,7 @@ describe("plugin runtime layer", () => {
         ]),
       ).pipe(
         Effect.provide(
-          layer({
+          PluginRuntime.layer({
             onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
           }),
         ),
@@ -108,12 +108,12 @@ describe("plugin runtime layer", () => {
       const lifecycle: Array<string> = [];
       const runtimeScope = yield* Scope.make("sequential");
       const services = yield* Layer.buildWithScope(
-        layer({
+        PluginRuntime.layer({
           onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
         }),
         runtimeScope,
       );
-      const runtime = Context.get(services, PluginRuntime);
+      const runtime = Context.get(services, PluginRuntime.PluginRuntime);
       const reconcileFiber = yield* Effect.forkChild(
         runtime.reconcile([
           {
@@ -207,7 +207,8 @@ describe("plugin runtime interruption", () => {
         let interruptCompleted = false;
         let lateRegistrationSucceeded = false;
         let lateFailure: unknown;
-        let finalizerRan = false;
+        let earlyFinalizerRan = false;
+        let lateFinalizerRan = false;
         let releaseActivation!: () => void;
         const activationGate = new Promise<void>((resolve) => {
           releaseActivation = resolve;
@@ -219,11 +220,14 @@ describe("plugin runtime interruption", () => {
               id: "acme.interrupted-activation",
               version: "1.0.0",
               async activate(context) {
+                context.onDispose(() => {
+                  earlyFinalizerRan = true;
+                });
                 markActivationStarted();
                 await activationGate;
                 try {
                   context.onDispose(() => {
-                    finalizerRan = true;
+                    lateFinalizerRan = true;
                   });
                   lateRegistrationSucceeded = true;
                 } catch (error) {
@@ -242,7 +246,9 @@ describe("plugin runtime interruption", () => {
             Effect.ensuring(Effect.sync(() => (interruptCompleted = true))),
           ),
         );
-        yield* Effect.yieldNow;
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          yield* Effect.yieldNow;
+        }
         expect(interruptCompleted).toBe(true);
 
         releaseActivation();
@@ -254,7 +260,8 @@ describe("plugin runtime interruption", () => {
 
         expect(lateRegistrationSucceeded).toBe(false);
         expect(lateFailure).toBeInstanceOf(Error);
-        expect(finalizerRan).toBe(false);
+        expect(earlyFinalizerRan).toBe(true);
+        expect(lateFinalizerRan).toBe(false);
       }),
     ),
   );
