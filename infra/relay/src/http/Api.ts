@@ -711,12 +711,11 @@ export const tokenApi = HttpApiBuilder.group(
           return yield* new HttpApiError.Unauthorized({});
         }
 
-        const verified = yield* verifyClerkBearerToken(config, args.payload.subject_token).pipe(
-          Effect.catch(() => relayAuthInvalidError("invalid_bearer")),
-        );
-        if (!verified.sub || !hasExpectedClerkAudience(verified.aud, config.clerkJwtAudience)) {
-          return yield* relayAuthInvalidError("invalid_bearer");
-        }
+        const verified = yield* verifyRelayClientBearerToken(
+          config,
+          args.payload.subject_token,
+        ).pipe(Effect.catch(() => relayAuthInvalidError("invalid_bearer")));
+        yield* Effect.annotateCurrentSpan({ "relay.auth.subject_mode": verified.mode });
         const proofKeyThumbprint = yield* requireDpopProof().pipe(
           Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs),
         );

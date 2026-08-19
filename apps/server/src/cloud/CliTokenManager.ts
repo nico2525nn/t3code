@@ -14,6 +14,7 @@ import * as Encoding from "effect/Encoding";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Terminal from "effect/Terminal";
@@ -120,6 +121,9 @@ const PersistedToken = Schema.Struct({
   refreshToken: Schema.String,
   expiresAtEpochMs: Schema.Number,
   identity: Schema.optional(Schema.String),
+  // Clerk user id (`sub`). Absent on credentials stored before desktop
+  // sign-in needed it; clientAuthState backfills it via /oauth/userinfo.
+  accountId: Schema.optional(Schema.String),
 });
 export type PersistedToken = typeof PersistedToken.Type;
 
@@ -145,22 +149,32 @@ const OidcIdentityClaimsJson = Schema.fromJsonString(
 const decodeOidcIdentityClaimsJson = Schema.decodeUnknownOption(OidcIdentityClaimsJson);
 
 /**
- * Best-effort read of the `email` (or fallback) claim from an OIDC id_token.
- * Only used to show the operator which account they linked, so a malformed
- * token degrades to "no identity" rather than an error.
+ * Best-effort read of the identity claims from an OIDC id_token: `email` (or
+ * fallback) to show the operator which account they linked, and `sub` as the
+ * account id clients key relay data on. A malformed token degrades to nulls
+ * rather than an error.
  */
-function idTokenIdentity(idToken: string | undefined): string | null {
-  if (!idToken) return null;
+function idTokenClaims(idToken: string | undefined): {
+  readonly identity: string | null;
+  readonly accountId: string | null;
+} {
+  const none = { identity: null, accountId: null };
+  if (!idToken) return none;
   const payload = idToken.split(".")[1];
-  if (!payload) return null;
+  if (!payload) return none;
   const decoded = Encoding.decodeBase64UrlString(payload);
-  if (decoded._tag !== "Success") return null;
+  if (decoded._tag !== "Success") return none;
   const claims = decodeOidcIdentityClaimsJson(decoded.success);
-  if (Option.isNone(claims)) return null;
+  if (Option.isNone(claims)) return none;
+  let identity: string | null = null;
   for (const value of [claims.value.email, claims.value.preferred_username, claims.value.sub]) {
-    if (typeof value === "string" && value.length > 0) return value;
+    if (typeof value === "string" && value.length > 0) {
+      identity = value;
+      break;
+    }
   }
-  return null;
+  const sub = claims.value.sub;
+  return { identity, accountId: typeof sub === "string" && sub.length > 0 ? sub : null };
 }
 
 export class CloudCliCredentialRemovalError extends Schema.TaggedErrorClass<CloudCliCredentialRemovalError>()(
@@ -217,6 +231,15 @@ export const CloudCliTokenManagerError = Schema.Union([
 ]);
 export type CloudCliTokenManagerError = typeof CloudCliTokenManagerError.Type;
 
+/** Sign-in state as clients (desktop) see it, served over the connect HTTP API. */
+export interface CloudCliClientAuthState {
+  readonly authorized: boolean;
+  readonly pendingLogin: boolean;
+  readonly authorizationUrl: string | null;
+  readonly accountId: string | null;
+  readonly identity: string | null;
+}
+
 export class CloudCliTokenManager extends Context.Service<
   CloudCliTokenManager,
   {
@@ -229,6 +252,11 @@ export class CloudCliTokenManager extends Context.Service<
     readonly hasCredential: Effect.Effect<boolean, CloudCliTokenManagerError>;
     readonly store: (token: PersistedToken) => Effect.Effect<void, CloudCliTokenManagerError>;
     readonly clear: Effect.Effect<void, CloudCliTokenManagerError>;
+    readonly clientAuthState: Effect.Effect<CloudCliClientAuthState, CloudCliTokenManagerError>;
+    readonly beginBrowserLogin: Effect.Effect<
+      { readonly authorizationUrl: string },
+      CloudCliTokenManagerError
+    >;
   }
 >()("t3/cloud/CliTokenManager/CloudCliTokenManager") {}
 
@@ -251,16 +279,35 @@ const exchangeToken = Effect.fn("cloud.cli_token.exchange")(function* (
     Effect.flatMap(HttpClientResponse.schemaBodyJson(OAuthTokenResponse)),
   );
   const now = yield* Clock.currentTimeMillis;
-  const identity = idTokenIdentity(response.id_token);
+  const { identity, accountId } = idTokenClaims(response.id_token);
   return {
     token: {
       accessToken: response.access_token,
       refreshToken: response.refresh_token ?? params.refresh_token ?? "",
       expiresAtEpochMs: now + response.expires_in * 1_000,
       ...(identity === null ? {} : { identity }),
+      ...(accountId === null ? {} : { accountId }),
     } satisfies PersistedToken,
     identity,
   };
+});
+
+const OAuthUserinfo = Schema.Struct({
+  sub: Schema.optional(Schema.String),
+  email: Schema.optional(Schema.String),
+  preferred_username: Schema.optional(Schema.String),
+});
+
+const fetchUserinfo = Effect.fn("cloud.cli_token.fetch_userinfo")(function* (
+  metadata: Pick<CloudCliOAuthConfig, "userinfoEndpoint">,
+  accessToken: string,
+) {
+  const httpClient = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
+  return yield* HttpClientRequest.get(metadata.userinfoEndpoint).pipe(
+    HttpClientRequest.bearerToken(accessToken),
+    httpClient.execute,
+    Effect.flatMap(HttpClientResponse.schemaBodyJson(OAuthUserinfo)),
+  );
 });
 
 const makePkceRequest = Effect.gen(function* () {
@@ -271,6 +318,56 @@ const makePkceRequest = Effect.gen(function* () {
   );
   const state = Encoding.encodeBase64Url(yield* crypto.randomBytes(16));
   return { verifier, challenge, state };
+});
+
+/**
+ * Starts the loopback OAuth callback listener for one authorization attempt
+ * and returns an effect that resolves with the authorization code. The
+ * listener lives until the surrounding scope closes; both the terminal login
+ * and the desktop browser login run inside `Effect.scoped`.
+ */
+const makeLoopbackCallbackServer = Effect.fn("cloud.cli_token.loopback_callback_server")(function* (
+  metadata: Pick<CloudCliOAuthConfig, "redirectUri" | "loopbackPort">,
+  state: string,
+) {
+  const callback = yield* Deferred.make<string>();
+  const callbackRoute = HttpRouter.add(
+    "GET",
+    "/callback",
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const url = new URL(request.originalUrl, metadata.redirectUri);
+      const code = url.searchParams.get("code");
+      if (url.searchParams.get("state") !== state || !code) {
+        return HttpServerResponse.text("Invalid T3 Connect authorization callback.", {
+          status: 400,
+        });
+      }
+      yield* Deferred.succeed(callback, code);
+      return HttpServerResponse.html(renderLoopbackAuthorizationCompleteHtml());
+    }),
+  );
+  yield* HttpRouter.serve(callbackRoute, {
+    disableListenLog: true,
+    disableLogger: true,
+  }).pipe(
+    Layer.provide(
+      NodeHttpServer.layer(NodeHttp.createServer, {
+        host: "127.0.0.1",
+        port: metadata.loopbackPort,
+        disablePreemptiveShutdown: true,
+      }),
+    ),
+    Layer.build,
+  );
+  return {
+    awaitCode: Deferred.await(callback).pipe(
+      Effect.timeout(CLOUD_CLI_OAUTH_CALLBACK_TIMEOUT),
+      Effect.catchTag("TimeoutError", (cause) =>
+        Effect.fail(new CloudCliAuthorizationTimeoutError({ cause })),
+      ),
+    ),
+  };
 });
 
 export interface OutOfBandOAuthPromptInput {
@@ -359,45 +456,24 @@ export const make = Effect.gen(function* () {
       refresh_token: token.refreshToken,
       client_id: metadata.clientId,
     });
-    return refreshed.identity === undefined && token.identity !== undefined
-      ? { ...refreshed, identity: token.identity }
-      : refreshed;
+    // A refresh response may omit the id_token; keep the identity claims from
+    // the original login in that case.
+    return {
+      ...refreshed,
+      ...(refreshed.identity === undefined && token.identity !== undefined
+        ? { identity: token.identity }
+        : {}),
+      ...(refreshed.accountId === undefined && token.accountId !== undefined
+        ? { accountId: token.accountId }
+        : {}),
+    };
   });
 
   const login = Effect.fn("cloud.cli_token.login")(function* () {
     const metadata = yield* cloudCliOAuthConfig;
     const hostedAppUrl = yield* hostedAppUrlConfig;
     const { verifier, challenge, state } = yield* makePkceRequest;
-    const callback = yield* Deferred.make<string>();
-    const callbackRoute = HttpRouter.add(
-      "GET",
-      "/callback",
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const url = new URL(request.originalUrl, metadata.redirectUri);
-        const code = url.searchParams.get("code");
-        if (url.searchParams.get("state") !== state || !code) {
-          return HttpServerResponse.text("Invalid T3 Connect authorization callback.", {
-            status: 400,
-          });
-        }
-        yield* Deferred.succeed(callback, code);
-        return HttpServerResponse.html(renderLoopbackAuthorizationCompleteHtml());
-      }),
-    );
-    yield* HttpRouter.serve(callbackRoute, {
-      disableListenLog: true,
-      disableLogger: true,
-    }).pipe(
-      Layer.provide(
-        NodeHttpServer.layer(NodeHttp.createServer, {
-          host: "127.0.0.1",
-          port: metadata.loopbackPort,
-          disablePreemptiveShutdown: true,
-        }),
-      ),
-      Layer.build,
-    );
+    const { awaitCode } = yield* makeLoopbackCallbackServer(metadata, state);
     // The hosted /connect page establishes a Clerk session before forwarding
     // the request to /oauth/authorize with the loopback redirect URI. Sending
     // a signed-out browser to /oauth/authorize directly loses the authorize
@@ -411,12 +487,7 @@ export const make = Effect.gen(function* () {
     yield* Console.log(formatLoopbackAuthorizationPrompt(authorizationUrl));
     const authorization = yield* waitForLoopbackAuthorization({
       authorizationUrl,
-      callback: Deferred.await(callback).pipe(
-        Effect.timeout(CLOUD_CLI_OAUTH_CALLBACK_TIMEOUT),
-        Effect.catchTag("TimeoutError", (cause) =>
-          Effect.fail(new CloudCliAuthorizationTimeoutError({ cause })),
-        ),
-      ),
+      callback: awaitCode,
       terminal,
       launchBrowser: externalLauncher.launchBrowser,
     });
@@ -487,7 +558,121 @@ export const make = Effect.gen(function* () {
     );
   });
 
-  return CloudCliTokenManager.of({ get, getExisting, hasCredential, store, clear });
+  const pendingLoginRef = yield* Ref.make(Option.none<{ readonly authorizationUrl: string }>());
+  const loginSemaphore = yield* Semaphore.make(1);
+
+  // Desktop sign-in: the same loopback authorization-code + PKCE flow as the
+  // CLI, but with no terminal — the browser opens immediately and the
+  // callback wait plus token exchange run in a detached fiber so the HTTP
+  // handler that started the flow can return right away. Clients watch
+  // clientAuthState to see the flow finish.
+  const beginBrowserLogin = loginSemaphore.withPermits(1)(
+    Effect.gen(function* () {
+      const pending = yield* Ref.get(pendingLoginRef);
+      if (Option.isSome(pending)) {
+        return pending.value;
+      }
+      const metadata = yield* cloudCliOAuthConfig;
+      const hostedAppUrl = yield* hostedAppUrlConfig;
+      const { verifier, challenge, state } = yield* makePkceRequest;
+      const authorizationUrl = buildConnectAuthorizeRequestUrl({
+        hostedAppUrl,
+        state,
+        challenge,
+        loopbackPort: metadata.loopbackPort,
+      });
+      yield* Ref.set(pendingLoginRef, Option.some({ authorizationUrl }));
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const { awaitCode } = yield* makeLoopbackCallbackServer(metadata, state);
+          yield* externalLauncher
+            .launchBrowser(authorizationUrl)
+            .pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("Could not open a browser for T3 Connect sign-in.", { cause }),
+              ),
+            );
+          const code = yield* awaitCode;
+          const { token } = yield* exchangeToken(metadata, {
+            grant_type: "authorization_code",
+            code,
+            redirect_uri: metadata.redirectUri,
+            client_id: metadata.clientId,
+            code_verifier: verifier,
+          });
+          yield* persist(token);
+        }),
+      ).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("T3 Connect browser sign-in did not complete.", { cause }),
+        ),
+        Effect.ensuring(Ref.set(pendingLoginRef, Option.none())),
+        Effect.forkDetach,
+      );
+      return { authorizationUrl };
+    }).pipe(
+      Effect.mapError((cause) => new CloudCliAuthorizationError({ cause })),
+      Effect.provide(services),
+    ),
+  );
+
+  const clientAuthState = semaphore.withPermits(1)(
+    Effect.gen(function* () {
+      const pending = yield* Ref.get(pendingLoginRef);
+      const pendingLogin = Option.isSome(pending);
+      const authorizationUrl = Option.isSome(pending) ? pending.value.authorizationUrl : null;
+      // Prefer a refreshed credential, but a refresh failure (offline,
+      // revoked grant) must not report the stored sign-in as missing.
+      const token = yield* getExistingNoLock().pipe(Effect.catch(() => read()));
+      if (Option.isNone(token)) {
+        return {
+          authorized: false,
+          pendingLogin,
+          authorizationUrl,
+          accountId: null,
+          identity: null,
+        } satisfies CloudCliClientAuthState;
+      }
+      let current = token.value;
+      if (current.accountId === undefined) {
+        // Credentials stored by `t3 connect` logins that predate desktop
+        // sign-in lack the account id; backfill it once from Clerk's
+        // userinfo endpoint so the same credential serves both.
+        const metadata = yield* cloudCliOAuthConfig;
+        const userinfo = yield* fetchUserinfo(metadata, current.accessToken).pipe(Effect.option);
+        if (Option.isSome(userinfo) && userinfo.value.sub) {
+          current = yield* persist({
+            ...current,
+            accountId: userinfo.value.sub,
+            ...(current.identity === undefined &&
+            (userinfo.value.email ?? userinfo.value.preferred_username)
+              ? { identity: userinfo.value.email ?? userinfo.value.preferred_username }
+              : {}),
+          });
+        }
+      }
+      return {
+        authorized: true,
+        pendingLogin,
+        authorizationUrl,
+        accountId: current.accountId ?? null,
+        identity: current.identity ?? null,
+      } satisfies CloudCliClientAuthState;
+    }).pipe(
+      Effect.mapError((cause) => new CloudCliCredentialReadError({ cause })),
+      Effect.provide(services),
+    ),
+  );
+
+  return CloudCliTokenManager.of({
+    get,
+    getExisting,
+    hasCredential,
+    store,
+    clear,
+    clientAuthState,
+    beginBrowserLogin,
+  });
 });
 
 export const layer = Layer.effect(CloudCliTokenManager, make);

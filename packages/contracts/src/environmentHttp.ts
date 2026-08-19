@@ -386,6 +386,29 @@ export const EnvironmentCloudPreferencesRequest = Schema.Struct({
 });
 export type EnvironmentCloudPreferencesRequest = typeof EnvironmentCloudPreferencesRequest.Type;
 
+// T3 Connect sign-in state held by this environment's server. The desktop app
+// signs in through its local server (browser-based OAuth, shared with
+// `t3 connect`) instead of embedding an auth UI.
+export const EnvironmentConnectAuthState = Schema.Struct({
+  authorized: Schema.Boolean,
+  // A browser sign-in started by authLogin is still waiting for its callback.
+  pendingLogin: Schema.Boolean,
+  // The URL that sign-in opened, so clients can offer a manual fallback link.
+  authorizationUrl: Schema.NullOr(Schema.String),
+  // Clerk user id; null until known (legacy credentials backfill lazily).
+  accountId: Schema.NullOr(Schema.String),
+  // Human-readable account label (email) for display.
+  identity: Schema.NullOr(Schema.String),
+});
+export type EnvironmentConnectAuthState = typeof EnvironmentConnectAuthState.Type;
+
+export const EnvironmentConnectAuthToken = Schema.Struct({
+  accessToken: Schema.String,
+  expiresAtEpochMs: Schema.Number,
+  accountId: Schema.NullOr(Schema.String),
+});
+export type EnvironmentConnectAuthToken = typeof EnvironmentConnectAuthToken.Type;
+
 export const AuthPairingLinkRevokeResult = Schema.Struct({
   revoked: Schema.Boolean,
 });
@@ -582,6 +605,34 @@ export class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
       headers: OptionalBearerHeaders,
       payload: EnvironmentCloudPreferencesRequest,
       success: EnvironmentCloudLinkStateResult,
+      error: EnvironmentHttpCloudErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get("authState", "/api/connect/auth/state", {
+      headers: OptionalBearerHeaders,
+      success: EnvironmentConnectAuthState,
+      error: EnvironmentHttpCloudErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("authLogin", "/api/connect/auth/login", {
+      headers: OptionalBearerHeaders,
+      success: EnvironmentConnectAuthState,
+      error: EnvironmentHttpCloudErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("authLogout", "/api/connect/auth/logout", {
+      headers: OptionalBearerHeaders,
+      success: EnvironmentConnectAuthState,
+      error: EnvironmentHttpCloudErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("authToken", "/api/connect/auth/token", {
+      headers: OptionalBearerHeaders,
+      success: EnvironmentConnectAuthToken,
       error: EnvironmentHttpCloudErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
   )

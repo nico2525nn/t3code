@@ -223,6 +223,8 @@ describe("reconcileDesiredCloudLink", () => {
           hasCredential: unusedSecretStoreOperation(),
           store: () => unusedSecretStoreOperation(),
           clear: unusedSecretStoreOperation(),
+          clientAuthState: unusedSecretStoreOperation(),
+          beginBrowserLogin: unusedSecretStoreOperation(),
         }),
       ),
       Effect.provideService(
@@ -321,6 +323,8 @@ describe("releaseManagedTunnelOnShutdown", () => {
             hasCredential: unusedSecretStoreOperation(),
             store: () => unusedSecretStoreOperation(),
             clear: unusedSecretStoreOperation(),
+            clientAuthState: unusedSecretStoreOperation(),
+            beginBrowserLogin: unusedSecretStoreOperation(),
           }),
         ),
         Effect.provideService(

@@ -218,6 +218,13 @@ Typical uses:
 
 Use `t3 auth --help` and the nested subcommand help pages for the full reference.
 
+### Signing in to T3 Connect on Desktop
+
+The desktop app signs in through your default browser. Choose **Sign in to T3 Connect** and finish
+the sign-in in the browser tab that opens; the app picks the session up on its own. The desktop app
+and the `t3 connect` CLI share this sign-in on the same machine: sign in with either one and the
+other is signed in too. **Sign out** from the account menu removes the shared credential.
+
 ### Deregister a T3 Connect Environment
 
 Open your account menu and choose **T3 Connect** to see every environment registered to your
