@@ -835,9 +835,14 @@ const cloudPreferencesHandler = Effect.fn("environment.cloud.preferences")(
 export const connectAuthStateHandler = Effect.fn("environment.cloud.authState")(function* (
   dependencies: CloudHttpDependencies,
 ) {
-  yield* requireEnvironmentScope(AuthRelayReadScope);
-  return (yield* dependencies.cliTokenManager
-    .clientAuthState) satisfies EnvironmentConnectAuthState;
+  const session = yield* requireEnvironmentScope(AuthRelayReadScope);
+  const state = yield* dependencies.cliTokenManager.clientAuthState;
+  // The pending authorization URL is a capability: whoever completes it
+  // replaces the shared credential with their own account. Only sessions
+  // allowed to start a sign-in may see it.
+  return (
+    session.scopes.has(AuthRelayWriteScope) ? state : { ...state, authorizationUrl: null }
+  ) satisfies EnvironmentConnectAuthState;
 }, Effect.catchTags(cloudCliTokenManagerErrorHandlers));
 
 export const connectAuthLoginHandler = Effect.fn("environment.cloud.authLogin")(function* (

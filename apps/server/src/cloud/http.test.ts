@@ -630,8 +630,8 @@ describe("link proof provider kinds", () => {
 describe("connect auth endpoint scopes", () => {
   const authState: CliTokenManager.CloudCliClientAuthState = {
     authorized: true,
-    pendingLogin: false,
-    authorizationUrl: null,
+    pendingLogin: true,
+    authorizationUrl: "https://app.example.test/connect#state=s&challenge=c&port=34338",
     accountId: "user_scope_test",
     identity: "theo@example.test",
   };
@@ -702,11 +702,20 @@ describe("connect auth endpoint scopes", () => {
     }).pipe(providePrincipal(AuthStandardClientScopes)),
   );
 
-  it.effect("standard scopes may read auth state", () =>
+  it.effect("standard scopes read auth state without the authorization URL", () =>
+    Effect.gen(function* () {
+      const state = yield* connectAuthStateHandler(makeDependencies([]));
+      // The pending URL is a capability to complete the sign-in with another
+      // account; only write-scoped sessions may see it.
+      expect(state).toEqual({ ...authState, authorizationUrl: null });
+    }).pipe(providePrincipal(AuthStandardClientScopes)),
+  );
+
+  it.effect("admin scopes read the pending authorization URL", () =>
     Effect.gen(function* () {
       const state = yield* connectAuthStateHandler(makeDependencies([]));
       expect(state).toEqual(authState);
-    }).pipe(providePrincipal(AuthStandardClientScopes)),
+    }).pipe(providePrincipal([...AuthStandardClientScopes, "relay:write"])),
   );
 
   it.effect("admin scopes may sign out", () =>
