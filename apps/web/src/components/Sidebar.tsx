@@ -194,7 +194,7 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 // Keep the v2 key so existing preferences survive the v2-to-default rename.
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar-v2:snoozed-expanded";
-const SIDEBAR_LIFECYCLE_ICON_CLASS = "size-3 shrink-0";
+const SIDEBAR_LIFECYCLE_ICON_CLASS = "size-3 shrink-0 text-current";
 
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -3481,7 +3481,11 @@ export default function Sidebar() {
                         className="relative focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                         onClick={handleNewThreadClick}
                         disabled={projects.length === 0}
-                        aria-label="New thread"
+                        aria-label={
+                          scopedProjectGroup
+                            ? `New thread in ${scopedProjectGroup.displayName}`
+                            : "New thread"
+                        }
                       />
                     }
                   >
