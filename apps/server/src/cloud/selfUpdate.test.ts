@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { ServerSelfUpdateError } from "@t3tools/contracts";
+import { ServerAutomaticUpdateDeferredError, ServerSelfUpdateError } from "@t3tools/contracts";
 import { HostProcessExecutablePath } from "@t3tools/shared/hostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -19,7 +19,10 @@ interface HarnessOptions {
   readonly mode?: "web" | "desktop";
   readonly managed?: boolean;
   readonly preflight?: "ready" | "blocked";
-  readonly automaticUpdateIdle?: (order: string[]) => Effect.Effect<void, ServerSelfUpdateError>;
+  readonly automaticUpdateIdle?: (
+    order: string[],
+    targetVersion: string,
+  ) => Effect.Effect<void, ServerSelfUpdateError | ServerAutomaticUpdateDeferredError>;
   readonly install?: (order: string[]) => Effect.Effect<void>;
   readonly requestUpdate?: ServiceLauncherClient.ServiceLauncherClient["Service"]["requestUpdate"];
 }
@@ -96,7 +99,8 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
     Effect.provideService(
       ServerSelfUpdate.ServerSelfUpdateIdleCheck,
       ServerSelfUpdate.ServerSelfUpdateIdleCheck.of({
-        assertIdle: options.automaticUpdateIdle?.(order) ?? Effect.void,
+        assertIdle: (targetVersion) =>
+          options.automaticUpdateIdle?.(order, targetVersion) ?? Effect.void,
       }),
     ),
     Effect.provide(ServerConfig.layer({ ...config, mode: options.mode ?? "web" })),
@@ -185,14 +189,13 @@ it.layer(NodeServices.layer)("server self update", (it) => {
   it.effect("rechecks automatic updates after staging and before activation", () =>
     Effect.gen(function* () {
       const { selfUpdate, order } = yield* makeHarness({
-        automaticUpdateIdle: (order) =>
+        automaticUpdateIdle: (order, targetVersion) =>
           Effect.sync(() => order.push("idle-check")).pipe(
             Effect.andThen(
-              Effect.fail(
-                new ServerSelfUpdateError({
-                  reason: "Automatic update paused because new work started while downloading.",
-                }),
-              ),
+              new ServerAutomaticUpdateDeferredError({
+                reason: "new work started while downloading",
+                targetVersion,
+              }),
             ),
           ),
       });

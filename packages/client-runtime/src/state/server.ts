@@ -7,7 +7,7 @@ import {
   type ServerSelfUpdateProgressEvent,
   type ServerSelfUpdateResult,
   type ServerSelfUpdateCapability,
-  ServerSelfUpdateError,
+  ServerAutomaticUpdateDeferredError,
   WS_METHODS,
 } from "@t3tools/contracts";
 import {
@@ -49,7 +49,7 @@ import {
 } from "../rpc/client.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
 
-const isServerSelfUpdateError = Schema.is(ServerSelfUpdateError);
+const isServerAutomaticUpdateDeferredError = Schema.is(ServerAutomaticUpdateDeferredError);
 
 export type ServerUpdateStage = "downloading" | "installing" | "resuming";
 
@@ -736,7 +736,7 @@ export function createServerEnvironmentAtoms<R, E>(
               return;
             }
             const failure = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
-            if (isServerSelfUpdateError(failure) && failure.retryWhenIdle === true) {
+            if (isServerAutomaticUpdateDeferredError(failure)) {
               atomRegistry.set(stateAtom, IDLE_SERVER_UPDATE_STATE);
               return;
             }

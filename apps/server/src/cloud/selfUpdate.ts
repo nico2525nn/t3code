@@ -1,4 +1,5 @@
 import {
+  ServerAutomaticUpdateDeferredError,
   ServerSelfUpdateError,
   type ServerSelfUpdateCapability,
   type ServerSelfUpdateInput,
@@ -47,7 +48,10 @@ export class ServerSelfUpdate extends Context.Service<
     readonly update: (
       input: ServerSelfUpdateInput,
       reportProgress?: (stage: ServerSelfUpdateProgressStage) => Effect.Effect<void>,
-    ) => Effect.Effect<ServerSelfUpdateResult, ServerSelfUpdateError>;
+    ) => Effect.Effect<
+      ServerSelfUpdateResult,
+      ServerSelfUpdateError | ServerAutomaticUpdateDeferredError
+    >;
     readonly withCommandAdmission: <A, E, R>(
       effect: Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E | ServerSelfUpdateError, R>;
@@ -56,7 +60,11 @@ export class ServerSelfUpdate extends Context.Service<
 
 export class ServerSelfUpdateIdleCheck extends Context.Service<
   ServerSelfUpdateIdleCheck,
-  { readonly assertIdle: Effect.Effect<void, ServerSelfUpdateError> }
+  {
+    readonly assertIdle: (
+      targetVersion: string,
+    ) => Effect.Effect<void, ServerSelfUpdateError | ServerAutomaticUpdateDeferredError>;
+  }
 >()("t3/cloud/selfUpdate/ServerSelfUpdateIdleCheck") {}
 
 const idleCheckLayer = Layer.effect(
@@ -64,25 +72,24 @@ const idleCheckLayer = Layer.effect(
   Effect.gen(function* () {
     const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
     return ServerSelfUpdateIdleCheck.of({
-      assertIdle: projections.getShellSnapshot().pipe(
-        Effect.mapError(
-          (cause) =>
-            new ServerSelfUpdateError({
-              reason: "Automatic update could not verify that this server is idle.",
-              cause,
-            }),
+      assertIdle: (targetVersion) =>
+        projections.getShellSnapshot().pipe(
+          Effect.mapError(
+            (cause) =>
+              new ServerSelfUpdateError({
+                reason: "Automatic update could not verify that this server is idle.",
+                cause,
+              }),
+          ),
+          Effect.flatMap((snapshot) =>
+            hasAutomaticServerUpdateActiveWork(snapshot.threads)
+              ? new ServerAutomaticUpdateDeferredError({
+                  reason: "new work started while downloading",
+                  targetVersion,
+                })
+              : Effect.void,
+          ),
         ),
-        Effect.flatMap((snapshot) =>
-          hasAutomaticServerUpdateActiveWork(snapshot.threads)
-            ? Effect.fail(
-                new ServerSelfUpdateError({
-                  reason: "Automatic update paused because new work started while downloading.",
-                  retryWhenIdle: true,
-                }),
-              )
-            : Effect.void,
-        ),
-      ),
     });
   }),
 );
@@ -160,7 +167,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
       yield* Ref.set(lastFailedTarget, null);
     }
 
-    let retryWhenIdleFailure = false;
+    let automaticUpdateDeferred = false;
     const operation = Effect.gen(function* () {
       yield* reportProgress("downloading");
       const paths = yield* ensurePinnedRuntimeInstalled({
@@ -274,12 +281,13 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
       return yield* commandAdmission
         .withPermits(1)(
           Effect.gen(function* () {
-            yield* idleCheck.assertIdle.pipe(
-              Effect.tapError((error) =>
-                Effect.sync(() => {
-                  retryWhenIdleFailure = error.retryWhenIdle === true;
-                }),
-              ),
+            yield* idleCheck.assertIdle(targetVersion).pipe(
+              Effect.catchTags({
+                ServerAutomaticUpdateDeferredError: (error) =>
+                  Effect.sync(() => {
+                    automaticUpdateDeferred = true;
+                  }).pipe(Effect.andThen(error)),
+              }),
             );
             yield* Ref.set(automaticHandoffPending, true);
           }),
@@ -293,7 +301,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
             Ref.set(automaticHandoffPending, false),
             Ref.set(
               lastFailedTarget,
-              retryWhenIdleFailure || Cause.hasInterruptsOnly(cause)
+              automaticUpdateDeferred || Cause.hasInterruptsOnly(cause)
                 ? previousFailedTarget
                 : input.automatic === true ||
                     previousFailedTarget === null ||

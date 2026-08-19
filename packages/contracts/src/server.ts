@@ -645,11 +645,23 @@ export const ServerSelfUpdateProgressEvent = Schema.Union([
 ]);
 export type ServerSelfUpdateProgressEvent = typeof ServerSelfUpdateProgressEvent.Type;
 
+export class ServerAutomaticUpdateDeferredError extends Schema.TaggedErrorClass<ServerAutomaticUpdateDeferredError>()(
+  "ServerAutomaticUpdateDeferredError",
+  {
+    reason: TrimmedNonEmptyString,
+    targetVersion: TrimmedNonEmptyString,
+  },
+) {
+  override get message(): string {
+    return `Automatic server update deferred: ${this.reason}`;
+  }
+}
+
 export class ServerSelfUpdateError extends Schema.TaggedErrorClass<ServerSelfUpdateError>()(
   "ServerSelfUpdateError",
   {
     reason: TrimmedNonEmptyString,
-    retryWhenIdle: Schema.optional(Schema.Boolean),
+
     cause: Schema.optional(Schema.Defect()),
   },
 ) {

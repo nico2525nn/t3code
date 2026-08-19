@@ -42,6 +42,7 @@ import {
   ProjectWriteFileError,
   RelayClientInstallFailedError,
   type RelayClientInstallProgressEvent,
+  ServerAutomaticUpdateDeferredError,
   ServerSelfUpdateError,
   type ServerSelfUpdateProgressEvent,
   type FilesystemBrowseFailure,
@@ -1474,7 +1475,10 @@ const makeWsRpcLayer = (
         [WS_METHODS.serverUpdateServerWithProgress]: (input) =>
           observeRpcStream(
             WS_METHODS.serverUpdateServerWithProgress,
-            Stream.callback<ServerSelfUpdateProgressEvent, ServerSelfUpdateError>((queue) =>
+            Stream.callback<
+              ServerSelfUpdateProgressEvent,
+              ServerSelfUpdateError | ServerAutomaticUpdateDeferredError
+            >((queue) =>
               serverSelfUpdate
                 .update(input, (stage) =>
                   Queue.offer(queue, {
@@ -1491,6 +1495,7 @@ const makeWsRpcLayer = (
                   ),
                   Effect.catchTags({
                     ServerSelfUpdateError: (error) => Queue.fail(queue, error),
+                    ServerAutomaticUpdateDeferredError: (error) => Queue.fail(queue, error),
                   }),
                   Effect.andThen(Queue.end(queue)),
                   Effect.forkScoped,
