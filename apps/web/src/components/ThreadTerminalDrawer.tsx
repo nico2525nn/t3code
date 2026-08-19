@@ -93,6 +93,7 @@ const TERMINAL_SIDEBAR_MIN_WIDTH = 144;
 const TERMINAL_SIDEBAR_MAX_WIDTH = 320;
 const TERMINAL_VIEWPORT_MIN_WIDTH = 216;
 const TERMINAL_SIDEBAR_WIDTH_STORAGE_KEY = "t3code:terminal-sidebar-width";
+const TERMINAL_PANEL_SIDEBAR_WIDTH_STORAGE_KEY = "t3code:terminal-panel-sidebar-width";
 
 export function getTerminalSidebarMaxWidth(rowWidth?: number): number {
   if (rowWidth === undefined) return TERMINAL_SIDEBAR_MAX_WIDTH;
@@ -1199,7 +1200,9 @@ export default function ThreadTerminalDrawer({
   }, [normalizedTerminalIds.length, visible]);
   const { width: terminalSidebarWidth, handlers: terminalSidebarResizeHandlers } =
     useResizableWidth({
-      storageKey: TERMINAL_SIDEBAR_WIDTH_STORAGE_KEY,
+      storageKey: isPanel
+        ? TERMINAL_PANEL_SIDEBAR_WIDTH_STORAGE_KEY
+        : TERMINAL_SIDEBAR_WIDTH_STORAGE_KEY,
       defaultWidth: TERMINAL_SIDEBAR_DEFAULT_WIDTH,
       minWidth: TERMINAL_SIDEBAR_MIN_WIDTH,
       maxWidth: getTerminalSidebarMaxWidth(terminalLayoutWidth),
