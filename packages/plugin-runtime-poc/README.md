@@ -21,7 +21,7 @@ it also fits t3's existing effect runtime. adding cordis did not remove the need
 
 | variant                 | source lines | new runtime dependency                              | result                                                             |
 | ----------------------- | -----------: | --------------------------------------------------- | ------------------------------------------------------------------ |
-| `effectScopeRuntime.ts` |          682 | none, effect is already used by t3                  | best base for production                                           |
+| `effectScopeRuntime.ts` |          680 | none, effect is already used by t3                  | best base for production                                           |
 | `cordisRuntime.ts`      |          557 | cordis rc.8 and about 300 kib of installed packages | works, but adds a second lifecycle runtime and the largest adapter |
 | `pureRuntime.ts`        |          425 | none                                                | simplest planner, but manual finalizers are too easy to misuse     |
 
