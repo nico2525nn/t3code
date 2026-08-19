@@ -14,7 +14,7 @@ this is the recommended base because t3 already uses effect. it keeps cordis's o
 
 ## proved
 
-- 27 tests cover dependency order, blocking, rollback, cycles, unchanged instance reuse, order-insensitive declarations, activation implementation replacement, schema-tagged errors, active callback reentrancy, descendant async tasks, observer isolation, cleanup reporting, unusual ids and slots, and immutable snapshots
+- 30 tests cover dependency order, blocking, rollback, cycles, unchanged instance reuse, order-insensitive declarations, activation implementation replacement, schema-tagged errors, active callback reentrancy, synchronous callback microtasks, descendant async tasks, late activation-context calls, queued input snapshots, observer isolation, cleanup reporting, unusual ids and slots, and immutable snapshots
 - manifest validation enforces semver, prevents entrypoint path escape, and keeps mobile declarative
 - the demo exercises activation, replacement, teardown, and a 250-plugin chain
 
