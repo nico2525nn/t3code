@@ -435,6 +435,7 @@ export function PullRequestDetailPanel({
     );
   }, [tab]);
   const [chromeCondensed, setChromeCondensed] = useState(false);
+  // Each mounted tab remembers its own scroll chrome; short tabs cannot scroll to reopen it.
   const chromeStateByTab = useRef<Partial<Record<DetailTab, boolean>>>({});
   useEffect(() => {
     setChromeCondensed(chromeStateByTab.current[tab] ?? false);
@@ -443,6 +444,7 @@ export function PullRequestDetailPanel({
   const scrollerRef = useRef<HTMLElement | null>(null);
   const foldRef = useRef<HTMLDivElement | null>(null);
   const condensedRowRef = useRef<HTMLDivElement | null>(null);
+  // Refund after the fold commits so the content under the reader does not jump with its height.
   const compensationRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     if (compensationRef.current === null) return;
