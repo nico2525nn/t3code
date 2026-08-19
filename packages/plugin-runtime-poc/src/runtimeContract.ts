@@ -116,6 +116,78 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
       expect(disposals).toBe(1);
     });
 
+    it("treats reordered requirements and providers as the same definition", async () => {
+      let activations = 0;
+      const firstService = {};
+      const secondService = {};
+      const activate: PluginDefinition["activate"] = () => {
+        activations += 1;
+      };
+      const dependencies: ReadonlyArray<PluginDefinition> = [
+        {
+          id: "acme.first-dependency",
+          version: "1.0.0",
+          provides: { "acme.first@1": true },
+          activate() {},
+        },
+        {
+          id: "acme.second-dependency",
+          version: "1.0.0",
+          provides: { "acme.second@1": true },
+          activate() {},
+        },
+      ];
+      const runtime = createRuntime();
+      await runtime.reconcile([
+        ...dependencies,
+        {
+          id: "acme.stable-order",
+          version: "1.0.0",
+          requires: ["acme.first@1", "acme.second@1"],
+          provides: { "acme.output-one@1": firstService, "acme.output-two@1": secondService },
+          activate,
+        },
+      ]);
+
+      await runtime.reconcile([
+        ...dependencies,
+        {
+          id: "acme.stable-order",
+          version: "1.0.0",
+          requires: ["acme.second@1", "acme.first@1"],
+          provides: { "acme.output-two@1": secondService, "acme.output-one@1": firstService },
+          activate,
+        },
+      ]);
+
+      expect(activations).toBe(1);
+      await runtime.dispose();
+    });
+
+    it("restarts a plugin when its activation implementation changes", async () => {
+      const runtime = createRuntime();
+      const first: PluginDefinition = {
+        id: "acme.implementation",
+        version: "1.0.0",
+        activate(context) {
+          context.register("commands", { id: "implementation", label: "first" });
+        },
+      };
+      const second: PluginDefinition = {
+        id: "acme.implementation",
+        version: "1.0.0",
+        activate(context) {
+          context.register("commands", { id: "implementation", label: "second" });
+        },
+      };
+
+      await runtime.reconcile([first]);
+      const snapshot = await runtime.reconcile([second]);
+
+      expect(contributionLabels(snapshot, "commands")).toEqual(["second"]);
+      await runtime.dispose();
+    });
+
     it("restarts a changed provider and its dependents without touching independent plugins", async () => {
       let independentActivations = 0;
       const lifecycle: Array<string> = [];
@@ -237,11 +309,16 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
       await runtime.dispose();
     });
 
-    it("does not report a failed candidate as activated", async () => {
+    it("does not report a rolled-back candidate as activated", async () => {
       const lifecycle: Array<string> = [];
       const runtime = createRuntime({
         onLifecycle: ({ phase, pluginId }) => lifecycle.push(`${phase}:${pluginId}`),
       });
+      const staged: PluginDefinition = {
+        id: "acme.staged",
+        version: "1.0.0",
+        activate() {},
+      };
       const broken: PluginDefinition = {
         id: "acme.broken",
         version: "1.0.0",
@@ -250,9 +327,73 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
         },
       };
 
-      await expect(runtime.reconcile([broken])).rejects.toThrow("activation failed");
+      await expect(runtime.reconcile([staged, broken])).rejects.toThrow("activation failed");
 
       expect(lifecycle).toEqual([]);
+      await runtime.dispose();
+    });
+
+    it("preserves activation failures when rollback cleanup also fails", async () => {
+      const activationError = new Error("activation failed");
+      const cleanupError = new Error("rollback cleanup failed");
+      const cleanupEvents: Array<{ readonly phase: string; readonly error: unknown }> = [];
+      const runtime = createRuntime({
+        onCleanupError: (event) => {
+          cleanupEvents.push(event);
+          throw new Error("cleanup observer failed");
+        },
+      });
+      const broken: PluginDefinition = {
+        id: "acme.rollback-error",
+        version: "1.0.0",
+        activate(context) {
+          context.onDispose(() => {
+            throw cleanupError;
+          });
+          throw activationError;
+        },
+      };
+
+      await expect(runtime.reconcile([broken])).rejects.toBe(activationError);
+      expect(cleanupEvents).toEqual([{ phase: "rollback", error: cleanupError }]);
+      await runtime.dispose();
+    });
+
+    it("returns the committed snapshot when retiring an old plugin reports cleanup errors", async () => {
+      const cleanupError = new Error("retirement cleanup failed");
+      const cleanupEvents: Array<{ readonly phase: string; readonly error: unknown }> = [];
+      const runtime = createRuntime({
+        onCleanupError: (event) => {
+          cleanupEvents.push(event);
+          throw new Error("cleanup observer failed");
+        },
+      });
+      await runtime.reconcile([
+        {
+          id: "acme.retirement-error",
+          version: "1.0.0",
+          activate(context) {
+            context.register("commands", { id: "retirement", label: "old" });
+            context.onDispose(() => {
+              throw cleanupError;
+            });
+          },
+        },
+      ]);
+
+      const snapshot = await runtime.reconcile([
+        {
+          id: "acme.retirement-error",
+          version: "2.0.0",
+          activate(context) {
+            context.register("commands", { id: "retirement", label: "new" });
+          },
+        },
+      ]);
+
+      expect(contributionLabels(snapshot, "commands")).toEqual(["new"]);
+      expect(runtime.snapshot()).toBe(snapshot);
+      expect(cleanupEvents).toEqual([{ phase: "retire", error: cleanupError }]);
       await runtime.dispose();
     });
 
