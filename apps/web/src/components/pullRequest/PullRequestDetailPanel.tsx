@@ -1531,7 +1531,11 @@ export function PullRequestDetailPanel({
                           </span>
                         }
                       />
-                      <TooltipPopup side="top">{detail.baseBranch}</TooltipPopup>
+                      <TooltipPopup side="top">
+                        {isStackedPullRequest
+                          ? `Stacked on ${detail.baseBranch}`
+                          : detail.baseBranch}
+                      </TooltipPopup>
                     </Tooltip>
                     {freshness ? (
                       <PullRequestBaseFreshnessWarning
@@ -1680,7 +1684,11 @@ export function PullRequestDetailPanel({
                           </span>
                         }
                       />
-                      <TooltipPopup side="top">{detail.baseBranch}</TooltipPopup>
+                      <TooltipPopup side="top">
+                        {isStackedPullRequest
+                          ? `Stacked on ${detail.baseBranch}`
+                          : detail.baseBranch}
+                      </TooltipPopup>
                     </Tooltip>
                     {freshness ? (
                       <PullRequestBaseFreshnessWarning

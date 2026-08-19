@@ -143,8 +143,6 @@ describe("pull request handoff labels", () => {
       fixFinding: "Fix in this thread",
       fixCheck: "Fix in this thread",
       fixFindings: "Fix findings in this thread",
-      resolve: "Resolve in this thread",
-      resolveConflicts: "Resolve conflicts in this thread",
     });
   });
 
@@ -153,8 +151,6 @@ describe("pull request handoff labels", () => {
       fixFinding: "Fix in a thread",
       fixCheck: "Fix",
       fixFindings: "Fix findings in a thread",
-      resolve: "Resolve in a new thread",
-      resolveConflicts: "Resolve conflicts in a thread",
     });
   });
 });
