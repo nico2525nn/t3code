@@ -333,10 +333,7 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
     const callbackState = { active: true };
     try {
       const result = callbackContext.run(callbackState, invoke);
-      if (
-        (typeof result === "object" && result !== null && "then" in result) ||
-        typeof result === "function"
-      ) {
+      if (typeof result === "object" && result !== null && "then" in result) {
         return await Promise.resolve(result).finally(() => {
           callbackState.active = false;
         });
