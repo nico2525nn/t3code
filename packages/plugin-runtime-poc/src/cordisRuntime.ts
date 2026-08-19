@@ -1,3 +1,5 @@
+import * as NodeAsyncHooks from "node:async_hooks";
+
 import * as Cordis from "cordis";
 
 import type {
@@ -323,8 +325,12 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
   let context: CordisContext | undefined = new Context();
   let disposed = false;
   let queue = Promise.resolve();
+  const callbackContext = new NodeAsyncHooks.AsyncLocalStorage<boolean>();
 
   const runExclusive = <Result>(operation: () => Promise<Result>) => {
+    if (callbackContext.getStore()) {
+      return Promise.reject(new Error("reentrant plugin runtime operation"));
+    }
     const result = queue.then(operation);
     queue = result.then(
       () => undefined,
@@ -339,6 +345,18 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
         options.onCleanupError?.({ phase, error });
       } catch {
         // Cleanup reporting must not replace activation errors or undo a committed snapshot.
+      }
+    }
+  };
+
+  const reportLifecycle = (phase: "activate" | "deactivate", pluginId: string) => {
+    try {
+      options.onLifecycle?.({ phase, pluginId });
+    } catch (error) {
+      try {
+        options.onLifecycleError?.({ phase, pluginId, error });
+      } catch {
+        // Lifecycle error reporting must not interrupt a commit or cleanup.
       }
     }
   };
@@ -394,7 +412,7 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
               () => async () => {
                 for (const finalizer of finalizers.toReversed()) {
                   try {
-                    await finalizer();
+                    await callbackContext.run(true, finalizer);
                   } catch (error) {
                     cleanupErrors.push(error);
                   }
@@ -407,24 +425,26 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
               fiberContext.provide(capability, service);
             }
 
-            await definition.activate({
-              resolve: <Service>(capability: string) => fiberContext.get(capability) as Service,
-              register(slot, contribution) {
-                fiberContext.effect(() => {
-                  const items = contributions.get(slot) ?? [];
-                  items.push(contribution);
-                  contributions.set(slot, items);
-                  return () => {
-                    const index = items.indexOf(contribution);
-                    if (index >= 0) items.splice(index, 1);
-                    if (!items.length) contributions.delete(slot);
-                  };
-                }, `${definition.id}:contribution:${slot}`);
-              },
-              onDispose(finalizer) {
-                finalizers.push(finalizer);
-              },
-            });
+            await callbackContext.run(true, () =>
+              definition.activate({
+                resolve: <Service>(capability: string) => fiberContext.get(capability) as Service,
+                register(slot, contribution) {
+                  fiberContext.effect(() => {
+                    const items = contributions.get(slot) ?? [];
+                    items.push(contribution);
+                    contributions.set(slot, items);
+                    return () => {
+                      const index = items.indexOf(contribution);
+                      if (index >= 0) items.splice(index, 1);
+                      if (!items.length) contributions.delete(slot);
+                    };
+                  }, `${definition.id}:contribution:${slot}`);
+                },
+                onDispose(finalizer) {
+                  finalizers.push(finalizer);
+                },
+              }),
+            );
           };
           cordisPlugin.inject = [...(definition.requires ?? [])];
           cordisPlugin.provide = Object.keys(definition.provides ?? {});
@@ -462,11 +482,11 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
       const previous = composition.plugins.filter((plugin) => !plugins.includes(plugin));
       composition = candidate;
       for (const plugin of staged.values()) {
-        options.onLifecycle?.({ phase: "activate", pluginId: plugin.definition.id });
+        reportLifecycle("activate", plugin.definition.id);
       }
       const cleanupErrors = await cleanupComposition(
         { plugins: previous, snapshot: emptySnapshot },
-        (pluginId) => options.onLifecycle?.({ phase: "deactivate", pluginId }),
+        (pluginId) => reportLifecycle("deactivate", pluginId),
       );
       reportCleanupErrors("retire", cleanupErrors);
       return candidate.snapshot;
@@ -482,9 +502,7 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
         const previous = composition;
         composition = { plugins: [], snapshot: emptySnapshot };
         try {
-          await disposeComposition(previous, (pluginId) =>
-            options.onLifecycle?.({ phase: "deactivate", pluginId }),
-          );
+          await disposeComposition(previous, (pluginId) => reportLifecycle("deactivate", pluginId));
         } finally {
           context = undefined;
         }

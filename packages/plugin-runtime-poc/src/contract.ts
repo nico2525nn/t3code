@@ -36,6 +36,11 @@ export interface PluginRuntimeOptions {
     readonly phase: "activate" | "deactivate";
     readonly pluginId: string;
   }) => void;
+  readonly onLifecycleError?: (event: {
+    readonly phase: "activate" | "deactivate";
+    readonly pluginId: string;
+    readonly error: unknown;
+  }) => void;
   readonly onCleanupError?: (event: {
     readonly phase: "retire" | "rollback";
     readonly error: unknown;
