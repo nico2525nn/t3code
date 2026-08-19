@@ -82,7 +82,10 @@ test("runs mobile native analysis only for its inputs", () => {
   assert.equal(classifyChangedPaths(["apps/mobile/src/App.tsx"]).mobileNative, false);
   assert.equal(classifyChangedPaths(["packages/shared/README.md"]).mobileNative, false);
   assert.equal(classifyChangedPaths(["apps/mobile/ios/AppDelegate.swift"]).mobileNative, false);
-  assert.equal(classifyChangedPaths(["apps/mobile/android/app/MainActivity.kt"]).mobileNative, false);
+  assert.equal(
+    classifyChangedPaths(["apps/mobile/android/app/MainActivity.kt"]).mobileNative,
+    false,
+  );
   assert.equal(
     classifyChangedPaths(["apps/mobile/modules/example/ios/Example.swift"]).mobileNative,
     true,
@@ -95,10 +98,7 @@ test("runs mobile native analysis only for its inputs", () => {
   );
   assert.equal(classifyChangedPaths(["apps/.editorconfig"]).mobileNative, true);
   assert.equal(classifyChangedPaths([".editorconfig"]).mobileNative, true);
-  assert.equal(
-    classifyChangedPaths(["scripts/mobile-native-static-check.ts"]).mobileNative,
-    true,
-  );
+  assert.equal(classifyChangedPaths(["scripts/mobile-native-static-check.ts"]).mobileNative, true);
   assert.equal(classifyChangedPaths(["packages/shared/src/shell.ts"]).mobileNative, true);
 });
 

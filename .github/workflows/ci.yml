@@ -28,10 +28,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          persist-credentials: false
           sparse-checkout: |
-            .github/scripts
-            .github/workflows
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
 
       - name: Test change classifier
         run: node --test .github/scripts/ci-change-classifier.test.cjs
