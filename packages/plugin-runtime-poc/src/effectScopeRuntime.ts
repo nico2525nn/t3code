@@ -451,9 +451,20 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
       try: async () => {
         const callbackState: PluginCallbackContext = { active: true, callback, pluginId };
         try {
-          return await callbackContext.run(callbackState, () => Promise.resolve().then(invoke));
-        } finally {
+          const result = callbackContext.run(callbackState, invoke);
+          if (
+            (typeof result === "object" && result !== null && "then" in result) ||
+            typeof result === "function"
+          ) {
+            return await Promise.resolve(result).finally(() => {
+              callbackState.active = false;
+            });
+          }
           callbackState.active = false;
+          return result;
+        } catch (error) {
+          callbackState.active = false;
+          throw error;
         }
       },
       catch: (cause) => new PluginCallbackError({ callback, cause, pluginId }),
@@ -470,20 +481,29 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
       const cleanupErrors: Array<unknown> = [];
       const finalizers: Array<() => void | Promise<void>> = [];
       const plugin: LivePlugin = { definition, scope, contributions, cleanupErrors };
+      let activating = true;
+      const assertActivating = () => {
+        if (!activating) {
+          throw new Error(`activation context for ${definition.id} is no longer active`);
+        }
+      };
 
       const context: PluginActivationContext = {
         resolve: <Service>(capability: string): Service => {
+          assertActivating();
           if (!capabilities.has(capability)) {
             throw new PluginResolutionError({ capability, pluginId: definition.id });
           }
           return capabilities.get(capability) as Service;
         },
         register: (slot, contribution) => {
+          assertActivating();
           const values = contributions.get(slot) ?? [];
           values.push(contribution);
           contributions.set(slot, values);
         },
         onDispose: (finalizer) => {
+          assertActivating();
           finalizers.push(finalizer);
         },
       };
@@ -491,6 +511,7 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
       const activationExit = yield* Effect.exit(
         invokePluginCallback("activate", definition.id, () => definition.activate(context)),
       );
+      activating = false;
       for (const finalizer of finalizers) {
         const finalizerEffect = invokePluginCallback("finalizer", definition.id, finalizer).pipe(
           Effect.catch((error) =>
@@ -618,8 +639,10 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
   };
 
   return {
-    reconcile: (definitions) =>
-      runPromiseAdapter("reconcile", () => reconcileEffect([...definitions])),
+    reconcile: (definitions) => {
+      const desired = [...definitions];
+      return runPromiseAdapter("reconcile", () => reconcileEffect(desired));
+    },
     snapshot: () => current.snapshot,
     dispose: () => runPromiseAdapter("dispose", disposeEffect),
   };

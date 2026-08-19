@@ -7,10 +7,20 @@ import type { PluginDefinition, PluginRuntimeFactory, PluginRuntimeSnapshot } fr
 const contributionLabels = (snapshot: PluginRuntimeSnapshot, slot: string) =>
   snapshot.contributions[slot]?.map((item) => item.label) ?? [];
 
-const operationTimeout = () =>
-  NodeTimersPromises.setTimeout(100).then(() => {
+const withOperationTimeout = async <Result>(operation: Promise<Result>): Promise<Result> => {
+  const controller = new AbortController();
+  const timeout = NodeTimersPromises.setTimeout(100, undefined, {
+    ref: false,
+    signal: controller.signal,
+  }).then(() => {
     throw new Error("operation timed out");
   });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    controller.abort();
+  }
+};
 
 const failureCause = (error: unknown): unknown =>
   typeof error === "object" && error !== null && "cause" in error
@@ -482,9 +492,7 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
           await runtime.reconcile([]);
         },
       };
-      const timeout = operationTimeout();
-
-      await expect(Promise.race([runtime.reconcile([reentrant]), timeout])).rejects.toThrow(
+      await expect(withOperationTimeout(runtime.reconcile([reentrant]))).rejects.toThrow(
         "reentrant",
       );
     });
@@ -507,9 +515,7 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
           },
         },
       ]);
-      const timeout = operationTimeout();
-
-      await expect(Promise.race([runtime.reconcile([]), timeout])).resolves.toBeDefined();
+      await expect(withOperationTimeout(runtime.reconcile([]))).resolves.toBeDefined();
       expect(nestedFailure).toBeInstanceOf(Error);
       expect((nestedFailure as Error).message).toContain("reentrant");
       await runtime.dispose();
@@ -534,7 +540,77 @@ export function defineRuntimeContract(name: string, createRuntime: PluginRuntime
       ]);
 
       releaseBackground();
-      await expect(Promise.race([backgroundResult!, operationTimeout()])).resolves.toBeDefined();
+      await expect(withOperationTimeout(backgroundResult!)).resolves.toBeDefined();
+      await runtime.dispose();
+    });
+
+    it("allows microtasks spawned by synchronous plugin callbacks to use the runtime", async () => {
+      let backgroundResult: Promise<PluginRuntimeSnapshot> | undefined;
+      const runtime = createRuntime();
+
+      await runtime.reconcile([
+        {
+          id: "acme.microtask",
+          version: "1.0.0",
+          activate() {
+            queueMicrotask(() => {
+              backgroundResult = runtime.reconcile([]);
+            });
+          },
+        },
+      ]);
+
+      expect(backgroundResult).toBeDefined();
+      await expect(withOperationTimeout(backgroundResult!)).resolves.toBeDefined();
+      await runtime.dispose();
+    });
+
+    it("rejects finalizers registered after activation settles", async () => {
+      let registerLateFinalizer!: () => void;
+      let disposed = false;
+      const runtime = createRuntime();
+      await runtime.reconcile([
+        {
+          id: "acme.late-finalizer",
+          version: "1.0.0",
+          activate(context) {
+            registerLateFinalizer = () =>
+              context.onDispose(() => {
+                disposed = true;
+              });
+          },
+        },
+      ]);
+
+      expect(registerLateFinalizer).toThrow("no longer active");
+      await runtime.dispose();
+      expect(disposed).toBe(false);
+    });
+
+    it("snapshots the requested definitions before waiting for an earlier transition", async () => {
+      let releaseActivation!: () => void;
+      const activationGate = new Promise<void>((resolve) => {
+        releaseActivation = resolve;
+      });
+      const runtime = createRuntime();
+      const first = runtime.reconcile([
+        {
+          id: "acme.blocking",
+          version: "1.0.0",
+          async activate() {
+            await activationGate;
+          },
+        },
+      ]);
+      const requested: Array<PluginDefinition> = [provider()];
+      const second = runtime.reconcile(requested);
+      requested.splice(0);
+
+      releaseActivation();
+      await first;
+      const snapshot = await second;
+
+      expect(snapshot.active).toEqual(["acme.database"]);
       await runtime.dispose();
     });
 

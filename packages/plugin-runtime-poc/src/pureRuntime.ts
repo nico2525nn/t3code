@@ -184,9 +184,20 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
   ): Promise<Result> => {
     const callbackState = { active: true };
     try {
-      return await callbackContext.run(callbackState, () => Promise.resolve().then(invoke));
-    } finally {
+      const result = callbackContext.run(callbackState, invoke);
+      if (
+        (typeof result === "object" && result !== null && "then" in result) ||
+        typeof result === "function"
+      ) {
+        return await Promise.resolve(result).finally(() => {
+          callbackState.active = false;
+        });
+      }
       callbackState.active = false;
+      return result;
+    } catch (error) {
+      callbackState.active = false;
+      throw error;
     }
   };
 
