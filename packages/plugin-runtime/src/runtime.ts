@@ -12,6 +12,7 @@ import * as Scope from "effect/Scope";
 
 import type {
   Contribution,
+  ContributionData,
   PluginActivationContext,
   PluginDefinition,
   PluginRuntimeContributionSnapshot,
@@ -245,19 +246,58 @@ const sameStringRecord = (
   return leftKeys.every((key) => left[key] === right[key]);
 };
 
-const deepFreeze = <Value>(value: Value): Value => {
-  if (typeof value !== "object" || value === null || Object.isFrozen(value)) return value;
-  for (const nested of Object.values(value)) deepFreeze(nested);
-  return Object.freeze(value);
+const cloneContributionData = (
+  value: ContributionData,
+  ancestors = new WeakSet<object>(),
+): ContributionData => {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError("Contribution data numbers must be finite");
+    return value;
+  }
+  if (typeof value !== "object") {
+    throw new TypeError("Contribution data must contain only JSON-compatible values");
+  }
+  if (ancestors.has(value)) throw new TypeError("Contribution data cannot contain cycles");
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const clone: Array<ContributionData> = [];
+      for (let index = 0; index < value.length; index += 1) {
+        if (!Object.hasOwn(value, index)) {
+          throw new TypeError("Contribution data arrays cannot contain holes");
+        }
+        clone.push(cloneContributionData(value[index]!, ancestors));
+      }
+      return Object.freeze(clone);
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError("Contribution data objects must use a plain or null prototype");
+    }
+    const clone = createNullPrototypeRecord<ContributionData>();
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== "string") {
+        throw new TypeError("Contribution data objects cannot use symbol keys");
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || descriptor.enumerable !== true || !("value" in descriptor)) {
+        throw new TypeError("Contribution data objects must use enumerable data properties");
+      }
+      clone[key] = cloneContributionData(descriptor.value as ContributionData, ancestors);
+    }
+    return Object.freeze(clone);
+  } finally {
+    ancestors.delete(value);
+  }
 };
 
 const detachContribution = (contribution: Contribution): Contribution =>
   Object.freeze({
     id: contribution.id,
     label: contribution.label,
-    ...(contribution.data === undefined
-      ? {}
-      : { data: deepFreeze(structuredClone(contribution.data)) }),
+    ...(contribution.data === undefined ? {} : { data: cloneContributionData(contribution.data) }),
   });
 
 const snapshotDefinitions = (

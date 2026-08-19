@@ -347,6 +347,51 @@ describe("plugin runtime live contributions", () => {
     }),
   );
 
+  it.effect("rejects non-declarative contribution data without replacing the composition", () =>
+    Effect.gen(function* () {
+      const runtime = yield* PluginRuntime.make();
+      const stable: PluginDefinition = {
+        id: "acme.commands",
+        version: "1.0.0",
+        activate(context) {
+          context.register("commands", { id: "status", label: "Status" }, Effect.void);
+        },
+      };
+      yield* runtime.reconcile([stable]);
+      const committed = yield* runtime.contributions("commands");
+      const circular: { self?: unknown } = {};
+      circular.self = circular;
+      const invalidValues: ReadonlyArray<unknown> = [
+        circular,
+        new Map([["status", true]]),
+        new Uint8Array([1]),
+      ];
+
+      for (const [index, data] of invalidValues.entries()) {
+        const failed = yield* Effect.exit(
+          runtime.reconcile([
+            {
+              id: "acme.commands",
+              version: `2.0.${index}`,
+              activate(context) {
+                context.register("commands", {
+                  id: "status",
+                  label: "Status",
+                  data: data as never,
+                });
+              },
+            },
+          ]),
+        );
+        expect(Exit.isFailure(failed)).toBe(true);
+        if (Exit.isFailure(failed)) {
+          expect(Cause.squash(failed.cause)).toMatchObject({ _tag: "PluginCallbackError" });
+        }
+        expect((yield* runtime.contributions("commands")).generation).toBe(committed.generation);
+      }
+    }),
+  );
+
   it.effect("uses detached metadata as the default live contribution value", () =>
     Effect.gen(function* () {
       const runtime = yield* PluginRuntime.make();

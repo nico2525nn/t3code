@@ -72,7 +72,10 @@ import {
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
 import { detectComposerTrigger, replaceTextRange } from "@t3tools/shared/composerTrigger";
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
-import { buildMobilePluginCommandItems } from "./plugin-command-menu";
+import {
+  buildMobilePluginCommandItems,
+  reconcileComposerSelectionForTextChange,
+} from "./plugin-command-menu";
 import { useMobilePluginCommands } from "./use-mobile-plugin-commands";
 
 function NewTaskWorkspaceIcon(props: {
@@ -138,6 +141,7 @@ export function NewTaskDraftScreen(props: {
     start: flow.prompt.length,
     end: flow.prompt.length,
   }));
+  const previousPromptLengthRef = useRef(flow.prompt.length);
   const { commands: pluginCommands, execute: executePluginCommand } = useMobilePluginCommands(
     selectedProject?.environmentId ?? null,
   );
@@ -169,13 +173,11 @@ export function NewTaskDraftScreen(props: {
   );
   useEffect(() => {
     const end = flow.prompt.length;
-    setComposerSelection((selection) => {
-      const start = Math.min(selection.start, end);
-      const selectionEnd = Math.min(selection.end, end);
-      return start === selection.start && selectionEnd === selection.end
-        ? selection
-        : { start, end: selectionEnd };
-    });
+    const previousEnd = previousPromptLengthRef.current;
+    previousPromptLengthRef.current = end;
+    setComposerSelection((selection) =>
+      reconcileComposerSelectionForTextChange(selection, previousEnd, end),
+    );
   }, [flow.prompt.length]);
   const settingsSheetPresentation = useThreadSettingsSheetPresentation({
     editorRef: promptInputRef,

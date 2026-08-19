@@ -2,6 +2,20 @@ import type { PluginCommand } from "@t3tools/contracts";
 
 import type { ComposerCommandItem } from "./ComposerCommandPopover";
 
+export function reconcileComposerSelectionForTextChange(
+  selection: { readonly start: number; readonly end: number },
+  previousLength: number,
+  nextLength: number,
+): { readonly start: number; readonly end: number } {
+  if (selection.start === previousLength && selection.end === previousLength) {
+    return { start: nextLength, end: nextLength };
+  }
+  return {
+    start: Math.min(selection.start, nextLength),
+    end: Math.min(selection.end, nextLength),
+  };
+}
+
 export function buildMobilePluginCommandItems(
   commands: ReadonlyArray<PluginCommand>,
   query: string,

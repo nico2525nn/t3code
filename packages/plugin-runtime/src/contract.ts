@@ -1,4 +1,12 @@
-export interface Contribution<Data = unknown> {
+export type ContributionData =
+  | null
+  | boolean
+  | number
+  | string
+  | ReadonlyArray<ContributionData>
+  | { readonly [key: string]: ContributionData };
+
+export interface Contribution<Data extends ContributionData = ContributionData> {
   readonly id: string;
   readonly label: string;
   readonly data?: Data;

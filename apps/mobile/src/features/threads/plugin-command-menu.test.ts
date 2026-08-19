@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildMobilePluginCommandItems } from "./plugin-command-menu";
+import {
+  buildMobilePluginCommandItems,
+  reconcileComposerSelectionForTextChange,
+} from "./plugin-command-menu";
 
 describe("buildMobilePluginCommandItems", () => {
   it("renders only matching mobile command contributions", () => {
@@ -23,5 +26,14 @@ describe("buildMobilePluginCommandItems", () => {
 
     expect(items.map((item) => item.id)).toEqual(["plugin-command:plugin.mobile-status"]);
     expect(items[0]?.type).toBe("plugin-command");
+  });
+});
+
+describe("reconcileComposerSelectionForTextChange", () => {
+  it("moves an end-positioned caret after prompt hydration", () => {
+    expect(reconcileComposerSelectionForTextChange({ start: 0, end: 0 }, 0, 14)).toEqual({
+      start: 14,
+      end: 14,
+    });
   });
 });

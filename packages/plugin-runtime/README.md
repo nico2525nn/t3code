@@ -8,7 +8,7 @@ cordis is not a dependency. a pure-only executor was rejected because plugin lif
 
 ## contributions
 
-plugins register detached declarative metadata and an optional host-only live value. snapshots and `contributions(slot)` expose only frozen metadata. executable values never cross the rpc boundary.
+plugins register detached, deeply frozen, json-compatible declarative metadata and an optional host-only live value. snapshots and `contributions(slot)` expose only frozen metadata. executable values never cross the rpc boundary.
 
 `contributions(slot)` returns the committed generation with its entries. hosts must pass that generation to `useContribution(...)`; stale callers fail instead of invoking a handler from a different composition. invocation, reconciliation, and shutdown share the same transition authority, so a plugin scope cannot retire while its contribution is running.
 
