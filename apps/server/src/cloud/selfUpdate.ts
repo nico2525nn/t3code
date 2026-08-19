@@ -6,6 +6,7 @@ import {
   type ServerSelfUpdateResult,
 } from "@t3tools/contracts";
 import { HostProcessExecutablePath } from "@t3tools/shared/hostProcess";
+import { compareSemverVersions } from "@t3tools/shared/semver";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -13,6 +14,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
@@ -24,6 +26,7 @@ import {
 import { decodeServicePreflightResult } from "./servicePreflight.ts";
 import * as ServiceLauncherClient from "./serviceLauncherClient.ts";
 import { isExactServiceVersion, SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
+import packageJson from "../../package.json" with { type: "json" };
 
 const PREFLIGHT_TIMEOUT = Duration.seconds(30);
 
@@ -41,7 +44,11 @@ export class ServerSelfUpdate extends Context.Service<
     readonly update: (
       input: ServerSelfUpdateInput,
       reportProgress?: (stage: ServerSelfUpdateProgressStage) => Effect.Effect<void>,
+      confirmAutomaticUpdateIdle?: () => Effect.Effect<void, ServerSelfUpdateError>,
     ) => Effect.Effect<ServerSelfUpdateResult, ServerSelfUpdateError>;
+    readonly withCommandAdmission: <A, E, R>(
+      effect: Effect.Effect<A, E, R>,
+    ) => Effect.Effect<A, E | ServerSelfUpdateError, R>;
   }
 >()("t3/cloud/selfUpdate/ServerSelfUpdate") {}
 
@@ -53,6 +60,25 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const path = yield* Path.Path;
   const execPath = yield* HostProcessExecutablePath;
   const inFlight = yield* Ref.make(false);
+  const lastFailedTarget = yield* Ref.make<string | null>(null);
+  const automaticHandoffPending = yield* Ref.make(false);
+  const commandAdmission = yield* Semaphore.make(1);
+
+  const withCommandAdmission = <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E | ServerSelfUpdateError, R> => {
+    const admitted = Ref.get(automaticHandoffPending).pipe(
+      Effect.flatMap((blocked): Effect.Effect<A, E | ServerSelfUpdateError, R> => {
+        if (!blocked) return effect as Effect.Effect<A, E | ServerSelfUpdateError, R>;
+        return Effect.fail(
+          new ServerSelfUpdateError({
+            reason: "The server is activating an automatic update and cannot start new work.",
+          }),
+        );
+      }),
+    );
+    return commandAdmission.withPermits(1)(admitted);
+  };
 
   const capability: ServerSelfUpdateCapability | null =
     serverConfig.mode === "desktop" ? "desktop-managed" : launcher.managed ? "boot-service" : null;
@@ -63,7 +89,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
 
   const update: ServerSelfUpdate["Service"]["update"] = Effect.fn(
     "cloud.server_self_update.update",
-  )(function* (input, reportProgress = () => Effect.void) {
+  )(function* (input, reportProgress = () => Effect.void, confirmAutomaticUpdateIdle) {
     if (capability === "desktop-managed") {
       return yield* failWith(
         "This server is managed by the T3 Code desktop app on its machine; update the desktop app to update it.",
@@ -79,11 +105,25 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
     if (!isExactServiceVersion(targetVersion)) {
       return yield* failWith(`'${targetVersion}' is not an exact t3 version.`);
     }
+    if (
+      input.automatic === true &&
+      compareSemverVersions(targetVersion, packageJson.version) <= 0
+    ) {
+      return yield* failWith("Automatic updates must move the server to a newer version.");
+    }
+    if (input.automatic === true && (yield* Ref.get(lastFailedTarget)) === targetVersion) {
+      return yield* failWith(
+        "An automatic update to this version already failed. Retry it manually before automatic updates resume.",
+      );
+    }
     if (yield* Ref.getAndSet(inFlight, true)) {
       return yield* failWith("A server update is already in progress.");
     }
+    if (input.automatic !== true) {
+      yield* Ref.set(lastFailedTarget, null);
+    }
 
-    return yield* Effect.gen(function* () {
+    const operation = Effect.gen(function* () {
       yield* reportProgress("downloading");
       const paths = yield* ensurePinnedRuntimeInstalled({
         baseDir: serverConfig.baseDir,
@@ -168,30 +208,57 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
         ),
       );
 
-      yield* reportProgress("installing");
-      const updateId = yield* launcher
-        .requestUpdate({ targetVersion, dbPath: serverConfig.dbPath })
-        .pipe(
-          Effect.mapError((error) =>
-            failWith(
-              error._tag === "ServiceLauncherRejectedError"
-                ? error.reason
-                : "Could not ask the service launcher to activate the prepared update.",
-              error,
-            ),
-          ),
+      if (input.automatic === true) {
+        yield* commandAdmission.withPermits(1)(
+          Effect.gen(function* () {
+            if (confirmAutomaticUpdateIdle === undefined) {
+              return yield* failWith("Automatic update could not verify that this server is idle.");
+            }
+            yield* confirmAutomaticUpdateIdle();
+            yield* Ref.set(automaticHandoffPending, true);
+          }),
         );
+      }
 
-      yield* Effect.logInfo("Server update prepared; handing off to the service launcher.", {
-        updateId,
-        targetVersion,
-        runtimePath: paths.entryPath,
+      const activatePreparedUpdate = Effect.gen(function* () {
+        yield* reportProgress("installing");
+        const updateId = yield* launcher
+          .requestUpdate({ targetVersion, dbPath: serverConfig.dbPath })
+          .pipe(
+            Effect.mapError((error) =>
+              failWith(
+                error._tag === "ServiceLauncherRejectedError"
+                  ? error.reason
+                  : "Could not ask the service launcher to activate the prepared update.",
+                error,
+              ),
+            ),
+          );
+
+        yield* Effect.logInfo("Server update prepared; handing off to the service launcher.", {
+          updateId,
+          targetVersion,
+          runtimePath: paths.entryPath,
+        });
+        return { targetVersion, method: "boot-service" as const, updateId };
       });
-      return { targetVersion, method: "boot-service" as const, updateId };
-    }).pipe(Effect.onError(() => Ref.set(inFlight, false)));
+      return yield* activatePreparedUpdate;
+    }).pipe(
+      Effect.onError(() =>
+        Effect.all(
+          [
+            Ref.set(inFlight, false),
+            Ref.set(automaticHandoffPending, false),
+            Ref.set(lastFailedTarget, targetVersion),
+          ],
+          { discard: true },
+        ),
+      ),
+    );
+    return yield* input.automatic === true ? Effect.uninterruptible(operation) : operation;
   });
 
-  return ServerSelfUpdate.of({ update });
+  return ServerSelfUpdate.of({ update, withCommandAdmission });
 });
 
 export const layer = Layer.effect(ServerSelfUpdate, make()).pipe(

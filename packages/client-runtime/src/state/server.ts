@@ -6,8 +6,14 @@ import {
   type ServerLifecycleStreamReadyEvent,
   type ServerSelfUpdateProgressEvent,
   type ServerSelfUpdateResult,
+  type ServerSelfUpdateCapability,
   WS_METHODS,
 } from "@t3tools/contracts";
+import {
+  type AutomaticServerUpdateThreadActivity,
+  isAutomaticServerUpdateThreadActive,
+} from "@t3tools/shared/automaticServerUpdate";
+import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
 import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -44,8 +50,59 @@ import { followStreamInEnvironment } from "./runtime.ts";
 
 export type ServerUpdateStage = "downloading" | "installing" | "resuming";
 
+export type AutomaticServerUpdateDecision =
+  | { readonly status: "ineligible" }
+  | {
+      readonly status: "pending";
+      readonly reason: "synchronizing" | "active-work";
+      readonly fromVersion: string;
+      readonly targetVersion: string;
+    }
+  | {
+      readonly status: "ready";
+      readonly fromVersion: string;
+      readonly targetVersion: string;
+    };
+
+export function automaticServerUpdateDecision(input: {
+  readonly enabled: boolean;
+  readonly selfUpdate: ServerSelfUpdateCapability | null;
+  readonly clientVersion: string;
+  readonly serverVersion: string;
+  readonly shellStatus: "empty" | "cached" | "synchronizing" | "live";
+  readonly threads: ReadonlyArray<AutomaticServerUpdateThreadActivity>;
+}): AutomaticServerUpdateDecision {
+  if (
+    !input.enabled ||
+    input.selfUpdate !== "boot-service" ||
+    parseSemver(input.clientVersion) === null ||
+    parseSemver(input.serverVersion) === null ||
+    compareSemverVersions(input.clientVersion, input.serverVersion) <= 0
+  ) {
+    return { status: "ineligible" };
+  }
+
+  const target = {
+    fromVersion: input.serverVersion,
+    targetVersion: input.clientVersion,
+  };
+  if (input.shellStatus !== "live") {
+    return { status: "pending", reason: "synchronizing", ...target };
+  }
+  if (input.threads.some(isAutomaticServerUpdateThreadActive)) {
+    return { status: "pending", reason: "active-work", ...target };
+  }
+  return { status: "ready", ...target };
+}
+
 export type ServerUpdateState =
   | { readonly status: "idle" }
+  | {
+      readonly status: "pending";
+      readonly reason: "synchronizing" | "active-work";
+      readonly fromVersion: string;
+      readonly targetVersion: string;
+    }
   | {
       readonly status: "running";
       readonly stage: ServerUpdateStage;
@@ -189,6 +246,16 @@ export function serverUpdateStateForProgressEvent(
     fromVersion,
     targetVersion,
   };
+}
+
+export function serverUpdateStateForAutomaticDecision(
+  current: ServerUpdateState,
+  pending: Extract<ServerUpdateState, { status: "pending" }> | null,
+): ServerUpdateState {
+  if (current.status === "running" || current.status === "failed") {
+    return current;
+  }
+  return pending ?? IDLE_SERVER_UPDATE_STATE;
 }
 
 export function serverUpdateStateForServerVersion(
@@ -669,6 +736,23 @@ export function createServerEnvironmentAtoms<R, E>(
       );
     },
   });
+  const setAutomaticUpdatePending = createRuntimeCommand(runtime, {
+    label: "environment-data:server:set-automatic-update-pending",
+    execute: (
+      target: {
+        readonly environmentId: EnvironmentId;
+        readonly pending: Extract<ServerUpdateState, { status: "pending" }> | null;
+      },
+      atomRegistry,
+    ) =>
+      Effect.sync(() => {
+        const stateAtom = serverUpdateStateAtom(target.environmentId);
+        atomRegistry.set(
+          stateAtom,
+          serverUpdateStateForAutomaticDecision(atomRegistry.get(stateAtom), target.pending),
+        );
+      }),
+  });
   const settingsValueAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make((get) => get(configValueAtom(environmentId))?.settings ?? null).pipe(
       Atom.withLabel(`environment-data:server:settings:${environmentId}`),
@@ -738,6 +822,7 @@ export function createServerEnvironmentAtoms<R, E>(
       concurrency: configConcurrency,
     }),
     updateServer,
+    setAutomaticUpdatePending,
     upsertKeybinding: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:upsert-keybinding",
       tag: WS_METHODS.serverUpsertKeybinding,

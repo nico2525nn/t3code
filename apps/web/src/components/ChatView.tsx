@@ -2133,7 +2133,8 @@ function ChatViewContent(props: ChatViewProps) {
       (serverUpdateState.status !== "idle" ||
         (showVersionMismatchBanner && versionMismatch && versionMismatchDismissKey))
     ) {
-      const updateInProgress = serverUpdateState.status === "running";
+      const updateInProgress =
+        serverUpdateState.status === "running" || serverUpdateState.status === "pending";
       const updateFailed = serverUpdateState.status === "failed";
       items.push({
         id: `server-version:${serverUpdateEnvironmentId}`,
