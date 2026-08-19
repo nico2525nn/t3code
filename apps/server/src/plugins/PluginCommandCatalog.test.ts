@@ -8,9 +8,7 @@ import * as Stream from "effect/Stream";
 
 import type { PluginDefinition } from "@t3tools/plugin-runtime";
 
-import { PluginCommandCatalog, layer, registerPluginCommand } from "./PluginCommandCatalog.ts";
-
-const TestLayer = layer;
+import * as PluginCommandCatalog from "./PluginCommandCatalog.ts";
 
 const testPlugin = (input: {
   readonly fail?: boolean;
@@ -23,7 +21,7 @@ const testPlugin = (input: {
   activate(context) {
     if (input.fail === true) throw new Error("activation failed");
     if (input.onDispose !== undefined) context.onDispose(input.onDispose);
-    registerPluginCommand(context, {
+    PluginCommandCatalog.registerPluginCommand(context, {
       command: {
         id: "acme.hello",
         label: "Say hello",
@@ -38,7 +36,7 @@ const testPlugin = (input: {
 describe("plugin command catalog", () => {
   it.effect("lists and invokes the trusted built-in command", () =>
     Effect.gen(function* () {
-      const catalog = yield* PluginCommandCatalog;
+      const catalog = yield* PluginCommandCatalog.PluginCommandCatalog;
       const listed = yield* catalog.list;
       const streamed = yield* Stream.runHead(catalog.changes);
 
@@ -54,12 +52,12 @@ describe("plugin command catalog", () => {
           id: "t3.plugin-runtime.status",
         }),
       ).toEqual({ message: "Plugin runtime is active.", tone: "success" });
-    }).pipe(Effect.provide(TestLayer)),
+    }).pipe(Effect.provide(PluginCommandCatalog.layer)),
   );
 
   it.effect("keeps the committed command and handler when replacement activation fails", () =>
     Effect.gen(function* () {
-      const catalog = yield* PluginCommandCatalog;
+      const catalog = yield* PluginCommandCatalog.PluginCommandCatalog;
       const first = yield* catalog.reconcile([
         testPlugin({ message: "hello one", version: "1.0.0" }),
       ]);
@@ -73,24 +71,24 @@ describe("plugin command catalog", () => {
         message: "hello one",
         tone: "success",
       });
-    }).pipe(Effect.provide(TestLayer)),
+    }).pipe(Effect.provide(PluginCommandCatalog.layer)),
   );
 
   it.effect("does not republish an unchanged command catalog", () =>
     Effect.gen(function* () {
-      const catalog = yield* PluginCommandCatalog;
+      const catalog = yield* PluginCommandCatalog.PluginCommandCatalog;
       const definition = testPlugin({ message: "hello one", version: "1.0.0" });
 
       const first = yield* catalog.reconcile([definition]);
       const second = yield* catalog.reconcile([definition]);
 
       expect(second).toBe(first);
-    }).pipe(Effect.provide(TestLayer)),
+    }).pipe(Effect.provide(PluginCommandCatalog.layer)),
   );
 
   it.effect("rolls back invalid command metadata before publishing a generation", () =>
     Effect.gen(function* () {
-      const catalog = yield* PluginCommandCatalog;
+      const catalog = yield* PluginCommandCatalog.PluginCommandCatalog;
       const first = yield* catalog.list;
       const invalid: PluginDefinition = {
         id: "acme.invalid-command-plugin",
@@ -140,12 +138,67 @@ describe("plugin command catalog", () => {
           id: "t3.plugin-runtime.status",
         }),
       ).toEqual({ message: "Plugin runtime is active.", tone: "success" });
-    }).pipe(Effect.provide(TestLayer)),
+    }).pipe(Effect.provide(PluginCommandCatalog.layer)),
+  );
+
+  it.effect("serializes runtime reconciliation through catalog publication", () =>
+    Effect.gen(function* () {
+      const catalog = yield* PluginCommandCatalog.PluginCommandCatalog;
+      let markActivationStarted!: () => void;
+      let releaseActivation!: () => void;
+      let markSecondActivationStarted!: () => void;
+      const activationStarted = new Promise<void>((resolve) => {
+        markActivationStarted = resolve;
+      });
+      const activationGate = new Promise<void>((resolve) => {
+        releaseActivation = resolve;
+      });
+      const secondActivationStarted = new Promise<void>((resolve) => {
+        markSecondActivationStarted = resolve;
+      });
+      const firstPlugin: PluginDefinition = {
+        id: "acme.first-command-plugin",
+        version: "1.0.0",
+        activate(context) {
+          markActivationStarted();
+          return activationGate.then(() => {
+            PluginCommandCatalog.registerPluginCommand(context, {
+              command: { id: "acme.first", label: "First", surfaces: ["web"] },
+              handler: Effect.succeed({ message: "first", tone: "success" }),
+            });
+          });
+        },
+      };
+      const secondPlugin: PluginDefinition = {
+        id: "acme.second-command-plugin",
+        version: "1.0.0",
+        activate(context) {
+          markSecondActivationStarted();
+          PluginCommandCatalog.registerPluginCommand(context, {
+            command: { id: "acme.second", label: "Second", surfaces: ["web"] },
+            handler: Effect.succeed({ message: "second", tone: "success" }),
+          });
+        },
+      };
+
+      const firstFiber = yield* Effect.forkChild(catalog.reconcile([firstPlugin]));
+      yield* Effect.promise(() => activationStarted);
+      const secondFiber = yield* Effect.forkChild(catalog.reconcile([secondPlugin]));
+      yield* Effect.yieldNow;
+      releaseActivation();
+
+      const first = yield* Fiber.join(firstFiber);
+      yield* Effect.promise(() => secondActivationStarted);
+      const generationSeenBySecondActivation = (yield* catalog.list).generation;
+      const second = yield* Fiber.join(secondFiber);
+      expect(generationSeenBySecondActivation).toBe(first.generation);
+      expect(yield* catalog.list).toBe(second);
+    }).pipe(Effect.provide(PluginCommandCatalog.layer)),
   );
 
   it.effect("publishes a committed runtime generation before reporting interruption", () =>
     Effect.gen(function* () {
-      const catalog = yield* PluginCommandCatalog;
+      const catalog = yield* PluginCommandCatalog.PluginCommandCatalog;
       let markRetirementStarted!: () => void;
       let releaseRetirement!: () => void;
       const retirementStarted = new Promise<void>((resolve) => {
@@ -179,6 +232,6 @@ describe("plugin command catalog", () => {
         message: "hello two",
         tone: "success",
       });
-    }).pipe(Effect.provide(TestLayer)),
+    }).pipe(Effect.provide(PluginCommandCatalog.layer)),
   );
 });

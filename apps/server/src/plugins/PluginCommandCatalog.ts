@@ -20,6 +20,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import type * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
@@ -150,25 +151,28 @@ export const make = Effect.gen(function* () {
     commands: [],
     generation: 0,
   });
+  const reconcileSemaphore = yield* Semaphore.make(1);
 
   const reconcile = Effect.fn("PluginCommandCatalog.reconcile")(
     (definitions: ReadonlyArray<PluginDefinition>) =>
-      Effect.uninterruptibleMask((restore) =>
-        Effect.gen(function* () {
-          const transitionExit = yield* Effect.exit(
-            restore(runtime.reconcile([builtInPlugin, ...definitions])),
-          );
-          const catalog = yield* catalogFromRuntime(runtime);
-          const previous = yield* SubscriptionRef.get(state);
-          const published =
-            previous.generation === catalog.generation
-              ? previous
-              : yield* SubscriptionRef.set(state, catalog).pipe(Effect.as(catalog));
-          if (Exit.isFailure(transitionExit)) {
-            return yield* Effect.failCause(transitionExit.cause);
-          }
-          return published;
-        }),
+      reconcileSemaphore.withPermits(1)(
+        Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function* () {
+            const transitionExit = yield* Effect.exit(
+              restore(runtime.reconcile([builtInPlugin, ...definitions])),
+            );
+            const catalog = yield* catalogFromRuntime(runtime);
+            const previous = yield* SubscriptionRef.get(state);
+            const published =
+              previous.generation === catalog.generation
+                ? previous
+                : yield* SubscriptionRef.set(state, catalog).pipe(Effect.as(catalog));
+            if (Exit.isFailure(transitionExit)) {
+              return yield* Effect.failCause(transitionExit.cause);
+            }
+            return published;
+          }),
+        ),
       ),
   );
 
