@@ -281,12 +281,15 @@ export const make = (options: PluginRuntimeOptions = {}) =>
       onSettled?: () => void,
     ): Effect.Effect<Result, PluginCallbackError> => {
       const callbackState: PluginCallbackContext = { active: true, callback, pluginId };
-      let settled = false;
-      const settle = () => {
-        if (settled) return;
-        settled = true;
-        callbackState.active = false;
+      let expired = false;
+      const expire = () => {
+        if (expired) return;
+        expired = true;
         onSettled?.();
+      };
+      const settleCallback = () => {
+        callbackState.active = false;
+        expire();
       };
 
       return Effect.tryPromise({
@@ -294,17 +297,17 @@ export const make = (options: PluginRuntimeOptions = {}) =>
           try {
             const result = callbackContext.run(callbackState, invoke);
             if (typeof result === "object" && result !== null && "then" in result) {
-              return await Promise.resolve(result).finally(settle);
+              return await Promise.resolve(result).finally(settleCallback);
             }
-            settle();
+            settleCallback();
             return result;
           } catch (error) {
-            settle();
+            settleCallback();
             throw error;
           }
         },
         catch: (cause) => new PluginCallbackError({ callback, cause, pluginId }),
-      }).pipe(Effect.ensuring(Effect.sync(settle)));
+      }).pipe(Effect.ensuring(Effect.sync(expire)));
     };
 
     const activatePlugin = (

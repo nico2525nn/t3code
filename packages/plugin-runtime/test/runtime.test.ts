@@ -1,5 +1,6 @@
 import { it } from "@effect/vitest";
 import { describe, expect } from "vite-plus/test";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -7,11 +8,27 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 
-import type { PluginDefinition, PluginRuntimeOptions } from "../src/contract.ts";
+import type {
+  PluginDefinition,
+  PluginRuntimeOptions,
+  PluginRuntimeSnapshot,
+} from "../src/contract.ts";
 import * as PluginRuntime from "../src/runtime.ts";
 import { defineRuntimeContract } from "./runtimeContract.ts";
 
 const makeTestRuntime = (options: PluginRuntimeOptions = {}) => PluginRuntime.make(options);
+
+const makeEffectCallback = <A, E>() => {
+  let unsafeResume: (effect: Effect.Effect<A, E>) => void = () => {
+    throw new Error("effect callback has not started");
+  };
+  return {
+    await: Effect.callback<A, E>((resume) => {
+      unsafeResume = resume;
+    }),
+    resume: (effect: Effect.Effect<A, E>) => unsafeResume(effect),
+  } as const;
+};
 
 defineRuntimeContract("plugin runtime", makeTestRuntime);
 
@@ -214,6 +231,9 @@ describe("plugin runtime interruption", () => {
           releaseActivation = resolve;
         });
         const runtime = yield* makeTestRuntime();
+        const nested = makeEffectCallback<Exit.Exit<PluginRuntimeSnapshot, unknown>, never>();
+        const nestedFiber = yield* Effect.forkChild(nested.await);
+        yield* Effect.yieldNow;
         const reconcileFiber = yield* Effect.forkChild(
           runtime.reconcile([
             {
@@ -233,6 +253,7 @@ describe("plugin runtime interruption", () => {
                 } catch (error) {
                   lateFailure = error;
                 }
+                nested.resume(Effect.exit(runtime.reconcile([])));
               },
             },
           ]),
@@ -256,12 +277,19 @@ describe("plugin runtime interruption", () => {
         yield* Effect.callback<void>((resume) => {
           queueMicrotask(() => resume(Effect.void));
         });
+        const nestedExit = yield* Fiber.join(nestedFiber);
         yield* runtime.dispose;
 
         expect(lateRegistrationSucceeded).toBe(false);
         expect(lateFailure).toBeInstanceOf(Error);
         expect(earlyFinalizerRan).toBe(true);
         expect(lateFinalizerRan).toBe(false);
+        expect(Exit.isFailure(nestedExit)).toBe(true);
+        if (Exit.isFailure(nestedExit)) {
+          expect(Cause.squash(nestedExit.cause)).toMatchObject({
+            _tag: "PluginRuntimeReentrancyError",
+          });
+        }
       }),
     ),
   );
