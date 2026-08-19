@@ -223,6 +223,7 @@ import { appendPreviewAnnotationPrompt } from "../lib/previewAnnotation";
 import { appendReviewCommentsToPrompt, type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
 import {
+  getTerminalCustomLabel,
   selectThreadTerminalCustomLabels,
   selectThreadTerminalUiState,
   useTerminalUiStateStore,
@@ -1610,7 +1611,7 @@ function ChatViewContent(props: ChatViewProps) {
     for (const session of activeThreadKnownSessions) {
       labels.set(
         session.target.terminalId,
-        activeTerminalCustomLabels[session.target.terminalId] ??
+        getTerminalCustomLabel(activeTerminalCustomLabels, session.target.terminalId) ??
           resolveTerminalSessionLabel(session.target.terminalId, session.state.summary),
       );
     }
