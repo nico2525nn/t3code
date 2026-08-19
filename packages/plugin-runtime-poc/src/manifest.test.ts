@@ -40,7 +40,23 @@ describe("PluginManifest", () => {
 
   it("rejects malformed versions and capability ids", () => {
     expect(() => decodeManifest({ ...validManifest, version: "next" })).toThrow();
+    expect(() => decodeManifest({ ...validManifest, version: "01.2.3" })).toThrow();
+    expect(() => decodeManifest({ ...validManifest, version: "1.2.3-.." })).toThrow();
+    expect(decodeManifest({ ...validManifest, version: "1.2.3+build.7" }).version).toBe(
+      "1.2.3+build.7",
+    );
     expect(() => decodeManifest({ ...validManifest, requires: ["t3.commands"] })).toThrow();
+  });
+
+  it("rejects entrypoints that escape the plugin directory", () => {
+    for (const server of ["./../outside.js", "./dist/../../outside.js"]) {
+      expect(() =>
+        decodeManifest({
+          ...validManifest,
+          entrypoints: { ...validManifest.entrypoints, server },
+        }),
+      ).toThrow();
+    }
   });
 
   it("keeps mobile declarative by excluding a mobile executable entrypoint", () => {

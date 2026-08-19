@@ -5,12 +5,16 @@ const NamespacedId = Schema.String.check(
 );
 
 const SemanticVersion = Schema.String.check(
-  Schema.isPattern(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/),
+  Schema.isPattern(
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/,
+  ),
 );
 
 const CapabilityId = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9.-]*@[1-9]\d*$/));
 
-const RelativeEntrypoint = Schema.String.check(Schema.isPattern(/^\.\/[A-Za-z0-9_./-]+$/));
+const RelativeEntrypoint = Schema.String.check(
+  Schema.isPattern(/^\.\/(?!(?:\.\.(?:\/|$)|.*\/\.\.(?:\/|$)))[A-Za-z0-9_./-]+$/),
+);
 const Permission = Schema.String.check(Schema.isPattern(/^[a-z][a-z-]*:.+$/));
 
 const ContributionCatalog = Schema.Struct({
