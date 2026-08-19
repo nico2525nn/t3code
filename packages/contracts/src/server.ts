@@ -649,6 +649,7 @@ export class ServerSelfUpdateError extends Schema.TaggedErrorClass<ServerSelfUpd
   "ServerSelfUpdateError",
   {
     reason: TrimmedNonEmptyString,
+    retryWhenIdle: Schema.optional(Schema.Boolean),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {

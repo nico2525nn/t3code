@@ -76,6 +76,7 @@ const idleCheckLayer = Layer.effect(
             ? Effect.fail(
                 new ServerSelfUpdateError({
                   reason: "Automatic update paused because new work started while downloading.",
+                  retryWhenIdle: true,
                 }),
               )
             : Effect.void,
@@ -158,6 +159,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
       yield* Ref.set(lastFailedTarget, null);
     }
 
+    let retryWhenIdleFailure = false;
     const operation = Effect.gen(function* () {
       yield* reportProgress("downloading");
       const paths = yield* ensurePinnedRuntimeInstalled({
@@ -246,7 +248,13 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
       if (input.automatic === true) {
         yield* commandAdmission.withPermits(1)(
           Effect.gen(function* () {
-            yield* idleCheck.assertIdle;
+            yield* idleCheck.assertIdle.pipe(
+              Effect.tapError((error) =>
+                Effect.sync(() => {
+                  retryWhenIdleFailure = error.retryWhenIdle === true;
+                }),
+              ),
+            );
             yield* Ref.set(automaticHandoffPending, true);
           }),
         );
@@ -283,11 +291,13 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
             Ref.set(automaticHandoffPending, false),
             Ref.set(
               lastFailedTarget,
-              input.automatic === true ||
-                previousFailedTarget === null ||
-                previousFailedTarget === targetVersion
-                ? targetVersion
-                : previousFailedTarget,
+              retryWhenIdleFailure
+                ? previousFailedTarget
+                : input.automatic === true ||
+                    previousFailedTarget === null ||
+                    previousFailedTarget === targetVersion
+                  ? targetVersion
+                  : previousFailedTarget,
             ),
           ],
           { discard: true },
