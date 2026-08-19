@@ -132,20 +132,33 @@ const planComposition = (definitions: ReadonlyArray<PluginDefinition>): PlannedC
   return { blocked: blockedRecord, definitions: ordered };
 };
 
-const sameStrings = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
-  left.length === right.length && left.every((value, index) => value === right[index]);
+const sameStrings = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) => {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
+};
 
 const sameDefinition = (left: PluginDefinition, right: PluginDefinition): boolean => {
-  if (left.id !== right.id || left.version !== right.version) return false;
+  if (
+    left.id !== right.id ||
+    left.version !== right.version ||
+    !Object.is(left.activate, right.activate)
+  ) {
+    return false;
+  }
   if (!sameStrings(left.requires ?? [], right.requires ?? [])) return false;
 
-  const leftProvides = Object.entries(left.provides ?? {});
-  const rightProvides = Object.entries(right.provides ?? {});
+  const leftProvides = left.provides ?? {};
+  const rightProvides = right.provides ?? {};
+  const leftCapabilities = Object.keys(leftProvides);
+  const rightCapabilities = Object.keys(rightProvides);
   return (
-    leftProvides.length === rightProvides.length &&
-    leftProvides.every(
-      ([capability, service], index) =>
-        rightProvides[index]?.[0] === capability && Object.is(rightProvides[index]?.[1], service),
+    leftCapabilities.length === rightCapabilities.length &&
+    leftCapabilities.every(
+      (capability) =>
+        Object.hasOwn(rightProvides, capability) &&
+        Object.is(leftProvides[capability], rightProvides[capability]),
     )
   );
 };
@@ -210,7 +223,10 @@ const affectedPluginIds = (
   return affected;
 };
 
-const closePlugins = async (plugins: ReadonlyArray<LivePlugin>): Promise<void> => {
+const closePlugins = async (
+  plugins: ReadonlyArray<LivePlugin>,
+  onDeactivate?: (pluginId: string) => void,
+): Promise<ReadonlyArray<unknown>> => {
   const errors: Array<unknown> = [];
   for (const plugin of plugins.toReversed()) {
     try {
@@ -218,10 +234,13 @@ const closePlugins = async (plugins: ReadonlyArray<LivePlugin>): Promise<void> =
     } catch (error) {
       errors.push(error);
     }
+    try {
+      onDeactivate?.(plugin.definition.id);
+    } catch (error) {
+      errors.push(error);
+    }
   }
-  if (errors.length > 0) {
-    throw new AggregateError(errors, "Failed to close plugin scopes");
-  }
+  return errors;
 };
 
 const snapshotOf = (
@@ -252,22 +271,23 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
   let disposed = false;
   let transition: Promise<void> = Promise.resolve();
 
+  const reportCleanupErrors = (phase: "retire" | "rollback", errors: ReadonlyArray<unknown>) => {
+    for (const error of errors) {
+      try {
+        options.onCleanupError?.({ phase, error });
+      } catch {
+        // Cleanup reporting must not replace activation errors or undo a committed snapshot.
+      }
+    }
+  };
+
   const activatePlugin = async (
     definition: PluginDefinition,
     capabilities: ReadonlyMap<string, unknown>,
   ): Promise<LivePlugin> => {
     const scope = Effect.runSync(Scope.make("sequential"));
     const contributions = new Map<string, Array<Contribution>>();
-    let activated = false;
-
-    Effect.runSync(
-      Scope.addFinalizer(
-        scope,
-        Effect.sync(() => {
-          if (activated) options.onLifecycle?.({ phase: "deactivate", pluginId: definition.id });
-        }),
-      ),
-    );
+    const plugin = { definition, scope, contributions };
 
     const context: PluginActivationContext = {
       resolve: <Service>(capability: string): Service => {
@@ -299,11 +319,10 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
           Effect.provideService(Scope.Scope, scope),
         ),
       );
-      activated = true;
-      options.onLifecycle?.({ phase: "activate", pluginId: definition.id });
-      return { definition, scope, contributions };
+      return plugin;
     } catch (error) {
-      await Effect.runPromise(Scope.close(scope, Exit.void));
+      const cleanupErrors = await closePlugins([plugin]);
+      reportCleanupErrors("rollback", cleanupErrors);
       throw error;
     }
   };
@@ -346,7 +365,8 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
             }
           }
         } catch (error) {
-          await closePlugins([...staged.values()]);
+          const cleanupErrors = await closePlugins([...staged.values()]);
+          reportCleanupErrors("rollback", cleanupErrors);
           throw error;
         }
 
@@ -360,7 +380,13 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
           plugins: nextPlugins,
           snapshot: snapshotOf(nextPlugins, plan.blocked),
         };
-        await closePlugins(previous);
+        for (const plugin of staged.values()) {
+          options.onLifecycle?.({ phase: "activate", pluginId: plugin.definition.id });
+        }
+        const cleanupErrors = await closePlugins(previous, (pluginId) =>
+          options.onLifecycle?.({ phase: "deactivate", pluginId }),
+        );
+        reportCleanupErrors("retire", cleanupErrors);
         return current.snapshot;
       }),
     snapshot: () => current.snapshot,
@@ -370,7 +396,12 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
         disposed = true;
         const previous = current.plugins;
         current = { plugins: [], snapshot: emptySnapshot() };
-        await closePlugins(previous);
+        const cleanupErrors = await closePlugins(previous, (pluginId) =>
+          options.onLifecycle?.({ phase: "deactivate", pluginId }),
+        );
+        if (cleanupErrors.length > 0) {
+          throw new AggregateError(cleanupErrors, "Failed to close plugin scopes");
+        }
       }),
   };
 };

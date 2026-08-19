@@ -21,9 +21,9 @@ it also fits t3's existing effect runtime. adding cordis did not remove the need
 
 | variant                 | source lines | new runtime dependency                              | result                                                             |
 | ----------------------- | -----------: | --------------------------------------------------- | ------------------------------------------------------------------ |
-| `effectScopeRuntime.ts` |          376 | none, effect is already used by t3                  | best base for production                                           |
-| `cordisRuntime.ts`      |          472 | cordis rc.8 and about 300 kib of installed packages | works, but adds a second lifecycle runtime and the largest adapter |
-| `pureRuntime.ts`        |          378 | none                                                | simplest planner, but manual finalizers are too easy to misuse     |
+| `effectScopeRuntime.ts` |          407 | none, effect is already used by t3                  | best base for production                                           |
+| `cordisRuntime.ts`      |          493 | cordis rc.8 and about 300 kib of installed packages | works, but adds a second lifecycle runtime and the largest adapter |
+| `pureRuntime.ts`        |          394 | none                                                | simplest planner, but manual finalizers are too easy to misuse     |
 
 `cordisRuntime.ts` uses real cordis `Context`, `Fiber`, `inject`, `provide`, `effect`, and `isolate` behavior. it still needs its own graph analysis and differential reconciliation so unchanged fibers survive an update and failed candidates never replace the live composition.
 
@@ -31,24 +31,25 @@ cordis `4.0.0-rc.8` also ships extensionless declaration re-exports that do not 
 
 ## behavior proved
 
-all variants run the same contract suite. the full package currently has 44 tests. it checks:
+all variants run the same contract suite. the full package currently has 57 tests. it checks:
 
 - dependency-first activation from unordered manifests
 - blocked plugins when required capabilities are missing
 - dependent-first teardown
 - lifo plugin finalizers
-- no restart for unchanged plugin scopes
-- provider changes restart only transitive dependents
-- provided service identity changes restart providers and dependents
-- failed replacement keeps the old composition active
-- cleanup attempts every plugin even when a finalizer fails
-- dependency cycles fail before activation
-- plugin ids and contribution slots cannot collide with object prototype names
+- no restart for unchanged plugin scopes or reordered dependency declarations
+- targeted restart when versions, provided values, or activation implementations change
+- transitive dependent restart without touching unrelated plugins
+- preflight rejection for duplicate ids, duplicate capabilities, and dependency cycles
+- immutable detached snapshots with prototype-safe plugin ids and contribution slots
+- rollback that preserves both the active composition and the original activation error
+- cleanup error reporting without rejecting an already committed replacement
+- lifecycle events only for committed plugin compositions
 - deeply frozen public snapshots
 
 the pure planner also proves a 20,000-plugin dependency chain without recursive stack overflow.
 
-`manifest.ts` validates namespaced ids, semantic versions, versioned capabilities, permissions, surfaces, and declarative contributions. executable entry points are limited to server, web, and desktop. a mobile javascript entry point is rejected instead of silently ignored.
+`manifest.ts` validates namespaced ids, semver 2.0.0 versions, versioned capabilities, permissions, surfaces, and declarative contributions. executable entry points are limited to server, web, and desktop and cannot escape the plugin directory through `..` segments. a mobile javascript entry point is rejected instead of silently ignored.
 
 ## illustrative timings
 
@@ -56,9 +57,9 @@ five runs used node `24.13.1`. each run activated a chain of 250 plugins, reconc
 
 | variant         | activate 250 | unchanged reconcile | restart 250 |
 | --------------- | -----------: | ------------------: | ----------: |
-| effect scope    |      5.61 ms |             1.17 ms |     4.74 ms |
-| cordis          |     100.9 ms |             1.31 ms |   304.89 ms |
-| pure reconciler |      0.71 ms |             0.51 ms |     0.65 ms |
+| effect scope    |      5.44 ms |             1.16 ms |     4.31 ms |
+| direct cordis   |    111.44 ms |             1.31 ms |   333.40 ms |
+| pure reconciler |      0.74 ms |             0.59 ms |     0.69 ms |
 
 all three produced the same contributions before and after a provider upgrade.
 

@@ -19,8 +19,8 @@ export interface PluginActivationContext {
 
 export interface PluginRuntimeSnapshot {
   readonly active: ReadonlyArray<string>;
-  readonly blocked: Readonly<Record<string, string>>;
-  readonly contributions: Readonly<Record<string, ReadonlyArray<Contribution>>>;
+  readonly blocked: Readonly<Partial<Record<string, string>>>;
+  readonly contributions: Readonly<Partial<Record<string, ReadonlyArray<Contribution>>>>;
 }
 
 export interface PluginRuntime {
@@ -35,6 +35,10 @@ export interface PluginRuntimeOptions {
   readonly onLifecycle?: (event: {
     readonly phase: "activate" | "deactivate";
     readonly pluginId: string;
+  }) => void;
+  readonly onCleanupError?: (event: {
+    readonly phase: "retire" | "rollback";
+    readonly error: unknown;
   }) => void;
 }
 

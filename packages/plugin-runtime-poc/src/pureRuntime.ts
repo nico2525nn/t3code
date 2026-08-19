@@ -150,8 +150,8 @@ const planComposition = (definitions: ReadonlyArray<PluginDefinition>): Composit
 };
 
 const sameDefinitionShape = (previous: PluginDefinition, desired: PluginDefinition) => {
-  const previousRequires = previous.requires ?? [];
-  const desiredRequires = desired.requires ?? [];
+  const previousRequires = [...(previous.requires ?? [])].sort();
+  const desiredRequires = [...(desired.requires ?? [])].sort();
   const previousProvidedServices = previous.provides ?? {};
   const desiredProvidedServices = desired.provides ?? {};
   const previousProvides = Object.keys(previousProvidedServices);
@@ -159,19 +159,17 @@ const sameDefinitionShape = (previous: PluginDefinition, desired: PluginDefiniti
 
   return (
     previous.version === desired.version &&
+    Object.is(previous.activate, desired.activate) &&
     previousRequires.length === desiredRequires.length &&
     previousRequires.every((capability, index) => capability === desiredRequires[index]) &&
     previousProvides.length === desiredProvides.length &&
     previousProvides.every(
-      (capability, index) =>
-        capability === desiredProvides[index] &&
+      (capability) =>
+        Object.hasOwn(desiredProvidedServices, capability) &&
         Object.is(previousProvidedServices[capability], desiredProvidedServices[capability]),
     )
   );
 };
-
-const messageOf = (error: unknown) =>
-  error instanceof Error ? error.message : "plugin activation failed";
 
 export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRuntime => {
   let current = emptyComposition();
@@ -214,6 +212,16 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
       if (instance !== undefined) errors.push(...(await deactivate(instance)));
     }
     return errors;
+  };
+
+  const reportCleanupErrors = (phase: "retire" | "rollback", errors: ReadonlyArray<unknown>) => {
+    for (const error of errors) {
+      try {
+        options.onCleanupError?.({ phase, error });
+      } catch {
+        // Cleanup reporting must not replace an activation failure or invalidate a commit.
+      }
+    }
   };
 
   const stage = async (
@@ -303,8 +311,6 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
           activating = false;
         }
 
-        instance.activated = true;
-        options.onLifecycle?.({ phase: "activate", pluginId: definition.id });
         for (const [capability, service] of Object.entries(definition.provides ?? {})) {
           services.set(capability, service);
         }
@@ -323,12 +329,7 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
       };
     } catch (activationError) {
       const cleanupErrors = await deactivateAll(staged);
-      if (cleanupErrors.length > 0) {
-        throw new Error(
-          `${messageOf(activationError)}; ${cleanupErrors.length} rollback finalizer(s) also failed`,
-          { cause: activationError },
-        );
-      }
+      reportCleanupErrors("rollback", cleanupErrors);
       throw activationError;
     }
   };
@@ -352,11 +353,26 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
         const candidate = await stage(desired, previous);
         current = candidate;
 
+        const lifecycleErrors: Array<unknown> = [];
+        for (const instance of candidate.instances) {
+          if (instance.activated) continue;
+          instance.activated = true;
+          try {
+            options.onLifecycle?.({ phase: "activate", pluginId: instance.definition.id });
+          } catch (error) {
+            lifecycleErrors.push(error);
+          }
+        }
+
         const retained = new Set(candidate.instances);
         const retired = previous.instances.filter((instance) => !retained.has(instance));
         const cleanupErrors = await deactivateAll(retired);
-        if (cleanupErrors.length > 0) {
-          throw new AggregateError(cleanupErrors, "previous composition deactivation failed");
+        reportCleanupErrors("retire", cleanupErrors);
+        if (lifecycleErrors.length > 0) {
+          throw new AggregateError(
+            lifecycleErrors,
+            "committed composition lifecycle reporting failed",
+          );
         }
         return candidate.snapshot;
       });
