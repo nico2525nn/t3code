@@ -2,6 +2,11 @@ import type { PluginCommand } from "@t3tools/contracts";
 
 import type { ComposerCommandItem } from "./ComposerCommandPopover";
 
+export const isCollapsedComposerSelection = (selection: {
+  readonly start: number;
+  readonly end: number;
+}): boolean => selection.start === selection.end;
+
 export function reconcileComposerSelectionForTextChange(
   selection: { readonly start: number; readonly end: number },
   previousLength: number,

@@ -58,6 +58,7 @@ export class PluginCommandCatalogChangedError extends Schema.TaggedErrorClass<Pl
 export class PluginCommandInvocationError extends Schema.TaggedErrorClass<PluginCommandInvocationError>()(
   "PluginCommandInvocationError",
   {
+    cause: Schema.Defect(),
     id: PluginCommandId,
     message: TrimmedNonEmptyString.check(Schema.isMaxLength(500)),
   },

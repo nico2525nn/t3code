@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildMobilePluginCommandItems,
+  isCollapsedComposerSelection,
   reconcileComposerSelectionForTextChange,
 } from "./plugin-command-menu";
 
@@ -35,5 +36,11 @@ describe("reconcileComposerSelectionForTextChange", () => {
       start: 14,
       end: 14,
     });
+  });
+});
+
+describe("isCollapsedComposerSelection", () => {
+  it("rejects a highlighted range", () => {
+    expect(isCollapsedComposerSelection({ start: 0, end: 7 })).toBe(false);
   });
 });

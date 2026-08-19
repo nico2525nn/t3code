@@ -55,8 +55,12 @@ type PluginCommandHandler = Effect.Effect<
 
 export class PluginCommandDefinitionError extends Schema.TaggedErrorClass<PluginCommandDefinitionError>()(
   "PluginCommandDefinitionError",
-  { message: Schema.String },
-) {}
+  { cause: Schema.Defect(), id: Schema.String },
+) {
+  override get message(): string {
+    return `Plugin command ${this.id} has invalid declarative metadata.`;
+  }
+}
 
 export interface PluginCommandRegistration {
   readonly command: PluginCommand;
@@ -108,12 +112,7 @@ const catalogFromRuntime = Effect.fn("PluginCommandCatalog.catalogFromRuntime")(
   const snapshot = yield* runtime.contributions(COMMAND_SLOT);
   const commands = yield* Effect.forEach(snapshot.entries, (entry) =>
     decodePluginCommandEffect(commandInputFromContribution(entry)).pipe(
-      Effect.mapError(
-        () =>
-          new PluginCommandDefinitionError({
-            message: `Plugin command ${entry.id} has invalid declarative metadata.`,
-          }),
-      ),
+      Effect.mapError((cause) => new PluginCommandDefinitionError({ cause, id: entry.id })),
     ),
   );
   const frozenCommands = commands.map((command) =>
@@ -197,6 +196,7 @@ export const make = Effect.gen(function* () {
             return new PluginCommandNotFoundError({ id: input.id });
           }
           return new PluginCommandInvocationError({
+            cause: error,
             id: input.id,
             message: "Plugin command failed.",
           });

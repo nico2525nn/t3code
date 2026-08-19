@@ -74,6 +74,7 @@ import { detectComposerTrigger, replaceTextRange } from "@t3tools/shared/compose
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
 import {
   buildMobilePluginCommandItems,
+  isCollapsedComposerSelection,
   reconcileComposerSelectionForTextChange,
 } from "./plugin-command-menu";
 import { useMobilePluginCommands } from "./use-mobile-plugin-commands";
@@ -146,9 +147,10 @@ export function NewTaskDraftScreen(props: {
     selectedProject?.environmentId ?? null,
   );
   const pluginCommandTrigger = useMemo(() => {
+    if (!isCollapsedComposerSelection(composerSelection)) return null;
     const trigger = detectComposerTrigger(flow.prompt, composerSelection.end);
     return trigger?.kind === "slash-command" ? trigger : null;
-  }, [composerSelection.end, flow.prompt]);
+  }, [composerSelection, flow.prompt]);
   const pluginCommandItems = useMemo<ComposerCommandItem[]>(() => {
     if (pluginCommandTrigger === null) return [];
     return buildMobilePluginCommandItems(pluginCommands, pluginCommandTrigger.query);
