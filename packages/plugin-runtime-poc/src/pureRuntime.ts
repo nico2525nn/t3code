@@ -1,3 +1,5 @@
+import * as NodeAsyncHooks from "node:async_hooks";
+
 import type {
   Contribution,
   PluginDefinition,
@@ -175,26 +177,32 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
   let current = emptyComposition();
   let disposed = false;
   let transition = Promise.resolve();
+  const callbackContext = new NodeAsyncHooks.AsyncLocalStorage<boolean>();
+
+  const reportLifecycle = (phase: "activate" | "deactivate", pluginId: string) => {
+    try {
+      options.onLifecycle?.({ phase, pluginId });
+    } catch (error) {
+      try {
+        options.onLifecycleError?.({ phase, pluginId, error });
+      } catch {
+        // Lifecycle error reporting must not invalidate a commit or interrupt cleanup.
+      }
+    }
+  };
 
   const deactivate = async (instance: PluginInstance): Promise<Array<unknown>> => {
     const errors: Array<unknown> = [];
 
     if (instance.activated) {
-      try {
-        options.onLifecycle?.({
-          phase: "deactivate",
-          pluginId: instance.definition.id,
-        });
-      } catch (error) {
-        errors.push(error);
-      }
+      reportLifecycle("deactivate", instance.definition.id);
     }
 
     for (let index = instance.finalizers.length - 1; index >= 0; index -= 1) {
       const finalizer = instance.finalizers[index];
       if (finalizer === undefined) continue;
       try {
-        await finalizer();
+        await callbackContext.run(true, finalizer);
       } catch (error) {
         errors.push(error);
       }
@@ -288,25 +296,27 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
         };
 
         try {
-          await definition.activate({
-            resolve: <Service>(capability: string): Service => {
-              assertActivating();
-              if (!services.has(capability)) {
-                throw new Error(`plugin ${definition.id} could not resolve ${capability}`);
-              }
-              return services.get(capability) as Service;
-            },
-            register: (slot, contribution) => {
-              assertActivating();
-              const items = instance.contributions.get(slot) ?? [];
-              items.push(Object.freeze({ id: contribution.id, label: contribution.label }));
-              instance.contributions.set(slot, items);
-            },
-            onDispose: (finalizer) => {
-              assertActivating();
-              instance.finalizers.push(finalizer);
-            },
-          });
+          await callbackContext.run(true, () =>
+            definition.activate({
+              resolve: <Service>(capability: string): Service => {
+                assertActivating();
+                if (!services.has(capability)) {
+                  throw new Error(`plugin ${definition.id} could not resolve ${capability}`);
+                }
+                return services.get(capability) as Service;
+              },
+              register: (slot, contribution) => {
+                assertActivating();
+                const items = instance.contributions.get(slot) ?? [];
+                items.push(Object.freeze({ id: contribution.id, label: contribution.label }));
+                instance.contributions.set(slot, items);
+              },
+              onDispose: (finalizer) => {
+                assertActivating();
+                instance.finalizers.push(finalizer);
+              },
+            }),
+          );
         } finally {
           activating = false;
         }
@@ -335,6 +345,9 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
   };
 
   const runExclusive = <Result>(operation: () => Promise<Result>): Promise<Result> => {
+    if (callbackContext.getStore() === true) {
+      return Promise.reject(new Error("reentrant plugin runtime operation"));
+    }
     const result = transition.then(operation);
     transition = result.then(
       () => undefined,
@@ -353,27 +366,16 @@ export const createPureRuntime: PluginRuntimeFactory = (options = {}): PluginRun
         const candidate = await stage(desired, previous);
         current = candidate;
 
-        const lifecycleErrors: Array<unknown> = [];
         for (const instance of candidate.instances) {
           if (instance.activated) continue;
           instance.activated = true;
-          try {
-            options.onLifecycle?.({ phase: "activate", pluginId: instance.definition.id });
-          } catch (error) {
-            lifecycleErrors.push(error);
-          }
+          reportLifecycle("activate", instance.definition.id);
         }
 
         const retained = new Set(candidate.instances);
         const retired = previous.instances.filter((instance) => !retained.has(instance));
         const cleanupErrors = await deactivateAll(retired);
         reportCleanupErrors("retire", cleanupErrors);
-        if (lifecycleErrors.length > 0) {
-          throw new AggregateError(
-            lifecycleErrors,
-            "committed composition lifecycle reporting failed",
-          );
-        }
         return candidate.snapshot;
       });
     },
