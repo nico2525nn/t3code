@@ -335,7 +335,7 @@ const makeLoopbackCallbackServer = Effect.fn("cloud.cli_token.loopback_callback_
   metadata: Pick<CloudCliOAuthConfig, "redirectUri" | "loopbackPort">,
   state: string,
 ) {
-  const callback = yield* Deferred.make<string>();
+  const callback = yield* Deferred.make<string, CloudCliAuthorizationError>();
   const callbackRoute = HttpRouter.add(
     "GET",
     "/callback",
@@ -343,10 +343,25 @@ const makeLoopbackCallbackServer = Effect.fn("cloud.cli_token.loopback_callback_
       const request = yield* HttpServerRequest.HttpServerRequest;
       const url = new URL(request.originalUrl, metadata.redirectUri);
       const code = url.searchParams.get("code");
-      if (url.searchParams.get("state") !== state || !code) {
+      const authorizationError = url.searchParams.get("error");
+      if (url.searchParams.get("state") !== state || (!code && !authorizationError)) {
         return HttpServerResponse.text("Invalid T3 Connect authorization callback.", {
           status: 400,
         });
+      }
+      // A denied or cancelled authorization redirects with an error instead
+      // of a code; fail the wait now rather than holding the attempt open
+      // until the callback timeout.
+      if (!code) {
+        yield* Deferred.fail(
+          callback,
+          new CloudCliAuthorizationError({
+            cause: `Clerk reported "${authorizationError}" instead of an authorization code.`,
+          }),
+        );
+        return HttpServerResponse.text(
+          "T3 Connect sign-in was not completed. You can close this tab.",
+        );
       }
       yield* Deferred.succeed(callback, code);
       return HttpServerResponse.html(renderLoopbackAuthorizationCompleteHtml());
@@ -444,9 +459,34 @@ export const make = Effect.gen(function* () {
     return token;
   });
 
-  const clear = secrets
-    .remove(CLOUD_CLI_OAUTH_TOKEN_SECRET)
-    .pipe(Effect.mapError((cause) => new CloudCliCredentialRemovalError({ cause })));
+  const pendingLoginRef = yield* Ref.make(
+    Option.none<{
+      readonly authorizationUrl: string;
+      readonly state: string;
+      readonly manualCode: Deferred.Deferred<string, CloudCliAuthorizationError>;
+    }>(),
+  );
+  const loginSemaphore = yield* Semaphore.make(1);
+
+  // A sign-out must also cancel a waiting browser sign-in, or its late
+  // completion would re-authorize the device. Cancelling here aborts the flow
+  // before its exchange; an exchange already in flight is fenced off by the
+  // still-current check its persist runs under this same semaphore.
+  const clear = semaphore.withPermits(1)(
+    Effect.gen(function* () {
+      const pending = yield* Ref.get(pendingLoginRef);
+      if (Option.isSome(pending)) {
+        yield* Deferred.fail(
+          pending.value.manualCode,
+          new CloudCliAuthorizationError({
+            cause: "The pending sign-in was cancelled by a sign-out.",
+          }),
+        );
+        yield* Ref.set(pendingLoginRef, Option.none());
+      }
+      yield* secrets.remove(CLOUD_CLI_OAUTH_TOKEN_SECRET);
+    }).pipe(Effect.mapError((cause) => new CloudCliCredentialRemovalError({ cause }))),
+  );
 
   const read = Effect.fn("cloud.cli_token.read")(function* () {
     const encoded = yield* secrets.get(CLOUD_CLI_OAUTH_TOKEN_SECRET);
@@ -563,15 +603,6 @@ export const make = Effect.gen(function* () {
     );
   });
 
-  const pendingLoginRef = yield* Ref.make(
-    Option.none<{
-      readonly authorizationUrl: string;
-      readonly state: string;
-      readonly manualCode: Deferred.Deferred<string>;
-    }>(),
-  );
-  const loginSemaphore = yield* Semaphore.make(1);
-
   // Desktop sign-in: the same loopback authorization-code + PKCE flow as the
   // CLI, but with no terminal — the browser opens immediately and the
   // callback wait plus token exchange run in a detached fiber so the HTTP
@@ -592,7 +623,7 @@ export const make = Effect.gen(function* () {
         challenge,
         loopbackPort: metadata.loopbackPort,
       });
-      const manualCode = yield* Deferred.make<string>();
+      const manualCode = yield* Deferred.make<string, CloudCliAuthorizationError>();
       yield* Ref.set(pendingLoginRef, Option.some({ authorizationUrl, state, manualCode }));
       yield* Effect.scoped(
         Effect.gen(function* () {
@@ -622,7 +653,17 @@ export const make = Effect.gen(function* () {
             client_id: metadata.clientId,
             code_verifier: verifier,
           });
-          yield* persist(token);
+          // The attempt may have been cancelled by a sign-out while the
+          // exchange ran; only a still-current attempt may write the
+          // credential, serialized with refresh and logout writes.
+          yield* semaphore.withPermits(1)(
+            Effect.gen(function* () {
+              const currentPending = yield* Ref.get(pendingLoginRef);
+              if (Option.isSome(currentPending) && currentPending.value.state === state) {
+                yield* persist(token);
+              }
+            }),
+          );
         }),
       ).pipe(
         Effect.catch((cause) =>

@@ -84,7 +84,7 @@ function DesktopConnectAvatar() {
       <Menu>
         <MenuTrigger
           aria-label="T3 Connect account"
-          className="rounded-lg p-1 hover:bg-sidebar-row-hover"
+          className="cursor-pointer rounded-lg p-1 outline-none transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span className="flex size-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
             {initial}
@@ -113,7 +113,10 @@ function DesktopConnectAvatar() {
         </MenuPopup>
       </Menu>
       <Dialog open={openPage !== null} onOpenChange={(open) => !open && setOpenPage(null)}>
-        <DialogPopup className="max-w-2xl">
+        <DialogPopup
+          aria-label={openPage === "mobile-clients" ? "Mobile clients" : "T3 Connect"}
+          className="max-w-2xl"
+        >
           <DialogPanel>
             {openPage === "mobile-clients" ? (
               <MobileClientsUserProfilePage />

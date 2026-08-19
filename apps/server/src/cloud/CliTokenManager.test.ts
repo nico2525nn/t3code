@@ -409,6 +409,79 @@ it.layer(NodeServices.layer)("CloudCliTokenManager browser login", (it) => {
     }),
   );
 
+  it.effect("a sign-out cancels a pending browser login", () =>
+    Effect.gen(function* () {
+      const requests: Array<RecordedTokenRequest> = [];
+      const memory = makeMemorySecretStore();
+      const browserOpened = yield* Deferred.make<void>();
+
+      const manager = yield* CliTokenManager.make.pipe(
+        Effect.provideService(ServerSecretStore.ServerSecretStore, memory.service),
+        Effect.provideService(Terminal.Terminal, unusedTerminal),
+        Effect.provideService(ExternalLauncher.ExternalLauncher, {
+          resolveAvailableEditors: () => Effect.succeed([]),
+          launchBrowser: () => Deferred.succeed(browserOpened, undefined).pipe(Effect.asVoid),
+          launchEditor: () => Effect.die("unused launchEditor"),
+        }),
+        Effect.provide(makeTokenEndpointLayer(requests)),
+        provideTestEnv,
+      );
+
+      yield* manager.beginBrowserLogin.pipe(provideTestEnv);
+      yield* Deferred.await(browserOpened);
+      yield* manager.clear;
+      yield* awaitPendingLoginSettled(manager);
+
+      const state = yield* manager.clientAuthState.pipe(provideTestEnv);
+      assert.isFalse(state.authorized);
+      assert.isFalse(state.pendingLogin);
+      // The attempt died before any token exchange could run.
+      assert.lengthOf(requests, 0);
+      assert.isNull(readStoredToken(memory.secrets));
+    }),
+  );
+
+  it.effect("a denied authorization fails the pending attempt promptly", () =>
+    Effect.gen(function* () {
+      const requests: Array<RecordedTokenRequest> = [];
+      const memory = makeMemorySecretStore();
+      const browserOpened = yield* Deferred.make<void>();
+
+      const manager = yield* CliTokenManager.make.pipe(
+        Effect.provideService(ServerSecretStore.ServerSecretStore, memory.service),
+        Effect.provideService(Terminal.Terminal, unusedTerminal),
+        Effect.provideService(ExternalLauncher.ExternalLauncher, {
+          resolveAvailableEditors: () => Effect.succeed([]),
+          launchBrowser: () => Deferred.succeed(browserOpened, undefined).pipe(Effect.asVoid),
+          launchEditor: () => Effect.die("unused launchEditor"),
+        }),
+        Effect.provide(makeTokenEndpointLayer(requests)),
+        provideTestEnv,
+      );
+
+      const { authorizationUrl } = yield* manager.beginBrowserLogin.pipe(provideTestEnv);
+      const request = readConnectAuthorizeRequest(new URL(authorizationUrl));
+      assert.isNotNull(request);
+      yield* Deferred.await(browserOpened);
+
+      const callback = yield* Effect.gen(function* () {
+        const client = yield* HttpClient.HttpClient;
+        return yield* client.execute(
+          HttpClientRequest.get(
+            `http://127.0.0.1:34338/callback?error=access_denied&state=${encodeURIComponent(request!.state)}`,
+          ),
+        );
+      }).pipe(Effect.provide(FetchHttpClient.layer));
+      assert.equal(callback.status, 200);
+      yield* awaitPendingLoginSettled(manager);
+
+      const state = yield* manager.clientAuthState.pipe(provideTestEnv);
+      assert.isFalse(state.authorized);
+      assert.isFalse(state.pendingLogin);
+      assert.lengthOf(requests, 0);
+    }),
+  );
+
   it.effect("completes a pending browser login with a pasted out-of-band code", () =>
     Effect.gen(function* () {
       const requests: Array<RecordedTokenRequest> = [];

@@ -142,21 +142,43 @@ const LOGIN_WATCH_INTERVAL_MS = 2_000;
 export function DesktopConnectAuthProvider({ children }: { readonly children: ReactNode }) {
   const [state, setState] = useState<EnvironmentConnectAuthState | null>(null);
   const tokenCacheRef = useRef<{ accessToken: string; expiresAtEpochMs: number } | null>(null);
+  const requestSeqRef = useRef(0);
 
   const applyState = useCallback((next: EnvironmentConnectAuthState) => {
-    setState(next);
-    if (!next.authorized) {
-      tokenCacheRef.current = null;
-    }
+    setState((previous) => {
+      // The shared credential can be replaced with a different account by a
+      // CLI re-login; a cached token from the previous account must not
+      // outlive the switch.
+      if (!next.authorized || (previous?.accountId ?? null) !== next.accountId) {
+        tokenCacheRef.current = null;
+      }
+      return next;
+    });
   }, []);
+
+  // Focus refreshes, pending-login polling, and mutations overlap; only the
+  // most recently issued request may write state, so a slow stale read cannot
+  // overwrite the result of a newer logout or login.
+  const runStateRequest = useCallback(
+    async <E,>(
+      effect: Effect.Effect<EnvironmentConnectAuthState, E, PrimaryEnvironmentHttpClient>,
+    ) => {
+      const seq = ++requestSeqRef.current;
+      const next = await runPrimaryHttp(effect);
+      if (seq === requestSeqRef.current) {
+        applyState(next);
+      }
+    },
+    [applyState],
+  );
 
   const refresh = useCallback(async () => {
     try {
-      applyState(await runPrimaryHttp(readAuthState));
+      await runStateRequest(readAuthState);
     } catch (cause) {
       console.warn("[t3-connect] Could not read T3 Connect sign-in state.", cause);
     }
-  }, [applyState]);
+  }, [runStateRequest]);
 
   useEffect(() => {
     void refresh();
@@ -207,31 +229,31 @@ export function DesktopConnectAuthProvider({ children }: { readonly children: Re
   const signIn = useCallback(() => {
     void (async () => {
       try {
-        applyState(await runPrimaryHttp(startLogin));
+        await runStateRequest(startLogin);
       } catch (cause) {
         console.error("[t3-connect] Could not start T3 Connect sign-in.", cause);
       }
     })();
-  }, [applyState]);
+  }, [runStateRequest]);
 
   const signOut = useCallback(async () => {
     try {
-      applyState(await runPrimaryHttp(logout));
+      await runStateRequest(logout);
     } catch (cause) {
       console.error("[t3-connect] Could not sign out of T3 Connect.", cause);
     }
-  }, [applyState]);
+  }, [runStateRequest]);
 
   const submitLoginCode = useCallback(
     async (code: string) => {
       try {
-        applyState(await runPrimaryHttp(submitAuthCode(code)));
+        await runStateRequest(submitAuthCode(code));
         return null;
       } catch (cause) {
         return loginCodeErrorMessage(cause);
       }
     },
-    [applyState],
+    [runStateRequest],
   );
 
   const value = useMemo<T3ConnectAuth>(
