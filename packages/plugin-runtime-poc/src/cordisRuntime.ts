@@ -181,21 +181,28 @@ function analyzeDefinitions(definitions: ReadonlyArray<PluginDefinition>) {
   };
 }
 
-function sameStrings(left: ReadonlyArray<string>, right: ReadonlyArray<string>) {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
+function sameStringsUnordered(left: ReadonlyArray<string>, right: ReadonlyArray<string>) {
+  if (left.length !== right.length) return false;
+  const sortedLeft = left.toSorted();
+  const sortedRight = right.toSorted();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
 }
 
 function sameDefinition(left: PluginDefinition, right: PluginDefinition) {
-  const leftProvides = Object.entries(left.provides ?? {});
-  const rightProvides = Object.entries(right.provides ?? {});
+  const leftProvides = left.provides ?? {};
+  const rightProvides = right.provides ?? {};
+  const leftCapabilities = Object.keys(leftProvides);
+  const rightCapabilities = Object.keys(rightProvides);
   return (
     left.id === right.id &&
     left.version === right.version &&
-    sameStrings(left.requires ?? [], right.requires ?? []) &&
-    leftProvides.length === rightProvides.length &&
-    leftProvides.every(
-      ([capability, service], index) =>
-        rightProvides[index]?.[0] === capability && Object.is(rightProvides[index]?.[1], service),
+    Object.is(left.activate, right.activate) &&
+    sameStringsUnordered(left.requires ?? [], right.requires ?? []) &&
+    leftCapabilities.length === rightCapabilities.length &&
+    leftCapabilities.every(
+      (capability) =>
+        Object.hasOwn(rightProvides, capability) &&
+        Object.is(leftProvides[capability], rightProvides[capability]),
     )
   );
 }
@@ -280,11 +287,7 @@ function snapshotOf(
   );
 }
 
-function aggregateErrorWithCause(errors: ReadonlyArray<unknown>, message: string, cause: unknown) {
-  return new AggregateError(errors, message, { cause });
-}
-
-async function disposeComposition(
+async function cleanupComposition(
   composition: Composition,
   onDeactivate?: (pluginId: string) => void,
 ) {
@@ -302,6 +305,14 @@ async function disposeComposition(
     }
     errors.push(...plugin.cleanupErrors.splice(0));
   }
+  return errors;
+}
+
+async function disposeComposition(
+  composition: Composition,
+  onDeactivate?: (pluginId: string) => void,
+) {
+  const errors = await cleanupComposition(composition, onDeactivate);
   if (errors.length) {
     throw new AggregateError(errors, "plugin composition cleanup failed");
   }
@@ -320,6 +331,16 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
       () => undefined,
     );
     return result;
+  };
+
+  const reportCleanupErrors = (phase: "retire" | "rollback", errors: ReadonlyArray<unknown>) => {
+    for (const error of errors) {
+      try {
+        options.onCleanupError?.({ phase, error });
+      } catch {
+        // Cleanup reporting must not replace activation errors or undo a committed snapshot.
+      }
+    }
   };
 
   const reconcile = (definitions: ReadonlyArray<PluginDefinition>) =>
@@ -404,7 +425,6 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
                 finalizers.push(finalizer);
               },
             });
-            options.onLifecycle?.({ phase: "activate", pluginId: definition.id });
           };
           cordisPlugin.inject = [...(definition.requires ?? [])];
           cordisPlugin.provide = Object.keys(definition.provides ?? {});
@@ -415,29 +435,21 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
           try {
             await fiber;
           } catch (error) {
-            try {
-              await disposeComposition({ plugins: [plugin], snapshot: emptySnapshot });
-            } catch (cleanupError) {
-              throw aggregateErrorWithCause(
-                [error, cleanupError],
-                `plugin ${definition.id} activation and cleanup failed`,
-                cleanupError,
-              );
-            }
+            const cleanupErrors = await cleanupComposition({
+              plugins: [plugin],
+              snapshot: emptySnapshot,
+            });
+            reportCleanupErrors("rollback", cleanupErrors);
             throw error;
           }
           staged.set(definition.id, plugin);
         }
       } catch (error) {
-        try {
-          await disposeComposition({ plugins: [...staged.values()], snapshot: emptySnapshot });
-        } catch (cleanupError) {
-          throw aggregateErrorWithCause(
-            [error, cleanupError],
-            "plugin composition activation and rollback failed",
-            cleanupError,
-          );
-        }
+        const cleanupErrors = await cleanupComposition({
+          plugins: [...staged.values()],
+          snapshot: emptySnapshot,
+        });
+        reportCleanupErrors("rollback", cleanupErrors);
         throw error;
       }
 
@@ -449,9 +461,14 @@ export const createCordisRuntime: PluginRuntimeFactory = (options = {}): PluginR
       const candidate = { plugins, snapshot: snapshotOf(plugins, blocked) };
       const previous = composition.plugins.filter((plugin) => !plugins.includes(plugin));
       composition = candidate;
-      await disposeComposition({ plugins: previous, snapshot: emptySnapshot }, (pluginId) =>
-        options.onLifecycle?.({ phase: "deactivate", pluginId }),
+      for (const plugin of staged.values()) {
+        options.onLifecycle?.({ phase: "activate", pluginId: plugin.definition.id });
+      }
+      const cleanupErrors = await cleanupComposition(
+        { plugins: previous, snapshot: emptySnapshot },
+        (pluginId) => options.onLifecycle?.({ phase: "deactivate", pluginId }),
       );
+      reportCleanupErrors("retire", cleanupErrors);
       return candidate.snapshot;
     });
 
