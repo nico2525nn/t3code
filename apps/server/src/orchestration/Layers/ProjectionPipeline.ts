@@ -130,60 +130,6 @@ function isStalePendingApprovalFailureDetail(detail: string | null): boolean {
   );
 }
 
-function isStalePendingUserInputFailureDetail(detail: string | null): boolean {
-  if (detail === null) {
-    return false;
-  }
-  return (
-    detail.includes("stale pending user-input request") ||
-    detail.includes("unknown pending user-input request") ||
-    detail.includes("unknown pending user input request") ||
-    detail.includes("unknown pending codex user input request")
-  );
-}
-
-function derivePendingUserInputCountFromActivities(
-  activities: ReadonlyArray<ProjectionThreadActivity>,
-): number {
-  const openRequestIds = new Set<string>();
-  const ordered = [...activities].toSorted(
-    (left, right) =>
-      left.createdAt.localeCompare(right.createdAt) ||
-      left.activityId.localeCompare(right.activityId),
-  );
-
-  for (const activity of ordered) {
-    const requestId = extractActivityRequestId(activity.payload);
-    if (requestId === null) {
-      continue;
-    }
-    const payload =
-      typeof activity.payload === "object" && activity.payload !== null
-        ? (activity.payload as Record<string, unknown>)
-        : null;
-    const detail = typeof payload?.detail === "string" ? payload.detail.toLowerCase() : null;
-
-    if (activity.kind === "user-input.requested") {
-      openRequestIds.add(requestId);
-      continue;
-    }
-
-    if (activity.kind === "user-input.resolved") {
-      openRequestIds.delete(requestId);
-      continue;
-    }
-
-    if (
-      activity.kind === "provider.user-input.respond.failed" &&
-      isStalePendingUserInputFailureDetail(detail)
-    ) {
-      openRequestIds.delete(requestId);
-    }
-  }
-
-  return openRequestIds.size;
-}
-
 function deriveHasActionableProposedPlan(input: {
   readonly latestTurnId: string | null;
   readonly proposedPlans: ReadonlyArray<ProjectionThreadProposedPlan>;
@@ -570,27 +516,18 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         return;
       }
 
-      const [messages, proposedPlans, activities, pendingApprovals] = yield* Effect.all([
-        projectionThreadMessageRepository.listByThreadId({ threadId }),
-        projectionThreadProposedPlanRepository.listByThreadId({ threadId }),
-        projectionThreadActivityRepository.listByThreadId({ threadId }),
-        projectionPendingApprovalRepository.listByThreadId({ threadId }),
-      ]);
+      const [latestUserMessageAtOption, proposedPlans, pendingUserInputCount, pendingApprovals] =
+        yield* Effect.all([
+          projectionThreadMessageRepository.getLatestUserMessageAtByThreadId({ threadId }),
+          projectionThreadProposedPlanRepository.listByThreadId({ threadId }),
+          projectionThreadActivityRepository.countPendingUserInputsByThreadId({ threadId }),
+          projectionPendingApprovalRepository.listByThreadId({ threadId }),
+        ]);
 
-      let latestUserMessageAt: string | null = null;
-      for (const message of messages) {
-        if (
-          message.role === "user" &&
-          (latestUserMessageAt === null || message.createdAt > latestUserMessageAt)
-        ) {
-          latestUserMessageAt = message.createdAt;
-        }
-      }
-
+      const latestUserMessageAt = Option.getOrNull(latestUserMessageAtOption);
       const pendingApprovalCount = pendingApprovals.filter(
         (approval) => approval.status === "pending",
       ).length;
-      const pendingUserInputCount = derivePendingUserInputCountFromActivities(activities);
       const hasActionableProposedPlan = deriveHasActionableProposedPlan({
         latestTurnId: existingRow.value.latestTurnId,
         proposedPlans,
@@ -877,20 +814,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
 
           switch (event.type) {
             case "thread.message-sent": {
-              if (event.payload.role !== "user") {
-                break;
-              }
-              const projectedMessage = yield* projectionThreadMessageRepository.getByMessageId({
-                messageId: event.payload.messageId,
-              });
-              if (
-                Option.isSome(projectedMessage) &&
-                projectedMessage.value.role === "user" &&
-                (latestUserMessageAt === null ||
-                  projectedMessage.value.createdAt > latestUserMessageAt)
-              ) {
-                latestUserMessageAt = projectedMessage.value.createdAt;
-              }
+              latestUserMessageAt = Option.getOrNull(
+                yield* projectionThreadMessageRepository.getLatestUserMessageAtByThreadId({
+                  threadId: event.payload.threadId,
+                }),
+              );
               break;
             }
 
@@ -931,17 +859,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 ).length;
               }
 
-              if (
-                kind === "user-input.requested" ||
-                kind === "user-input.resolved" ||
-                (kind === "provider.user-input.respond.failed" &&
-                  isStalePendingUserInputFailureDetail(detail))
-              ) {
-                pendingUserInputCount =
-                  yield* projectionThreadActivityRepository.countPendingUserInputsByThreadId({
-                    threadId: event.payload.threadId,
-                  });
-              }
+              pendingUserInputCount =
+                yield* projectionThreadActivityRepository.countPendingUserInputsByThreadId({
+                  threadId: event.payload.threadId,
+                });
               break;
             }
 
