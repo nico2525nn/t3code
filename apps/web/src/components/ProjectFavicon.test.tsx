@@ -1,10 +1,16 @@
+import { derivePhysicalProjectKeyFromPath } from "@t3tools/client-runtime/state/project-grouping";
+import {
+  forgetProjectFavicon,
+  rememberProjectFavicon,
+} from "@t3tools/client-runtime/state/project-favicon";
 import type { ComponentType, Dispatch, ReactElement, SetStateAction } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { EnvironmentId } from "@t3tools/contracts";
 
 const testState = vi.hoisted(() => ({
-  faviconUrl: "https://environment.test/api/assets/token-a/v1-20-favicon.svg",
-  lastResource: null as unknown,
+  faviconUrl: "https://environment.test/api/assets/token-a/v1-20-favicon.svg" as string | null,
+  faviconSources: new Map<string, unknown>(),
+  lastRequests: [] as Array<{ environmentId: unknown; resource: unknown }>,
 }));
 
 const hooks = vi.hoisted(() => {
@@ -48,22 +54,35 @@ vi.mock("react", async (importOriginal) => {
   return {
     ...actual,
     useState: hooks.useState,
+    useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
   };
 });
 
 vi.mock("react/compiler-runtime", () => ({ c: hooks.useMemoCache }));
 vi.mock("../assets/assetUrls", () => ({
-  useAssetUrlState: (_environmentId: unknown, resource: unknown) => {
-    testState.lastResource = resource;
-    return { _tag: "Success", url: testState.faviconUrl };
+  useAssetUrlState: (environmentId: unknown, resource: unknown) => {
+    testState.lastRequests.push({ environmentId, resource });
+    return testState.faviconUrl === null
+      ? { _tag: "Loading" }
+      : { _tag: "Success", url: testState.faviconUrl };
   },
 }));
+vi.mock("@effect/atom-react", () => ({
+  useAtomValue: () => testState.faviconSources,
+}));
+vi.mock("~/state/projects", () => ({ projectFaviconSourcesAtom: Symbol("sources") }));
 
 import { ProjectFavicon } from "./ProjectFavicon";
 
+const environmentId = "environment-test" as EnvironmentId;
+const cwd = "/workspace-test";
+const iconKey = derivePhysicalProjectKeyFromPath(environmentId, cwd);
+
 type ProjectFaviconImageProps = {
   readonly cacheKey: string;
+  readonly iconKey: string;
   readonly src: string;
+  readonly remember: boolean;
   readonly className?: string | undefined;
   readonly fallbackIcon: ComponentType<{ className?: string }>;
 };
@@ -78,17 +97,22 @@ type ProjectFaviconImageElement = ReactElement<{
   readonly children: [ReactElement | null, ImageElement | null, ImageElement | null];
 }>;
 
+function renderFavicon(faviconPath?: string): ReactElement<ProjectFaviconImageProps> {
+  hooks.beginRender();
+  const element = ProjectFavicon({
+    environmentId,
+    cwd,
+    ...(faviconPath === undefined ? {} : { faviconPath }),
+  }) as ReactElement<ProjectFaviconImageProps>;
+  hooks.reset();
+  return element;
+}
+
 function resolveImageComponent(): {
   readonly Component: (props: ProjectFaviconImageProps) => ProjectFaviconImageElement;
   readonly props: ProjectFaviconImageProps;
 } {
-  hooks.beginRender();
-  const element = ProjectFavicon({
-    environmentId: "environment-test" as EnvironmentId,
-    cwd: "/workspace-test",
-  }) as ReactElement<ProjectFaviconImageProps>;
-  hooks.reset();
-
+  const element = renderFavicon();
   return {
     Component: element.type as (props: ProjectFaviconImageProps) => ProjectFaviconImageElement,
     props: element.props,
@@ -106,6 +130,11 @@ function renderImage(
 describe("ProjectFavicon", () => {
   beforeEach(() => {
     hooks.reset();
+    testState.faviconUrl = "https://environment.test/api/assets/token-a/v1-20-favicon.svg";
+    testState.faviconSources = new Map();
+    testState.lastRequests = [];
+    forgetProjectFavicon(iconKey, "https://environment.test/api/assets/token-a/v1-20-favicon.svg");
+    forgetProjectFavicon("repo-key", "https://source.test/api/assets/token-s/v1-source.png");
   });
 
   it("falls back when the displayed favicon fails without discarding a valid older image early", () => {
@@ -131,16 +160,49 @@ describe("ProjectFavicon", () => {
   });
 
   it("requests a saved favicon path when one is set", () => {
-    ProjectFavicon({
-      environmentId: "environment-test" as EnvironmentId,
-      cwd: "/workspace-test",
-      faviconPath: "brand/icon.svg",
-    });
+    renderFavicon("brand/icon.svg");
 
-    expect(testState.lastResource).toEqual({
+    expect(testState.lastRequests.at(-1)?.resource).toEqual({
       _tag: "project-favicon",
       cwd: "/workspace-test",
       path: "brand/icon.svg",
     });
+  });
+
+  it("requests the repository group's favicon source instead of the row's project", () => {
+    testState.faviconSources = new Map([
+      [
+        iconKey,
+        {
+          environmentId: "environment-source",
+          cwd: "/source-checkout",
+          faviconPath: "assets/icon.png",
+          iconKey: "repo-key",
+        },
+      ],
+    ]);
+
+    const element = renderFavicon("brand/icon.svg");
+
+    expect(testState.lastRequests[0]).toEqual({
+      environmentId: "environment-source",
+      resource: { _tag: "project-favicon", cwd: "/source-checkout", path: "assets/icon.png" },
+    });
+    expect(element.props.iconKey).toBe("repo-key");
+  });
+
+  it("keeps showing the remembered icon while the connection is gone", () => {
+    testState.faviconUrl = null;
+
+    expect(renderFavicon().props.src).toBeUndefined();
+
+    rememberProjectFavicon(iconKey, {
+      url: "https://environment.test/api/assets/token-a/v1-20-favicon.svg",
+      cacheKey: "remembered-cache-key",
+    });
+    const element = renderFavicon();
+    expect(element.props.src).toBe("https://environment.test/api/assets/token-a/v1-20-favicon.svg");
+    expect(element.props.cacheKey).toBe("remembered-cache-key");
+    expect(element.props.remember).toBe(false);
   });
 });

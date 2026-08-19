@@ -44,4 +44,11 @@ describe("assetResponseHeaders", () => {
       "X-Content-Type-Options": "nosniff",
     });
   });
+
+  it("caches immutable assets long-term", () => {
+    expect(assetResponseHeaders("/repo/favicon.png", "immutable")).toEqual({
+      "Cache-Control": "private, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+    });
+  });
 });

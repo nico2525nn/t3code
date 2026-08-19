@@ -91,6 +91,10 @@
       "types": "./src/state/projectGrouping.ts",
       "default": "./src/state/projectGrouping.ts"
     },
+    "./state/project-favicon": {
+      "types": "./src/state/projectFavicon.ts",
+      "default": "./src/state/projectFavicon.ts"
+    },
     "./state/relay": {
       "types": "./src/state/relayDiscovery.ts",
       "default": "./src/state/relayDiscovery.ts"

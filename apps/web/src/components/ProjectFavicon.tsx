@@ -1,3 +1,13 @@
+import { useAtomValue } from "@effect/atom-react";
+import { derivePhysicalProjectKeyFromPath } from "@t3tools/client-runtime/state/project-grouping";
+import {
+  forgetProjectFavicon,
+  getRememberedProjectFavicon,
+  planProjectFaviconRender,
+  projectFaviconMemoryVersion,
+  rememberProjectFavicon,
+  subscribeProjectFaviconMemory,
+} from "@t3tools/client-runtime/state/project-favicon";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
   getProjectFaviconCacheKey,
@@ -5,12 +15,19 @@ import {
 } from "@t3tools/shared/projectFavicon";
 import { FolderIcon } from "lucide-react";
 import type { ComponentType } from "react";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useAssetUrlState } from "../assets/assetUrls";
+import { projectFaviconSourcesAtom } from "~/state/projects";
 import { cn } from "~/lib/utils";
 
 const loadedProjectFaviconSrcs = new Map<string, string>();
 
+/**
+ * Renders a project's icon by repository identity: every row of a repo group
+ * asks the same source environment for the same file, the last loaded icon is
+ * remembered for the session so a dropped connection never blanks it, and the
+ * row's own environment is the last resort before the folder glyph.
+ */
 export function ProjectFavicon(input: {
   environmentId: EnvironmentId;
   cwd: string;
@@ -18,21 +35,47 @@ export function ProjectFavicon(input: {
   className?: string | undefined;
   fallbackIcon?: ComponentType<{ className?: string }>;
 }) {
-  const state = useProjectFaviconAsset(input);
-  const src = state._tag === "Success" ? state.url : null;
+  const physicalKey = derivePhysicalProjectKeyFromPath(input.environmentId, input.cwd);
+  const source = useAtomValue(projectFaviconSourcesAtom).get(physicalKey) ?? null;
+  const iconKey = source?.iconKey ?? physicalKey;
+  const sourceState = useProjectFaviconAsset({
+    environmentId: source?.environmentId ?? input.environmentId,
+    cwd: source?.cwd ?? input.cwd,
+    faviconPath: source ? source.faviconPath : input.faviconPath,
+  });
+  const ownState = useProjectFaviconAsset(input);
+  useSyncExternalStore(subscribeProjectFaviconMemory, projectFaviconMemoryVersion);
+
+  const liveOf = (
+    state: ReturnType<typeof useProjectFaviconAsset>,
+    environmentId: EnvironmentId,
+    cwd: string,
+  ) =>
+    state._tag === "Success" && !isProjectFaviconFallbackUrl(state.url)
+      ? { url: state.url, cacheKey: getProjectFaviconCacheKey(environmentId, cwd, state.url) }
+      : null;
+  const plan = planProjectFaviconRender({
+    sourceLive: liveOf(
+      sourceState,
+      source?.environmentId ?? input.environmentId,
+      source?.cwd ?? input.cwd,
+    ),
+    ownLive: liveOf(ownState, input.environmentId, input.cwd),
+    remembered: getRememberedProjectFavicon(iconKey),
+  });
   const FallbackIcon = input.fallbackIcon ?? FolderIcon;
 
-  if (!src || isProjectFaviconFallbackUrl(src)) {
+  if (plan === null) {
     return <ProjectFaviconFallback className={input.className} icon={FallbackIcon} />;
   }
 
-  const cacheKey = getProjectFaviconCacheKey(input.environmentId, input.cwd, src);
-
   return (
     <ProjectFaviconImage
-      key={cacheKey}
-      cacheKey={cacheKey}
-      src={src}
+      key={plan.cacheKey}
+      cacheKey={plan.cacheKey}
+      iconKey={iconKey}
+      src={plan.url}
+      remember={plan.remember}
       className={input.className}
       fallbackIcon={FallbackIcon}
     />
@@ -63,12 +106,16 @@ function ProjectFaviconFallback({
 
 function ProjectFaviconImage({
   cacheKey,
+  iconKey,
   src,
+  remember,
   className,
   fallbackIcon: FallbackIcon,
 }: {
   readonly cacheKey: string;
+  readonly iconKey: string;
   readonly src: string;
+  readonly remember: boolean;
   readonly className?: string | undefined;
   readonly fallbackIcon: ComponentType<{ className?: string }>;
 }) {
@@ -80,7 +127,15 @@ function ProjectFaviconImage({
     if (loadedProjectFaviconSrcs.get(cacheKey) === failedSrc) {
       loadedProjectFaviconSrcs.delete(cacheKey);
     }
+    forgetProjectFavicon(iconKey, failedSrc);
     setDisplayedSrc((currentSrc) => (currentSrc === failedSrc ? null : currentSrc));
+  };
+  const handleLoad = () => {
+    loadedProjectFaviconSrcs.set(cacheKey, src);
+    if (remember) {
+      rememberProjectFavicon(iconKey, { url: src, cacheKey });
+    }
+    setDisplayedSrc(src);
   };
 
   return (
@@ -101,10 +156,7 @@ function ProjectFaviconImage({
           src={src}
           alt=""
           className="hidden"
-          onLoad={() => {
-            loadedProjectFaviconSrcs.set(cacheKey, src);
-            setDisplayedSrc(src);
-          }}
+          onLoad={handleLoad}
           onError={() => handleLoadError(src)}
         />
       ) : null}
