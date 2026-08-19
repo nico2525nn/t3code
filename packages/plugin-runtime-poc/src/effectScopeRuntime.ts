@@ -1,5 +1,9 @@
+import * as NodeAsyncHooks from "node:async_hooks";
+
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import type {
@@ -20,12 +24,129 @@ interface LivePlugin {
   readonly definition: PluginDefinition;
   readonly scope: Scope.Closeable;
   readonly contributions: ReadonlyMap<string, ReadonlyArray<Contribution>>;
+  readonly cleanupErrors: Array<unknown>;
 }
 
 interface LiveComposition {
   readonly plugins: ReadonlyArray<LivePlugin>;
   readonly snapshot: PluginRuntimeSnapshot;
 }
+
+type RuntimeOperation = "reconcile" | "dispose";
+type PluginCallback = "activate" | "finalizer";
+
+interface PluginCallbackContext {
+  readonly callback: PluginCallback;
+  readonly pluginId: string;
+}
+
+interface CleanupFailure {
+  readonly error: unknown;
+  readonly pluginId: string;
+}
+
+class DuplicatePluginIdError extends Schema.TaggedErrorClass<DuplicatePluginIdError>()(
+  "DuplicatePluginIdError",
+  { pluginId: Schema.String },
+) {
+  override get message(): string {
+    return `Duplicate plugin id: ${this.pluginId}`;
+  }
+}
+
+class DuplicateCapabilityError extends Schema.TaggedErrorClass<DuplicateCapabilityError>()(
+  "DuplicateCapabilityError",
+  {
+    capability: Schema.String,
+    pluginId: Schema.String,
+    previousPluginId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Duplicate capability ${this.capability} provided by ${this.previousPluginId} and ${this.pluginId}`;
+  }
+}
+
+class DependencyCycleError extends Schema.TaggedErrorClass<DependencyCycleError>()(
+  "DependencyCycleError",
+  { cycle: Schema.Array(Schema.String) },
+) {
+  override get message(): string {
+    return `Dependency cycle: ${this.cycle.join(" -> ")}`;
+  }
+}
+
+class PluginResolutionError extends Schema.TaggedErrorClass<PluginResolutionError>()(
+  "PluginResolutionError",
+  { capability: Schema.String, pluginId: Schema.String },
+) {
+  override get message(): string {
+    return `Plugin ${this.pluginId} cannot resolve inactive capability: ${this.capability}`;
+  }
+}
+
+class PluginCallbackError extends Schema.TaggedErrorClass<PluginCallbackError>()(
+  "PluginCallbackError",
+  {
+    callback: Schema.Literals(["activate", "finalizer"]),
+    cause: Schema.Defect(),
+    pluginId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Plugin ${this.pluginId} ${this.callback} callback failed`;
+  }
+}
+
+const isPluginCallbackError = Schema.is(PluginCallbackError);
+
+class PluginStagingError extends Schema.TaggedErrorClass<PluginStagingError>()(
+  "PluginStagingError",
+  { pluginId: Schema.String },
+) {
+  override get message(): string {
+    return `Plugin ${this.pluginId} was not staged`;
+  }
+}
+
+class PluginRuntimeDisposedError extends Schema.TaggedErrorClass<PluginRuntimeDisposedError>()(
+  "PluginRuntimeDisposedError",
+  { operation: Schema.Literals(["reconcile", "dispose"]) },
+) {
+  override get message(): string {
+    return `Plugin runtime is disposed; cannot ${this.operation}`;
+  }
+}
+
+class PluginRuntimeReentrancyError extends Schema.TaggedErrorClass<PluginRuntimeReentrancyError>()(
+  "PluginRuntimeReentrancyError",
+  {
+    callback: Schema.Literals(["activate", "finalizer"]),
+    operation: Schema.Literals(["reconcile", "dispose"]),
+    pluginId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Plugin runtime ${this.operation} is reentrant from ${this.callback} callback for ${this.pluginId}`;
+  }
+}
+
+class PluginRuntimeCleanupError extends Schema.TaggedErrorClass<PluginRuntimeCleanupError>()(
+  "PluginRuntimeCleanupError",
+  { errors: Schema.Array(Schema.Defect()) },
+) {
+  override get message(): string {
+    return `Failed to close plugin scopes (${this.errors.length} cleanup error${this.errors.length === 1 ? "" : "s"})`;
+  }
+}
+
+type PluginPlanningError = DuplicatePluginIdError | DuplicateCapabilityError | DependencyCycleError;
+
+type PluginReconcileError =
+  | PluginPlanningError
+  | PluginCallbackError
+  | PluginRuntimeDisposedError
+  | PluginStagingError;
 
 const createNullPrototypeRecord = <Value>(): Record<string, Value> =>
   Object.create(null) as Record<string, Value>;
@@ -43,16 +164,18 @@ const planComposition = (definitions: ReadonlyArray<PluginDefinition>): PlannedC
 
   for (const definition of definitions) {
     if (definitionsById.has(definition.id)) {
-      throw new Error(`Duplicate plugin id: ${definition.id}`);
+      throw new DuplicatePluginIdError({ pluginId: definition.id });
     }
     definitionsById.set(definition.id, definition);
 
     for (const capability of Object.keys(definition.provides ?? {})) {
       const previous = providersByCapability.get(capability);
       if (previous !== undefined) {
-        throw new Error(
-          `Duplicate capability ${capability} provided by ${previous.id} and ${definition.id}`,
-        );
+        throw new DuplicateCapabilityError({
+          capability,
+          pluginId: definition.id,
+          previousPluginId: previous.id,
+        });
       }
       providersByCapability.set(capability, definition);
     }
@@ -66,7 +189,7 @@ const planComposition = (definitions: ReadonlyArray<PluginDefinition>): PlannedC
     if (state === "visiting") {
       const cycleStart = stack.indexOf(definition.id);
       const cycle = [...stack.slice(cycleStart), definition.id];
-      throw new Error(`Dependency cycle: ${cycle.join(" -> ")}`);
+      throw new DependencyCycleError({ cycle });
     }
 
     visitState.set(definition.id, "visiting");
@@ -223,26 +346,6 @@ const affectedPluginIds = (
   return affected;
 };
 
-const closePlugins = async (
-  plugins: ReadonlyArray<LivePlugin>,
-  onDeactivate?: (pluginId: string) => void,
-): Promise<ReadonlyArray<unknown>> => {
-  const errors: Array<unknown> = [];
-  for (const plugin of plugins.toReversed()) {
-    try {
-      await Effect.runPromise(Scope.close(plugin.scope, Exit.void));
-    } catch (error) {
-      errors.push(error);
-    }
-    try {
-      onDeactivate?.(plugin.definition.id);
-    } catch (error) {
-      errors.push(error);
-    }
-  }
-  return errors;
-};
-
 const snapshotOf = (
   plugins: ReadonlyArray<LivePlugin>,
   blocked: Readonly<Record<string, string>>,
@@ -270,65 +373,236 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
   let current: LiveComposition = { plugins: [], snapshot: emptySnapshot() };
   let disposed = false;
   let transition: Promise<void> = Promise.resolve();
+  let runtimeScope: Scope.Closeable | undefined;
+  const callbackContext = new NodeAsyncHooks.AsyncLocalStorage<PluginCallbackContext>();
 
-  const reportCleanupErrors = (phase: "retire" | "rollback", errors: ReadonlyArray<unknown>) => {
-    for (const error of errors) {
+  const getRuntimeScope = (): Effect.Effect<Scope.Closeable> =>
+    Effect.gen(function* () {
+      if (runtimeScope === undefined) runtimeScope = yield* Scope.make("sequential");
+      return runtimeScope;
+    });
+
+  const reportLifecycle = (
+    phase: "activate" | "deactivate",
+    pluginId: string,
+  ): Effect.Effect<void> =>
+    Effect.sync(() => {
       try {
-        options.onCleanupError?.({ phase, error });
-      } catch {
-        // Cleanup reporting must not replace activation errors or undo a committed snapshot.
+        options.onLifecycle?.({ phase, pluginId });
+      } catch (error) {
+        try {
+          options.onLifecycleError?.({ phase, pluginId, error });
+        } catch {
+          // Observer error reporting must never interrupt a commit or cleanup.
+        }
       }
-    }
-  };
+    });
 
-  const activatePlugin = async (
+  const reportCleanupErrors = (
+    phase: "retire" | "rollback",
+    failures: ReadonlyArray<CleanupFailure>,
+  ): Effect.Effect<void> =>
+    Effect.sync(() => {
+      for (const { error } of failures) {
+        try {
+          options.onCleanupError?.({ phase, error });
+        } catch {
+          // Cleanup reporting must not replace activation errors or undo a committed snapshot.
+        }
+      }
+    });
+
+  const closePlugins = (
+    plugins: ReadonlyArray<LivePlugin>,
+    notifyDeactivation: boolean,
+  ): Effect.Effect<ReadonlyArray<CleanupFailure>> =>
+    Effect.gen(function* () {
+      const failures: Array<CleanupFailure> = [];
+      for (const plugin of plugins.toReversed()) {
+        const closeExit = yield* Effect.exit(Scope.close(plugin.scope, Exit.void));
+        if (Exit.isFailure(closeExit)) {
+          failures.push({
+            error: Cause.squash(closeExit.cause),
+            pluginId: plugin.definition.id,
+          });
+        }
+        for (const error of plugin.cleanupErrors.splice(0)) {
+          failures.push({ error, pluginId: plugin.definition.id });
+        }
+        if (notifyDeactivation) {
+          yield* reportLifecycle("deactivate", plugin.definition.id);
+        }
+      }
+      return failures;
+    });
+
+  const invokePluginCallback = <Result>(
+    callback: PluginCallback,
+    pluginId: string,
+    invoke: () => Result | PromiseLike<Result>,
+  ): Effect.Effect<Result, PluginCallbackError> =>
+    Effect.tryPromise({
+      try: () => callbackContext.run({ callback, pluginId }, () => Promise.resolve().then(invoke)),
+      catch: (cause) => new PluginCallbackError({ callback, cause, pluginId }),
+    });
+
+  const activatePlugin = (
     definition: PluginDefinition,
     capabilities: ReadonlyMap<string, unknown>,
-  ): Promise<LivePlugin> => {
-    const scope = Effect.runSync(Scope.make("sequential"));
-    const contributions = new Map<string, Array<Contribution>>();
-    const plugin = { definition, scope, contributions };
+  ): Effect.Effect<LivePlugin, PluginCallbackError> =>
+    Effect.gen(function* () {
+      const scope = yield* Scope.make("sequential");
+      const parentScope = yield* getRuntimeScope();
+      yield* Scope.addFinalizer(parentScope, Scope.close(scope, Exit.void));
+      const contributions = new Map<string, Array<Contribution>>();
+      const cleanupErrors: Array<unknown> = [];
+      const finalizers: Array<() => void | Promise<void>> = [];
+      const plugin: LivePlugin = { definition, scope, contributions, cleanupErrors };
 
-    const context: PluginActivationContext = {
-      resolve: <Service>(capability: string): Service => {
-        if (!capabilities.has(capability)) {
-          throw new Error(
-            `Plugin ${definition.id} cannot resolve inactive capability: ${capability}`,
-          );
-        }
-        return capabilities.get(capability) as Service;
-      },
-      register: (slot, contribution) => {
-        const values = contributions.get(slot) ?? [];
-        values.push(contribution);
-        contributions.set(slot, values);
-      },
-      onDispose: (finalizer) => {
-        Effect.runSync(
-          Scope.addFinalizer(
-            scope,
-            Effect.promise(() => Promise.resolve().then(finalizer)),
+      const context: PluginActivationContext = {
+        resolve: <Service>(capability: string): Service => {
+          if (!capabilities.has(capability)) {
+            throw new PluginResolutionError({ capability, pluginId: definition.id });
+          }
+          return capabilities.get(capability) as Service;
+        },
+        register: (slot, contribution) => {
+          const values = contributions.get(slot) ?? [];
+          values.push(contribution);
+          contributions.set(slot, values);
+        },
+        onDispose: (finalizer) => {
+          finalizers.push(finalizer);
+        },
+      };
+
+      const activationExit = yield* Effect.exit(
+        invokePluginCallback("activate", definition.id, () => definition.activate(context)),
+      );
+      for (const finalizer of finalizers) {
+        const finalizerEffect = invokePluginCallback("finalizer", definition.id, finalizer).pipe(
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              cleanupErrors.push(error.cause);
+            }),
           ),
         );
-      },
-    };
+        yield* Scope.addFinalizer(scope, finalizerEffect);
+      }
 
-    try {
-      await Effect.runPromise(
-        Effect.promise(() => Promise.resolve().then(() => definition.activate(context))).pipe(
-          Effect.provideService(Scope.Scope, scope),
-        ),
-      );
+      if (Exit.isFailure(activationExit)) {
+        const failures = yield* closePlugins([plugin], false);
+        yield* reportCleanupErrors("rollback", failures);
+        return yield* Effect.failCause(activationExit.cause);
+      }
       return plugin;
-    } catch (error) {
-      const cleanupErrors = await closePlugins([plugin]);
-      reportCleanupErrors("rollback", cleanupErrors);
-      throw error;
-    }
-  };
+    });
 
-  const enqueue = <Result>(operation: () => Promise<Result>): Promise<Result> => {
-    const result = transition.then(operation);
+  const reconcileEffect = (
+    definitions: ReadonlyArray<PluginDefinition>,
+  ): Effect.Effect<PluginRuntimeSnapshot, PluginReconcileError> =>
+    Effect.gen(function* () {
+      if (disposed) {
+        return yield* new PluginRuntimeDisposedError({ operation: "reconcile" });
+      }
+
+      const plan = yield* Effect.try({
+        try: () => planComposition(definitions),
+        catch: (error) => error as PluginPlanningError,
+      });
+      const affected = affectedPluginIds(current.plugins, plan.definitions);
+      const currentById = new Map(current.plugins.map((plugin) => [plugin.definition.id, plugin]));
+      const capabilities = new Map<string, unknown>();
+      for (const plugin of current.plugins) {
+        if (affected.has(plugin.definition.id)) continue;
+        for (const [capability, service] of Object.entries(plugin.definition.provides ?? {})) {
+          capabilities.set(capability, service);
+        }
+      }
+
+      const staged = new Map<string, LivePlugin>();
+      const stagingExit = yield* Effect.exit(
+        Effect.gen(function* () {
+          for (const definition of plan.definitions) {
+            if (!affected.has(definition.id)) continue;
+            const plugin = yield* activatePlugin(definition, capabilities);
+            staged.set(definition.id, plugin);
+            for (const [capability, service] of Object.entries(definition.provides ?? {})) {
+              capabilities.set(capability, service);
+            }
+          }
+        }),
+      );
+      if (Exit.isFailure(stagingExit)) {
+        const failures = yield* closePlugins([...staged.values()], false);
+        yield* reportCleanupErrors("rollback", failures);
+        return yield* Effect.failCause(stagingExit.cause);
+      }
+
+      const nextPlugins: Array<LivePlugin> = [];
+      for (const definition of plan.definitions) {
+        const plugin = staged.get(definition.id) ?? currentById.get(definition.id);
+        if (plugin === undefined) {
+          return yield* new PluginStagingError({ pluginId: definition.id });
+        }
+        nextPlugins.push(plugin);
+      }
+      const previous = current.plugins.filter((plugin) => affected.has(plugin.definition.id));
+      current = {
+        plugins: nextPlugins,
+        snapshot: snapshotOf(nextPlugins, plan.blocked),
+      };
+      for (const plugin of staged.values()) {
+        yield* reportLifecycle("activate", plugin.definition.id);
+      }
+      const failures = yield* closePlugins(previous, true);
+      yield* reportCleanupErrors("retire", failures);
+      return current.snapshot;
+    });
+
+  const disposeEffect = (): Effect.Effect<void, PluginRuntimeCleanupError> =>
+    Effect.gen(function* () {
+      if (disposed) return;
+      disposed = true;
+      const previous = current.plugins;
+      current = { plugins: [], snapshot: emptySnapshot() };
+      const failures = [...(yield* closePlugins(previous, true))];
+      const parentScope = runtimeScope;
+      runtimeScope = undefined;
+      if (parentScope !== undefined) {
+        const closeExit = yield* Effect.exit(Scope.close(parentScope, Exit.void));
+        if (Exit.isFailure(closeExit)) {
+          failures.push({ error: Cause.squash(closeExit.cause), pluginId: "plugin-runtime" });
+        }
+      }
+      if (failures.length > 0) {
+        return yield* new PluginRuntimeCleanupError({
+          errors: failures.map(({ error }) => error),
+        });
+      }
+    });
+
+  const runPromiseAdapter = <Result, Failure>(
+    operation: RuntimeOperation,
+    effect: () => Effect.Effect<Result, Failure>,
+  ): Promise<Result> => {
+    const callback = callbackContext.getStore();
+    if (callback !== undefined) {
+      return Promise.reject(
+        new PluginRuntimeReentrancyError({
+          callback: callback.callback,
+          operation,
+          pluginId: callback.pluginId,
+        }),
+      );
+    }
+
+    const result = transition
+      .then(() => Effect.runPromise(effect()))
+      .catch((error: unknown) => {
+        if (isPluginCallbackError(error)) throw error.cause;
+        throw error;
+      });
     transition = result.then(
       () => undefined,
       () => undefined,
@@ -338,70 +612,8 @@ export const createEffectScopeRuntime: PluginRuntimeFactory = (options = {}): Pl
 
   return {
     reconcile: (definitions) =>
-      enqueue(async () => {
-        if (disposed) throw new Error("Plugin runtime is disposed");
-
-        const plan = planComposition(definitions);
-        const affected = affectedPluginIds(current.plugins, plan.definitions);
-        const currentById = new Map(
-          current.plugins.map((plugin) => [plugin.definition.id, plugin]),
-        );
-        const capabilities = new Map<string, unknown>();
-        for (const plugin of current.plugins) {
-          if (affected.has(plugin.definition.id)) continue;
-          for (const [capability, service] of Object.entries(plugin.definition.provides ?? {})) {
-            capabilities.set(capability, service);
-          }
-        }
-
-        const staged = new Map<string, LivePlugin>();
-        try {
-          for (const definition of plan.definitions) {
-            if (!affected.has(definition.id)) continue;
-            const plugin = await activatePlugin(definition, capabilities);
-            staged.set(definition.id, plugin);
-            for (const [capability, service] of Object.entries(definition.provides ?? {})) {
-              capabilities.set(capability, service);
-            }
-          }
-        } catch (error) {
-          const cleanupErrors = await closePlugins([...staged.values()]);
-          reportCleanupErrors("rollback", cleanupErrors);
-          throw error;
-        }
-
-        const nextPlugins = plan.definitions.map((definition) => {
-          const plugin = staged.get(definition.id) ?? currentById.get(definition.id);
-          if (plugin === undefined) throw new Error(`Plugin ${definition.id} was not staged`);
-          return plugin;
-        });
-        const previous = current.plugins.filter((plugin) => affected.has(plugin.definition.id));
-        current = {
-          plugins: nextPlugins,
-          snapshot: snapshotOf(nextPlugins, plan.blocked),
-        };
-        for (const plugin of staged.values()) {
-          options.onLifecycle?.({ phase: "activate", pluginId: plugin.definition.id });
-        }
-        const cleanupErrors = await closePlugins(previous, (pluginId) =>
-          options.onLifecycle?.({ phase: "deactivate", pluginId }),
-        );
-        reportCleanupErrors("retire", cleanupErrors);
-        return current.snapshot;
-      }),
+      runPromiseAdapter("reconcile", () => reconcileEffect([...definitions])),
     snapshot: () => current.snapshot,
-    dispose: () =>
-      enqueue(async () => {
-        if (disposed) return;
-        disposed = true;
-        const previous = current.plugins;
-        current = { plugins: [], snapshot: emptySnapshot() };
-        const cleanupErrors = await closePlugins(previous, (pluginId) =>
-          options.onLifecycle?.({ phase: "deactivate", pluginId }),
-        );
-        if (cleanupErrors.length > 0) {
-          throw new AggregateError(cleanupErrors, "Failed to close plugin scopes");
-        }
-      }),
+    dispose: () => runPromiseAdapter("dispose", disposeEffect),
   };
 };
