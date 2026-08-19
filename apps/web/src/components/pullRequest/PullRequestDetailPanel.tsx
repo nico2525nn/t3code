@@ -1511,8 +1511,19 @@ export function PullRequestDetailPanel({
               <div className="col-span-2 min-w-0 px-4 pb-2 pt-1">
                 <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                   <span className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
-                    <PullRequestActorAvatar actor={detail.author} className="shrink-0" />
-                    <span className="sr-only">{detail.author?.login ?? "ghost"}</span>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span
+                            className="shrink-0 rounded-full"
+                            aria-label={detail.author?.login ?? "ghost"}
+                          />
+                        }
+                      >
+                        <PullRequestActorAvatar actor={detail.author} />
+                      </TooltipTrigger>
+                      <TooltipPopup side="top">{detail.author?.login ?? "ghost"}</TooltipPopup>
+                    </Tooltip>
                     <span className="shrink-0">{formatRelativeTimeLabel(detail.updatedAt)}</span>
                   </span>
                   <span aria-hidden className="h-3 w-px shrink-0 bg-border/70" />
