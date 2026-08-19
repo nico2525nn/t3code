@@ -858,9 +858,12 @@ function OpenCommandPaletteDialog(props: {
           addProjectCloneFlow.repository?.nameWithOwner ?? addProjectCloneFlow.remoteUrl,
         )
       : "";
+  // Free-text steps (clone repository input, create-project name) must never
+  // flip the palette into path-browse mode when the text looks like a path.
+  const isFreeTextAddProjectStep = isRemoteProjectRepositoryStep || addProjectCreateFlow !== null;
   const browsePath = useMemo(
-    () => getFilesystemBrowsePath(query, browseEnvironmentPlatform, !isRemoteProjectRepositoryStep),
-    [browseEnvironmentPlatform, isRemoteProjectRepositoryStep, query],
+    () => getFilesystemBrowsePath(query, browseEnvironmentPlatform, !isFreeTextAddProjectStep),
+    [browseEnvironmentPlatform, isFreeTextAddProjectStep, query],
   );
   const isBrowsing = browsePath.isBrowsing;
   const browseDirectoryPath = browsePath.directoryPath;
