@@ -127,7 +127,6 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
-const isServerSelfUpdateError = Schema.is(ServerSelfUpdateError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const EDITOR_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -1129,13 +1128,15 @@ const makeWsRpcLayer = (
               return result;
             }).pipe(
               serverSelfUpdate.withCommandAdmission,
+              Effect.catchTags({
+                ServerSelfUpdateError: (cause) =>
+                  new OrchestrationDispatchCommandError({ message: cause.reason, cause }),
+              }),
               Effect.mapError((cause) =>
                 isOrchestrationDispatchCommandError(cause)
                   ? cause
                   : new OrchestrationDispatchCommandError({
-                      message: isServerSelfUpdateError(cause)
-                        ? cause.reason
-                        : "Failed to dispatch orchestration command",
+                      message: "Failed to dispatch orchestration command",
                       cause,
                     }),
               ),

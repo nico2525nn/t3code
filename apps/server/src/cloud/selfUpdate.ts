@@ -163,12 +163,11 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
     if (yield* Ref.getAndSet(inFlight, true)) {
       return yield* failWith("A server update is already in progress.");
     }
-    if (input.automatic !== true && previousFailedTarget === targetVersion) {
-      yield* Ref.set(lastFailedTarget, null);
-    }
-
     let automaticUpdateDeferred = false;
     const operation = Effect.gen(function* () {
+      if (input.automatic !== true && previousFailedTarget === targetVersion) {
+        yield* Ref.set(lastFailedTarget, null);
+      }
       yield* reportProgress("downloading");
       const paths = yield* ensurePinnedRuntimeInstalled({
         baseDir: serverConfig.baseDir,

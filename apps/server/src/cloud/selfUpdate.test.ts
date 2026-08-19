@@ -186,6 +186,44 @@ it.layer(NodeServices.layer)("server self update", (it) => {
     }),
   );
 
+  it.effect("does not wedge updates when a manual retry is interrupted", () =>
+    Effect.gen(function* () {
+      const retryStarted = yield* Deferred.make<void>();
+      const releaseRetry = yield* Deferred.make<void>();
+      let requests = 0;
+      const { selfUpdate } = yield* makeHarness({
+        requestUpdate: () =>
+          Effect.sync(() => {
+            requests += 1;
+          }).pipe(
+            Effect.andThen(
+              Effect.fail(
+                new ServiceLauncherClient.ServiceLauncherClientError({ operation: "send" }),
+              ),
+            ),
+          ),
+      });
+
+      yield* selfUpdate.update({ targetVersion: "1.1.0", automatic: true }).pipe(Effect.flip);
+      const retryFiber = yield* selfUpdate
+        .update({ targetVersion: "1.1.0" }, () =>
+          Deferred.succeed(retryStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseRetry)),
+          ),
+        )
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(retryStarted);
+      const interruptFiber = yield* Fiber.interrupt(retryFiber).pipe(Effect.forkChild);
+      yield* Deferred.succeed(releaseRetry, undefined);
+      yield* Fiber.join(interruptFiber);
+
+      yield* selfUpdate.update({ targetVersion: "1.1.0", automatic: true }).pipe(Effect.flip);
+      expect(requests).toBe(1);
+      yield* selfUpdate.update({ targetVersion: "1.1.0" }).pipe(Effect.flip);
+      expect(requests).toBe(2);
+    }),
+  );
+
   it.effect("rechecks automatic updates after staging and before activation", () =>
     Effect.gen(function* () {
       const { selfUpdate, order } = yield* makeHarness({
