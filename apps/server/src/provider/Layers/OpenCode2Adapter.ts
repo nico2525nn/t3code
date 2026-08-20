@@ -22,6 +22,7 @@ import {
   ThreadId,
   type ToolLifecycleItemType,
   TurnId,
+  type UserInputQuestion,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
@@ -39,6 +40,7 @@ import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import {
   ProviderAdapterProcessError,
@@ -56,7 +58,9 @@ import {
   parseOpenCode2ModelSlug,
   toOpenCode2FileParts,
   type OpenCode2ApiClient,
+  type OpenCode2Form,
   type OpenCode2ServerConnection,
+  type OpenCode2Usage,
 } from "../opencode2Runtime.ts";
 
 const PROVIDER = ProviderDriverKind.make("opencode2");
@@ -94,12 +98,15 @@ interface OpenCode2SessionContext {
     string,
     { readonly action: string; readonly resources: ReadonlyArray<string> }
   >;
+  /** Pending V2 form requests surfaced to the client as user-input requests. */
+  readonly pendingForms: Map<string, OpenCode2Form>;
   readonly toolByCallId: Map<string, { readonly name: string; readonly input: unknown }>;
   readonly turns: Array<OpenCode2TurnSnapshot>;
   activeTurnId: TurnId | undefined;
   currentModel:
     | { readonly id: string; readonly providerID: string; readonly variant?: string }
     | undefined;
+  lastUsage: OpenCode2Usage | undefined;
   readonly stopped: Ref.Ref<boolean>;
   readonly sessionScope: Scope.Closeable;
 }
@@ -214,6 +221,114 @@ export function findOpenCode2EventData(envelope: {
   return envelope.data !== null && typeof envelope.data === "object"
     ? (envelope.data as Record<string, unknown>)
     : {};
+}
+
+function openCode2FormLike(value: unknown): value is OpenCode2Form {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === "string" && record.id.startsWith("frm_") && Array.isArray(record.fields)
+  );
+}
+
+/**
+ * Tolerantly extract pending form candidates from an event payload. The V2
+ * server can emit a single `Form.Info`, wrap it in `data`, or send a batch
+ * under `forms` — accept each shape so a `session.form.sync` event surfaces a
+ * request regardless of exact framing. Pure and exported for testing.
+ */
+export function extractOpenCode2FormCandidates(payload: Record<string, unknown>): OpenCode2Form[] {
+  const candidates: unknown[] = [];
+  if (Array.isArray(payload)) {
+    candidates.push(...payload);
+  }
+  if (openCode2FormLike(payload)) {
+    candidates.push(payload);
+  }
+  if (openCode2FormLike(payload.data)) {
+    candidates.push(payload.data);
+  }
+  if (Array.isArray(payload.forms)) {
+    candidates.push(...payload.forms);
+  }
+  if (Array.isArray(payload.data)) {
+    candidates.push(...payload.data);
+  }
+  const seen = new Set<string>();
+  const forms: OpenCode2Form[] = [];
+  for (const candidate of candidates) {
+    if (!openCode2FormLike(candidate)) {
+      continue;
+    }
+    if (seen.has(candidate.id)) {
+      continue;
+    }
+    seen.add(candidate.id);
+    forms.push(candidate);
+  }
+  return forms;
+}
+
+/**
+ * Map a V2 form into the T3 user-input question list. Question ids equal the
+ * underlying field keys so replies round-trip through {@link toOpenCode2FormAnswer}.
+ */
+export function openCode2FormToQuestions(form: OpenCode2Form): ReadonlyArray<UserInputQuestion> {
+  return (form.fields ?? []).map((field) => {
+    const header = field.title ?? field.key;
+    const options = (field.options ?? []).map((option) => ({
+      label: option.label ?? option.value,
+      description: option.description ?? "",
+    }));
+    return {
+      id: field.key,
+      header,
+      question: field.description ?? header,
+      ...(field.type === "multiselect" ? { multiSelect: true } : {}),
+      options,
+    };
+  });
+}
+
+/**
+ * Convert T3 answers (keyed by question id == field key) into a V2 `Form.Answer`
+ * value map, coercing booleans/numbers/multiselects to the wire types the V2
+ * form fields expect.
+ */
+export function toOpenCode2FormAnswer(
+  form: OpenCode2Form,
+  answers: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const answer: Record<string, unknown> = {};
+  for (const field of form.fields ?? []) {
+    const raw = answers[field.key] ?? answers[field.title ?? ""];
+    if (raw === undefined || raw === null) {
+      continue;
+    }
+    switch (field.type) {
+      case "boolean":
+        answer[field.key] = raw === true || raw === "true";
+        break;
+      case "multiselect": {
+        const values = Array.isArray(raw) ? raw : [String(raw)];
+        answer[field.key] = values
+          .map((value) => String(value))
+          .filter((value) => value.length > 0);
+        break;
+      }
+      case "number":
+      case "integer": {
+        const numeric = Number(raw);
+        answer[field.key] = Number.isNaN(numeric) ? String(raw) : numeric;
+        break;
+      }
+      default:
+        answer[field.key] = String(raw);
+    }
+  }
+  return answer;
 }
 
 export function makeOpenCode2Adapter(
@@ -339,6 +454,47 @@ export function makeOpenCode2Adapter(
         context.session = nextSession;
         return nextSession;
       });
+
+    const surfaceOpenCode2Forms = Effect.fn("surfaceOpenCode2Forms")(function* (
+      context: OpenCode2SessionContext,
+      forms: ReadonlyArray<OpenCode2Form>,
+    ) {
+      const threadId = context.session.threadId;
+      for (const form of forms) {
+        if (context.pendingForms.has(form.id)) {
+          continue;
+        }
+        context.pendingForms.set(form.id, form);
+        const questions = openCode2FormToQuestions(form);
+        if (questions.length === 0) {
+          continue;
+        }
+        yield* emit({
+          ...(yield* buildEventBase({
+            threadId,
+            turnId: context.activeTurnId,
+            requestId: form.id,
+          })),
+          type: "user-input.requested",
+          payload: { questions },
+        });
+      }
+    });
+
+    /**
+     * Pull pending forms for the session and surface any not already shown.
+     * V2 does not reliably push a form-ask event, so the adapter polls after
+     * each model step; a `session.form.sync` event (when emitted) feeds the
+     * same path.
+     */
+    const syncOpenCode2Forms = Effect.fn("syncOpenCode2Forms")(function* (
+      context: OpenCode2SessionContext,
+    ) {
+      const forms = yield* context.api
+        .listForms(context.openCode2SessionId)
+        .pipe(Effect.catchCause(() => Effect.succeed([])));
+      yield* surfaceOpenCode2Forms(context, forms);
+    });
 
     const handleSubscribedEvent = Effect.fn("handleSubscribedEvent")(function* (
       context: OpenCode2SessionContext,
@@ -593,21 +749,66 @@ export function makeOpenCode2Adapter(
           break;
         }
 
+        case "session.step.started": {
+          // V2 pushes form asks unreliably, so each model step re-surfaces any
+          // new pending form (see syncOpenCode2Forms).
+          yield* syncOpenCode2Forms(context);
+          break;
+        }
+
+        case "session.form.sync": {
+          const forms = extractOpenCode2FormCandidates(payload);
+          yield* surfaceOpenCode2Forms(context, forms);
+          break;
+        }
+
         case "session.usage.updated": {
-          yield* updateProviderSession(context, {
-            ...(turnId ? { activeTurnId: turnId } : {}),
-          });
+          const tokens = payload.tokens as
+            | {
+                readonly input?: number;
+                readonly output?: number;
+                readonly reasoning?: number;
+                readonly cache?: { readonly read?: number; readonly write?: number };
+              }
+            | undefined;
+          context.lastUsage = {
+            ...(typeof payload.cost === "number" ? { cost: payload.cost } : {}),
+            ...(tokens !== undefined && typeof tokens === "object" ? { tokens } : {}),
+          };
           break;
         }
 
         case "session.execution.succeeded": {
           context.activeTurnId = undefined;
           yield* updateProviderSession(context, { status: "ready" }, { clearActiveTurnId: true });
+          const usage = context.lastUsage;
+          const inputTokens = usage?.tokens?.input;
+          const outputTokens = usage?.tokens?.output;
+          const reasoningTokens = usage?.tokens?.reasoning;
+          const cachedInputTokens = usage?.tokens?.cache?.read;
+          const totalTokens =
+            inputTokens !== undefined || outputTokens !== undefined
+              ? (inputTokens ?? 0) + (outputTokens ?? 0) + (reasoningTokens ?? 0)
+              : undefined;
           yield* emit({
             ...(yield* buildEventBase({ threadId, turnId, raw: envelope })),
             type: "turn.completed",
             payload: {
               state: "completed",
+              ...(usage?.cost !== undefined ? { totalCostUsd: usage.cost } : {}),
+              ...(totalTokens !== undefined
+                ? {
+                    usage: {
+                      totalTokens,
+                      ...(inputTokens !== undefined ? { inputTokens } : {}),
+                      ...(outputTokens !== undefined ? { outputTokens } : {}),
+                      ...(reasoningTokens !== undefined
+                        ? { reasoningOutputTokens: reasoningTokens }
+                        : {}),
+                      ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+                    },
+                  }
+                : {}),
             },
           });
           break;
@@ -763,9 +964,14 @@ export function makeOpenCode2Adapter(
                   if (adoptedDirectory === undefined || adoptedDirectory === directory) {
                     return { openCode2Session: adopted, created: false };
                   }
+                  // The thread moved into a different cwd (e.g. a git worktree).
+                  // Fork the adopted session into the new directory — the fork
+                  // carries the full history, so the follow-up keeps its context.
                   yield* Effect.logWarning(
-                    `OpenCode 2 session '${adopted.id}' was created under a different working directory; starting a fresh session in '${directory}'.`,
+                    `OpenCode 2 session '${adopted.id}' was created under a different working directory; forking into '${directory}' to preserve conversation history.`,
                   );
+                  const forked = yield* api.forkSession(adopted.id);
+                  return { openCode2Session: forked, created: true };
                 } else if (resumeSessionId) {
                   yield* Effect.logWarning(
                     `OpenCode 2 session '${resumeSessionId}' no longer exists; starting a fresh session.`,
@@ -775,6 +981,23 @@ export function makeOpenCode2Adapter(
                 const created = yield* api.createSession(directory, input.title);
                 return { openCode2Session: created, created: true };
               });
+
+              // Attach the thread's MCP session (when present) to the managed
+              // server so provider tools see T3's MCP bridge — mirrors the v1
+              // adapter's `mcp.add`. External servers are left untouched.
+              const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+              if (mcpSession && !server.external) {
+                yield* api
+                  .mcpAdd("t3-code", {
+                    type: "remote",
+                    url: mcpSession.endpoint,
+                    headers: {
+                      Authorization: mcpSession.authorizationHeader,
+                    },
+                    oauth: false,
+                  })
+                  .pipe(Effect.ignore);
+              }
 
               const selectedVariant = getModelSelectionStringOptionValue(
                 input.modelSelection,
@@ -843,10 +1066,12 @@ export function makeOpenCode2Adapter(
           directory,
           openCode2SessionId: started.openCode2Session.id,
           pendingPermissions: new Map(),
+          pendingForms: new Map(),
           toolByCallId: new Map(),
           turns: [],
           activeTurnId: undefined,
           currentModel: started.model,
+          lastUsage: undefined,
           stopped: yield* Ref.make(false),
           sessionScope: started.sessionScope,
         };
@@ -1007,7 +1232,28 @@ export function makeOpenCode2Adapter(
         .pipe(Effect.mapError(toRequestError));
     });
 
-    const respondToUserInput: OpenCode2AdapterShape["respondToUserInput"] = () => Effect.void;
+    const respondToUserInput: OpenCode2AdapterShape["respondToUserInput"] = Effect.fn(
+      "respondToUserInput",
+    )(function* (threadId, requestId, answers) {
+      const context = yield* ensureSessionContext(sessions, threadId);
+      const form = context.pendingForms.get(requestId);
+      if (!form) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "form.reply",
+          detail: `Unknown pending user-input request: ${requestId}`,
+        });
+      }
+      yield* context.api
+        .replyForm(context.openCode2SessionId, form.id, toOpenCode2FormAnswer(form, answers))
+        .pipe(Effect.mapError(toRequestError));
+      context.pendingForms.delete(requestId);
+      yield* emit({
+        ...(yield* buildEventBase({ threadId, turnId: context.activeTurnId, requestId })),
+        type: "user-input.resolved",
+        payload: { answers },
+      });
+    });
 
     const stopOpenCode2ContextImpl = (context: OpenCode2SessionContext) =>
       Effect.gen(function* () {
@@ -1071,10 +1317,43 @@ export function makeOpenCode2Adapter(
     );
 
     const rollbackThread: OpenCode2AdapterShape["rollbackThread"] = Effect.fn("rollbackThread")(
-      function* (threadId) {
-        yield* Effect.logWarning(
-          "OpenCode 2 does not expose a session rollback endpoint yet; returning the current thread snapshot.",
-        );
+      function* (threadId, numTurns) {
+        const context = yield* ensureSessionContext(sessions, threadId);
+        if (numTurns <= 0) {
+          return yield* readThread(threadId);
+        }
+        const messages = yield* context.api
+          .listMessages(context.openCode2SessionId)
+          .pipe(Effect.mapError(toRequestError));
+        const assistantMessages = messages.filter((message) => message.type === "assistant");
+        if (assistantMessages.length === 0) {
+          return yield* readThread(threadId);
+        }
+
+        // Revert before the (len - numTurns):th assistant message, keeping the
+        // first (len - numTurns) turns. Clamp to the first message so an
+        // over-large numTurns reverts the whole session instead of erroring.
+        const keep = Math.max(1, assistantMessages.length - numTurns);
+        const boundary = assistantMessages[keep];
+        if (boundary && boundary.type === "assistant") {
+          yield* context.api
+            .revertStage(context.openCode2SessionId, boundary.id)
+            .pipe(Effect.mapError(toRequestError));
+        } else {
+          const first = assistantMessages[0];
+          if (first !== undefined && first.type === "assistant") {
+            yield* context.api
+              .revertStage(context.openCode2SessionId, first.id)
+              .pipe(Effect.mapError(toRequestError));
+          }
+        }
+        yield* context.api
+          .revertCommit(context.openCode2SessionId)
+          .pipe(Effect.mapError(toRequestError));
+
+        // Clear stale per-session transient state after the rollback.
+        context.pendingPermissions.clear();
+        context.pendingForms.clear();
         return yield* readThread(threadId);
       },
     );

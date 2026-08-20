@@ -140,7 +140,7 @@ export function openCode2RuntimeErrorDetail(cause: unknown): string {
 }
 
 export interface OpenCode2RequestInput {
-  readonly method: "GET" | "POST" | "DELETE";
+  readonly method: "GET" | "POST" | "PUT" | "DELETE";
   readonly path: string;
   readonly query?: Readonly<Record<string, string | undefined>>;
   readonly body?: unknown;
@@ -357,6 +357,39 @@ export interface OpenCode2ServiceHealth {
   readonly pid: number;
 }
 
+export interface OpenCode2FormOption {
+  readonly value: string;
+  readonly label?: string;
+  readonly description?: string;
+}
+
+export interface OpenCode2FormField {
+  readonly key: string;
+  readonly type: "string" | "number" | "integer" | "boolean" | "multiselect" | "external";
+  readonly title?: string;
+  readonly description?: string;
+  readonly required?: boolean;
+  readonly options?: ReadonlyArray<OpenCode2FormOption>;
+  readonly format?: string;
+}
+
+export interface OpenCode2Form {
+  readonly id: string;
+  readonly sessionID?: string;
+  readonly title?: string;
+  readonly fields?: ReadonlyArray<OpenCode2FormField>;
+}
+
+export interface OpenCode2Usage {
+  readonly cost?: number;
+  readonly tokens?: {
+    readonly input?: number;
+    readonly output?: number;
+    readonly reasoning?: number;
+    readonly cache?: { readonly read?: number; readonly write?: number };
+  };
+}
+
 // ── High-level API client ───────────────────────────────────────────────
 
 export interface OpenCode2ApiClient {
@@ -375,6 +408,9 @@ export interface OpenCode2ApiClient {
   readonly getSession: (
     sessionID: string,
   ) => Effect.Effect<OpenCode2SessionInfo | null, OpenCode2RuntimeError>;
+  readonly forkSession: (
+    sessionID: string,
+  ) => Effect.Effect<OpenCode2SessionInfo, OpenCode2RuntimeError>;
   readonly promptSession: (
     sessionID: string,
     text: string,
@@ -394,6 +430,29 @@ export interface OpenCode2ApiClient {
     sessionID: string,
     requestID: string,
     reply: "once" | "always" | "reject",
+  ) => Effect.Effect<void, OpenCode2RuntimeError>;
+  readonly revertStage: (
+    sessionID: string,
+    messageID: string,
+  ) => Effect.Effect<void, OpenCode2RuntimeError>;
+  readonly revertCommit: (sessionID: string) => Effect.Effect<void, OpenCode2RuntimeError>;
+  readonly revertClear: (sessionID: string) => Effect.Effect<void, OpenCode2RuntimeError>;
+  readonly listForms: (
+    sessionID: string,
+  ) => Effect.Effect<ReadonlyArray<OpenCode2Form>, OpenCode2RuntimeError>;
+  readonly replyForm: (
+    sessionID: string,
+    formID: string,
+    answer: Readonly<Record<string, unknown>>,
+  ) => Effect.Effect<void, OpenCode2RuntimeError>;
+  readonly mcpAdd: (
+    name: string,
+    config: {
+      readonly type: "remote";
+      readonly url: string;
+      readonly headers?: Readonly<Record<string, string>>;
+      readonly oauth?: false;
+    },
   ) => Effect.Effect<void, OpenCode2RuntimeError>;
 }
 
@@ -486,6 +545,10 @@ export const makeOpenCode2ApiClient = (input: {
           () => Effect.succeed(null),
         ),
       ),
+    forkSession: (sessionID) =>
+      apiRequest(request, "POST", `/api/session/${encodeURIComponent(sessionID)}/fork`, {
+        boundary: { type: "through" },
+      }).pipe(Effect.map((json) => (json as { readonly data: OpenCode2SessionInfo }).data)),
     promptSession: (sessionID, text, files, delivery = "steer") =>
       apiRequest(request, "POST", `/api/session/${encodeURIComponent(sessionID)}/prompt`, {
         text,
@@ -520,6 +583,40 @@ export const makeOpenCode2ApiClient = (input: {
         `/api/session/${encodeURIComponent(sessionID)}/permission/${encodeURIComponent(requestID)}/reply`,
         { reply },
       ).pipe(Effect.asVoid),
+    revertStage: (sessionID, messageID) =>
+      apiRequest(request, "POST", `/api/session/${encodeURIComponent(sessionID)}/revert/stage`, {
+        messageID,
+      }).pipe(Effect.asVoid),
+    revertCommit: (sessionID) =>
+      apiRequest(
+        request,
+        "POST",
+        `/api/session/${encodeURIComponent(sessionID)}/revert/commit`,
+      ).pipe(Effect.asVoid),
+    revertClear: (sessionID) =>
+      apiRequest(
+        request,
+        "POST",
+        `/api/session/${encodeURIComponent(sessionID)}/revert/clear`,
+      ).pipe(Effect.asVoid),
+    listForms: (sessionID) =>
+      apiRequest(request, "GET", `/api/session/${encodeURIComponent(sessionID)}/form`).pipe(
+        Effect.map((json) => {
+          const data = (json as { readonly data?: ReadonlyArray<OpenCode2Form> }).data;
+          return data ?? [];
+        }),
+      ),
+    replyForm: (sessionID, formID, answer) =>
+      apiRequest(
+        request,
+        "POST",
+        `/api/session/${encodeURIComponent(sessionID)}/form/${encodeURIComponent(formID)}/reply`,
+        { answer },
+      ).pipe(Effect.asVoid),
+    mcpAdd: (name, config) =>
+      apiRequest(request, "PUT", `/api/mcp/${encodeURIComponent(name)}`, { config }).pipe(
+        Effect.asVoid,
+      ),
   };
 };
 
