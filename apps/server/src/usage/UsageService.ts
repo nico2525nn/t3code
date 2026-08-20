@@ -41,6 +41,7 @@ import { ServerConfig } from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { resolveClaudeHomePath } from "../provider/Drivers/ClaudeHome.ts";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
+import { mergeProviderInstanceEnvironment } from "../provider/ProviderInstanceEnvironment.ts";
 import { UsageAggregator } from "./usageAggregation.ts";
 import { parseRateTable, type RateTable } from "./usagePricing.ts";
 import {
@@ -236,7 +237,10 @@ export const make = Effect.gen(function* () {
     )) {
       const config = decodeClaudeSettings(instance.config ?? {});
       if (Option.isNone(config)) continue;
-      const claudeHome = yield* resolveClaudeHomePath(config.value);
+      const processEnv = mergeProviderInstanceEnvironment(instance.environment);
+      const claudeHome = yield* resolveClaudeHomePath({
+        homePath: config.value.homePath || processEnv.CLAUDE_CONFIG_DIR || "",
+      });
       addDir("claude", yield* resolveClaudeTranscriptDir(claudeHome));
     }
 
@@ -246,7 +250,11 @@ export const make = Effect.gen(function* () {
     )) {
       const config = decodeCodexSettings(instance.config ?? {});
       if (Option.isNone(config)) continue;
-      const codexLayout = yield* resolveCodexHomeLayout(config.value);
+      const processEnv = mergeProviderInstanceEnvironment(instance.environment);
+      const codexLayout = yield* resolveCodexHomeLayout({
+        ...config.value,
+        homePath: config.value.homePath || processEnv.CODEX_HOME || "",
+      });
       addDir("codex", path.join(codexLayout.sharedHomePath, "sessions"));
     }
     return dirs;

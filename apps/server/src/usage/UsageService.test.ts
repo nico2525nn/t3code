@@ -1,5 +1,10 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderDriverKind, ProviderInstanceId, type UsageDay } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceEnvironmentVariableName,
+  ProviderInstanceId,
+  type UsageDay,
+} from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -85,12 +90,26 @@ it.layer(NodeServices.layer)("UsageService", (it) => {
                   [ProviderInstanceId.make("codex-work")]: {
                     driver: ProviderDriverKind.make("codex"),
                     enabled: true,
-                    config: { homePath: "/virtual/codex-work" },
+                    config: {},
+                    environment: [
+                      {
+                        name: ProviderInstanceEnvironmentVariableName.make("CODEX_HOME"),
+                        value: "/virtual/codex-work",
+                        sensitive: false,
+                      },
+                    ],
                   },
                   [ProviderInstanceId.make("codex-work-copy")]: {
                     driver: ProviderDriverKind.make("codex"),
                     enabled: true,
-                    config: { homePath: "/virtual/codex-work" },
+                    config: {},
+                    environment: [
+                      {
+                        name: ProviderInstanceEnvironmentVariableName.make("CODEX_HOME"),
+                        value: "/virtual/codex-work",
+                        sensitive: false,
+                      },
+                    ],
                   },
                 },
               }),
