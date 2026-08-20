@@ -331,6 +331,23 @@ export function toOpenCode2FormAnswer(
   return answer;
 }
 
+/**
+ * Index (0-based) of the first assistant message to revert BEFORE when rolling
+ * back `numTurns` turns. Keeping the first `keep` turns means staging the
+ * message at index `keep`; reverting everything (numTurns >= count) stages the
+ * first message (index 0). Returns `null` when there is nothing to roll back.
+ */
+export function resolveOpenCode2RollbackBoundary(
+  assistantCount: number,
+  numTurns: number,
+): number | null {
+  if (numTurns <= 0 || assistantCount <= 0) {
+    return null;
+  }
+  const keepTurnCount = assistantCount - numTurns;
+  return keepTurnCount > 0 ? keepTurnCount : 0;
+}
+
 export function makeOpenCode2Adapter(
   openCode2Settings: OpenCode2Settings,
   options?: OpenCode2AdapterLiveOptions,
@@ -1330,22 +1347,18 @@ export function makeOpenCode2Adapter(
           return yield* readThread(threadId);
         }
 
-        // Revert before the (len - numTurns):th assistant message, keeping the
-        // first (len - numTurns) turns. Clamp to the first message so an
-        // over-large numTurns reverts the whole session instead of erroring.
-        const keep = Math.max(1, assistantMessages.length - numTurns);
-        const boundary = assistantMessages[keep];
-        if (boundary && boundary.type === "assistant") {
+        // Revert before the `keep`:th assistant message (0-based) so the first
+        // `keep` turns survive and everything after is dropped. When fewer
+        // turns remain than requested, revert before the very first assistant
+        // message to wipe the whole conversation. Live check confirms:
+        // stage(boundary) + commit truncates the transcript through the
+        // boundary while keeping preceding user messages.
+        const boundaryIndex = resolveOpenCode2RollbackBoundary(assistantMessages.length, numTurns);
+        const boundary = boundaryIndex === null ? undefined : assistantMessages[boundaryIndex];
+        if (boundary !== undefined && boundary.type === "assistant") {
           yield* context.api
             .revertStage(context.openCode2SessionId, boundary.id)
             .pipe(Effect.mapError(toRequestError));
-        } else {
-          const first = assistantMessages[0];
-          if (first !== undefined && first.type === "assistant") {
-            yield* context.api
-              .revertStage(context.openCode2SessionId, first.id)
-              .pipe(Effect.mapError(toRequestError));
-          }
         }
         yield* context.api
           .revertCommit(context.openCode2SessionId)

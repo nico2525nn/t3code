@@ -2,10 +2,12 @@ import * as NodeAssert from "node:assert/strict";
 
 import { describe, it } from "vite-plus/test";
 
+import type { OpenCode2Form } from "../opencode2Runtime.ts";
 import {
   extractOpenCode2FormCandidates,
   findOpenCode2EventData,
   openCode2FormToQuestions,
+  resolveOpenCode2RollbackBoundary,
   toOpenCode2FormAnswer,
 } from "./OpenCode2Adapter.ts";
 
@@ -29,7 +31,7 @@ describe("findOpenCode2EventData", () => {
   });
 });
 
-const sampleForm = {
+const sampleForm: OpenCode2Form = {
   id: "frm_01hx",
   sessionID: "ses_1",
   title: "Pick an option",
@@ -97,5 +99,23 @@ describe("extractOpenCode2FormCandidates", () => {
   it("ignores non-form payloads", () => {
     NodeAssert.deepEqual(extractOpenCode2FormCandidates({ type: "heartbeat" }), []);
     NodeAssert.deepEqual(extractOpenCode2FormCandidates({ id: "not-a-form" }), []);
+  });
+});
+
+describe("resolveOpenCode2RollbackBoundary", () => {
+  it("keeps the first (count - numTurns) turns", () => {
+    // 4 assistant turns, roll back 2 → revert before index 2 (keep 0..1).
+    NodeAssert.equal(resolveOpenCode2RollbackBoundary(4, 2), 2);
+    NodeAssert.equal(resolveOpenCode2RollbackBoundary(4, 1), 3);
+  });
+
+  it("reverts everything when numTurns exceeds the turn count", () => {
+    NodeAssert.equal(resolveOpenCode2RollbackBoundary(2, 2), 0);
+    NodeAssert.equal(resolveOpenCode2RollbackBoundary(2, 5), 0);
+  });
+
+  it("returns null when there is nothing to roll back", () => {
+    NodeAssert.equal(resolveOpenCode2RollbackBoundary(4, 0), null);
+    NodeAssert.equal(resolveOpenCode2RollbackBoundary(0, 3), null);
   });
 });
