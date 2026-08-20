@@ -67,11 +67,13 @@ export class PluginPackageOperationError extends Schema.TaggedErrorClass<PluginP
   {
     id: Schema.optional(PluginPackageId),
     operation: PluginPackageOperation,
-    detail: TrimmedNonEmptyString.check(Schema.isMaxLength(2_000)),
+    detail: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2_000))),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
     const packageName = this.id === undefined ? "plugin packages" : `plugin package ${this.id}`;
-    return `${this.operation} failed for ${packageName}: ${this.detail}`;
+    const detail = this.detail === undefined ? "" : `: ${this.detail}`;
+    return `${this.operation} failed for ${packageName}${detail}`;
   }
 }

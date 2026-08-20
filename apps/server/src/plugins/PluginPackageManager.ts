@@ -62,6 +62,7 @@ type PluginPackageActivator = (api: PluginPackageApi) => void | Promise<void>;
 
 const decodeManifestJson = Schema.decodeUnknownEffect(Schema.fromJsonString(PluginManifest));
 const decodeInvocationResult = Schema.decodeUnknownEffect(PluginCommandInvocationResult);
+const isPluginPackageOperationError = Schema.is(PluginPackageOperationError);
 
 const detailFromUnknown = (error: unknown): string => {
   const detail = error instanceof Error ? error.message : String(error);
@@ -73,12 +74,14 @@ const operationError = (
   operation: PluginPackageOperation,
   error: unknown,
   id?: string,
-): PluginPackageOperationError =>
-  new PluginPackageOperationError({
+): PluginPackageOperationError => {
+  if (isPluginPackageOperationError(error)) return error;
+  return new PluginPackageOperationError({
     ...(id === undefined ? {} : { id }),
     operation,
-    detail: detailFromUnknown(error),
+    ...(typeof error === "string" ? { detail: error } : { cause: error }),
   });
+};
 
 const makeDefinition = (
   discovered: DiscoveredPackage,
@@ -132,6 +135,31 @@ const makeDefinition = (
     },
   };
 };
+
+export class PluginPackageManager extends Context.Service<
+  PluginPackageManager,
+  {
+    readonly status: Effect.Effect<PluginPackageStatusSnapshot, PluginPackageOperationError>;
+    readonly enable: (
+      id: string,
+    ) => Effect.Effect<
+      PluginPackageStatusSnapshot,
+      PluginPackageNotFoundError | PluginPackageOperationError
+    >;
+    readonly disable: (
+      id: string,
+    ) => Effect.Effect<
+      PluginPackageStatusSnapshot,
+      PluginPackageNotFoundError | PluginPackageOperationError
+    >;
+    readonly reload: (
+      id: string,
+    ) => Effect.Effect<
+      PluginPackageStatusSnapshot,
+      PluginPackageNotFoundError | PluginPackageOperationError
+    >;
+  }
+>()("t3/plugins/PluginPackageManager") {}
 
 export const make = Effect.fn("PluginPackageManager.make")(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -348,9 +376,13 @@ export const make = Effect.fn("PluginPackageManager.make")(function* () {
   const statusUnlocked = Effect.fn("PluginPackageManager.status")(function* (
     operation: PluginPackageOperation,
   ): Effect.fn.Return<PluginPackageStatusSnapshot, PluginPackageOperationError> {
-    const [discovery, enabledIds] = yield* Effect.all([discover(operation), readEnabledIds], {
-      concurrency: "unbounded",
-    }).pipe(Effect.mapError((error) => operationError(operation, error)));
+    const [discovery, enabledIds] = yield* Effect.all(
+      [
+        discover(operation),
+        readEnabledIds.pipe(Effect.mapError((error) => operationError(operation, error))),
+      ],
+      { concurrency: "unbounded" },
+    );
     const discovered = discovery.packages;
     const errors = [...discovery.errors];
     const packages: Array<PluginPackageStatus> = [];
@@ -607,10 +639,5 @@ export const make = Effect.fn("PluginPackageManager.make")(function* () {
       ),
   } as const;
 });
-
-export class PluginPackageManager extends Context.Service<
-  PluginPackageManager,
-  Effect.Success<ReturnType<typeof make>>
->()("t3/plugins/PluginPackageManager") {}
 
 export const layer = Layer.effect(PluginPackageManager, make());

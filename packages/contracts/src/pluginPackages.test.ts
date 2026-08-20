@@ -1,7 +1,11 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { PluginPackageActionInput, PluginPackageStatusSnapshot } from "./pluginPackages.ts";
+import {
+  PluginPackageActionInput,
+  PluginPackageOperationError,
+  PluginPackageStatusSnapshot,
+} from "./pluginPackages.ts";
 import { WS_METHODS, WsRpcGroup } from "./rpc.ts";
 
 const decodeStatus = Schema.decodeUnknownSync(PluginPackageStatusSnapshot);
@@ -56,6 +60,20 @@ describe("plugin package contracts", () => {
     expect(() => decodeAction({ id: "runtime-status" })).toThrow();
     expect(() => decodeAction({ id: `com.${"a".repeat(252)}` })).toThrow();
     expect(() => decodeAction({ id: "com.acme.runtime-status", extra: true })).toThrow();
+  });
+
+  it("preserves operation causes without putting failure text in the stable message", () => {
+    const cause = new Error("disk exploded");
+    const error = new PluginPackageOperationError({ cause, operation: "enable" });
+    expect(error.cause).toBe(cause);
+    expect(error.message).toBe("enable failed for plugin packages");
+    expect(
+      new PluginPackageOperationError({
+        detail: "package is not enabled",
+        id: "com.acme.runtime-status",
+        operation: "reload",
+      }).message,
+    ).toBe("reload failed for plugin package com.acme.runtime-status: package is not enabled");
   });
 
   it("registers fixed status and lifecycle rpc methods", () => {
