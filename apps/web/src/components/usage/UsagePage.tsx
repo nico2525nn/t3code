@@ -62,6 +62,9 @@ export function UsagePage() {
     }
     return PROVIDER_ORDER.filter((provider) => enabled.has(provider));
   }, [environments, merged.staleEnvironments]);
+  const skeletonProviders = environments.some((environment) => environment.summary !== null)
+    ? providers
+    : PROVIDER_ORDER;
 
   // Hold the content until every environment is terminal. Rendering merged
   // totals while devices are still answering makes every number on the page
@@ -214,7 +217,7 @@ export function UsagePage() {
             {settling ? (
               <>
                 {environments.length > 1 ? <UsageDeviceStrip environments={environments} /> : null}
-                <UsageSkeleton />
+                <UsageSkeleton providers={skeletonProviders} />
               </>
             ) : (
               <>
@@ -588,7 +591,7 @@ function UsageDeviceStrip({
  * Static stand-in with the loaded page's shape. No shimmer; blocks fill in
  * exactly once when the last device answers.
  */
-function UsageSkeleton() {
+function UsageSkeleton({ providers }: { readonly providers: readonly UsageProviderKind[] }) {
   return (
     <>
       <section className="grid gap-6 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
@@ -597,7 +600,7 @@ function UsageSkeleton() {
             <div className="h-10 w-36 rounded-sm bg-muted" />
             <div className="h-4 w-32 rounded-sm bg-muted" />
           </div>
-          {PROVIDER_ORDER.map((provider) => (
+          {providers.map((provider) => (
             <div key={provider} className="flex flex-col gap-1">
               <div className="flex min-h-5 items-center justify-between gap-4">
                 <span className="flex items-center gap-2">

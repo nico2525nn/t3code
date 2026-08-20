@@ -105,4 +105,45 @@ it.layer(NodeServices.layer)("UsageService", (it) => {
       ),
     ),
   );
+
+  it.effect("uses driver defaults when an enabled instance omits config", () =>
+    Effect.gen(function* () {
+      const usage = yield* UsageService.UsageService;
+      const summary = yield* usage.readSummary(summaryInput);
+
+      expect(summary.sources.map((source) => source.fingerprint.provider)).toEqual(["codex"]);
+    }).pipe(
+      Effect.provide(
+        UsageService.layer.pipe(
+          Layer.provideMerge(
+            Layer.mergeAll(
+              ServerSettings.ServerSettingsService.layerTest({
+                providerInstances: {
+                  [ProviderInstanceId.make("claudeAgent")]: {
+                    driver: ProviderDriverKind.make("claudeAgent"),
+                    enabled: false,
+                    config: {},
+                  },
+                  [ProviderInstanceId.make("codex")]: {
+                    driver: ProviderDriverKind.make("codex"),
+                    enabled: false,
+                    config: {},
+                  },
+                  [ProviderInstanceId.make("codex-work")]: {
+                    driver: ProviderDriverKind.make("codex"),
+                    enabled: true,
+                  },
+                },
+              }),
+              ServerConfig.layerTest(process.cwd(), { prefix: "t3-usage-test-" }),
+              Layer.succeed(
+                HttpClient.HttpClient,
+                HttpClient.make(() => Effect.die("unexpected usage pricing request")),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 });

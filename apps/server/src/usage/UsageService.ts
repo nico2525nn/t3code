@@ -234,7 +234,7 @@ export const make = Effect.gen(function* () {
       settings,
       ProviderDriverKind.make("claudeAgent"),
     )) {
-      const config = decodeClaudeSettings(instance.config);
+      const config = decodeClaudeSettings(instance.config ?? {});
       if (Option.isNone(config)) continue;
       const claudeHome = yield* resolveClaudeHomePath(config.value);
       addDir("claude", yield* resolveClaudeTranscriptDir(claudeHome));
@@ -244,7 +244,7 @@ export const make = Effect.gen(function* () {
       settings,
       ProviderDriverKind.make("codex"),
     )) {
-      const config = decodeCodexSettings(instance.config);
+      const config = decodeCodexSettings(instance.config ?? {});
       if (Option.isNone(config)) continue;
       const codexLayout = yield* resolveCodexHomeLayout(config.value);
       addDir("codex", path.join(codexLayout.sharedHomePath, "sessions"));
