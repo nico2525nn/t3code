@@ -68,18 +68,23 @@ function flattenOpenCode2Models(input: {
   readonly providerNames: ReadonlyMap<string, string>;
   readonly defaultModel: { readonly id: string; readonly providerID: string } | null | undefined;
 }): ReadonlyArray<ServerProviderModel> {
-  const connected = new Set<string>(input.providerNames.keys());
+  // A freshly spawned `opencode2 serve` reports an empty `/api/provider`
+  // list until its provider plugins finish activating, while `/api/model` is
+  // populated immediately. The model catalog is therefore the authoritative
+  // source of "connected" providers: every providerID seen in the catalog is
+  // considered available, and `/api/provider` only enriches the display name.
+  const available = new Map(input.providerNames);
   const models: Array<ServerProviderModel> = [];
 
   for (const model of input.models) {
-    if (!connected.has(model.providerID)) {
-      continue;
+    if (!available.has(model.providerID)) {
+      available.set(model.providerID, model.providerID);
     }
     const name = nonEmptyTrimmed(model.name);
     if (!name) {
       continue;
     }
-    const subProvider = nonEmptyTrimmed(input.providerNames.get(model.providerID));
+    const subProvider = nonEmptyTrimmed(available.get(model.providerID));
     const isDefault =
       input.defaultModel !== null &&
       input.defaultModel !== undefined &&
@@ -294,20 +299,25 @@ export const checkOpenCode2ProviderStatus = Effect.fn("checkOpenCode2ProviderSta
   }
 
   const { models, providerNames, defaultModel } = inventoryExit.value;
-  const connectedCount = providerNames.size;
+  const flattenedModels = flattenOpenCode2Models({
+    models,
+    providerNames,
+    defaultModel:
+      defaultModel !== null && defaultModel !== undefined
+        ? { id: defaultModel.id, providerID: defaultModel.providerID }
+        : null,
+  });
+  // The model catalog is authoritative (see flattenOpenCode2Models): count the
+  // distinct upstream provider IDs it actually lists.
+  const connectedCount = new Set(
+    models.map((model) => model.providerID).filter((id): id is string => Boolean(id)),
+  ).size;
   return buildServerProvider({
     presentation: OPENCODE2_PRESENTATION,
     enabled: true,
     checkedAt,
     models: providerModelsFromSettings(
-      flattenOpenCode2Models({
-        models,
-        providerNames,
-        defaultModel:
-          defaultModel !== null && defaultModel !== undefined
-            ? { id: defaultModel.id, providerID: defaultModel.providerID }
-            : null,
-      }),
+      flattenedModels,
       customModels,
       DEFAULT_OPENCODE2_MODEL_CAPABILITIES,
     ),

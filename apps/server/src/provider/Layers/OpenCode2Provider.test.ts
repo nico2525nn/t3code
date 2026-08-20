@@ -199,6 +199,33 @@ it.layer(testLayer)("checkOpenCode2ProviderStatus", (it) => {
     }),
   );
 
+  it.effect("treats the model catalog as authoritative when provider list is empty", () =>
+    Effect.gen(function* () {
+      // A freshly spawned server reports an empty `/api/provider` while
+      // `/api/model` is already populated — readiness must not depend on
+      // the provider list.
+      runtimeMock.state.providers = [];
+      runtimeMock.state.models = [
+        {
+          id: "glm-5.3",
+          modelID: "glm-5.3",
+          providerID: "opencode-go",
+          name: "GLM-5.3",
+          variants: [],
+        },
+      ];
+      runtimeMock.state.defaultModel = {
+        id: "glm-5.3",
+        modelID: "glm-5.3",
+        providerID: "opencode-go",
+      };
+      const snapshot = yield* checkOpenCode2ProviderStatus(makeOpenCode2Settings(), process.cwd());
+      NodeAssert.equal(snapshot.status, "ready");
+      NodeAssert.ok(snapshot.models.some((entry) => entry.slug === "opencode-go/glm-5.3"));
+      NodeAssert.ok(snapshot.message?.includes("1 upstream provider connected"));
+    }),
+  );
+
   it.effect("cleans up the managed server after the probe", () =>
     Effect.gen(function* () {
       seedCommonCatalog();
