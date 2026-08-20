@@ -211,6 +211,7 @@ it.layer(NodeServices.layer)("plugin package lifecycle", (it) => {
           const manager = yield* PluginPackageManager.PluginPackageManager;
           const catalog = yield* PluginCommandCatalog.PluginCommandCatalog;
 
+          expect((yield* Effect.exit(manager.reload(packageId)))._tag).toBe("Failure");
           expect(yield* manager.status).toMatchObject({
             packages: [{ id: packageId, enabled: false, state: "disabled" }],
           });
@@ -306,7 +307,19 @@ it.layer(NodeServices.layer)("plugin package lifecycle", (it) => {
           expect((yield* Effect.exit(manager.reload(packageId)))._tag).toBe("Failure");
           expect(yield* catalog.list).toBe(committed);
           expect(yield* manager.status).toMatchObject({
-            packages: [{ id: packageId, version: "1.0.0", enabled: true, state: "error" }],
+            packages: [
+              {
+                id: packageId,
+                version: "1.0.0",
+                enabled: true,
+                state: "error",
+                error: "activation failed",
+              },
+            ],
+          });
+          yield* manager.enable(packageId);
+          expect(yield* manager.status).toMatchObject({
+            packages: [{ id: packageId, state: "error", error: "activation failed" }],
           });
 
           yield* fileSystem.writeFileString(

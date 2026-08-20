@@ -14,6 +14,7 @@ import {
   PluginManifest,
   type PluginManifest as PluginManifestType,
 } from "@t3tools/plugin-runtime/manifest";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -65,10 +66,21 @@ const decodeInvocationResult = Schema.decodeUnknownEffect(PluginCommandInvocatio
 const isPluginPackageOperationError = Schema.is(PluginPackageOperationError);
 
 const detailFromUnknown = (error: unknown): string => {
+  if (isPluginPackageOperationError(error)) {
+    if (error.detail !== undefined) return error.detail;
+    if (error.cause !== undefined) return detailFromUnknown(error.cause);
+  }
+  if (typeof error === "object" && error !== null && "cause" in error) {
+    const cause = error.cause;
+    if (cause !== undefined && cause !== error) return detailFromUnknown(cause);
+  }
   const detail = error instanceof Error ? error.message : String(error);
   const trimmed = detail.trim();
   return (trimmed.length === 0 ? "unknown error" : trimmed).slice(0, 2_000);
 };
+
+const detailFromCause = (cause: Cause.Cause<unknown>): string =>
+  detailFromUnknown(Cause.squash(cause));
 
 const operationError = (
   operation: PluginPackageOperation,
@@ -431,7 +443,6 @@ export const make = Effect.fn("PluginPackageManager.make")(function* () {
             return yield* operationError(operation, "package is not enabled", id);
           }
           if (operation === "enable" && activeDefinitions.has(id) && enabledIds.has(id)) {
-            packageErrors.delete(id);
             return yield* statusUnlocked(operation);
           }
           packageErrors.delete(id);
@@ -439,11 +450,17 @@ export const make = Effect.fn("PluginPackageManager.make")(function* () {
           const previousEnabledIds = new Set(enabledIds);
           const previousCacheDirectory = activeCacheDirectories.get(id);
           const previousRetirement = activeRetirements.get(id);
-          const loaded = yield* restore(loadDefinition(pluginPackage, operation));
+          const loadedExit = yield* Effect.exit(restore(loadDefinition(pluginPackage, operation)));
+          if (loadedExit._tag === "Failure") {
+            packageErrors.set(id, detailFromCause(loadedExit.cause));
+            return yield* Effect.failCause(loadedExit.cause);
+          }
+          const loaded = loadedExit.value;
           if (operation === "enable") {
             enabledIds.add(id);
             const persisted = yield* Effect.exit(persistEnabledIds(enabledIds, operation, id));
             if (persisted._tag === "Failure") {
+              packageErrors.set(id, detailFromCause(persisted.cause));
               yield* removeCacheDirectory(loaded.cacheDirectory);
               return yield* Effect.failCause(persisted.cause);
             }
@@ -464,14 +481,16 @@ export const make = Effect.fn("PluginPackageManager.make")(function* () {
                   persistEnabledIds(previousEnabledIds, operation, id),
                 );
                 if (rolledBack._tag === "Failure") {
+                  packageErrors.set(id, detailFromCause(reconciled.cause));
                   yield* removeCacheDirectory(loaded.cacheDirectory);
-                  return yield* operationError(
-                    operation,
-                    `${detailFromUnknown(reconciled.cause)}; failed to restore enabled package settings: ${detailFromUnknown(rolledBack.cause)}`,
+                  yield* Effect.logWarning("Failed to restore enabled package settings", {
                     id,
-                  );
+                    error: rolledBack.cause,
+                  });
+                  return yield* Effect.failCause(reconciled.cause);
                 }
               }
+              packageErrors.set(id, detailFromCause(reconciled.cause));
               yield* removeCacheDirectory(loaded.cacheDirectory);
               return yield* Effect.failCause(reconciled.cause);
             }
@@ -524,11 +543,11 @@ export const make = Effect.fn("PluginPackageManager.make")(function* () {
               persistEnabledIds(previousEnabledIds, "disable", id),
             );
             if (rolledBack._tag === "Failure") {
-              return yield* operationError(
-                "disable",
-                `${detailFromUnknown(reconciled.cause)}; failed to restore enabled package settings: ${detailFromUnknown(rolledBack.cause)}`,
+              yield* Effect.logWarning("Failed to restore enabled package settings", {
                 id,
-              );
+                error: rolledBack.cause,
+              });
+              return yield* Effect.failCause(reconciled.cause);
             }
             return yield* Effect.failCause(reconciled.cause);
           }
@@ -595,7 +614,7 @@ export const make = Effect.fn("PluginPackageManager.make")(function* () {
       }),
     );
     if (startup._tag === "Failure") {
-      const detail = detailFromUnknown(startup.cause);
+      const detail = detailFromCause(startup.cause);
       packageErrors.set(id, detail);
       yield* Effect.logWarning("Failed to activate enabled local plugin package", { id, detail });
     }
@@ -607,7 +626,7 @@ export const make = Effect.fn("PluginPackageManager.make")(function* () {
         const shutdown = yield* Effect.exit(catalog.reconcile([]));
         if (shutdown._tag === "Failure") {
           yield* Effect.logWarning("Failed to retire local plugin packages during shutdown", {
-            error: detailFromUnknown(shutdown.cause),
+            error: detailFromCause(shutdown.cause),
           });
         }
         for (const [id, error] of packageErrors) {
@@ -620,23 +639,9 @@ export const make = Effect.fn("PluginPackageManager.make")(function* () {
 
   return {
     status: semaphore.withPermits(1)(statusUnlocked("status")),
-    enable: (id: string) =>
-      semaphore.withPermits(1)(
-        transition("enable", id).pipe(
-          Effect.tapError((error) =>
-            Effect.sync(() => packageErrors.set(id, detailFromUnknown(error))),
-          ),
-        ),
-      ),
+    enable: (id: string) => semaphore.withPermits(1)(transition("enable", id)),
     disable: (id: string) => semaphore.withPermits(1)(disableUnlocked(id)),
-    reload: (id: string) =>
-      semaphore.withPermits(1)(
-        transition("reload", id).pipe(
-          Effect.tapError((error) =>
-            Effect.sync(() => packageErrors.set(id, detailFromUnknown(error))),
-          ),
-        ),
-      ),
+    reload: (id: string) => semaphore.withPermits(1)(transition("reload", id)),
   } as const;
 });
 
