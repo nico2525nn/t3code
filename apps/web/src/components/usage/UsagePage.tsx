@@ -53,13 +53,15 @@ export function UsagePage() {
   const { merged, environments, isPending, isPartial, refresh } = useUsage(window);
   const providers = useMemo(() => {
     const enabled = new Set<UsageProviderKind>();
+    const staleEnvironmentIds = new Set(merged.staleEnvironments);
     for (const environment of environments) {
+      if (staleEnvironmentIds.has(environment.environmentId)) continue;
       for (const source of environment.summary?.sources ?? []) {
         enabled.add(source.fingerprint.provider);
       }
     }
     return PROVIDER_ORDER.filter((provider) => enabled.has(provider));
-  }, [environments]);
+  }, [environments, merged.staleEnvironments]);
 
   // Hold the content until every environment is terminal. Rendering merged
   // totals while devices are still answering makes every number on the page
