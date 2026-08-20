@@ -4173,8 +4173,8 @@ function ChatViewContent(props: ChatViewProps) {
       ? (activeThreadShell?.planProgress ?? null)
       : null;
   const activeComposerTaskSteps =
-    activeComposerTasksProgress && activePlan && activePlan.turnId === activeLatestTurn?.turnId
-      ? activePlan.steps
+    activeComposerTasksProgress && activeLatestTurn
+      ? (turnPlans.findLast((plan) => plan.turnId === activeLatestTurn.turnId)?.plan.steps ?? null)
       : null;
   const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
   const autoSettleOnMerge = useClientSettings((settings) => settings.sidebarAutoSettleOnMerge);
