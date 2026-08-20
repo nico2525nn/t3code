@@ -666,6 +666,57 @@ export const OpenCodeIcon: Icon = (props) => (
   </svg>
 );
 
+/**
+ * OpenCode 2 icon — the OpenCode mark with a `2` index badge, mirroring the
+ * V2 preview branding (the CLI dropped the `1` and now ships as `opencode2`).
+ */
+export const OpenCode2Icon: Icon = ({ className, ...props }) => (
+  <svg
+    {...props}
+    viewBox="0 0 32 40"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={cn("text-black dark:text-[#F1ECEC]", className)}
+  >
+    <g clipPath="url(#opencode2__clip0_1311_94969)">
+      <path className="dark:hidden" d="M24 32H8V16H24V32Z" fill="#CFCECD" />
+      <path className="dark:hidden" d="M24 8H8V32H24V8ZM32 40H0V0H32V40Z" fill="#211E1E" />
+      <path className="hidden dark:block" d="M24 32H8V16H24V32Z" fill="#4B4646" />
+      <path className="hidden dark:block" d="M24 8H8V32H24V8ZM32 40H0V0H32V40Z" fill="#F1ECEC" />
+      {/* "2" index badge, kept as fill-independent text so it inherits the mark */}
+      <text
+        x="13"
+        y="11"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize="10"
+        fontWeight="800"
+        className="dark:hidden"
+        fill="#F1ECEC"
+      >
+        2
+      </text>
+      <text
+        x="13"
+        y="11"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize="10"
+        fontWeight="800"
+        className="hidden dark:block"
+        fill="#211E1E"
+      >
+        2
+      </text>
+    </g>
+    <defs>
+      <clipPath id="opencode2__clip0_1311_94969">
+        <rect width="32" height="40" fill="white" />
+      </clipPath>
+    </defs>
+  </svg>
+);
+
 export const GithubCopilotIcon: Icon = ({ className, ...props }) => (
   <svg
     {...props}

@@ -20,6 +20,7 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 > - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
 > - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
 > - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
+> - OpenCode 2: install the [OpenCode 2 preview](https://opencode.ai/v2) CLI (`opencode2`) and run `opencode2 auth login`
 
 ### Try it out (install-free)
 

@@ -1,4 +1,4 @@
-import { Path, Svg } from "react-native-svg";
+import { Path, Svg, Text as SvgText } from "react-native-svg";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 
 type ProviderIconProps = {
@@ -55,6 +55,25 @@ export function ProviderIcon(props: ProviderIconProps) {
       <Svg width={size} height={size} viewBox="0 0 32 40" fill="none">
         <Path d="M24 32H8V16H24V32Z" fill={isDarkMode ? "#4B4646" : "#CFCECD"} />
         <Path d="M24 8H8V32H24V8ZM32 40H0V0H32V40Z" fill={isDarkMode ? "#F1ECEC" : "#211E1E"} />
+      </Svg>
+    );
+  }
+
+  if (props.provider === "opencode2") {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 32 40" fill="none">
+        <Path d="M24 32H8V16H24V32Z" fill={isDarkMode ? "#4B4646" : "#CFCECD"} />
+        <Path d="M24 8H8V32H24V8ZM32 40H0V0H32V40Z" fill={isDarkMode ? "#F1ECEC" : "#211E1E"} />
+        <SvgText
+          x="13"
+          y="11"
+          textAnchor="middle"
+          fontSize={size * 0.3}
+          fontWeight="800"
+          fill={isDarkMode ? "#211E1E" : "#F1ECEC"}
+        >
+          2
+        </SvgText>
       </Svg>
     );
   }

@@ -35,6 +35,7 @@ import * as ProviderEventLoggers from "./provider/Layers/ProviderEventLoggers.ts
 import { ProviderServiceLive } from "./provider/Layers/ProviderService.ts";
 import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper.ts";
 import * as OpenCodeRuntime from "./provider/opencodeRuntime.ts";
+import * as OpenCode2Runtime from "./provider/opencode2Runtime.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
@@ -396,8 +397,12 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // `ProviderRegistryLive` pulled `OpenCodeRuntimeLive` in for itself, but
   // the rewritten registry reads snapshots off the instance registry and
   // no longer transitively provides it. Exposing it at the runtime level
-  // keeps a single Live for all opencode consumers.
-  Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
+  // keeps a single Live for all opencode consumers. The OpenCode 2 runtime
+  // lives alongside it; both are merged into one provideMerge call so the
+  // runtime layer's merge arity stays within its limit.
+  Layer.provideMerge(
+    Layer.merge(OpenCodeRuntime.OpenCodeRuntimeLive, OpenCode2Runtime.OpenCode2RuntimeLive),
+  ),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLayerLive),
   Layer.provideMerge(RepositoryIdentityResolver.layer),
