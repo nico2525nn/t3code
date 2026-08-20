@@ -51,6 +51,15 @@ export function UsagePage() {
   const { days: windowDays, window } = windowSelection;
   const isPast24Hours = windowDays === 1;
   const { merged, environments, isPending, isPartial, refresh } = useUsage(window);
+  const providers = useMemo(() => {
+    const enabled = new Set<UsageProviderKind>();
+    for (const environment of environments) {
+      for (const source of environment.summary?.sources ?? []) {
+        enabled.add(source.fingerprint.provider);
+      }
+    }
+    return PROVIDER_ORDER.filter((provider) => enabled.has(provider));
+  }, [environments]);
 
   // Hold the content until every environment is terminal. Rendering merged
   // totals while devices are still answering makes every number on the page
@@ -228,7 +237,7 @@ export function UsagePage() {
                       </span>
                     </div>
 
-                    {PROVIDER_ORDER.map((provider) => {
+                    {providers.map((provider) => {
                       const totals = merged.providers.find((entry) => entry.provider === provider);
                       const share =
                         metric === "cost" ? (totals?.costShare ?? 0) : (totals?.tokenShare ?? 0);
@@ -279,6 +288,7 @@ export function UsagePage() {
                       {metric === "tokens" ? "processed tokens" : "cost"}
                     </h2>
                     <UsageProviderChart
+                      providers={providers}
                       days={days}
                       daily={merged.daily}
                       hours={hours}
@@ -381,7 +391,7 @@ export function UsagePage() {
                       <thead>
                         <tr className="border-b border-border text-left text-xs text-muted-foreground">
                           <th className="py-2 font-normal">{isPast24Hours ? "Hour" : "Day"}</th>
-                          {PROVIDER_ORDER.map((provider) => (
+                          {providers.map((provider) => (
                             <th key={provider} className="py-2 text-right font-normal">
                               {PROVIDER_PRESENTATION[provider].label}
                             </th>
@@ -393,7 +403,10 @@ export function UsagePage() {
                       <tbody>
                         {breakdownPeriods.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-6 text-center text-muted-foreground">
+                            <td
+                              colSpan={providers.length + 3}
+                              className="py-6 text-center text-muted-foreground"
+                            >
                               No activity in this window.
                             </td>
                           </tr>
@@ -408,7 +421,7 @@ export function UsagePage() {
                                   ? formatHourShort(period.hourStart, window.timeZone)
                                   : formatDayShort(period.day)}
                               </td>
-                              {PROVIDER_ORDER.map((provider) => (
+                              {providers.map((provider) => (
                                 <td
                                   key={provider}
                                   className="py-2 text-right text-muted-foreground tabular-nums"
