@@ -767,6 +767,22 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("live-activity-focus");
   });
 
+  it("aligns the iconless Thinking row with the working timer", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt={MESSAGE_CREATED_AT}
+        timelineEntries={[]}
+      />,
+    );
+
+    expect(markup).toContain("Working for");
+    expect(markup).toContain("Thinking");
+    expect(markup).toContain("gap-1.5 py-0.5 px-1");
+  });
+
   it("renders review comment contexts as structured cards instead of raw tags", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline

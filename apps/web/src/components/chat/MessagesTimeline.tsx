@@ -1458,7 +1458,8 @@ function LiveActivityContent({
   return (
     <div
       className={cn(
-        "flex min-h-6 min-w-0 items-center gap-1.5 px-0.5 py-0.5",
+        "flex min-h-6 min-w-0 items-center gap-1.5 py-0.5",
+        resolvedIconName ? "px-0.5" : "px-1",
         highlighted ? "text-foreground" : "text-secondary-label",
       )}
     >
