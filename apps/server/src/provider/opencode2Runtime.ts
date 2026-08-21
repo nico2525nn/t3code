@@ -291,14 +291,6 @@ export interface OpenCode2ProviderSummary {
   readonly activation?: string;
 }
 
-export interface OpenCode2Agent {
-  readonly id: string;
-  readonly name?: string;
-  readonly description?: string;
-  readonly mode?: "subagent" | "primary" | "all";
-  readonly hidden?: boolean;
-}
-
 export interface OpenCode2SessionInfo {
   readonly id: string;
   readonly title?: string;
@@ -400,7 +392,6 @@ export interface OpenCode2ApiClient {
     ReadonlyArray<OpenCode2ProviderSummary>,
     OpenCode2RuntimeError
   >;
-  readonly listAgents: () => Effect.Effect<ReadonlyArray<OpenCode2Agent>, OpenCode2RuntimeError>;
   readonly createSession: (
     directory: string,
     title?: string,
@@ -417,7 +408,6 @@ export interface OpenCode2ApiClient {
     files?: ReadonlyArray<{ readonly uri: string; readonly name?: string }>,
     delivery?: "steer" | "queue",
   ) => Effect.Effect<OpenCode2InboxUser, OpenCode2RuntimeError>;
-  readonly waitSession: (sessionID: string) => Effect.Effect<void, OpenCode2RuntimeError>;
   readonly interruptSession: (sessionID: string) => Effect.Effect<void, OpenCode2RuntimeError>;
   readonly switchModel: (
     sessionID: string,
@@ -436,7 +426,6 @@ export interface OpenCode2ApiClient {
     messageID: string,
   ) => Effect.Effect<void, OpenCode2RuntimeError>;
   readonly revertCommit: (sessionID: string) => Effect.Effect<void, OpenCode2RuntimeError>;
-  readonly revertClear: (sessionID: string) => Effect.Effect<void, OpenCode2RuntimeError>;
   readonly listForms: (
     sessionID: string,
   ) => Effect.Effect<ReadonlyArray<OpenCode2Form>, OpenCode2RuntimeError>;
@@ -525,13 +514,6 @@ export const makeOpenCode2ApiClient = (input: {
           return data ?? [];
         }),
       ),
-    listAgents: () =>
-      apiRequest(request, "GET", "/api/agent").pipe(
-        Effect.map((json) => {
-          const data = (json as { readonly data?: ReadonlyArray<OpenCode2Agent> }).data;
-          return data ?? [];
-        }),
-      ),
     createSession: (directory, title) =>
       apiRequest(request, "POST", "/api/session", {
         location: { directory },
@@ -556,10 +538,6 @@ export const makeOpenCode2ApiClient = (input: {
         delivery,
         resume: true,
       }).pipe(Effect.map((json) => (json as { readonly data: OpenCode2InboxUser }).data)),
-    waitSession: (sessionID) =>
-      apiRequest(request, "POST", `/api/session/${encodeURIComponent(sessionID)}/wait`).pipe(
-        Effect.asVoid,
-      ),
     interruptSession: (sessionID) =>
       apiRequest(request, "POST", `/api/session/${encodeURIComponent(sessionID)}/interrupt`).pipe(
         Effect.asVoid,
@@ -592,12 +570,6 @@ export const makeOpenCode2ApiClient = (input: {
         request,
         "POST",
         `/api/session/${encodeURIComponent(sessionID)}/revert/commit`,
-      ).pipe(Effect.asVoid),
-    revertClear: (sessionID) =>
-      apiRequest(
-        request,
-        "POST",
-        `/api/session/${encodeURIComponent(sessionID)}/revert/clear`,
       ).pipe(Effect.asVoid),
     listForms: (sessionID) =>
       apiRequest(request, "GET", `/api/session/${encodeURIComponent(sessionID)}/form`).pipe(

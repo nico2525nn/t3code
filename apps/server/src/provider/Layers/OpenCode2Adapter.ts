@@ -29,8 +29,6 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import * as FileSystem from "effect/FileSystem";
-import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
@@ -774,7 +772,12 @@ export function makeOpenCode2Adapter(
         }
 
         case "session.form.sync": {
-          const forms = extractOpenCode2FormCandidates(payload);
+          // V2 forms carry a sessionID; only surface ones that belong to this
+          // session (absent sessionID is treated as belonging to us — the
+          // poll path always scopes by session anyway).
+          const forms = extractOpenCode2FormCandidates(payload).filter(
+            (form) => form.sessionID === undefined || form.sessionID === context.openCode2SessionId,
+          );
           yield* surfaceOpenCode2Forms(context, forms);
           break;
         }

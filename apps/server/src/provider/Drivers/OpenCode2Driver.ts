@@ -42,7 +42,8 @@ import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import {
   enrichProviderSnapshotWithVersionAdvisory,
-  makePackageManagedProviderMaintenanceResolver,
+  type ProviderMaintenanceCapabilities,
+  type ProviderMaintenanceCapabilitiesResolver,
   resolveProviderMaintenanceCapabilitiesEffect,
 } from "../providerMaintenance.ts";
 import {
@@ -55,13 +56,20 @@ const decodeOpenCode2Settings = Schema.decodeSync(OpenCode2Settings);
 const DRIVER_KIND = ProviderDriverKind.make("opencode2");
 const SNAPSHOT_REFRESH_INTERVAL = Duration.minutes(5);
 
-const UPDATE = makePackageManagedProviderMaintenanceResolver({
-  provider: DRIVER_KIND,
-  npmPackageName: "opencode-ai",
-  homebrewFormula: null,
-  // The V2 preview ships no `upgrade` subcommand; updates flow through npm.
-  nativeUpdate: null,
-});
+// The V2 preview has no stable update channel: it ships no `upgrade`
+// subcommand, and its `0.0.0-beta-*` builds do not track the v1
+// `opencode-ai` npm line. Advertising `opencode-ai@latest` against a beta
+// version would produce a permanent, wrong "update available" badge, so
+// update checks are intentionally opt-out until V2 has a real release
+// channel.
+const UPDATE: ProviderMaintenanceCapabilitiesResolver = {
+  resolve: () =>
+    ({
+      provider: DRIVER_KIND,
+      packageName: null,
+      update: null,
+    }) satisfies ProviderMaintenanceCapabilities,
+};
 
 export type OpenCode2DriverEnv =
   | BackgroundPolicy.BackgroundPolicy

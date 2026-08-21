@@ -248,7 +248,11 @@ export const checkOpenCode2ProviderStatus = Effect.fn("checkOpenCode2ProviderSta
         ),
       );
     }
-    version = nonEmptyTrimmed(versionExit.value.stdout.split("\n")[0]) ?? null;
+    // `opencode2 --version` prints a banner line (`opencode2 v0.0.0-beta-…`),
+    // not a bare version — the UI prefixes the stored version with `v`, so a
+    // banner line would render as `vopencode2 v…`. Report the server's own
+    // `/api/health` version instead (set below); this CLI run only confirms
+    // the binary is installed.
   }
 
   const inventoryExit = yield* Effect.exit(
