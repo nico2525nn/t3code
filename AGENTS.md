@@ -1,6 +1,6 @@
 # T3 Code
 
-T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs (Codex, Claude Code, Cursor, Grok, OpenCode) and serves web, desktop, and mobile clients.
+T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs (Codex, Claude Code, Cursor, Grok, OpenCode, OpenCode 2) and serves web, desktop, and mobile clients.
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
 
@@ -68,11 +68,73 @@ The most common defect in this repo is a change that works on the path you teste
 
 - **Entry points.** A behavior reachable from the chat view is usually also reachable from Settings, the command palette, and a keybinding. Fixing one is not fixing the feature.
 - **Clients.** Web, desktop (wraps web, adds Electron shell/IPC), and mobile (React Native, separate navigation). Shared logic lives in `packages/client-runtime`
-- **Providers.** Codex, Claude, Cursor, Grok, and OpenCode each have an adapter. Provider-shaped features need a decision per adapter, even if the decision is "not supported here".
+- **Providers.** Codex, Claude, Cursor, Grok, OpenCode, and OpenCode 2 each have an adapter. Provider-shaped features need a decision per adapter, even if the decision is "not supported here".
 - **Contracts.** Anything crossing the wire is typed in `packages/contracts`. Change the schema and the server, web, mobile, and desktop all follow.
 - **Reverse states.** If you added a way in, add the way out and the way to see it. Snooze needs unsnooze. Close needs reopen. A one-way door is a bug.
 - **Connection modes.** Local, remote/relay, and tunnel behave differently. Multi-device and multi-environment cases are real.
 - **Docs.** `docs/` splits by audience. Behavior changes that a user would notice belong in `docs/user/` (shipped-product voice, no repo tooling or source paths); architecture and contributor changes in `docs/internals/`; runbooks in `docs/operations/`; new vocabulary in `docs/internals/glossary.md`.
+
+## OpenCode 2 (`opencode2`) provider notes
+
+OpenCode 2 is the V2 preview of OpenCode — a different runtime from the v1 `opencode` driver. It ships as the `opencode2` binary with an HTTP API (`opencode2 serve`), and is integrated as the `opencode2` provider kind (`provider/opencode2Runtime.ts`, `Layers/OpenCode2{Provider,Adapter}.ts`, `Drivers/OpenCode2Driver.ts`, `textGeneration/OpenCode2TextGeneration.ts`). The driver talks to the V2 REST/SSE API directly; there is no generated SDK dependency.
+
+### Server lifecycle and auth
+
+- T3 spawns a managed server with `opencode2 serve --hostname 127.0.0.1 --port <free>` and reads two stdout lines: `server listening on <url>` and `server password <token>`. Spawned children are bound to the caller's `Scope`, and teardown kills the whole process group (avoid orphans when `--watch` restarts).
+- **Basic auth is always required, even on localhost** (`401` otherwise): `Authorization: Basic base64(opencode:<password>)`. An external `serverUrl` therefore also needs `serverPassword`, and the runtime fails fast when it is missing. Do not read password from `~/.local/state/opencode/service.json` for a managed spawn — that belongs to the user's own service.
+- The OpenAPI is served at `/openapi.json` (116 operations). Probe live behavior with `opencode2 api get <path>`; note `/api/server` reports LAN URLs (not always `127.0.0.1`).
+
+### Model inventory (provider probe)
+
+- `GET /api/model` returns `{location, data: Model[]}` with `providerID`, `name`, `variants[]`, `id`. Slug convention: `${providerID}/${modelID}` (e.g. `opencode-go/glm-5.3`); `variants[]` feeds the traits picker's `Variant` select (first variant is default). `GET /api/model/default` marks `isDefault`.
+- **`GET /api/provider` returns `[]` on a freshly spawned server** until its provider plugins finish activating, while `/api/model` is populated immediately. Treat the **model catalog as authoritative** for "connected" providers; the provider list only enriches display names (`flattenOpenCode2Models`).
+- Report the version from `GET /api/health` (`version: "0.0.0-beta-…"`). **Do not** use `opencode2 --version` for the displayed version: it prints a banner (`opencode2 v0.0.0-beta-…`) and the UI already prefixes `v`, so it renders as `vopencode2 v…`. The CLI run only confirms the binary is installed.
+
+### Sessions, prompting, events
+
+- Session create: `POST /api/session` `{location:{directory}}` → `{data:{id: ses_…}}`. `GET /api/session/{id}` 404s (`SessionNotFoundError`) — a confirmed 404 means "start fresh".
+- In-session model switch: `POST /api/session/{id}/model` `{model:{id, providerID, variant}}`.
+- Prompting: `POST /api/session/{id}/prompt` `{text, files?, delivery:"steer", resume:true}` → `{data:{id: msg_…}}`.
+  - **`resume` must be `true`**; `resume:false` only enqueues and the execution never starts.
+  - `session.wait` is **not** a completion signal (returns immediately/empty) — watch the event stream instead.
+- **Fork on cwd move**: adopting a resumed session whose `location.directory` differs should `POST /api/session/{id}/fork` `{boundary:{type:"through"}}` (carries history); don't silently start an empty session.
+- Revert: `POST /api/session/{id}/revert/stage` `{messageID}` then `/revert/commit` truncates the transcript to before that message (live-verified); preceding user messages are retained.
+- Attachments are `files: [{uri, name}]` with `file://` URIs (`pathToFileURL`).
+
+### SSE `/api/event` (auth header required, `Accept: text/event-stream`)
+
+- Framing: `data: {…}` frames separated by blank lines, `: heartbeat` comment frames; consecutive `data:` lines join with `\n`. Envelope: `{id, created, type, location, data, durable}`.
+- The stream is **global** — every session's events plus noise (`plugin.added`, `catalog.updated`, …). Filter by `data.sessionID`; events without a session id are global noise.
+- Lifecycle: `session.inbox.enqueued`, `session.execution.started`, and **`session.execution.succeeded` / `session.execution.interrupted` mark turn completion** (not `session.step.ended` — a tool loop emits many step pairs), plus `session.usage.updated`, `session.renamed`, `session.model.selected`.
+- Content: `session.text.{started,delta,ended}` and `session.reasoning.{started,delta,ended}`, each carrying `assistantMessageID`.
+- Tools: `session.tool.input.started`(`{id,name}`), `.called`(`{id,input}`), `.progress`, `.success`/`.failed`(`error`).
+- Approvals: `permission.asked`(`{id: per_…, action, resources, source}`) → reply `POST /api/session/{id}/permission/{requestID}/reply` `{reply:"once"|"always"|"reject"}`.
+- Forms: V2 does **not** reliably push a form-asked event (only `permission.*` was observed live; `session.form.sync` may appear with a bare `Form.Info`, a `data` wrapper, or an array under `forms`). Poll `GET /api/session/{id}/form` after each `session.step.started` and surface new `frm_…` forms as `user-input.requested`; answer via `POST /api/session/{id}/form/{formID}/reply` `{answer:{key:value}}`. Fields are typed (string/number/integer/boolean/multiselect/external; question ids are the field `key`s).
+- MCP: `PUT /api/mcp/{name}` `{config:{type:"remote", url, headers, oauth:false}}` attaches a thread MCP server (managed servers only).
+
+### Effect-4 / tsgo constraints that bit here
+
+- The repo's tsgo "effect" lint rejects global `fetch`, `setTimeout`, and raw `JSON.parse`/`JSON.stringify` in Effect code. Use `HttpClient` (`effect/unstable/http`), `Effect.timeoutOption`, and schema JSON (`Schema.fromJsonString(Schema.Unknown)` via `decodeUnknownExit`).
+- **Capture `HttpClient` at runtime-layer construction** so the client's public effect types stay `R = never`; `ProviderAdapterShape` requires `R = never` on every adapter method.
+- `Effect.catchAll` does **not** exist in the pinned effect (4.0.0-beta.103) — use `Effect.catchCause(() => …)`.
+- `Stream.mapAccum` flattens its own values array (do not add `Stream.flattenIterable`); its initial value is a `LazyArg` (`() => ""`); `Stream.filterMap` takes an effect `Filter` object (`Filter.make(x => Result.succeed(x) : Result.fail(x))`, not a bare predicate).
+
+### Update checks
+
+`opencode2` has no `upgrade` subcommand and its `0.0.0-beta-*` versions don't track the `opencode-ai` npm line — keep the driver's maintenance resolver at `{packageName: null, update: null}` or users get a permanent, wrong "update available" badge.
+
+### Windows
+
+npm-installed `opencode2` is a `.cmd` shim; `resolveSpawnCommand` (used by the runtime) handles `shell:true`. Clean orphaned processes with `taskkill /f /im opencode2.exe`.
+
+### Client registration checklist
+
+`components/settings/providerDriverMeta.ts` (label `OpenCode 2`, `badgeLabel: "Preview"`), `components/chat/providerIconUtils.ts`, `components/Icons.tsx` (`OpenCode2Icon`), `session-logic.ts` (`PROVIDER_OPTIONS`), `lib/contextWindow.ts` display name, `components/settings/ProviderModelsSection.tsx` placeholder, `composerDraftStore.ts` per-kind arrays, and `apps/mobile/src/components/ProviderIcon.tsx`.
+
+### Testing / verification
+
+- Focused tests: `opencode2Runtime.test.ts` (serve-output/SSE parsers, model slug, Basic auth), `OpenCode2Provider.test.ts` (fake-runtime probe; readiness must not depend on `/api/provider`), `OpenCode2Adapter.test.ts` (form mapping, rollback boundary, event-data extractor).
+- The web "Revert to this message" rollback UI is gated on filesystem checkpoints (unavailable on a non-git project), so verify revert semantics against the raw API (stage → commit) rather than the UI.
 
 ## Dev servers
 
