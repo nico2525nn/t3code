@@ -8,16 +8,17 @@
  *   - `textGeneration` — commit/PR/branch/title generation via `codex exec`.
  *
  * Each call to `create()` captures the `codexConfig` argument in closures
- * owned by the returned instance. Two instances created with different
- * `homePath`s (e.g. `codex_personal` + `codex_work`) therefore run with
- * fully independent Codex app-server processes and `CODEX_HOME`
- * environments — no shared mutable state.
+ * owned by the returned instance. On Unix, the adapter attaches to Codex's
+ * existing app-server daemon for the instance's shared home when available,
+ * and binds T3 threads to native Codex thread IDs inside that daemon. Two
+ * instances created with different `homePath`s (e.g. `codex_personal` +
+ * `codex_work`) therefore keep independent Codex homes and daemon sockets.
  *
  * Resource lifecycle: `create()` runs in a scope handed in by the registry.
- * Closing that scope releases the adapter's child processes, the managed
- * snapshot's refresh fibre, and the text-generation binaries' transient
- * scratch files. The registry uses this to tear down an instance when its
- * `providerInstances` entry disappears or its config changes.
+ * Closing that scope releases the adapter's app-server daemon/bindings, the
+ * managed snapshot's refresh fibre, and the text-generation binaries'
+ * transient scratch files. The registry uses this to tear down an instance
+ * when its `providerInstances` entry disappears or its config changes.
  *
  * @module provider/Drivers/CodexDriver
  */
@@ -184,6 +185,11 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       const adapter = yield* makeCodexAdapter(effectiveConfig, {
         instanceId,
         environment: processEnv,
+        // The control socket belongs to the effective CODEX_HOME/account. A
+        // shadow home shares rollout data through symlinks, but must not join
+        // the primary account's daemon or route its auth through it.
+        appServerHomePath: homeLayout.effectiveHomePath ?? homeLayout.sharedHomePath,
+        preferExistingDaemon: true,
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
       });
       const textGeneration = yield* makeCodexTextGeneration(effectiveConfig, processEnv);

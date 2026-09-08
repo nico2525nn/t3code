@@ -15,6 +15,33 @@ export const codexAppServerArgs = (launchArgs?: string) => [
   ...codexLaunchArgv(launchArgs),
 ];
 
+/**
+ * Build arguments for the manager-owned daemon transport.
+ *
+ * `--listen` and `--stdio` select the app-server transport. The manager
+ * supplies its own Unix socket, so accepting either flag from launch args
+ * would create duplicate/conflicting transport options. The per-session
+ * child-process path intentionally keeps the original arguments unchanged.
+ */
+export const codexManagedAppServerArgs = (launchArgs?: string) => {
+  const args = codexLaunchArgv(launchArgs);
+  const managedArgs: Array<string> = [];
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === undefined) continue;
+    if (arg === "--stdio") continue;
+    if (arg === "--listen") {
+      index++;
+      continue;
+    }
+    if (arg.startsWith("--listen=")) continue;
+    managedArgs.push(arg);
+  }
+
+  return ["app-server", ...managedArgs];
+};
+
 export const codexExecLaunchArgs = (launchArgs?: string) => {
   const args = codexLaunchArgv(launchArgs);
   const execArgs: Array<string> = [];

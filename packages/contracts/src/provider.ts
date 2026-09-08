@@ -62,6 +62,18 @@ export const ProviderSessionStartInput = Schema.Struct({
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,
+  /**
+   * Server-side recovery hint for provider-owned durable threads. When true,
+   * a native resume must not replace the provider's stored approval,
+   * sandbox, or model settings with T3's defaults. Optional so older clients
+   * and other providers remain wire-compatible.
+   */
+  preserveProviderSettingsOnResume: Schema.optional(Schema.Boolean),
+  /**
+   * Native turn already in progress when a durable provider thread is
+   * reattached after the server missed its original turn/started event.
+   */
+  activeTurnId: Schema.optional(TurnId),
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 

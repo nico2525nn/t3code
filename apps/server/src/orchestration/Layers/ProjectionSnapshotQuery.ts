@@ -187,6 +187,9 @@ const ProjectionImportedAgentSessionSourcesRowSchema = Schema.Struct({
 const ThreadIdLookupInput = Schema.Struct({
   threadId: ThreadId,
 });
+const ProjectionThreadMessageIdRowSchema = Schema.Struct({
+  messageId: MessageId,
+});
 const TurnStartMessageLookupInput = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
@@ -1182,6 +1185,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
+        FROM projection_thread_messages
+        WHERE thread_id = ${threadId}
+        ORDER BY created_at ASC, message_id ASC
+      `,
+  });
+
+  const listThreadMessageIdsByThread = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadMessageIdRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          message_id AS "messageId"
         FROM projection_thread_messages
         WHERE thread_id = ${threadId}
         ORDER BY created_at ASC, message_id ASC
@@ -2328,6 +2344,19 @@ pending_approval_requests AS (
         }),
       );
 
+  const getThreadMessageIds: NonNullable<ProjectionSnapshotQueryShape["getThreadMessageIds"]> = (
+    threadId,
+  ) =>
+    listThreadMessageIdsByThread({ threadId }).pipe(
+      Effect.map((rows) => rows.map((row) => row.messageId)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getThreadMessageIds:query",
+          "ProjectionSnapshotQuery.getThreadMessageIds:decodeRows",
+        ),
+      ),
+    );
+
   const getShellSnapshot: ProjectionSnapshotQueryShape["getShellSnapshot"] = () =>
     sql
       .withTransaction(
@@ -3398,6 +3427,7 @@ pending_approval_requests AS (
 
   return {
     getCommandReadModel,
+    getThreadMessageIds,
     getUserInputActivity,
     getSnapshot,
     getShellSnapshot,

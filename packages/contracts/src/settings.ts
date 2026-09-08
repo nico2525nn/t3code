@@ -491,13 +491,26 @@ export const CodexSettings = makeProviderSettingsSchema(
         description: "Additional CLI arguments passed to codex app-server on session start.",
       }),
     ),
+    appServerSocketPath: Schema.optionalKey(
+      TrimmedString.pipe(
+        Schema.annotateKey({
+          title: "App Server socket path",
+          description:
+            "Optional Unix socket for an existing Codex app-server daemon. Leave empty to let T3 own one daemon per Codex provider instance.",
+          providerSettingsForm: {
+            placeholder: "/tmp/codex-app-server.sock",
+            clearWhenEmpty: "omit",
+          },
+        }),
+      ),
+    ),
     customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
   {
-    order: ["binaryPath", "homePath", "shadowHomePath", "launchArgs"],
+    order: ["binaryPath", "homePath", "shadowHomePath", "launchArgs", "appServerSocketPath"],
   },
 );
 export type CodexSettings = typeof CodexSettings.Type;
@@ -1090,6 +1103,7 @@ const CodexSettingsPatch = Schema.Struct({
   homePath: Schema.optionalKey(TrimmedString),
   shadowHomePath: Schema.optionalKey(TrimmedString),
   launchArgs: Schema.optionalKey(TrimmedString),
+  appServerSocketPath: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
 });
 

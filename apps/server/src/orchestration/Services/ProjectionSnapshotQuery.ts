@@ -93,6 +93,15 @@ export interface ProjectionSnapshotQueryShape {
   >;
 
   /**
+   * Read only persisted message ids for a thread without hydrating message
+   * bodies. Startup bridges use this to distinguish an intentionally
+   * shell-only command read model from an actually empty thread.
+   */
+  readonly getThreadMessageIds?: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<MessageId>, ProjectionRepositoryError>;
+
+  /**
    * Read the latest orchestration projection snapshot.
    *
    * Rehydrates from projection tables and derives snapshot sequence from

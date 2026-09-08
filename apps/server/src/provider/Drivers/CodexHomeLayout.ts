@@ -30,7 +30,13 @@ const KNOWN_SHARED_DIRECTORIES = [
 ] as const;
 
 const PRIVATE_ENTRY_NAMES = new Set(["auth.json", "models_cache.json"]);
-const SHADOW_LOCAL_ENTRY_NAMES = new Set(["log", "memories", "tmp"]);
+const SHADOW_LOCAL_ENTRY_NAMES = new Set([
+  "app-server-control",
+  "app-server-daemon",
+  "log",
+  "memories",
+  "tmp",
+]);
 const REPLACEABLE_SHARED_RUNTIME_DIRECTORIES = new Set(["mcp-oauth-locks"]);
 
 function resolveHomePath(path: Path.Path, value: string | undefined): string {
@@ -184,34 +190,36 @@ const readLinkState = Effect.fn("CodexHomeLayout.readLinkState")(function* (inpu
   );
 });
 
-const removePrivateSymlink = Effect.fn("CodexHomeLayout.removePrivateSymlink")(function* (input: {
-  readonly fileSystem: FileSystem.FileSystem;
-  readonly sharedHomePath: string;
-  readonly effectiveHomePath: string;
-  readonly entryName: string;
-}): Effect.fn.Return<void, CodexShadowHomeError, Path.Path> {
-  const path = yield* Path.Path;
-  const privatePath = path.join(input.effectiveHomePath, input.entryName);
-  const state = yield* readLinkState({
-    ...input,
-    linkPath: privatePath,
-  });
-  if (state._tag === "Symlink") {
-    yield* input.fileSystem.remove(privatePath).pipe(
-      Effect.catchTags({
-        PlatformError: (cause) =>
-          new CodexShadowHomeFileSystemError({
-            sharedHomePath: input.sharedHomePath,
-            effectiveHomePath: input.effectiveHomePath,
-            operation: "remove",
-            path: privatePath,
-            entryName: input.entryName,
-            cause,
-          }),
-      }),
-    );
-  }
-});
+const removeShadowLocalSymlink = Effect.fn("CodexHomeLayout.removeShadowLocalSymlink")(
+  function* (input: {
+    readonly fileSystem: FileSystem.FileSystem;
+    readonly sharedHomePath: string;
+    readonly effectiveHomePath: string;
+    readonly entryName: string;
+  }): Effect.fn.Return<void, CodexShadowHomeError, Path.Path> {
+    const path = yield* Path.Path;
+    const privatePath = path.join(input.effectiveHomePath, input.entryName);
+    const state = yield* readLinkState({
+      ...input,
+      linkPath: privatePath,
+    });
+    if (state._tag === "Symlink") {
+      yield* input.fileSystem.remove(privatePath).pipe(
+        Effect.catchTags({
+          PlatformError: (cause) =>
+            new CodexShadowHomeFileSystemError({
+              sharedHomePath: input.sharedHomePath,
+              effectiveHomePath: input.effectiveHomePath,
+              operation: "remove",
+              path: privatePath,
+              entryName: input.entryName,
+              cause,
+            }),
+        }),
+      );
+    }
+  },
+);
 
 const ensureSymlink = Effect.fn("CodexHomeLayout.ensureSymlink")(function* (input: {
   readonly fileSystem: FileSystem.FileSystem;
@@ -382,12 +390,27 @@ export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome"
     (entryName) =>
       entryName === "auth.json"
         ? Effect.void
-        : removePrivateSymlink({
+        : removeShadowLocalSymlink({
             fileSystem,
             sharedHomePath: layout.sharedHomePath,
             effectiveHomePath,
             entryName,
           }),
+    { discard: true },
+  );
+
+  // Older T3 versions linked every unknown Codex entry into the shadow home.
+  // Remove only those known local runtime links during materialization so an
+  // account overlay cannot keep using the primary account's daemon socket.
+  yield* Effect.forEach(
+    SHADOW_LOCAL_ENTRY_NAMES,
+    (entryName) =>
+      removeShadowLocalSymlink({
+        fileSystem,
+        sharedHomePath: layout.sharedHomePath,
+        effectiveHomePath,
+        entryName,
+      }),
     { discard: true },
   );
 

@@ -64,12 +64,53 @@ export interface ProviderThreadSnapshot {
   readonly turns: ReadonlyArray<ProviderThreadTurnSnapshot>;
 }
 
+/** A text message recovered from a provider-owned durable thread. */
+export interface ProviderStoredThreadMessage {
+  readonly messageId: string;
+  readonly role: "user" | "assistant";
+  readonly text: string;
+  readonly createdAt: string;
+}
+
+/**
+ * Provider-owned thread metadata used when a provider is the source of truth
+ * for conversation history. This is deliberately a small normalized boundary;
+ * provider-specific protocol items remain behind the adapter.
+ */
+export interface ProviderStoredThread {
+  readonly nativeThreadId: string;
+  readonly cwd: string;
+  readonly title: string;
+  readonly preview: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly archived: boolean;
+  readonly ephemeral: boolean;
+  readonly subAgent: boolean;
+  readonly active: boolean;
+  /** Native turn currently in progress, when the provider read it. */
+  readonly activeTurnId?: TurnId;
+  readonly messages: ReadonlyArray<ProviderStoredThreadMessage>;
+}
+
+/** Optional durable-thread catalog exposed by providers such as Codex. */
+export interface ProviderThreadCatalog<TError> {
+  readonly listStoredThreads: () => Effect.Effect<ReadonlyArray<ProviderStoredThread>, TError>;
+  readonly readStoredThread: (input: {
+    readonly nativeThreadId: string;
+    readonly archived: boolean;
+  }) => Effect.Effect<ProviderStoredThread, TError>;
+}
+
 export interface ProviderAdapterShape<TError> {
   /**
    * Provider kind implemented by this adapter.
    */
   readonly provider: ProviderDriverKind;
   readonly capabilities: ProviderAdapterCapabilities;
+
+  /** Present when this provider owns a durable thread catalog. */
+  readonly storedThreadCatalog?: ProviderThreadCatalog<TError>;
 
   /**
    * Start a provider-backed session.

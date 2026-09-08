@@ -5,6 +5,7 @@ import { describe, it } from "vite-plus/test";
 import {
   codexAppServerArgs,
   codexExecLaunchArgs,
+  codexManagedAppServerArgs,
   resolveCodexLaunchArgs,
 } from "./codexLaunchArgs.ts";
 
@@ -35,6 +36,26 @@ describe("codexAppServerArgs", () => {
 
   it("appends parsed launch args after app-server", () => {
     NodeAssert.deepStrictEqual(codexAppServerArgs("--strict-config --enable foo"), [
+      "app-server",
+      "--strict-config",
+      "--enable",
+      "foo",
+    ]);
+  });
+});
+
+describe("codexManagedAppServerArgs", () => {
+  it("removes user-selected transports because the manager owns the socket", () => {
+    NodeAssert.deepStrictEqual(
+      codexManagedAppServerArgs(
+        '--listen off --stdio --listen=ws://127.0.0.1:1234 --config model="gpt 5"',
+      ),
+      ["app-server", "--config", "model=gpt 5"],
+    );
+  });
+
+  it("keeps unrelated app-server arguments", () => {
+    NodeAssert.deepStrictEqual(codexManagedAppServerArgs("--strict-config --enable foo"), [
       "app-server",
       "--strict-config",
       "--enable",

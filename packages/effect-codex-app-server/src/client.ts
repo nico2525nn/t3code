@@ -256,6 +256,22 @@ export const layerChildProcess = (
 ): Layer.Layer<CodexAppServerClient> =>
   Layer.effect(CodexAppServerClient, makeChildProcessClient(handle, options));
 
+/**
+ * Build a typed client on top of any Effect stdio-shaped transport.
+ *
+ * The Codex CLI normally speaks JSONL over a child process, but app-server
+ * daemon mode exposes the same protocol over a WebSocket. Keeping the
+ * protocol/client construction here means alternate transports share the
+ * exact same request validation, notification dispatch, and pending-request
+ * lifecycle as the child-process path.
+ */
+export const layerStdio = (
+  stdio: Stdio.Stdio,
+  options: CodexAppServerClientOptions = {},
+  terminationError?: Effect.Effect<CodexError.CodexAppServerError>,
+): Layer.Layer<CodexAppServerClient> =>
+  Layer.effect(CodexAppServerClient, make(stdio, options, terminationError));
+
 const makeChildProcessClient = Effect.fn(
   "effect-codex-app-server/CodexAppServerClient.makeChildProcessClient",
 )(function* (handle: ChildProcessSpawner.ChildProcessHandle, options: CodexAppServerClientOptions) {

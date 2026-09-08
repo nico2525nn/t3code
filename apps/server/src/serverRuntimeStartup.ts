@@ -2,14 +2,19 @@ import {
   CommandId,
   DEFAULT_MODEL,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
   DEFAULT_SERVER_SETTINGS,
+  MessageId,
   type ModelSelection,
+  ProviderDriverKind,
   type OrchestrationProjectShell,
+  type OrchestrationThread,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
+import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import { resolveProjectAutoPull } from "@t3tools/shared/serverSettings";
 import * as Cause from "effect/Cause";
 import * as Console from "effect/Console";
@@ -24,6 +29,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
@@ -39,6 +45,7 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProviderService from "./provider/Services/ProviderService.ts";
+import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceRegistry.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
 import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReaper.ts";
 import { forkParked } from "./serverActivation.ts";
@@ -734,6 +741,509 @@ export const reconcileProviderSessions = Effect.gen(function* () {
   ),
 );
 
+const CODEX_DRIVER = ProviderDriverKind.make("codex");
+const CODEX_APP_SERVER_THREAD_SYNC_INTERVAL = "5 seconds" as const;
+
+interface CodexThreadSyncState {
+  readonly id: ThreadId;
+  readonly projectId: ProjectId;
+  title: string;
+  readonly modelSelection: OrchestrationThread["modelSelection"];
+  readonly runtimeMode: OrchestrationThread["runtimeMode"];
+  readonly interactionMode: OrchestrationThread["interactionMode"];
+  readonly latestTurn: OrchestrationThread["latestTurn"];
+  readonly session: OrchestrationThread["session"];
+  archivedAt: OrchestrationThread["archivedAt"];
+  readonly deletedAt: OrchestrationThread["deletedAt"];
+  readonly messageIds: Set<string>;
+}
+
+interface CodexProjectSyncState {
+  readonly id: ProjectId;
+  readonly title: string;
+  readonly workspaceRoot: string;
+}
+
+interface CodexNativeBinding {
+  readonly threadId: ThreadId;
+  readonly providerInstanceId: ProviderInstanceId | undefined;
+  readonly persisted: ProviderSessionDirectory.ProviderRuntimeBindingWithMetadata;
+}
+
+function readCodexResumeThreadId(value: unknown): string | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const threadId = (value as Record<string, unknown>).threadId;
+  return typeof threadId === "string" && threadId.trim().length > 0 ? threadId.trim() : undefined;
+}
+
+function hasCodexNativeSettingsMarker(runtimePayload: unknown): boolean {
+  return readRuntimePayload(runtimePayload).preserveProviderSettingsOnResume === true;
+}
+
+function codexWorkspaceKey(workspaceRoot: string): string {
+  return normalizeProjectPathForComparison(workspaceRoot);
+}
+
+function makeCodexThreadSyncState(thread: OrchestrationThread): CodexThreadSyncState {
+  return {
+    id: thread.id,
+    projectId: thread.projectId,
+    title: thread.title,
+    modelSelection: thread.modelSelection,
+    runtimeMode: thread.runtimeMode,
+    interactionMode: thread.interactionMode,
+    latestTurn: thread.latestTurn,
+    session: thread.session,
+    archivedAt: thread.archivedAt,
+    deletedAt: thread.deletedAt,
+    messageIds: new Set(thread.messages.map((message) => String(message.id))),
+  };
+}
+
+function codexProjectionThreadId(
+  nativeThreadId: string,
+  persistedBinding: CodexNativeBinding | undefined,
+  threadsById: ReadonlyMap<ThreadId, CodexThreadSyncState>,
+): ThreadId {
+  if (persistedBinding !== undefined) {
+    // The native id is the durable owner of a Codex session. Bindings written
+    // by the first bridge could point at an arbitrary T3 UUID, which made the
+    // compatibility projection show that stale shell instead of Codex's
+    // canonical thread. Keep canonical ids stable and let the sync pass move
+    // the old binding/shell below.
+    return ThreadId.make(`codex:${nativeThreadId}`);
+  }
+
+  // Older versions of this bridge used the native id directly for imported
+  // threads. Reuse that id only when the existing projection already looks
+  // like a Codex import; otherwise namespace new ids so a UUID collision
+  // cannot make a Codex catalog entry overwrite another provider's thread.
+  const legacyThreadId = ThreadId.make(nativeThreadId);
+  const legacyThread = threadsById.get(legacyThreadId);
+  const hasLegacyCodexMessage =
+    legacyThread !== undefined &&
+    Array.from(legacyThread.messageIds).some((messageId) =>
+      messageId.startsWith(`import:codex:${nativeThreadId}:`),
+    );
+  if (legacyThread?.session?.providerName === "codex" || hasLegacyCodexMessage) {
+    return legacyThreadId;
+  }
+
+  return ThreadId.make(`codex:${nativeThreadId}`);
+}
+
+/**
+ * Reconcile Codex's durable thread catalog into T3's compatibility projection.
+ *
+ * Codex owns the native thread and its durable history. T3 receives only the
+ * normalized text history needed by existing clients; active native threads
+ * are resumed through ProviderService so the normal provider event ingestion
+ * path remains the single realtime projection writer.
+ */
+export const syncCodexAppServerThreads = Effect.gen(function* () {
+  const crypto = yield* Crypto.Crypto;
+  const instances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+  const providerService = yield* ProviderService.ProviderService;
+  const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+  const query = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+  const settings = yield* ServerSettings.ServerSettingsService;
+  const path = yield* Path.Path;
+
+  const readModel = yield* query.getCommandReadModel();
+  const serverSettings = yield* settings.getSettings;
+  const liveThreadIds = new Set(
+    (yield* providerService.listSessions()).map((session) => session.threadId),
+  );
+  const deletedThreadIds = new Set<ThreadId>();
+  const threadsById = new Map<ThreadId, CodexThreadSyncState>();
+  for (const thread of readModel.threads) {
+    if (thread.deletedAt !== null) {
+      deletedThreadIds.add(thread.id);
+    } else {
+      threadsById.set(thread.id, makeCodexThreadSyncState(thread));
+    }
+  }
+
+  const hydratePersistedMessageIds = (thread: CodexThreadSyncState) => {
+    const getThreadMessageIds = query.getThreadMessageIds;
+    if (getThreadMessageIds === undefined || thread.messageIds.size > 0) {
+      return Effect.succeed(thread);
+    }
+    return getThreadMessageIds(thread.id).pipe(
+      Effect.map((messageIds) => {
+        if (messageIds.length === 0) {
+          return thread;
+        }
+        const hydrated = {
+          ...thread,
+          messageIds: new Set(messageIds.map(String)),
+        } satisfies CodexThreadSyncState;
+        threadsById.set(thread.id, hydrated);
+        return hydrated;
+      }),
+    );
+  };
+
+  const projectsByWorkspace = new Map<string, CodexProjectSyncState>();
+  for (const project of readModel.projects) {
+    if (project.deletedAt === null) {
+      projectsByWorkspace.set(codexWorkspaceKey(project.workspaceRoot), {
+        id: project.id,
+        title: project.title,
+        workspaceRoot: project.workspaceRoot,
+      });
+    }
+  }
+
+  const bindings = yield* directory.listBindings().pipe(
+    Effect.catchCause((cause) =>
+      Cause.hasInterrupts(cause)
+        ? Effect.failCause(cause)
+        : Effect.logWarning("could not read Codex thread bindings during catalog sync", {
+            cause,
+          }).pipe(Effect.as([])),
+    ),
+  );
+  const nativeBindings = new Map<string, CodexNativeBinding>();
+  for (const binding of bindings) {
+    if (binding.provider !== CODEX_DRIVER) {
+      continue;
+    }
+    const nativeThreadId = readCodexResumeThreadId(binding.resumeCursor);
+    if (nativeThreadId === undefined) {
+      continue;
+    }
+    const existing = nativeBindings.get(nativeThreadId);
+    if (
+      existing === undefined ||
+      (existing.providerInstanceId === undefined && binding.providerInstanceId !== undefined)
+    ) {
+      nativeBindings.set(nativeThreadId, {
+        threadId: binding.threadId,
+        providerInstanceId: binding.providerInstanceId,
+        persisted: binding,
+      });
+    }
+  }
+
+  const ensureProject = (workspaceRoot: string) => {
+    const key = codexWorkspaceKey(workspaceRoot);
+    const existing = projectsByWorkspace.get(key);
+    if (existing !== undefined) {
+      return Effect.succeed(existing);
+    }
+
+    return Effect.gen(function* () {
+      const projectId = ProjectId.make(yield* crypto.randomUUIDv4);
+      const title = path.basename(workspaceRoot) || "Codex";
+      yield* orchestrationEngine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make(yield* crypto.randomUUIDv4),
+        projectId,
+        title,
+        workspaceRoot,
+        createdAt: DateTime.formatIso(yield* DateTime.now),
+      });
+      const project = { id: projectId, title, workspaceRoot } satisfies CodexProjectSyncState;
+      projectsByWorkspace.set(key, project);
+      return project;
+    });
+  };
+
+  const modelForInstance = (instanceId: ProviderInstanceId): ModelSelection =>
+    serverSettings.defaultModelSelection?.instanceId === instanceId
+      ? serverSettings.defaultModelSelection
+      : { instanceId, model: DEFAULT_MODEL };
+
+  const deleteBinding = directory.deleteBinding;
+
+  const claimedNativeThreadIds = new Map<string, ProviderInstanceId>();
+  const availableInstances = yield* instances.listInstances;
+  for (const instance of availableInstances) {
+    if (instance.driverKind !== CODEX_DRIVER || !instance.enabled) {
+      continue;
+    }
+    const catalog = instance.adapter.storedThreadCatalog;
+    if (catalog === undefined) {
+      continue;
+    }
+
+    const storedThreads = yield* catalog.listStoredThreads().pipe(
+      Effect.catchCause((cause) =>
+        Cause.hasInterrupts(cause)
+          ? Effect.failCause(cause)
+          : Effect.logWarning("could not list Codex App Server threads", {
+              providerInstanceId: instance.instanceId,
+              cause,
+            }).pipe(Effect.as([])),
+      ),
+    );
+
+    for (const listedThread of storedThreads) {
+      const nativeThreadId = listedThread.nativeThreadId.trim();
+      if (nativeThreadId.length === 0 || listedThread.ephemeral || listedThread.subAgent) {
+        continue;
+      }
+
+      const persistedBinding = nativeBindings.get(nativeThreadId);
+      if (
+        persistedBinding?.providerInstanceId !== undefined &&
+        persistedBinding.providerInstanceId !== instance.instanceId
+      ) {
+        continue;
+      }
+      const claimedBy = claimedNativeThreadIds.get(nativeThreadId);
+      if (claimedBy !== undefined && claimedBy !== instance.instanceId) {
+        continue;
+      }
+      claimedNativeThreadIds.set(nativeThreadId, instance.instanceId);
+
+      yield* Effect.gen(function* () {
+        // The command read model intentionally omits message bodies. Hydrate
+        // ids only for an existing legacy-id candidate before resolving the
+        // projection id, so old Codex imports remain addressable without
+        // loading every thread history during the recurring catalog pass.
+        const legacyThreadId = ThreadId.make(nativeThreadId);
+        const legacyThread = threadsById.get(legacyThreadId);
+        if (legacyThread !== undefined) {
+          yield* hydratePersistedMessageIds(legacyThread);
+        }
+
+        const threadId = codexProjectionThreadId(nativeThreadId, persistedBinding, threadsById);
+        const migratedFromThreadId =
+          persistedBinding !== undefined && persistedBinding.threadId !== threadId
+            ? persistedBinding.threadId
+            : undefined;
+        if (deletedThreadIds.has(threadId)) {
+          return;
+        }
+
+        let thread = threadsById.get(threadId);
+        if (thread !== undefined) {
+          thread = yield* hydratePersistedMessageIds(thread);
+        }
+        const needsHistoryRead =
+          thread === undefined ||
+          (thread.messageIds.size === 0 && thread.latestTurn === null && thread.session === null);
+        // A resumed app-server subscription does not replay turn/started. Read
+        // the native thread once when it is active but not currently attached
+        // so the runtime can restore the in-progress turn before the reaper
+        // sees an apparently idle T3 session.
+        const needsActiveTurnRead =
+          listedThread.active && !listedThread.archived && !liveThreadIds.has(threadId);
+        const storedThread =
+          needsHistoryRead || needsActiveTurnRead
+            ? yield* catalog.readStoredThread({
+                nativeThreadId,
+                archived: listedThread.archived,
+              })
+            : undefined;
+        const sourceThread = storedThread ?? listedThread;
+
+        if (thread === undefined) {
+          const project = yield* ensureProject(sourceThread.cwd);
+          const createdAt = sourceThread.createdAt;
+          const modelSelection = modelForInstance(instance.instanceId);
+          yield* orchestrationEngine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(yield* crypto.randomUUIDv4),
+            threadId,
+            projectId: project.id,
+            title: sourceThread.title,
+            modelSelection,
+            runtimeMode: DEFAULT_RUNTIME_MODE,
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            ...(sourceThread.messages.length > 0 ? { historyImport: true } : {}),
+          });
+          thread = {
+            id: threadId,
+            projectId: project.id,
+            title: sourceThread.title,
+            modelSelection,
+            runtimeMode: DEFAULT_RUNTIME_MODE,
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            latestTurn: null,
+            session: null,
+            archivedAt: null,
+            deletedAt: null,
+            messageIds: new Set<string>(),
+          };
+          threadsById.set(threadId, thread);
+        }
+
+        if (sourceThread.messages.length > 0 && needsHistoryRead && thread.messageIds.size === 0) {
+          const wasArchived = thread.archivedAt !== null;
+          if (wasArchived) {
+            yield* orchestrationEngine.dispatch({
+              type: "thread.unarchive",
+              commandId: CommandId.make(yield* crypto.randomUUIDv4),
+              threadId,
+            });
+            thread.archivedAt = null;
+          }
+          yield* orchestrationEngine.dispatch({
+            type: "thread.history.import",
+            commandId: CommandId.make(yield* crypto.randomUUIDv4),
+            threadId,
+            messages: sourceThread.messages.map((message) => ({
+              messageId: MessageId.make(message.messageId),
+              role: message.role,
+              text: message.text,
+              createdAt: message.createdAt,
+            })),
+          });
+          for (const message of sourceThread.messages) {
+            thread.messageIds.add(message.messageId);
+          }
+          if (wasArchived && listedThread.archived) {
+            yield* orchestrationEngine.dispatch({
+              type: "thread.archive",
+              commandId: CommandId.make(yield* crypto.randomUUIDv4),
+              threadId,
+            });
+            thread.archivedAt = sourceThread.updatedAt;
+          }
+        }
+
+        // Keep the native id even while the provider is idle. ProviderService
+        // uses this stopped binding when the user sends the next message, so
+        // the next turn resumes this Codex thread instead of creating a new
+        // one. A live start below replaces the stopped status with its real
+        // runtime state.
+        if (
+          persistedBinding === undefined ||
+          persistedBinding.threadId !== threadId ||
+          persistedBinding.providerInstanceId !== instance.instanceId ||
+          !hasCodexNativeSettingsMarker(persistedBinding.persisted.runtimePayload)
+        ) {
+          const persisted = persistedBinding?.persisted;
+          yield* directory.upsert({
+            threadId,
+            provider: CODEX_DRIVER,
+            providerInstanceId: instance.instanceId,
+            status: persisted?.status ?? "stopped",
+            runtimeMode: persisted?.runtimeMode ?? thread.runtimeMode,
+            resumeCursor: { threadId: nativeThreadId },
+            runtimePayload: {
+              ...readRuntimePayload(persisted?.runtimePayload),
+              cwd: sourceThread.cwd,
+              modelSelection: thread.modelSelection,
+              preserveProviderSettingsOnResume: true,
+            },
+          });
+        }
+
+        if (migratedFromThreadId !== undefined) {
+          if (liveThreadIds.has(migratedFromThreadId)) {
+            yield* providerService.stopSession({ threadId: migratedFromThreadId }).pipe(
+              Effect.catchCause((cause) =>
+                Cause.hasInterrupts(cause)
+                  ? Effect.failCause(cause)
+                  : Effect.logWarning("could not stop stale Codex projection session", {
+                      threadId: migratedFromThreadId,
+                      cause,
+                    }),
+              ),
+            );
+            liveThreadIds.delete(migratedFromThreadId);
+          }
+
+          if (deleteBinding !== undefined) {
+            yield* deleteBinding(migratedFromThreadId);
+          } else {
+            yield* Effect.logWarning("could not remove stale Codex projection binding", {
+              threadId: migratedFromThreadId,
+              nativeThreadId,
+            });
+          }
+
+          const staleThread = threadsById.get(migratedFromThreadId);
+          if (staleThread !== undefined && staleThread.archivedAt === null) {
+            const archivedAt = DateTime.formatIso(yield* DateTime.now);
+            yield* orchestrationEngine.dispatch({
+              type: "thread.archive",
+              commandId: CommandId.make(yield* crypto.randomUUIDv4),
+              threadId: migratedFromThreadId,
+            });
+            staleThread.archivedAt = archivedAt;
+          }
+        }
+
+        if (thread.title !== sourceThread.title) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.meta.update",
+            commandId: CommandId.make(yield* crypto.randomUUIDv4),
+            threadId,
+            title: sourceThread.title,
+          });
+          thread.title = sourceThread.title;
+        }
+
+        if (listedThread.archived && thread.archivedAt === null) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.archive",
+            commandId: CommandId.make(yield* crypto.randomUUIDv4),
+            threadId,
+          });
+          thread.archivedAt = sourceThread.updatedAt;
+        } else if (!listedThread.archived && thread.archivedAt !== null) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.unarchive",
+            commandId: CommandId.make(yield* crypto.randomUUIDv4),
+            threadId,
+          });
+          thread.archivedAt = null;
+        }
+
+        // Idle native threads are materialized but not needlessly resumed.
+        // If they become active in Codex, the next catalog pass notices them;
+        // active threads are resumed now so their event stream is live.
+        if (
+          listedThread.active &&
+          !listedThread.archived &&
+          thread.archivedAt === null &&
+          !liveThreadIds.has(threadId)
+        ) {
+          const resumeCursor = { threadId: nativeThreadId };
+          yield* providerService
+            .startSession(threadId, {
+              threadId,
+              provider: CODEX_DRIVER,
+              providerInstanceId: instance.instanceId,
+              cwd: sourceThread.cwd,
+              title: sourceThread.title,
+              modelSelection:
+                thread.modelSelection.instanceId === instance.instanceId
+                  ? thread.modelSelection
+                  : modelForInstance(instance.instanceId),
+              resumeCursor,
+              runtimeMode: thread.runtimeMode,
+              preserveProviderSettingsOnResume: true,
+              ...(sourceThread.activeTurnId ? { activeTurnId: sourceThread.activeTurnId } : {}),
+            })
+            .pipe(Effect.tap(() => Effect.sync(() => liveThreadIds.add(threadId))));
+        }
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterrupts(cause)
+            ? Effect.failCause(cause)
+            : Effect.logWarning("could not reconcile one Codex App Server thread", {
+                providerInstanceId: instance.instanceId,
+                nativeThreadId,
+                cause: Cause.pretty(cause),
+              }),
+        ),
+      );
+    }
+  }
+});
+
 interface StartupOptions {
   readonly activate?: Effect.Effect<void>;
   readonly awaitAuxiliaryParked?: Effect.Effect<void>;
@@ -875,6 +1385,19 @@ export const make = (options?: StartupOptions) =>
       );
 
       yield* runStartupPhase("provider-sessions.reconcile", reconcileProviderSessions);
+
+      yield* Effect.logDebug("startup phase: attaching Codex App Server thread catalog");
+      yield* forkParked(
+        syncCodexAppServerThreads.pipe(
+          Effect.catchCause((cause) =>
+            Cause.hasInterrupts(cause)
+              ? Effect.failCause(cause)
+              : Effect.logWarning("Codex App Server thread catalog sync failed", { cause }),
+          ),
+          Effect.repeat(Schedule.spaced(CODEX_APP_SERVER_THREAD_SYNC_INTERVAL)),
+          Effect.asVoid,
+        ),
+      );
 
       yield* Effect.logDebug("startup phase: syncing clean projects");
       yield* runStartupPhase("projects.auto-pull", syncAutoPullProjects);

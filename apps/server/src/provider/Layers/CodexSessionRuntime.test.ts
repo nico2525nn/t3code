@@ -781,6 +781,90 @@ describe("isRecoverableThreadResumeError", () => {
 });
 
 describe("openCodexThread", () => {
+  it.effect("forwards per-thread config overrides to start and resume", () =>
+    Effect.gen(function* () {
+      const threadConfig = {
+        "mcp_servers.t3-code.url": "http://127.0.0.1/mcp",
+        "mcp_servers.t3-code.http_headers.Authorization": "Bearer test-token",
+      };
+      const startCalls: unknown[] = [];
+      yield* openCodexThread({
+        client: {
+          request: (_method, payload) => {
+            startCalls.push(payload);
+            return Effect.succeed(makeThreadOpenResponse("started-thread"));
+          },
+          raw: {
+            request: () => Effect.die("A fresh thread must use thread/start"),
+          },
+        },
+        threadId: ThreadId.make("thread-1"),
+        runtimeMode: "full-access",
+        cwd: "/tmp/project",
+        requestedModel: undefined,
+        serviceTier: undefined,
+        resumeThreadId: undefined,
+        threadConfig,
+      });
+
+      const resumeCalls: unknown[] = [];
+      yield* openCodexThread({
+        client: {
+          request: () => Effect.die("A resumed thread must use thread/resume"),
+          raw: {
+            request: (_method, payload) => {
+              resumeCalls.push(payload);
+              return Effect.succeed(makeThreadOpenResponse("saved-thread"));
+            },
+          },
+        },
+        threadId: ThreadId.make("thread-2"),
+        runtimeMode: "full-access",
+        cwd: "/tmp/project",
+        requestedModel: undefined,
+        serviceTier: undefined,
+        resumeThreadId: "saved-thread",
+        threadConfig,
+      });
+
+      NodeAssert.deepStrictEqual((startCalls[0] as { config?: unknown }).config, threadConfig);
+      NodeAssert.deepStrictEqual((resumeCalls[0] as { config?: unknown }).config, threadConfig);
+    }),
+  );
+
+  it.effect("preserves native settings when rejoining a catalog thread", () =>
+    Effect.gen(function* () {
+      const calls: unknown[] = [];
+      yield* openCodexThread({
+        client: {
+          request: () => Effect.die("A resumed thread must use thread/resume"),
+          raw: {
+            request: (_method, payload) => {
+              calls.push(payload);
+              return Effect.succeed(makeThreadOpenResponse("saved-thread"));
+            },
+          },
+        },
+        threadId: ThreadId.make("thread-catalog-rejoin"),
+        runtimeMode: "full-access",
+        cwd: "/tmp/project",
+        requestedModel: "gpt-5.4",
+        serviceTier: "fast",
+        resumeThreadId: "saved-thread",
+        threadConfig: { "mcp_servers.t3-code.url": "http://127.0.0.1/mcp" },
+        preserveProviderSettingsOnResume: true,
+      });
+
+      NodeAssert.deepStrictEqual(calls, [
+        {
+          threadId: "saved-thread",
+          config: { "mcp_servers.t3-code.url": "http://127.0.0.1/mcp" },
+          excludeTurns: true,
+        },
+      ]);
+    }),
+  );
+
   it.effect("resumes metadata when historical turns contain unknown error values", () =>
     Effect.gen(function* () {
       const response = makeThreadOpenResponse("saved-thread");

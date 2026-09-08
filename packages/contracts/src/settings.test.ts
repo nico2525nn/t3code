@@ -568,6 +568,7 @@ describe("ServerSettingsPatch string normalization", () => {
           binaryPath: "  /opt/homebrew/bin/codex  ",
           homePath: "  ~/.codex  ",
           launchArgs: "  --strict-config --enable foo  ",
+          appServerSocketPath: "  /tmp/codex-app-server.sock  ",
         },
       },
       providerInstances: {
@@ -585,6 +586,7 @@ describe("ServerSettingsPatch string normalization", () => {
     expect(patch.providers?.codex?.binaryPath).toBe("/opt/homebrew/bin/codex");
     expect(patch.providers?.codex?.homePath).toBe("~/.codex");
     expect(patch.providers?.codex?.launchArgs).toBe("--strict-config --enable foo");
+    expect(patch.providers?.codex?.appServerSocketPath).toBe("/tmp/codex-app-server.sock");
     expect(patch.providerInstances?.[ProviderInstanceId.make("codex_personal")]?.driver).toBe(
       "codex",
     );
@@ -607,6 +609,7 @@ describe("ServerSettingsPatch string normalization", () => {
           ...defaultSettings.providers.codex,
           binaryPath: "  /opt/homebrew/bin/codex  ",
           launchArgs: "  --strict-config  ",
+          appServerSocketPath: "  /tmp/codex-app-server.sock  ",
         },
       },
     });
@@ -614,6 +617,7 @@ describe("ServerSettingsPatch string normalization", () => {
     expect(encoded.addProjectBaseDirectory).toBe("~/Development");
     expect(encoded.providers?.codex?.binaryPath).toBe("/opt/homebrew/bin/codex");
     expect(encoded.providers?.codex?.launchArgs).toBe("--strict-config");
+    expect(encoded.providers?.codex?.appServerSocketPath).toBe("/tmp/codex-app-server.sock");
   });
 });
 

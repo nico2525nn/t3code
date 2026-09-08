@@ -27,6 +27,7 @@ import {
   RuntimeTaskId,
   type RuntimeTaskUsage,
   type TurnTokenUsage,
+  TurnId,
   ProviderApprovalDecision,
   ThreadId,
   ProviderSendTurnInput,
@@ -58,6 +59,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { type CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import type { ProviderStoredThread, ProviderThreadCatalog } from "../Services/ProviderAdapter.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import {
@@ -69,6 +71,12 @@ import {
   type CodexSessionRuntimeOptions,
   type CodexSessionRuntimeShape,
 } from "./CodexSessionRuntime.ts";
+import {
+  makeCodexAppServerManager,
+  CODEX_APP_SERVER_THREAD_SOURCE_KINDS,
+  type CodexAppServerManagerShape,
+  type CodexAppServerSession,
+} from "./CodexAppServerManager.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
 import { codexRateLimitsToUpdate } from "./codexUsageLimits.ts";
@@ -84,6 +92,10 @@ const PROVIDER = ProviderDriverKind.make("codex");
 export interface CodexAdapterLiveOptions {
   readonly instanceId?: ProviderInstanceId;
   readonly environment?: NodeJS.ProcessEnv;
+  /** Shared home used by Codex's app-server-daemon control socket. */
+  readonly appServerHomePath?: string;
+  /** Attach to the user's existing Codex app-server daemon when available. */
+  readonly preferExistingDaemon?: boolean;
   readonly makeRuntime?: (
     options: CodexSessionRuntimeOptions,
   ) => Effect.Effect<
@@ -99,6 +111,7 @@ interface CodexAdapterSessionContext {
   readonly threadId: ThreadId;
   readonly scope: Scope.Closeable;
   readonly runtime: CodexSessionRuntimeShape;
+  readonly appServerSession: CodexAppServerSession | undefined;
   readonly eventFiber: Fiber.Fiber<void, never>;
   readonly turnTokenUsage: CodexTurnTokenUsageState;
   stopped: boolean;
@@ -180,6 +193,134 @@ function readPayload<A>(
 function trimText(value: string | undefined | null): string | undefined {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeCodexThreadTitle(value: string | undefined | null): string | undefined {
+  const normalized = value?.replace(/\s+/gu, " ").trim();
+  if (!normalized) {
+    return undefined;
+  }
+  const characters = Array.from(normalized);
+  return characters.length <= 160 ? normalized : `${characters.slice(0, 159).join("")}…`;
+}
+
+function codexUnixTimestampToIso(value: number | null | undefined, fallback: number): string {
+  const seconds = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  const date = new Date(seconds * 1000);
+  return Number.isNaN(date.getTime()) ? new Date(0).toISOString() : date.toISOString();
+}
+
+function isCodexSubAgentSource(
+  source:
+    | EffectCodexSchema.V2ThreadListResponse__Thread["source"]
+    | EffectCodexSchema.V2ThreadReadResponse__Thread["source"],
+): boolean {
+  return typeof source === "object" && source !== null && "subAgent" in source;
+}
+
+function codexUserMessageText(
+  item: Extract<
+    EffectCodexSchema.V2ThreadReadResponse__ThreadItem,
+    { readonly type: "userMessage" }
+  >,
+): string | undefined {
+  const text = item.content
+    .filter((content) => content.type === "text")
+    .map((content) => content.text)
+    .join("\n")
+    .trim();
+  if (text.length > 0) {
+    return text;
+  }
+
+  const attachmentCount = item.content.filter(
+    (content) =>
+      content.type === "image" ||
+      content.type === "localImage" ||
+      content.type === "audio" ||
+      content.type === "localAudio",
+  ).length;
+  return attachmentCount > 0
+    ? `[${String(attachmentCount)} Codex attachment${attachmentCount === 1 ? "" : "s"}]`
+    : undefined;
+}
+
+/**
+ * Normalize the durable Codex thread shape at the adapter boundary. T3 keeps
+ * only text messages in its compatibility projection; native items such as
+ * commands, reasoning, and file changes remain owned by Codex and continue to
+ * arrive through the live provider event stream.
+ */
+export function codexAppServerThreadToStoredThread(
+  thread:
+    | EffectCodexSchema.V2ThreadListResponse__Thread
+    | EffectCodexSchema.V2ThreadReadResponse__Thread,
+  archived: boolean,
+  messages: ReadonlyArray<ProviderStoredThread["messages"][number]> = [],
+): ProviderStoredThread {
+  return {
+    nativeThreadId: thread.id,
+    cwd: thread.cwd,
+    title:
+      normalizeCodexThreadTitle(thread.name) ??
+      normalizeCodexThreadTitle(thread.preview) ??
+      "Codex thread",
+    preview: thread.preview,
+    createdAt: codexUnixTimestampToIso(thread.createdAt, thread.createdAt),
+    updatedAt: codexUnixTimestampToIso(thread.updatedAt, thread.createdAt),
+    archived,
+    ephemeral: thread.ephemeral,
+    subAgent: isCodexSubAgentSource(thread.source),
+    active: thread.status.type === "active",
+    ...("turns" in thread
+      ? (() => {
+          const activeTurn = thread.turns.findLast((turn) => turn.status === "inProgress");
+          return activeTurn ? { activeTurnId: TurnId.make(activeTurn.id) } : {};
+        })()
+      : {}),
+    messages,
+  };
+}
+
+/** Convert only user/assistant text items; native operational items stay native. */
+export function codexAppServerThreadMessages(
+  thread: EffectCodexSchema.V2ThreadReadResponse__Thread,
+): ReadonlyArray<ProviderStoredThread["messages"][number]> {
+  const messages: Array<ProviderStoredThread["messages"][number]> = [];
+  const seenMessageIds = new Set<string>();
+
+  for (const turn of thread.turns) {
+    const createdAt = codexUnixTimestampToIso(turn.startedAt ?? turn.completedAt, thread.createdAt);
+    for (const item of turn.items) {
+      const message =
+        item.type === "userMessage"
+          ? (() => {
+              const text = codexUserMessageText(item);
+              return text === undefined
+                ? undefined
+                : {
+                    messageId: `import:codex:${thread.id}:${turn.id}:${item.id}`,
+                    role: "user" as const,
+                    text,
+                    createdAt,
+                  };
+            })()
+          : item.type === "agentMessage" && item.text.trim().length > 0
+            ? {
+                messageId: `import:codex:${thread.id}:${turn.id}:${item.id}`,
+                role: "assistant" as const,
+                text: item.text,
+                createdAt,
+              }
+            : undefined;
+      if (message && !seenMessageIds.has(message.messageId)) {
+        seenMessageIds.add(message.messageId);
+        messages.push(message);
+      }
+    }
+  }
+
+  return messages;
 }
 
 function asUnknownRecord(value: unknown): Record<string, unknown> | undefined {
@@ -2227,7 +2368,98 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   const managedNativeEventLogger =
     options?.nativeEventLogger === undefined ? nativeEventLogger : undefined;
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
-  const sessions = new Map<ThreadId, CodexAdapterSessionContext>();
+  const bindings = new Map<ThreadId, CodexAdapterSessionContext>();
+  const sharedAppServer: CodexAppServerManagerShape | undefined =
+    options?.makeRuntime === undefined && process.platform !== "win32"
+      ? yield* makeCodexAppServerManager({
+          instanceId: boundInstanceId,
+          binaryPath: codexConfig.binaryPath,
+          launchArgs: resolveCodexLaunchArgs(codexConfig.launchArgs, options?.environment),
+          ...(codexConfig.homePath ? { homePath: codexConfig.homePath } : {}),
+          ...(options?.appServerHomePath ? { appServerHomePath: options.appServerHomePath } : {}),
+          ...(options?.preferExistingDaemon === true ? { preferExistingDaemon: true } : {}),
+          ...(options?.environment ? { environment: options.environment } : {}),
+          cwd: process.cwd(),
+          ...(codexConfig.appServerSocketPath
+            ? { socketPath: codexConfig.appServerSocketPath }
+            : {}),
+        })
+      : undefined;
+
+  const mapCatalogError = (method: string, cause: CodexErrors.CodexAppServerError) =>
+    new ProviderAdapterRequestError({
+      provider: PROVIDER,
+      method,
+      detail: cause.message,
+      cause,
+    });
+
+  const listStoredThreads = (): Effect.Effect<
+    ReadonlyArray<ProviderStoredThread>,
+    ProviderAdapterError
+  > => {
+    if (sharedAppServer === undefined) {
+      return Effect.succeed([]);
+    }
+
+    return Effect.gen(function* () {
+      const listParams = {
+        sourceKinds: CODEX_APP_SERVER_THREAD_SOURCE_KINDS,
+        sortKey: "updated_at" as const,
+        sortDirection: "desc" as const,
+      };
+      const activeThreads = yield* sharedAppServer
+        .listThreads({ ...listParams, archived: false })
+        .pipe(Effect.mapError((cause) => mapCatalogError("thread/list", cause)));
+      const archivedThreads = yield* sharedAppServer
+        .listThreads({ ...listParams, archived: true })
+        .pipe(Effect.mapError((cause) => mapCatalogError("thread/list", cause)));
+      const byNativeId = new Map<string, ProviderStoredThread>();
+      for (const thread of activeThreads) {
+        byNativeId.set(thread.id, codexAppServerThreadToStoredThread(thread, false));
+      }
+      for (const thread of archivedThreads) {
+        if (!byNativeId.has(thread.id)) {
+          byNativeId.set(thread.id, codexAppServerThreadToStoredThread(thread, true));
+        }
+      }
+      return Array.from(byNativeId.values());
+    });
+  };
+
+  const readStoredThread = (input: {
+    readonly nativeThreadId: string;
+    readonly archived: boolean;
+  }): Effect.Effect<ProviderStoredThread, ProviderAdapterError> => {
+    if (sharedAppServer === undefined) {
+      return Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "thread/read",
+          detail: "Codex App Server catalog is not available for this adapter.",
+        }),
+      );
+    }
+
+    return sharedAppServer.readThread(input.nativeThreadId).pipe(
+      Effect.map((thread) =>
+        codexAppServerThreadToStoredThread(
+          thread,
+          input.archived,
+          codexAppServerThreadMessages(thread),
+        ),
+      ),
+      Effect.mapError((cause) => mapCatalogError("thread/read", cause)),
+    );
+  };
+
+  const storedThreadCatalog: ProviderThreadCatalog<ProviderAdapterError> | undefined =
+    sharedAppServer === undefined
+      ? undefined
+      : {
+          listStoredThreads,
+          readStoredThread,
+        };
 
   const startSession: CodexAdapterShape["startSession"] = (input) =>
     Effect.scoped(
@@ -2240,7 +2472,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           });
         }
 
-        const existing = sessions.get(input.threadId);
+        const existing = bindings.get(input.threadId);
         if (existing && !existing.stopped) {
           yield* Effect.suspend(() => stopSessionInternal(existing));
         }
@@ -2250,6 +2482,13 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? getCodexServiceTierOptionValue(input.modelSelection)
             : undefined;
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+        const sharedMcpThreadConfig =
+          sharedAppServer && mcpSession
+            ? {
+                "mcp_servers.t3-code.url": mcpSession.endpoint,
+                "mcp_servers.t3-code.http_headers.Authorization": mcpSession.authorizationHeader,
+              }
+            : undefined;
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
           providerInstanceId: boundInstanceId,
@@ -2266,7 +2505,11 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? { model: input.modelSelection.model }
             : {}),
           ...(serviceTier ? { serviceTier } : {}),
-          ...(mcpSession
+          ...(input.preserveProviderSettingsOnResume === true
+            ? { preserveProviderSettingsOnResume: true }
+            : {}),
+          ...(input.activeTurnId ? { activeTurnId: input.activeTurnId } : {}),
+          ...(mcpSession && sharedAppServer === undefined
             ? {
                 environment: {
                   ...(options?.environment ?? process.env),
@@ -2280,6 +2523,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                 ],
               }
             : {}),
+          ...(sharedMcpThreadConfig ? { threadConfig: sharedMcpThreadConfig } : {}),
         };
         const turnTokenUsage = makeCodexTurnTokenUsageState();
         const sessionScope = yield* Scope.make("sequential");
@@ -2287,8 +2531,48 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         yield* Effect.addFinalizer(() =>
           sessionScopeTransferred ? Effect.void : Scope.close(sessionScope, Exit.void),
         );
+        const appServerSession = sharedAppServer
+          ? yield* sharedAppServer
+              .openSession({
+                threadId: input.threadId,
+                ...(isCodexResumeCursorSchema(input.resumeCursor)
+                  ? { resumeThreadId: input.resumeCursor.threadId }
+                  : {}),
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderAdapterProcessError({
+                      provider: PROVIDER,
+                      threadId: input.threadId,
+                      detail: cause.message,
+                      cause,
+                    }),
+                ),
+              )
+          : undefined;
+        let appServerSessionTransferred = false;
+        yield* Effect.addFinalizer(() =>
+          appServerSession === undefined || appServerSessionTransferred
+            ? Effect.void
+            : appServerSession.close,
+        );
         const createRuntime = options?.makeRuntime ?? makeCodexSessionRuntime;
-        const runtime = yield* createRuntime(runtimeInput).pipe(
+        const effectiveRuntimeInput =
+          appServerSession === undefined
+            ? runtimeInput
+            : {
+                ...runtimeInput,
+                client: appServerSession.client,
+                initializeClient: false,
+                appServerExit: appServerSession.appServerExit,
+                interruptOnClose: true,
+                ...(input.preserveProviderSettingsOnResume === true
+                  ? { preserveProviderSettingsOnResume: true }
+                  : {}),
+                stderr: appServerSession.stderr,
+              };
+        const runtime = yield* createRuntime(effectiveRuntimeInput).pipe(
           Effect.provideService(Scope.Scope, sessionScope),
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
           Effect.provideService(Crypto.Crypto, crypto),
@@ -2395,19 +2679,22 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             runtime.close.pipe(
               Effect.andThen(Effect.ignore(Scope.close(sessionScope, Exit.void))),
               Effect.andThen(Fiber.interrupt(eventFiber)),
+              Effect.andThen(appServerSession?.close ?? Effect.void),
               Effect.ignore,
             ),
           ),
         );
 
-        sessions.set(input.threadId, {
+        bindings.set(input.threadId, {
           threadId: input.threadId,
           scope: sessionScope,
           runtime,
+          appServerSession,
           eventFiber,
           turnTokenUsage,
           stopped: false,
         });
+        appServerSessionTransferred = true;
         sessionScopeTransferred = true;
 
         return started;
@@ -2484,7 +2771,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   });
 
   const requireSession = Effect.fn("requireSession")(function* (threadId: ThreadId) {
-    const session = sessions.get(threadId);
+    const session = bindings.get(threadId);
     if (!session || session.stopped) {
       return yield* new ProviderAdapterSessionNotFoundError({
         provider: PROVIDER,
@@ -2604,20 +2891,26 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
 
   const stopSessionInternal = Effect.fn("stopSessionInternal")(function* (
     session: CodexAdapterSessionContext,
+    options?: { readonly preserveNativeThread?: boolean },
   ) {
     if (session.stopped) {
       return;
     }
     session.stopped = true;
-    sessions.delete(session.threadId);
-    yield* session.runtime.close.pipe(Effect.ignore);
+    bindings.delete(session.threadId);
+    const closeRuntime =
+      options?.preserveNativeThread === true
+        ? (session.runtime.detach ?? session.runtime.close)
+        : session.runtime.close;
+    yield* closeRuntime.pipe(Effect.ignore);
     yield* Effect.ignore(Scope.close(session.scope, Exit.void));
     yield* Fiber.interrupt(session.eventFiber).pipe(Effect.ignore);
+    yield* session.appServerSession?.close ?? Effect.void;
   });
 
   const stopSession: CodexAdapterShape["stopSession"] = (threadId) =>
     Effect.gen(function* () {
-      const session = sessions.get(threadId);
+      const session = bindings.get(threadId);
       if (!session) {
         return;
       }
@@ -2626,19 +2919,34 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
 
   const listSessions: CodexAdapterShape["listSessions"] = () =>
     Effect.forEach(
-      Array.from(sessions.values()).filter((session) => !session.stopped),
-      (session) => session.runtime.getSession,
+      Array.from(bindings.values()).filter((session) => !session.stopped),
+      (session) =>
+        Effect.gen(function* () {
+          if (session.appServerSession && !(yield* session.appServerSession.isConnected)) {
+            return undefined;
+          }
+          return yield* session.runtime.getSession;
+        }),
       { concurrency: 1 },
-    );
+    ).pipe(Effect.map((sessions) => sessions.filter((session) => session !== undefined)));
 
-  const hasSession: CodexAdapterShape["hasSession"] = (threadId) =>
-    Effect.succeed(Boolean(sessions.get(threadId) && !sessions.get(threadId)?.stopped));
+  const hasSession: CodexAdapterShape["hasSession"] = (threadId) => {
+    const session = bindings.get(threadId);
+    if (!session || session.stopped) {
+      return Effect.succeed(false);
+    }
+    return session.appServerSession ? session.appServerSession.isConnected : Effect.succeed(true);
+  };
 
   const stopAll: CodexAdapterShape["stopAll"] = () =>
-    Effect.forEach(Array.from(sessions.values()), stopSessionInternal, {
-      concurrency: 1,
-      discard: true,
-    }).pipe(Effect.asVoid);
+    Effect.forEach(
+      Array.from(bindings.values()),
+      (session) => stopSessionInternal(session, { preserveNativeThread: true }),
+      {
+        concurrency: 1,
+        discard: true,
+      },
+    ).pipe(Effect.asVoid);
 
   yield* Effect.acquireRelease(Effect.void, () =>
     stopAll().pipe(
@@ -2650,6 +2958,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
 
   return {
     provider: PROVIDER,
+    ...(storedThreadCatalog ? { storedThreadCatalog } : {}),
     capabilities: {
       sessionModelSwitch: "in-session",
       promptlessTurnContinuation: true,
