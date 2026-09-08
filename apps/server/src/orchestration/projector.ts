@@ -41,6 +41,7 @@ import {
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
+const isProviderDiffCheckpointRef = (ref: string): boolean => ref.startsWith("provider-diff:");
 
 // Async questions can stay open while the agent produces more activity.
 // Match the database snapshot's pending-question retention.
@@ -741,12 +742,49 @@ export function projectEvent(
         // per turn; without this guard later placeholders would clobber the
         // real capture dispatched by CheckpointReactor.
         const existing = thread.checkpoints.find((entry) => entry.turnId === checkpoint.turnId);
-        if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
+        const existingByTurnCount = thread.checkpoints.find(
+          (entry) => entry.checkpointTurnCount === checkpoint.checkpointTurnCount,
+        );
+        const existingReadyGitCheckpoint = [existing, existingByTurnCount].find(
+          (entry) =>
+            entry !== undefined &&
+            entry.status === "ready" &&
+            !isProviderDiffCheckpointRef(String(entry.checkpointRef)),
+        );
+        if (
+          existingReadyGitCheckpoint !== undefined &&
+          (checkpoint.status === "missing" ||
+            (checkpoint.status === "ready" &&
+              isProviderDiffCheckpointRef(String(checkpoint.checkpointRef))))
+        ) {
+          // Native history repair is best effort; a real Git capture always
+          // remains authoritative, even when the native read raced it.
           return nextBase;
         }
 
+        const replaceProviderCheckpointAtSameCount =
+          checkpoint.status === "ready" &&
+          existingByTurnCount !== undefined &&
+          isProviderDiffCheckpointRef(String(existingByTurnCount.checkpointRef));
+
+        const highestKnownCheckpointTurnCount = thread.checkpoints.reduce(
+          (max, entry) => Math.max(max, entry.checkpointTurnCount),
+          0,
+        );
+        const canAdvanceLatestTurn =
+          thread.latestTurn === null ||
+          thread.latestTurn.turnId === checkpoint.turnId ||
+          checkpoint.checkpointTurnCount > highestKnownCheckpointTurnCount;
+
         const checkpoints = [
-          ...thread.checkpoints.filter((entry) => entry.turnId !== checkpoint.turnId),
+          ...thread.checkpoints.filter(
+            (entry) =>
+              entry.turnId !== checkpoint.turnId &&
+              !(
+                replaceProviderCheckpointAtSameCount &&
+                entry.checkpointTurnCount === checkpoint.checkpointTurnCount
+              ),
+          ),
           checkpoint,
         ]
           .toSorted((left, right) => left.checkpointTurnCount - right.checkpointTurnCount)
@@ -761,26 +799,27 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             checkpoints,
-            latestTurn: turnStillRunning
-              ? thread.latestTurn
-              : {
-                  turnId: payload.turnId,
-                  state:
-                    thread.latestTurn?.turnId === payload.turnId &&
-                    thread.latestTurn.state === "interrupted"
-                      ? "interrupted"
-                      : checkpointStatusToLatestTurnState(payload.status),
-                  requestedAt:
-                    thread.latestTurn?.turnId === payload.turnId
-                      ? thread.latestTurn.requestedAt
-                      : payload.completedAt,
-                  startedAt:
-                    thread.latestTurn?.turnId === payload.turnId
-                      ? (thread.latestTurn.startedAt ?? payload.completedAt)
-                      : payload.completedAt,
-                  completedAt: payload.completedAt,
-                  assistantMessageId: payload.assistantMessageId,
-                },
+            latestTurn:
+              turnStillRunning || !canAdvanceLatestTurn
+                ? thread.latestTurn
+                : {
+                    turnId: payload.turnId,
+                    state:
+                      thread.latestTurn?.turnId === payload.turnId &&
+                      thread.latestTurn.state === "interrupted"
+                        ? "interrupted"
+                        : checkpointStatusToLatestTurnState(payload.status),
+                    requestedAt:
+                      thread.latestTurn?.turnId === payload.turnId
+                        ? thread.latestTurn.requestedAt
+                        : payload.completedAt,
+                    startedAt:
+                      thread.latestTurn?.turnId === payload.turnId
+                        ? (thread.latestTurn.startedAt ?? payload.completedAt)
+                        : payload.completedAt,
+                    completedAt: payload.completedAt,
+                    assistantMessageId: payload.assistantMessageId,
+                  },
             updatedAt: event.occurredAt,
           }),
         };

@@ -46,7 +46,7 @@ import {
   type CodexSessionRuntimeShape,
   type CodexThreadSnapshot,
 } from "./CodexSessionRuntime.ts";
-import { makeCodexAdapter } from "./CodexAdapter.ts";
+import { codexAppServerThreadDiffs, makeCodexAdapter } from "./CodexAdapter.ts";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CodexAdapter`.
@@ -58,6 +58,95 @@ const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
 const asItemId = (value: string): ProviderItemId => ProviderItemId.make(value);
+
+it.effect("normalizes Codex hunk-only file changes into a renderable turn diff", () =>
+  Effect.sync(() => {
+    const thread = {
+      id: "native-thread",
+      sessionId: "native-session",
+      cwd: "/tmp/project",
+      createdAt: 1_778_000_000,
+      updatedAt: 1_778_000_100,
+      cliVersion: "test",
+      modelProvider: "openai",
+      preview: "test",
+      source: "appServer",
+      status: { type: "idle" },
+      ephemeral: false,
+      turns: [
+        {
+          id: "turn-1",
+          startedAt: 1_778_000_010,
+          completedAt: 1_778_000_020,
+          status: "completed",
+          items: [
+            {
+              id: "agent-message-1",
+              type: "agentMessage",
+              text: "Updated example.ts",
+            },
+            {
+              id: "file-change-1",
+              type: "fileChange",
+              status: "completed",
+              changes: [
+                {
+                  path: "/tmp/project/src/example.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: "@@ -1 +1 @@\n-old\n+new",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: "turn-interrupted",
+          startedAt: 1_778_000_030,
+          completedAt: 1_778_000_040,
+          status: "interrupted",
+          items: [
+            {
+              id: "file-change-interrupted",
+              type: "fileChange",
+              status: "completed",
+              changes: [
+                {
+                  path: "/tmp/project/src/interrupted.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: "@@ -1 +1 @@\n-old\n+new",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as Parameters<typeof codexAppServerThreadDiffs>[0];
+
+    const turnDiffs = codexAppServerThreadDiffs(thread);
+    const turnDiff = turnDiffs[0];
+    NodeAssert.ok(turnDiff);
+    NodeAssert.equal(turnDiff.turnId, "turn-1");
+    NodeAssert.equal(turnDiff.status, "ready");
+    NodeAssert.equal(turnDiff.files[0]?.path, "src/example.ts");
+    NodeAssert.deepEqual(turnDiff.files[0], {
+      path: "src/example.ts",
+      kind: "modified",
+      additions: 1,
+      deletions: 1,
+    });
+    NodeAssert.match(turnDiff.diff, /diff --git a\/src\/example\.ts b\/src\/example\.ts/);
+    NodeAssert.match(turnDiff.diff, /--- a\/src\/example\.ts/);
+    NodeAssert.match(turnDiff.diff, /\+\+\+ b\/src\/example\.ts/);
+    NodeAssert.equal(
+      turnDiff.assistantMessageId,
+      "import:codex:native-thread:turn-1:agent-message-1",
+    );
+    const interruptedDiff = turnDiffs.find((entry) => entry.turnId === "turn-interrupted");
+    NodeAssert.ok(interruptedDiff);
+    NodeAssert.equal(interruptedDiff.status, "ready");
+    NodeAssert.match(interruptedDiff.diff, /src\/interrupted\.ts/);
+  }),
+);
 
 class FakeCodexRuntime implements CodexSessionRuntimeShape {
   private readonly eventQueue = Effect.runSync(Queue.unbounded<ProviderEvent>());

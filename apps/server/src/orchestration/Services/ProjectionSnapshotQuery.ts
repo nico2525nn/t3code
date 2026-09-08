@@ -12,6 +12,7 @@ import type {
   CheckpointRef,
   MessageId,
   OrchestrationCheckpointSummary,
+  OrchestrationCheckpointStatus,
   OrchestrationMessage,
   OrchestrationProject,
   OrchestrationProjectShell,
@@ -62,6 +63,8 @@ export interface ProjectionFullThreadDiffContext {
   readonly worktreePath: string | null;
   readonly latestCheckpointTurnCount: number;
   readonly toCheckpointRef: CheckpointRef | null;
+  /** Present in production queries; omitted by legacy test doubles. */
+  readonly toCheckpointStatus?: OrchestrationCheckpointStatus | null;
 }
 
 export interface ProjectionThreadDetailQuery {

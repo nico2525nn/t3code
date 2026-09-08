@@ -38,6 +38,7 @@ import type { OrchestrationDispatchError } from "../Errors.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 import * as PullRequestService from "../../pullRequest/PullRequestService.ts";
+import * as CheckpointDiffBlobRepository from "../../persistence/Services/CheckpointDiffBlobs.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -89,6 +90,9 @@ const make = Effect.gen(function* () {
   const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const pullRequests = yield* PullRequestService.PullRequestService;
+  const checkpointDiffBlobRepository = yield* Effect.serviceOption(
+    CheckpointDiffBlobRepository.CheckpointDiffBlobRepository,
+  );
   const startedTurns = new Map<ThreadId, TurnId>();
   const pending = new Set<ThreadId>();
 
@@ -791,6 +795,13 @@ const make = Effect.gen(function* () {
       yield* checkpointStore.deleteCheckpointRefs({
         cwd: sessionRuntime.value.cwd,
         checkpointRefs: staleCheckpointRefs,
+      });
+    }
+
+    if (Option.isSome(checkpointDiffBlobRepository)) {
+      yield* checkpointDiffBlobRepository.value.deleteAfterTurnCount({
+        threadId: event.payload.threadId,
+        turnCount: event.payload.turnCount,
       });
     }
 

@@ -9,6 +9,7 @@
  */
 import type {
   ApprovalRequestId,
+  MessageId,
   ProviderApprovalDecision,
   ProviderDriverKind,
   ProviderUserInputAnswers,
@@ -18,6 +19,7 @@ import type {
   ProviderSessionStartInput,
   ProviderUploadFeedbackInput,
   ProviderUploadFeedbackResult,
+  OrchestrationCheckpointFile,
   ThreadId,
   ProviderTurnStartResult,
   TurnId,
@@ -72,6 +74,18 @@ export interface ProviderStoredThreadMessage {
   readonly createdAt: string;
 }
 
+/** A provider-native turn diff recovered from a durable thread. */
+export interface ProviderStoredThreadTurnDiff {
+  readonly turnId: TurnId;
+  readonly completedAt: string;
+  readonly diff: string;
+  readonly files: ReadonlyArray<OrchestrationCheckpointFile>;
+  /** In-progress native turns remain a missing/preview checkpoint. */
+  readonly status?: "ready" | "missing";
+  /** Imported assistant text that the checkpoint should remain attached to. */
+  readonly assistantMessageId?: MessageId;
+}
+
 /**
  * Provider-owned thread metadata used when a provider is the source of truth
  * for conversation history. This is deliberately a small normalized boundary;
@@ -91,6 +105,8 @@ export interface ProviderStoredThread {
   /** Native turn currently in progress, when the provider read it. */
   readonly activeTurnId?: TurnId;
   readonly messages: ReadonlyArray<ProviderStoredThreadMessage>;
+  /** Provider-native diffs available when a durable thread was fully read. */
+  readonly turnDiffs?: ReadonlyArray<ProviderStoredThreadTurnDiff>;
 }
 
 /** Optional durable-thread catalog exposed by providers such as Codex. */

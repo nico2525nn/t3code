@@ -31,6 +31,8 @@ const checkpointOrder = O.mapInput(
     cp.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER,
 );
 
+const isProviderDiffCheckpointRef = (ref: string): boolean => ref.startsWith("provider-diff:");
+
 const activityOrder = O.combineAll<OrchestrationThreadActivity>([
   O.mapInput(O.Number, (a) => a.sequence ?? Number.MAX_SAFE_INTEGER),
   O.mapInput(O.String, (a) => a.createdAt),
@@ -510,17 +512,52 @@ export function applyThreadDetailEvent(
       };
 
       const existing = thread.checkpoints.find((entry) => entry.turnId === checkpoint.turnId);
+      const existingByTurnCount = thread.checkpoints.find(
+        (entry) => entry.checkpointTurnCount === checkpoint.checkpointTurnCount,
+      );
+      const existingReadyGitCheckpoint = [existing, existingByTurnCount].find(
+        (entry) =>
+          entry !== undefined &&
+          entry.status === "ready" &&
+          !isProviderDiffCheckpointRef(String(entry.checkpointRef)),
+      );
       // Don't overwrite a non-missing checkpoint with a missing one.
-      if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
+      if (
+        existingReadyGitCheckpoint !== undefined &&
+        (checkpoint.status === "missing" ||
+          (checkpoint.status === "ready" &&
+            isProviderDiffCheckpointRef(String(checkpoint.checkpointRef))))
+      ) {
         return { kind: "unchanged" };
       }
 
+      const replaceProviderCheckpointAtSameCount =
+        checkpoint.status === "ready" &&
+        existingByTurnCount !== undefined &&
+        isProviderDiffCheckpointRef(String(existingByTurnCount.checkpointRef));
+
       const checkpoints = pipe(
         thread.checkpoints,
-        Arr.filter((entry) => entry.turnId !== checkpoint.turnId),
+        Arr.filter(
+          (entry) =>
+            entry.turnId !== checkpoint.turnId &&
+            !(
+              replaceProviderCheckpointAtSameCount &&
+              entry.checkpointTurnCount === checkpoint.checkpointTurnCount
+            ),
+        ),
         Arr.append(checkpoint),
         Arr.sort(checkpointOrder),
       );
+
+      const highestKnownCheckpointTurnCount = thread.checkpoints.reduce(
+        (max, entry) => Math.max(max, entry.checkpointTurnCount ?? 0),
+        0,
+      );
+      const canAdvanceLatestTurn =
+        thread.latestTurn === null ||
+        thread.latestTurn.turnId === checkpoint.turnId ||
+        checkpoint.checkpointTurnCount > highestKnownCheckpointTurnCount;
 
       // Mid-turn diff updates produce placeholder checkpoints; record the
       // checkpoint, but don't settle a turn its session is still running.
@@ -528,8 +565,7 @@ export function applyThreadDetailEvent(
         thread.session?.status === "running" &&
         thread.session.activeTurnId === event.payload.turnId;
       const latestTurn =
-        !diffTurnStillRunning &&
-        (thread.latestTurn === null || thread.latestTurn.turnId === event.payload.turnId)
+        !diffTurnStillRunning && canAdvanceLatestTurn
           ? {
               turnId: event.payload.turnId,
               state:

@@ -532,6 +532,87 @@ describe("orchestration projector", () => {
       }),
   );
 
+  it("does not let historical checkpoint repair move latestTurn backwards", async () => {
+    const now = "2026-09-04T23:00:00.000Z";
+    let model = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(now),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-history-repair",
+          occurredAt: now,
+          commandId: "history-create",
+          payload: {
+            threadId: "thread-history-repair",
+            projectId: "project-1",
+            title: "History repair",
+            modelSelection: { instanceId: "codex", model: "test" },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+    model = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 2,
+          type: "thread.turn-diff-completed",
+          aggregateKind: "thread",
+          aggregateId: "thread-history-repair",
+          occurredAt: now,
+          commandId: "history-turn-2",
+          payload: {
+            threadId: "thread-history-repair",
+            turnId: "turn-2",
+            checkpointTurnCount: 2,
+            checkpointRef: "refs/t3/checkpoints/thread-history-repair/turn/2",
+            status: "ready",
+            files: [],
+            assistantMessageId: null,
+            completedAt: now,
+          },
+        }),
+      ),
+    );
+
+    const repaired = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 3,
+          type: "thread.turn-diff-completed",
+          aggregateKind: "thread",
+          aggregateId: "thread-history-repair",
+          occurredAt: now,
+          commandId: "history-turn-1-repair",
+          payload: {
+            threadId: "thread-history-repair",
+            turnId: "turn-1",
+            checkpointTurnCount: 1,
+            checkpointRef: "provider-diff:thread-history-repair:turn-1",
+            status: "ready",
+            files: [],
+            assistantMessageId: null,
+            completedAt: now,
+          },
+        }),
+      ),
+    );
+
+    expect(repaired.threads[0]?.latestTurn?.turnId).toBe("turn-2");
+    expect(repaired.threads[0]?.checkpoints.map((entry) => entry.checkpointTurnCount)).toEqual([
+      1, 2,
+    ]);
+  });
+
   it("updates canonical thread runtime mode from thread.runtime-mode-set", async () => {
     const createdAt = "2026-02-23T08:00:00.000Z";
     const updatedAt = "2026-02-23T08:00:05.000Z";

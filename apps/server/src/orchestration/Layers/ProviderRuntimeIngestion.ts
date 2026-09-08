@@ -36,6 +36,7 @@ import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/Projectio
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
+import * as CheckpointDiffBlobRepository from "../../persistence/Services/CheckpointDiffBlobs.ts";
 import { ProjectionThreadMessageRepository } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlanRepository } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
@@ -138,16 +139,8 @@ function sameId(left: string | null | undefined, right: string | null | undefine
   return left === right;
 }
 
-function hasCheckpointForTurn(
-  checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>,
-  turnId: TurnId,
-): boolean {
-  for (let index = 0; index < checkpoints.length; index += 1) {
-    if (checkpoints[index]?.turnId === turnId) {
-      return true;
-    }
-  }
-  return false;
+function isProviderDiffRef(ref: CheckpointRef): boolean {
+  return String(ref).startsWith("provider-diff:");
 }
 
 function maxCheckpointTurnCount(
@@ -910,6 +903,9 @@ const make = Effect.gen(function* () {
   const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
   const serverSettingsService = yield* ServerSettingsService;
   const checkpointStore = yield* CheckpointStore.CheckpointStore;
+  const providerDiffBlobRepository = yield* Effect.serviceOption(
+    CheckpointDiffBlobRepository.CheckpointDiffBlobRepository,
+  );
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
@@ -1963,17 +1959,53 @@ const make = Effect.gen(function* () {
           : undefined;
         const workspaceCwd =
           checkpointContext?.worktreePath ?? checkpointContext?.workspaceRoot ?? undefined;
-        if (
-          turnId &&
-          checkpointContext &&
-          workspaceCwd &&
-          (yield* checkpointStore.isGitRepository(workspaceCwd))
-        ) {
+        if (turnId && checkpointContext && workspaceCwd) {
+          const existingCheckpoint = checkpointContext.checkpoints.find(
+            (checkpoint) => checkpoint.turnId === turnId,
+          );
+          // A delayed diff for a superseded turn must not receive a fresh
+          // checkpoint count or move the thread's latest-turn projection
+          // behind the active turn. Startup native history reconciliation can
+          // still repair it from the provider-owned thread.
+          if (conflictsWithActiveTurn && existingCheckpoint === undefined) {
+            return;
+          }
+          const isGitRepository = yield* checkpointStore.isGitRepository(workspaceCwd);
+          const checkpointTurnCount =
+            existingCheckpoint?.checkpointTurnCount ??
+            maxCheckpointTurnCount(checkpointContext.checkpoints) + 1;
+          const unifiedDiff = event.payload.unifiedDiff.trim();
+
+          // Codex can emit the complete current turn patch before the native
+          // history has been flushed. Keep that patch alongside the Git
+          // provider-diff placeholder so the Diff API remains usable during
+          // and immediately after a turn. Non-Git workspaces retain their
+          // existing behavior because the checkpoint UI requires Git refs.
+          if (
+            isGitRepository &&
+            Option.isSome(providerDiffBlobRepository) &&
+            (unifiedDiff.length > 0 ||
+              (existingCheckpoint !== undefined &&
+                isProviderDiffRef(existingCheckpoint.checkpointRef))) &&
+            (existingCheckpoint === undefined ||
+              existingCheckpoint.status !== "ready" ||
+              isProviderDiffRef(existingCheckpoint.checkpointRef))
+          ) {
+            yield* providerDiffBlobRepository.value.upsert({
+              threadId: thread.id,
+              fromTurnCount: Math.max(0, checkpointTurnCount - 1),
+              toTurnCount: checkpointTurnCount,
+              diff: event.payload.unifiedDiff,
+              createdAt: now,
+              status: "preview",
+            });
+          }
+
           // Skip if a checkpoint already exists for this turn. A real
           // (non-placeholder) capture from CheckpointReactor should not
           // be clobbered, and dispatching a duplicate placeholder for the
           // same turnId would produce an unstable checkpointTurnCount.
-          if (hasCheckpointForTurn(checkpointContext.checkpoints, turnId)) {
+          if (!isGitRepository || existingCheckpoint !== undefined) {
             // Already tracked; no-op.
           } else {
             const assistantMessageId = MessageId.make(
@@ -1989,7 +2021,7 @@ const make = Effect.gen(function* () {
               status: "missing",
               files: [],
               assistantMessageId,
-              checkpointTurnCount: maxCheckpointTurnCount(checkpointContext.checkpoints) + 1,
+              checkpointTurnCount,
               createdAt: now,
             });
           }

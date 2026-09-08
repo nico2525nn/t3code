@@ -22,6 +22,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as CheckpointDiffBlobRepository from "../persistence/Services/CheckpointDiffBlobs.ts";
 import {
   CheckpointDiffResultInvalidError,
   CheckpointRefUnavailableError,
@@ -59,6 +60,8 @@ export class CheckpointDiffQuery extends Context.Service<
 
 const isTurnDiffResult = Schema.is(OrchestrationGetTurnDiffResult);
 
+const isProviderDiffRef = (ref: CheckpointRef): boolean => String(ref).startsWith("provider-diff:");
+
 function buildTurnDiffResult(
   input: {
     readonly threadId: ThreadId;
@@ -78,6 +81,38 @@ function buildTurnDiffResult(
 export const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const checkpointStore = yield* CheckpointStore.CheckpointStore;
+  const providerDiffBlobRepository = yield* Effect.serviceOption(
+    CheckpointDiffBlobRepository.CheckpointDiffBlobRepository,
+  );
+
+  const readProviderDiffRange = (
+    threadId: ThreadId,
+    fromTurnCount: number,
+    toTurnCount: number,
+  ): Effect.Effect<Option.Option<string>, CheckpointServiceError> =>
+    Option.match(providerDiffBlobRepository, {
+      onNone: () => Effect.succeed(Option.none()),
+      onSome: (repository) =>
+        repository.listByThreadId({ threadId }).pipe(
+          Effect.map((blobs) => {
+            const selected = blobs
+              .filter(
+                (blob) => blob.fromTurnCount >= fromTurnCount && blob.toTurnCount <= toTurnCount,
+              )
+              .toSorted((left, right) => left.toTurnCount - right.toTurnCount);
+            let expectedFrom = fromTurnCount;
+            for (const blob of selected) {
+              if (blob.fromTurnCount !== expectedFrom) {
+                return Option.none<string>();
+              }
+              expectedFrom = blob.toTurnCount;
+            }
+            return expectedFrom === toTurnCount
+              ? Option.some(selected.map((blob) => blob.diff).join("\n"))
+              : Option.none<string>();
+          }),
+        ),
+    });
 
   const getTurnDiff: CheckpointDiffQuery["Service"]["getTurnDiff"] = Effect.fn("getTurnDiff")(
     function* (input) {
@@ -152,15 +187,40 @@ export const make = Effect.gen(function* () {
         });
       }
 
-      const toCheckpointRef = threadContext.value.checkpoints.find(
+      const toCheckpoint = threadContext.value.checkpoints.find(
         (checkpoint) => checkpoint.checkpointTurnCount === input.toTurnCount,
-      )?.checkpointRef;
+      );
+      const toCheckpointRef = toCheckpoint?.checkpointRef;
       if (!toCheckpointRef) {
         return yield* new CheckpointRefUnavailableError({
           operation,
           threadId: input.threadId,
           turnCount: input.toTurnCount,
           checkpoint: "to",
+        });
+      }
+
+      if (isProviderDiffRef(toCheckpointRef) || toCheckpoint?.status !== "ready") {
+        const providerDiff = yield* readProviderDiffRange(
+          input.threadId,
+          input.fromTurnCount,
+          input.toTurnCount,
+        );
+        if (Option.isSome(providerDiff)) {
+          return buildTurnDiffResult(input, providerDiff.value);
+        }
+      }
+
+      // A provider-diff ref is intentionally not a Git ref. Do not pass a
+      // mixed or incomplete provider range to Git, where the failure would be
+      // opaque and could be mistaken for a missing repository checkpoint.
+      if (isProviderDiffRef(fromCheckpointRef) || isProviderDiffRef(toCheckpointRef)) {
+        const providerCheckpointIsTo = isProviderDiffRef(toCheckpointRef);
+        return yield* new CheckpointRefUnavailableError({
+          operation,
+          threadId: input.threadId,
+          turnCount: providerCheckpointIsTo ? input.toTurnCount : input.fromTurnCount,
+          checkpoint: providerCheckpointIsTo ? "to" : "from",
         });
       }
 
@@ -252,6 +312,38 @@ export const make = Effect.gen(function* () {
         turnCount: input.toTurnCount,
         checkpoint: "to",
       });
+    }
+
+    const toCheckpointIsProviderDiff = isProviderDiffRef(threadContext.value.toCheckpointRef);
+    const toCheckpointNeedsProviderFallback =
+      threadContext.value.toCheckpointStatus !== undefined &&
+      threadContext.value.toCheckpointStatus !== null &&
+      threadContext.value.toCheckpointStatus !== "ready";
+    if (toCheckpointIsProviderDiff || toCheckpointNeedsProviderFallback) {
+      const providerDiff = yield* readProviderDiffRange(input.threadId, 0, input.toTurnCount);
+      if (Option.isSome(providerDiff)) {
+        return buildTurnDiffResult(
+          {
+            threadId: input.threadId,
+            fromTurnCount: 0,
+            toTurnCount: input.toTurnCount,
+          },
+          providerDiff.value,
+        ) satisfies OrchestrationGetFullThreadDiffResult;
+      }
+
+      if (toCheckpointIsProviderDiff) {
+        return yield* new CheckpointRefUnavailableError({
+          operation,
+          threadId: input.threadId,
+          turnCount: input.toTurnCount,
+          checkpoint: "to",
+        });
+      }
+
+      // A native blob is a recovery path for a non-ready Git checkpoint. If
+      // it is unavailable, preserve the legacy Git behavior instead of
+      // turning an otherwise usable ref into a hard failure.
     }
 
     const diff = yield* checkpointStore

@@ -1,5 +1,6 @@
 import {
   CommandId,
+  CheckpointRef,
   DEFAULT_MODEL,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -48,6 +49,9 @@ import * as ProviderService from "./provider/Services/ProviderService.ts";
 import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceRegistry.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
 import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReaper.ts";
+import type { ProviderStoredThread } from "./provider/Services/ProviderAdapter.ts";
+import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
+import * as CheckpointDiffBlobRepository from "./persistence/Services/CheckpointDiffBlobs.ts";
 import { forkParked } from "./serverActivation.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
@@ -744,6 +748,8 @@ export const reconcileProviderSessions = Effect.gen(function* () {
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
 const CODEX_APP_SERVER_THREAD_SYNC_INTERVAL = "5 seconds" as const;
 
+const isProviderDiffRef = (ref: CheckpointRef): boolean => String(ref).startsWith("provider-diff:");
+
 interface CodexThreadSyncState {
   readonly id: ThreadId;
   readonly projectId: ProjectId;
@@ -856,6 +862,10 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
   const settings = yield* ServerSettings.ServerSettingsService;
   const path = yield* Path.Path;
+  const checkpointStore = yield* Effect.serviceOption(CheckpointStore.CheckpointStore);
+  const providerDiffBlobRepository = yield* Effect.serviceOption(
+    CheckpointDiffBlobRepository.CheckpointDiffBlobRepository,
+  );
 
   const readModel = yield* query.getCommandReadModel();
   const serverSettings = yield* settings.getSettings;
@@ -963,6 +973,151 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
       ? serverSettings.defaultModelSelection
       : { instanceId, model: DEFAULT_MODEL };
 
+  const syncProviderTurnDiffs = (threadId: ThreadId, sourceThread: ProviderStoredThread) =>
+    Effect.gen(function* () {
+      if (Option.isNone(providerDiffBlobRepository) || sourceThread.turnDiffs === undefined) {
+        return;
+      }
+      const getThreadCheckpointContext = query.getThreadCheckpointContext;
+      if (typeof getThreadCheckpointContext !== "function") {
+        return;
+      }
+
+      const checkpointContext = yield* getThreadCheckpointContext(threadId);
+      const existingCheckpoints = Option.isSome(checkpointContext)
+        ? checkpointContext.value.checkpoints
+        : [];
+      const hasNonReadyCheckpoint = existingCheckpoints.some(
+        (checkpoint) => checkpoint.status !== "ready",
+      );
+      const checkpointsByTurnId = new Map(
+        existingCheckpoints.map((checkpoint) => [checkpoint.turnId, checkpoint]),
+      );
+      const matchedCheckpointTurnIds = new Set<string>();
+      let nextCheckpointTurnCount = existingCheckpoints.reduce(
+        (max, checkpoint) => Math.max(max, checkpoint.checkpointTurnCount),
+        0,
+      );
+
+      for (const turnDiff of sourceThread.turnDiffs.toSorted((left, right) =>
+        left.completedAt.localeCompare(right.completedAt),
+      )) {
+        const exact = checkpointsByTurnId.get(turnDiff.turnId);
+        const nativeCompletedAt = Date.parse(turnDiff.completedAt);
+        const timeCandidates = Number.isFinite(nativeCompletedAt)
+          ? existingCheckpoints
+              .filter((checkpoint) => !matchedCheckpointTurnIds.has(String(checkpoint.turnId)))
+              .map((checkpoint) => ({
+                checkpoint,
+                distance: Math.abs(Date.parse(checkpoint.completedAt) - nativeCompletedAt),
+              }))
+              .filter(
+                (candidate) =>
+                  Number.isFinite(candidate.distance) && candidate.distance <= 15 * 60 * 1000,
+              )
+              .toSorted((left, right) => {
+                if (left.distance !== right.distance) {
+                  return left.distance - right.distance;
+                }
+                return (
+                  Number(left.checkpoint.status === "ready") -
+                  Number(right.checkpoint.status === "ready")
+                );
+              })
+          : [];
+        const closestTimeMatch =
+          timeCandidates.length > 0 &&
+          (timeCandidates.length === 1 || timeCandidates[0]!.distance < timeCandidates[1]!.distance)
+            ? timeCandidates[0]!.checkpoint
+            : undefined;
+        const existing =
+          (exact !== undefined && !matchedCheckpointTurnIds.has(String(exact.turnId))
+            ? exact
+            : undefined) ?? closestTimeMatch;
+        if (existing !== undefined) {
+          matchedCheckpointTurnIds.add(String(existing.turnId));
+        }
+        const checkpointTurnCount = existing?.checkpointTurnCount ?? ++nextCheckpointTurnCount;
+
+        const completedAt = turnDiff.completedAt;
+        const checkpointTurnId = existing?.turnId ?? turnDiff.turnId;
+        const assistantMessageId = existing?.assistantMessageId ?? turnDiff.assistantMessageId;
+        const existingAssistantMessageId = existing?.assistantMessageId ?? undefined;
+        const checkpointStatus = turnDiff.status ?? "ready";
+        const blobStatus = checkpointStatus === "missing" ? "preview" : "final";
+        const fromTurnCount = Math.max(0, checkpointTurnCount - 1);
+        const existingBlob = yield* providerDiffBlobRepository.value.get({
+          threadId,
+          fromTurnCount,
+          toTurnCount: checkpointTurnCount,
+        });
+        const hasCurrentBlob =
+          Option.isSome(existingBlob) &&
+          existingBlob.value.status === blobStatus &&
+          existingBlob.value.diff === turnDiff.diff;
+        if (existing?.status === "ready") {
+          // Keep real Git and already-repaired provider checkpoints
+          // authoritative, but retain the native patch as a recovery source
+          // for a later mixed Git/provider range.
+          if (hasNonReadyCheckpoint && checkpointStatus === "ready" && !hasCurrentBlob) {
+            yield* providerDiffBlobRepository.value.upsert({
+              threadId,
+              fromTurnCount,
+              toTurnCount: checkpointTurnCount,
+              diff: turnDiff.diff,
+              createdAt: completedAt,
+              status: blobStatus,
+            });
+          }
+          continue;
+        }
+        if (
+          existing !== undefined &&
+          !isProviderDiffRef(existing.checkpointRef) &&
+          hasCurrentBlob
+        ) {
+          continue;
+        }
+        const hasCurrentPreview =
+          existing !== undefined &&
+          existing.status === checkpointStatus &&
+          existingAssistantMessageId === assistantMessageId &&
+          hasCurrentBlob;
+        if (hasCurrentPreview) {
+          continue;
+        }
+        yield* providerDiffBlobRepository.value.upsert({
+          threadId,
+          fromTurnCount,
+          toTurnCount: checkpointTurnCount,
+          diff: turnDiff.diff,
+          createdAt: completedAt,
+          status: blobStatus,
+        });
+        if (existing !== undefined && !isProviderDiffRef(existing.checkpointRef)) {
+          // Keep a real Git checkpoint ref and its existing projection row;
+          // the provider blob is a read-only recovery source for missing or
+          // errored rows, not permission to replace Git history.
+          continue;
+        }
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.diff.complete",
+          commandId: CommandId.make(yield* crypto.randomUUIDv4),
+          threadId,
+          // Keep the projection's turn/message identity when repairing a
+          // legacy placeholder whose native App Server turn id changed.
+          turnId: checkpointTurnId,
+          completedAt,
+          checkpointRef: CheckpointRef.make(`provider-diff:${threadId}:${turnDiff.turnId}`),
+          status: checkpointStatus,
+          files: turnDiff.files,
+          ...(assistantMessageId ? { assistantMessageId } : {}),
+          checkpointTurnCount,
+          createdAt: completedAt,
+        });
+      }
+    });
+
   const deleteBinding = directory.deleteBinding;
 
   const claimedNativeThreadIds = new Map<string, ProviderInstanceId>();
@@ -1034,10 +1189,25 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
         if (thread !== undefined) {
           thread = yield* hydratePersistedMessageIds(thread, nativeUpdatedAtChanged);
         }
+        const canSyncProviderDiffs =
+          Option.isSome(providerDiffBlobRepository) &&
+          Option.isSome(checkpointStore) &&
+          (yield* checkpointStore.value.isGitRepository(listedThread.cwd));
+        const checkpointContext =
+          canSyncProviderDiffs &&
+          thread !== undefined &&
+          typeof query.getThreadCheckpointContext === "function"
+            ? yield* query.getThreadCheckpointContext(threadId)
+            : Option.none();
+        const needsNativeDiffRead =
+          canSyncProviderDiffs &&
+          Option.isSome(checkpointContext) &&
+          checkpointContext.value.checkpoints.some((checkpoint) => checkpoint.status !== "ready");
         const needsHistoryRead =
           thread === undefined ||
           (thread.messageIds.size === 0 && thread.latestTurn === null && thread.session === null) ||
-          nativeUpdatedAtChanged;
+          nativeUpdatedAtChanged ||
+          needsNativeDiffRead;
         // A resumed app-server subscription does not replay turn/started. Read
         // the native thread once when it is active but not currently attached
         // so the runtime can restore the in-progress turn before the reaper
@@ -1085,6 +1255,33 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
             messageIds: new Set<string>(),
           };
           threadsById.set(threadId, thread);
+        }
+
+        if (
+          sourceThread.activeTurnId !== undefined &&
+          (thread.session?.status !== "running" ||
+            thread.session?.activeTurnId !== sourceThread.activeTurnId)
+        ) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.make(yield* crypto.randomUUIDv4),
+            threadId,
+            session: {
+              threadId,
+              status: "running",
+              providerName: CODEX_DRIVER,
+              providerInstanceId: instance.instanceId,
+              runtimeMode: thread.runtimeMode,
+              activeTurnId: sourceThread.activeTurnId,
+              lastError: null,
+              updatedAt: sourceThread.updatedAt,
+            },
+            createdAt: sourceThread.updatedAt,
+          });
+        }
+
+        if (storedThread !== undefined && canSyncProviderDiffs) {
+          yield* syncProviderTurnDiffs(threadId, storedThread);
         }
 
         const missingMessages = sourceThread.messages.filter(

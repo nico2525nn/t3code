@@ -9,6 +9,7 @@
  */
 import {
   EventId,
+  MessageId,
   type CanonicalItemType,
   type CanonicalRequestType,
   type CodexSettings,
@@ -27,6 +28,7 @@ import {
   RuntimeTaskId,
   type RuntimeTaskUsage,
   type TurnTokenUsage,
+  type OrchestrationCheckpointFile,
   TurnId,
   ProviderApprovalDecision,
   ThreadId,
@@ -61,7 +63,11 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { type CodexAdapterShape } from "../Services/CodexAdapter.ts";
-import type { ProviderStoredThread, ProviderThreadCatalog } from "../Services/ProviderAdapter.ts";
+import type {
+  ProviderStoredThread,
+  ProviderStoredThreadTurnDiff,
+  ProviderThreadCatalog,
+} from "../Services/ProviderAdapter.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import {
@@ -248,11 +254,161 @@ function codexUserMessageText(
     : undefined;
 }
 
+function normalizeCodexChangePath(cwd: string, value: string): string {
+  const normalizedCwd = cwd.replaceAll("\\", "/").replace(/\/+$/u, "");
+  const normalizedValue = value.replaceAll("\\", "/");
+  if (normalizedValue === normalizedCwd) {
+    return normalizedValue.split("/").at(-1) ?? normalizedValue;
+  }
+  if (normalizedValue.startsWith(`${normalizedCwd}/`)) {
+    return normalizedValue.slice(normalizedCwd.length + 1);
+  }
+
+  // Older Codex records can retain a path from the same checkout mounted via
+  // a different parent directory. Prefer a stable repository-relative path
+  // when the workspace directory name matches; otherwise preserve the native
+  // path. Do not match arbitrary parent suffixes: a sibling worktree such as
+  // `t3code-work-codex-app-server` must not be treated as `t3code`.
+  const cwdParts = normalizedCwd.split("/").filter(Boolean);
+  const valueParts = normalizedValue.split("/").filter(Boolean);
+  const cwdName = cwdParts.at(-1);
+  if (cwdName !== undefined) {
+    for (let index = valueParts.length - 2; index >= 0; index -= 1) {
+      if (valueParts[index] === cwdName) {
+        return valueParts.slice(index + 1).join("/");
+      }
+    }
+  }
+  return normalizedValue;
+}
+
+function diffLineStats(diff: string): Pick<OrchestrationCheckpointFile, "additions" | "deletions"> {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) {
+      continue;
+    }
+    if (line.startsWith("+")) additions += 1;
+    if (line.startsWith("-")) deletions += 1;
+  }
+  return { additions, deletions };
+}
+
+function renderCodexFileChange(
+  cwd: string,
+  change: Extract<
+    EffectCodexSchema.V2ThreadReadResponse__ThreadItem,
+    { readonly type: "fileChange" }
+  >["changes"][number],
+): {
+  readonly path: string;
+  readonly diff: string;
+  readonly files: OrchestrationCheckpointFile;
+} {
+  const path = normalizeCodexChangePath(cwd, change.path);
+  const movePath =
+    change.kind.type === "update" && change.kind.move_path
+      ? normalizeCodexChangePath(cwd, change.kind.move_path)
+      : undefined;
+  const targetPath = movePath ?? path;
+  const diff = change.diff.trimEnd();
+  const renderedDiff = diff.startsWith("diff --git ")
+    ? diff
+    : [
+        `diff --git a/${path} b/${targetPath}`,
+        ...(change.kind.type === "add" ? ["new file mode 100644"] : []),
+        ...(change.kind.type === "delete" ? ["deleted file mode 100644"] : []),
+        `--- ${change.kind.type === "add" ? "/dev/null" : `a/${path}`}`,
+        `+++ ${change.kind.type === "delete" ? "/dev/null" : `b/${targetPath}`}`,
+        diff,
+      ].join("\n");
+  const stats = diffLineStats(diff);
+  const kind =
+    change.kind.type === "add"
+      ? "added"
+      : change.kind.type === "delete"
+        ? "deleted"
+        : movePath
+          ? "renamed"
+          : "modified";
+  return {
+    path: targetPath,
+    diff: renderedDiff,
+    files: {
+      path: targetPath,
+      kind,
+      additions: stats.additions,
+      deletions: stats.deletions,
+    },
+  };
+}
+
+/** Convert durable Codex file-change items into T3-compatible turn patches. */
+export function codexAppServerThreadDiffs(
+  thread: EffectCodexSchema.V2ThreadReadResponse__Thread,
+): ReadonlyArray<ProviderStoredThreadTurnDiff> {
+  const turnDiffs: Array<ProviderStoredThreadTurnDiff> = [];
+  for (const turn of thread.turns) {
+    const turnIsCompleted = turn.status === "completed";
+    const turnIsInProgress = turn.status === "inProgress";
+    const turnIsInterrupted = turn.status === "interrupted";
+    const turnIsFailed = turn.status === "failed";
+    if (!turnIsCompleted && !turnIsInProgress && !turnIsInterrupted && !turnIsFailed) {
+      continue;
+    }
+    const renderedChanges = turn.items
+      .filter(
+        (item): item is Extract<typeof item, { readonly type: "fileChange" }> =>
+          item.type === "fileChange" &&
+          (item.status === "completed" || (turnIsInProgress && item.status === "inProgress")),
+      )
+      .flatMap((item) => item.changes.map((change) => renderCodexFileChange(thread.cwd, change)));
+    if (renderedChanges.length === 0) {
+      continue;
+    }
+
+    const assistantMessage = turn.items.findLast(
+      (item): item is Extract<typeof item, { readonly type: "agentMessage" }> =>
+        item.type === "agentMessage" && item.text.trim().length > 0,
+    );
+    const assistantMessageId = assistantMessage
+      ? MessageId.make(`import:codex:${thread.id}:${turn.id}:${assistantMessage.id}`)
+      : undefined;
+
+    const filesByPath = new Map<string, OrchestrationCheckpointFile>();
+    for (const change of renderedChanges) {
+      const previous = filesByPath.get(change.files.path);
+      filesByPath.set(
+        change.files.path,
+        previous
+          ? {
+              ...previous,
+              additions: previous.additions + change.files.additions,
+              deletions: previous.deletions + change.files.deletions,
+            }
+          : change.files,
+      );
+    }
+    turnDiffs.push({
+      turnId: TurnId.make(turn.id),
+      completedAt: codexUnixTimestampToIso(turn.completedAt ?? turn.startedAt, thread.updatedAt),
+      diff: renderedChanges.map((change) => change.diff).join("\n"),
+      files: Array.from(filesByPath.values()),
+      // Terminal failed/interrupted turns can still contain completed file
+      // changes. Their native patch is final even though the turn outcome was
+      // not successful; only an in-progress turn remains a preview.
+      status: turnIsInProgress ? "missing" : "ready",
+      ...(assistantMessageId ? { assistantMessageId } : {}),
+    });
+  }
+  return turnDiffs;
+}
+
 /**
  * Normalize the durable Codex thread shape at the adapter boundary. T3 keeps
- * only text messages in its compatibility projection; native items such as
- * commands, reasoning, and file changes remain owned by Codex and continue to
- * arrive through the live provider event stream.
+ * text messages in its compatibility projection and also retains native file
+ * changes as a fallback for turns whose filesystem checkpoint is unavailable.
  */
 export function codexAppServerThreadToStoredThread(
   thread:
@@ -282,6 +438,7 @@ export function codexAppServerThreadToStoredThread(
         })()
       : {}),
     messages,
+    ...("turns" in thread ? { turnDiffs: codexAppServerThreadDiffs(thread) } : {}),
   };
 }
 

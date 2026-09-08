@@ -11,10 +11,13 @@ import {
 } from "@t3tools/contracts";
 import * as Layer from "effect/Layer";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as CheckpointDiffBlobRepository from "./persistence/Services/CheckpointDiffBlobs.ts";
+import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceRegistry.ts";
 import * as ProviderService from "./provider/Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
@@ -31,6 +34,7 @@ const makeStoredThread = (input: {
   readonly activeTurnId?: string;
   readonly archived: boolean;
   readonly messages: ReadonlyArray<ProviderStoredThread["messages"][number]>;
+  readonly turnDiffs?: ProviderStoredThread["turnDiffs"];
 }): ProviderStoredThread => ({
   nativeThreadId: input.nativeThreadId,
   cwd: "/tmp/codex-project",
@@ -44,6 +48,7 @@ const makeStoredThread = (input: {
   active: input.active,
   ...(input.activeTurnId ? { activeTurnId: TurnId.make(input.activeTurnId) } : {}),
   messages: input.messages,
+  ...(input.turnDiffs ? { turnDiffs: input.turnDiffs } : {}),
 });
 
 const makeQuery = (readModel: OrchestrationReadModel) =>
@@ -179,6 +184,7 @@ it.effect(
         "thread.create",
         "thread.archive",
         "thread.create",
+        "thread.session.set",
         "thread.history.import",
       ]);
       const createdThreads = commands.filter(
@@ -216,6 +222,191 @@ it.effect(
         activeTurnId: "turn-native-active",
       });
     }),
+);
+
+it.effect("backfills missing Codex checkpoint refs from native turn diffs", () =>
+  Effect.gen(function* () {
+    const nativeThreadId = "native-provider-diff";
+    const projectionThreadId = `codex:${nativeThreadId}`;
+    const projectId = "project-provider-diff";
+    const turnId = "turn-provider-diff";
+    const readyTurnId = "turn-native-ready";
+    const storedThread = makeStoredThread({
+      nativeThreadId,
+      active: false,
+      archived: false,
+      messages: [],
+      turnDiffs: [
+        {
+          turnId: TurnId.make(readyTurnId),
+          completedAt: "2026-09-01T10:03:00.000Z",
+          diff: "diff --git a/ready.ts b/ready.ts",
+          files: [
+            {
+              path: "ready.ts",
+              kind: "modified",
+              additions: 1,
+              deletions: 0,
+            },
+          ],
+        },
+        {
+          turnId: TurnId.make(turnId),
+          completedAt: "2026-09-01T10:05:00.000Z",
+          diff: "diff --git a/example.ts b/example.ts",
+          files: [
+            {
+              path: "example.ts",
+              kind: "modified",
+              additions: 1,
+              deletions: 0,
+            },
+          ],
+        },
+      ],
+    });
+    const commands: OrchestrationCommand[] = [];
+    const upserts: ProviderSessionDirectory.ProviderRuntimeBinding[] = [];
+    const blobs: CheckpointDiffBlobRepository.CheckpointDiffBlob[] = [];
+    const instance = {
+      instanceId,
+      driverKind: codex,
+      enabled: true,
+      adapter: {
+        storedThreadCatalog: {
+          listStoredThreads: () => Effect.succeed([storedThread]),
+          readStoredThread: () => Effect.succeed(storedThread),
+        },
+      },
+    };
+    const readModel = {
+      snapshotSequence: 0,
+      projects: [
+        {
+          id: projectId,
+          title: "provider-diff",
+          workspaceRoot: "/tmp/codex-project",
+          deletedAt: null,
+        },
+      ],
+      threads: [
+        {
+          id: projectionThreadId,
+          projectId,
+          title: storedThread.title,
+          modelSelection: { instanceId, model: DEFAULT_MODEL },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          latestTurn: null,
+          session: null,
+          archivedAt: null,
+          deletedAt: null,
+          messages: [],
+        },
+      ],
+      updatedAt: "2026-09-01T10:00:00.000Z",
+    } as unknown as OrchestrationReadModel;
+    const checkpointContext = {
+      threadId: projectionThreadId,
+      projectId,
+      workspaceRoot: "/tmp/codex-project",
+      worktreePath: null,
+      checkpoints: [
+        {
+          turnId: TurnId.make("legacy-ready-turn"),
+          checkpointTurnCount: 1,
+          checkpointRef: "git:ready-checkpoint",
+          status: "ready",
+          files: [],
+          assistantMessageId: null,
+          completedAt: "2026-09-01T10:03:00.000Z",
+        },
+        {
+          turnId: TurnId.make(turnId),
+          checkpointTurnCount: 2,
+          checkpointRef: "provider-diff:old-placeholder",
+          status: "missing",
+          files: [],
+          assistantMessageId: null,
+          completedAt: "2026-09-01T10:04:00.000Z",
+        },
+      ],
+    } as unknown as ProjectionSnapshotQuery.ProjectionThreadCheckpointContext;
+    const binding: ProviderSessionDirectory.ProviderRuntimeBindingWithMetadata = {
+      threadId: ThreadId.make(projectionThreadId),
+      provider: codex,
+      providerInstanceId: instanceId,
+      status: "stopped",
+      resumeCursor: { threadId: nativeThreadId },
+      runtimePayload: {},
+      lastSeenAt: "2026-09-01T10:00:00.000Z",
+    };
+
+    yield* ServerRuntimeStartup.syncCodexAppServerThreads.pipe(
+      Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+        ...makeQuery(readModel),
+        getThreadCheckpointContext: () => Effect.succeed(Option.some(checkpointContext)),
+      } as unknown as ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"]),
+      Effect.provideService(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+        listInstances: Effect.succeed([instance]),
+      } as never),
+      Effect.provideService(ProviderService.ProviderService, makeProviderService([])),
+      Effect.provideService(
+        ProviderSessionDirectory.ProviderSessionDirectory,
+        makeDirectory(upserts, [], [binding]),
+      ),
+      Effect.provideService(OrchestrationEngine.OrchestrationEngineService, makeEngine(commands)),
+      Effect.provideService(CheckpointDiffBlobRepository.CheckpointDiffBlobRepository, {
+        upsert: (row) =>
+          Effect.sync(() => {
+            blobs.push(row);
+          }),
+        get: () => Effect.succeed(Option.none()),
+        listByThreadId: () => Effect.succeed(blobs),
+        deleteAfterTurnCount: () => Effect.void,
+      }),
+      Effect.provideService(CheckpointStore.CheckpointStore, {
+        isGitRepository: () => Effect.succeed(true),
+      } as never),
+      Effect.provide(
+        Layer.mergeAll(
+          ServerSettings.layerTest({
+            defaultModelSelection: { instanceId, model: DEFAULT_MODEL },
+          }),
+          NodeServices.layer,
+        ),
+      ),
+    );
+
+    expect(blobs).toEqual([
+      {
+        threadId: projectionThreadId,
+        fromTurnCount: 0,
+        toTurnCount: 1,
+        diff: "diff --git a/ready.ts b/ready.ts",
+        createdAt: "2026-09-01T10:03:00.000Z",
+        status: "final",
+      },
+      {
+        threadId: projectionThreadId,
+        fromTurnCount: 1,
+        toTurnCount: 2,
+        diff: "diff --git a/example.ts b/example.ts",
+        createdAt: "2026-09-01T10:05:00.000Z",
+        status: "final",
+      },
+    ]);
+    expect(commands).toContainEqual(
+      expect.objectContaining({
+        type: "thread.turn.diff.complete",
+        threadId: projectionThreadId,
+        turnId,
+        checkpointTurnCount: 2,
+        status: "ready",
+        checkpointRef: `provider-diff:${projectionThreadId}:${turnId}`,
+      }),
+    );
+  }),
 );
 
 it.effect("does not re-import history hidden by the lightweight command read model", () =>

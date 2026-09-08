@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import { describe, expect } from "vite-plus/test";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as CheckpointDiffBlobRepository from "../persistence/Services/CheckpointDiffBlobs.ts";
 import { checkpointRefForThreadTurn } from "./Utils.ts";
 import * as CheckpointDiffQuery from "./CheckpointDiffQuery.ts";
 import * as CheckpointStore from "./CheckpointStore.ts";
@@ -106,6 +107,7 @@ describe("CheckpointDiffQuery.layer", () => {
                   worktreePath: "/tmp/worktree",
                   latestCheckpointTurnCount: 4,
                   toCheckpointRef,
+                  toCheckpointStatus: "missing",
                 });
               }),
             getThreadRuntimeContext: () => Effect.die("unused"),
@@ -391,6 +393,100 @@ describe("CheckpointDiffQuery.layer", () => {
       }).pipe(Effect.provide(layer));
 
       expect(hasCheckpointRefCallCount).toBe(0);
+    }),
+  );
+
+  it.effect("reads provider-native blobs for missing filesystem checkpoints", () =>
+    Effect.gen(function* () {
+      const projectId = ProjectId.make("project-provider-diff");
+      const threadId = ThreadId.make("thread-provider-diff");
+      const providerCheckpointRef = CheckpointRef.make("provider-diff:thread-provider-diff:turn-1");
+      const threadCheckpointContext = makeThreadCheckpointContext({
+        projectId,
+        threadId,
+        workspaceRoot: "/tmp/workspace",
+        worktreePath: null,
+        checkpointTurnCount: 1,
+        checkpointRef: providerCheckpointRef,
+      });
+      const checkpointStore: CheckpointStore.CheckpointStore["Service"] = {
+        isGitRepository: () => Effect.succeed(true),
+        captureCheckpoint: () => Effect.void,
+        hasCheckpointRef: () => Effect.succeed(false),
+        restoreCheckpoint: () => Effect.succeed(false),
+        diffCheckpoints: () => Effect.die("provider-native diff should not invoke Git"),
+        deleteCheckpointRefs: () => Effect.void,
+      };
+      const blobRepository: CheckpointDiffBlobRepository.CheckpointDiffBlobRepositoryShape = {
+        upsert: () => Effect.void,
+        get: () => Effect.succeed(Option.none()),
+        listByThreadId: () =>
+          Effect.succeed([
+            {
+              threadId,
+              fromTurnCount: 0,
+              toTurnCount: 1,
+              diff: "provider-native patch",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              status: "final",
+            },
+          ]),
+        deleteAfterTurnCount: () => Effect.void,
+      };
+      const projectionQuery = {
+        getThreadCheckpointContext: () => Effect.succeed(Option.some(threadCheckpointContext)),
+        getFullThreadDiffContext: () =>
+          Effect.succeed(
+            Option.some({
+              threadId,
+              projectId,
+              workspaceRoot: "/tmp/workspace",
+              worktreePath: null,
+              latestCheckpointTurnCount: 1,
+              toCheckpointRef: providerCheckpointRef,
+            }),
+          ),
+      } as unknown as ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"];
+      const layer = CheckpointDiffQuery.layer.pipe(
+        Layer.provideMerge(
+          Layer.succeed(CheckpointDiffBlobRepository.CheckpointDiffBlobRepository, blobRepository),
+        ),
+        Layer.provideMerge(Layer.succeed(CheckpointStore.CheckpointStore, checkpointStore)),
+        Layer.provideMerge(
+          Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, projectionQuery),
+        ),
+      );
+
+      const result = yield* Effect.gen(function* () {
+        const query = yield* CheckpointDiffQuery.CheckpointDiffQuery;
+        const turnDiff = yield* query.getTurnDiff({
+          threadId,
+          fromTurnCount: 0,
+          toTurnCount: 1,
+          ignoreWhitespace: true,
+        });
+        const fullThreadDiff = yield* query.getFullThreadDiff({
+          threadId,
+          toTurnCount: 1,
+          ignoreWhitespace: true,
+        });
+        return { turnDiff, fullThreadDiff };
+      }).pipe(Effect.provide(layer));
+
+      expect(result).toEqual({
+        turnDiff: {
+          threadId,
+          fromTurnCount: 0,
+          toTurnCount: 1,
+          diff: "provider-native patch",
+        },
+        fullThreadDiff: {
+          threadId,
+          fromTurnCount: 0,
+          toTurnCount: 1,
+          diff: "provider-native patch",
+        },
+      });
     }),
   );
 

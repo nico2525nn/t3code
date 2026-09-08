@@ -42,6 +42,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as CheckpointDiffBlobRepository from "../../persistence/Services/CheckpointDiffBlobs.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -273,6 +274,46 @@ describe("ProviderRuntimeIngestion", () => {
     const workspaceRoot = NodePath.join(repositoryRoot, options?.workspaceSubdirectory ?? "");
     NodeFS.mkdirSync(workspaceRoot, { recursive: true });
     const provider = createProviderServiceHarness();
+    const diffBlobs: CheckpointDiffBlobRepository.CheckpointDiffBlob[] = [];
+    const diffBlobRepository: CheckpointDiffBlobRepository.CheckpointDiffBlobRepositoryShape = {
+      upsert: (row) =>
+        Effect.sync(() => {
+          const existingIndex = diffBlobs.findIndex(
+            (existing) =>
+              existing.threadId === row.threadId &&
+              existing.fromTurnCount === row.fromTurnCount &&
+              existing.toTurnCount === row.toTurnCount,
+          );
+          if (existingIndex === -1) {
+            diffBlobs.push(row);
+          } else {
+            diffBlobs[existingIndex] = row;
+          }
+        }),
+      get: (input) =>
+        Effect.succeed(
+          Option.fromUndefinedOr(
+            diffBlobs.find(
+              (row) =>
+                row.threadId === input.threadId &&
+                row.fromTurnCount === input.fromTurnCount &&
+                row.toTurnCount === input.toTurnCount,
+            ),
+          ),
+        ),
+      listByThreadId: (input) =>
+        Effect.succeed(diffBlobs.filter((row) => row.threadId === input.threadId)),
+      deleteAfterTurnCount: (input) =>
+        Effect.sync(() => {
+          for (let index = diffBlobs.length - 1; index >= 0; index -= 1) {
+            const row = diffBlobs[index];
+            if (row === undefined) continue;
+            if (row.threadId === input.threadId && row.toTurnCount > input.turnCount) {
+              diffBlobs.splice(index, 1);
+            }
+          }
+        }),
+    };
     const sqlCounter = makeSqlStatementCounter();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
@@ -305,6 +346,12 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(ThreadBackgroundLiveness.layer),
       Layer.provideMerge(ThreadPlanProgress.layer),
       Layer.provideMerge(SqlitePersistenceMemory),
+      Layer.provideMerge(
+        Layer.succeed(
+          CheckpointDiffBlobRepository.CheckpointDiffBlobRepository,
+          diffBlobRepository,
+        ),
+      ),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
       Layer.provideMerge(CheckpointStore.layer.pipe(Layer.provide(VcsDriverRegistry.layer))),
@@ -395,6 +442,7 @@ describe("ProviderRuntimeIngestion", () => {
       emitAndDrain,
       sqlCount: sqlCounter.count,
       setProviderSession: provider.setSession,
+      readDiffBlobs: () => [...diffBlobs],
       drain,
     };
   }
@@ -3554,6 +3602,54 @@ describe("ProviderRuntimeIngestion", () => {
       const snapshot = yield* Effect.promise(harness.readModel);
       expect(snapshot.threads[0]?.checkpoints).toEqual([
         expect.objectContaining({ turnId: "nested-turn", status: "missing" }),
+      ]);
+      expect(harness.readDiffBlobs()).toEqual([
+        expect.objectContaining({
+          threadId: "thread-1",
+          fromTurnCount: 0,
+          toTurnCount: 1,
+          diff: "diff --git a/apps/server/file.ts b/apps/server/file.ts\n+new\n",
+        }),
+      ]);
+    }),
+  );
+
+  effectIt.effect("replaces a live turn diff without duplicating its checkpoint", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      yield* Effect.promise(() =>
+        harness.emitAndDrain([
+          {
+            type: "turn.diff.updated",
+            eventId: asEventId("evt-repeated-diff-1"),
+            provider: ProviderDriverKind.make("codex"),
+            createdAt: "2026-01-01T00:00:00.000Z",
+            threadId: asThreadId("thread-1"),
+            turnId: asTurnId("repeated-turn"),
+            payload: { unifiedDiff: "diff --git a/file.ts b/file.ts\n+old\n" },
+          },
+          {
+            type: "turn.diff.updated",
+            eventId: asEventId("evt-repeated-diff-2"),
+            provider: ProviderDriverKind.make("codex"),
+            createdAt: "2026-01-01T00:00:01.000Z",
+            threadId: asThreadId("thread-1"),
+            turnId: asTurnId("repeated-turn"),
+            payload: { unifiedDiff: "diff --git a/file.ts b/file.ts\n+new\n" },
+          },
+        ]),
+      );
+
+      const snapshot = yield* Effect.promise(harness.readModel);
+      expect(snapshot.threads[0]?.checkpoints).toEqual([
+        expect.objectContaining({ turnId: "repeated-turn", status: "missing" }),
+      ]);
+      expect(harness.readDiffBlobs()).toEqual([
+        expect.objectContaining({
+          fromTurnCount: 0,
+          toTurnCount: 1,
+          diff: "diff --git a/file.ts b/file.ts\n+new\n",
+        }),
       ]);
     }),
   );

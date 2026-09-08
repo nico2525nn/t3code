@@ -6,6 +6,7 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  OrchestrationCheckpointStatus,
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
@@ -252,6 +253,7 @@ const ProjectionFullThreadDiffContextRowSchema = Schema.Struct({
   worktreePath: Schema.NullOr(Schema.String),
   latestCheckpointTurnCount: Schema.NullOr(NonNegativeInt),
   toCheckpointRef: Schema.NullOr(CheckpointRef),
+  toCheckpointStatus: Schema.NullOr(OrchestrationCheckpointStatus),
 });
 
 const REQUIRED_SNAPSHOT_PROJECTORS = [
@@ -1822,7 +1824,14 @@ pending_approval_requests AS (
             WHERE turns.thread_id = threads.thread_id
               AND turns.checkpoint_turn_count = ${checkpointTurnCount}
             LIMIT 1
-          ) AS "toCheckpointRef"
+          ) AS "toCheckpointRef",
+          (
+            SELECT turns.checkpoint_status
+            FROM projection_turns AS turns
+            WHERE turns.thread_id = threads.thread_id
+              AND turns.checkpoint_turn_count = ${checkpointTurnCount}
+            LIMIT 1
+          ) AS "toCheckpointStatus"
         FROM projection_threads AS threads
         INNER JOIN projection_projects AS projects
           ON projects.project_id = threads.project_id
@@ -2885,6 +2894,7 @@ pending_approval_requests AS (
         worktreePath: row.value.worktreePath,
         latestCheckpointTurnCount: row.value.latestCheckpointTurnCount ?? 0,
         toCheckpointRef: row.value.toCheckpointRef,
+        toCheckpointStatus: row.value.toCheckpointStatus,
       });
     });
 

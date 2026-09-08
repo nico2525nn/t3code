@@ -1263,6 +1263,94 @@ describe("applyThreadDetailEvent", () => {
         }
       },
     );
+
+    it("keeps a newer Git checkpoint authoritative over historical provider repair", () => {
+      const thread: OrchestrationThread = {
+        ...baseThread,
+        latestTurn: {
+          turnId: TurnId.make("turn-2"),
+          state: "completed",
+          requestedAt: "2026-04-01T11:02:00.000Z",
+          startedAt: "2026-04-01T11:02:00.000Z",
+          completedAt: "2026-04-01T11:02:01.000Z",
+          assistantMessageId: null,
+        },
+        checkpoints: [
+          {
+            turnId: TurnId.make("turn-2"),
+            checkpointTurnCount: 2,
+            checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-1/turn/2"),
+            status: "ready",
+            files: [],
+            assistantMessageId: null,
+            completedAt: "2026-04-01T11:02:01.000Z",
+          },
+        ],
+      };
+
+      const result = applyThreadDetailEvent(thread, {
+        ...baseEventFields,
+        sequence: 14,
+        occurredAt: "2026-04-01T12:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: thread.id,
+        type: "thread.turn-diff-completed",
+        payload: {
+          threadId: thread.id,
+          turnId: TurnId.make("turn-1"),
+          checkpointTurnCount: 1,
+          checkpointRef: CheckpointRef.make("provider-diff:thread-1:turn-1"),
+          status: "ready",
+          files: [],
+          assistantMessageId: null,
+          completedAt: "2026-04-01T11:01:00.000Z",
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.latestTurn?.turnId).toBe("turn-2");
+        expect(result.thread.checkpoints.map((entry) => entry.checkpointTurnCount)).toEqual([1, 2]);
+      }
+    });
+
+    it("does not replace a Git checkpoint with a provider checkpoint at the same count", () => {
+      const thread: OrchestrationThread = {
+        ...baseThread,
+        checkpoints: [
+          {
+            turnId: TurnId.make("turn-1"),
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-1/turn/1"),
+            status: "ready",
+            files: [],
+            assistantMessageId: null,
+            completedAt: "2026-04-01T11:01:00.000Z",
+          },
+        ],
+      };
+
+      const result = applyThreadDetailEvent(thread, {
+        ...baseEventFields,
+        sequence: 15,
+        occurredAt: "2026-04-01T12:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: thread.id,
+        type: "thread.turn-diff-completed",
+        payload: {
+          threadId: thread.id,
+          turnId: TurnId.make("native-turn-1"),
+          checkpointTurnCount: 1,
+          checkpointRef: CheckpointRef.make("provider-diff:thread-1:native-turn-1"),
+          status: "ready",
+          files: [],
+          assistantMessageId: null,
+          completedAt: "2026-04-01T11:01:00.000Z",
+        },
+      });
+
+      expect(result.kind).toBe("unchanged");
+    });
   });
 
   describe("thread.reverted", () => {
