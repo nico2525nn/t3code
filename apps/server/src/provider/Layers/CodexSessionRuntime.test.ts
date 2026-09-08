@@ -14,6 +14,7 @@ import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import {
   buildTurnStartParams,
   describeMcpElicitation,
+  findActiveCodexTurnId,
   hasConfiguredMcpServer,
   isRecoverableThreadResumeError,
   makeMemoryConsolidationNotificationFilter,
@@ -61,6 +62,24 @@ function makeThreadOpenResponse(
     },
   } as unknown as CodexRpc.ClientRequestResponsesByMethod["thread/start"];
 }
+
+it("finds the latest in-progress native turn after a thread resume", () => {
+  NodeAssert.equal(
+    findActiveCodexTurnId({
+      turns: [
+        { id: "completed-turn", status: "completed", items: [] },
+        { id: "active-turn", status: "inProgress", items: [] },
+      ],
+    }),
+    "active-turn",
+  );
+  NodeAssert.equal(
+    findActiveCodexTurnId({
+      turns: [{ id: "completed-turn", status: "completed", items: [] }],
+    }),
+    undefined,
+  );
+});
 
 describe("buildTurnStartParams", () => {
   it("keeps invalid turn values only in the schema cause", () => {

@@ -69,78 +69,80 @@ export const makeCodexAppServerUnixWebSocketStdio = Effect.fn(
     options.onClosed?.();
   };
   const socket = yield* Effect.acquireRelease(
-    Effect.callback<NodeSocket.NodeWS.WebSocket, Error>((resume, signal) => {
-      const socket = new NodeSocket.NodeWS.WebSocket("ws://localhost/rpc", {
-        // `ws` accepts a custom dialer, which lets the HTTP upgrade travel
-        // over the Unix domain socket rather than trying localhost:80.
-        createConnection: () => NodeNet.createConnection({ path: socketPath }),
-        perMessageDeflate: false,
-      });
-      let settled = false;
-      let opened = false;
+    Effect.callback<NodeSocket.NodeWS.WebSocket, CodexErrors.CodexAppServerTransportError>(
+      (resume, signal) => {
+        const socket = new NodeSocket.NodeWS.WebSocket("ws://localhost/rpc", {
+          // `ws` accepts a custom dialer, which lets the HTTP upgrade travel
+          // over the Unix domain socket rather than trying localhost:80.
+          createConnection: () => NodeNet.createConnection({ path: socketPath }),
+          perMessageDeflate: false,
+        });
+        let settled = false;
+        let opened = false;
 
-      const disposeSocket = () => {
-        if (socket.readyState === NodeSocket.NodeWS.WebSocket.OPEN) {
-          socket.close();
-        } else if (socket.readyState !== NodeSocket.NodeWS.WebSocket.CLOSED) {
-          socket.terminate();
-        }
-      };
-      const cleanupHandshakeListeners = () => {
-        socket.off("open", onOpen);
-        socket.off("error", onError);
-        socket.off("close", onClose);
-      };
-      const failBeforeOpen = (cause: Error) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        cleanupHandshakeListeners();
-        disposeSocket();
-        resume(Effect.fail(cause));
-      };
-      const onOpen = () => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        opened = true;
-        // Keep the error/close listeners installed: a successful acquisition
-        // must still terminate the input stream when the peer disappears.
-        resume(Effect.succeed(socket));
-      };
-      const onError = (cause: Error) => {
-        if (!opened) {
-          failBeforeOpen(cause);
-          return;
-        }
-        endInput();
-        signalClosed();
-      };
-      const onClose = () => {
-        if (!opened) {
-          failBeforeOpen(
-            new Error(`Codex app-server WebSocket closed before opening ${socketPath}`),
-          );
-          return;
-        }
-        endInput();
-        signalClosed();
-      };
-      const onAbort = () => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        cleanupHandshakeListeners();
-        disposeSocket();
-      };
-      socket.on("open", onOpen);
-      socket.on("error", onError);
-      socket.on("close", onClose);
-      signal.addEventListener("abort", onAbort, { once: true });
-    }),
+        const disposeSocket = () => {
+          if (socket.readyState === NodeSocket.NodeWS.WebSocket.OPEN) {
+            socket.close();
+          } else if (socket.readyState !== NodeSocket.NodeWS.WebSocket.CLOSED) {
+            socket.terminate();
+          }
+        };
+        const cleanupHandshakeListeners = () => {
+          socket.off("open", onOpen);
+          socket.off("error", onError);
+          socket.off("close", onClose);
+        };
+        const failBeforeOpen = (cause: unknown) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          cleanupHandshakeListeners();
+          disposeSocket();
+          resume(Effect.fail(transportError(socketPath, cause)));
+        };
+        const onOpen = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          opened = true;
+          // Keep the error/close listeners installed: a successful acquisition
+          // must still terminate the input stream when the peer disappears.
+          resume(Effect.succeed(socket));
+        };
+        const onError = (cause: Error) => {
+          if (!opened) {
+            failBeforeOpen(cause);
+            return;
+          }
+          endInput();
+          signalClosed();
+        };
+        const onClose = () => {
+          if (!opened) {
+            failBeforeOpen(
+              new Error(`Codex app-server WebSocket closed before opening ${socketPath}`),
+            );
+            return;
+          }
+          endInput();
+          signalClosed();
+        };
+        const onAbort = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          cleanupHandshakeListeners();
+          disposeSocket();
+        };
+        socket.on("open", onOpen);
+        socket.on("error", onError);
+        socket.on("close", onClose);
+        signal.addEventListener("abort", onAbort, { once: true });
+      },
+    ),
     (socket) =>
       Effect.sync(() => {
         if (socket.readyState === NodeSocket.NodeWS.WebSocket.OPEN) {
@@ -149,7 +151,7 @@ export const makeCodexAppServerUnixWebSocketStdio = Effect.fn(
           socket.terminate();
         }
       }),
-  ).pipe(Effect.mapError((cause) => transportError(socketPath, cause)));
+  );
 
   socket.on("message", (data) => {
     void Effect.runFork(Queue.offer(input, encoder.encode(`${rawDataToString(data)}\n`)));

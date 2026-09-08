@@ -35,9 +35,11 @@ import {
 import * as Effect from "effect/Effect";
 import * as NodeCrypto from "node:crypto";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -206,15 +208,16 @@ function normalizeCodexThreadTitle(value: string | undefined | null): string | u
 
 function codexUnixTimestampToIso(value: number | null | undefined, fallback: number): string {
   const seconds = typeof value === "number" && Number.isFinite(value) ? value : fallback;
-  const date = new Date(seconds * 1000);
-  return Number.isNaN(date.getTime()) ? new Date(0).toISOString() : date.toISOString();
+  const date = DateTime.make(seconds * 1000);
+  return Option.isSome(date)
+    ? DateTime.formatIso(date.value)
+    : DateTime.formatIso(DateTime.makeUnsafe(0));
 }
 
-function isCodexSubAgentSource(
-  source:
-    | EffectCodexSchema.V2ThreadListResponse__Thread["source"]
-    | EffectCodexSchema.V2ThreadReadResponse__Thread["source"],
-): boolean {
+function isCodexSubAgentSource(source: unknown): boolean {
+  if (typeof source === "string") {
+    return source === "subAgent" || source.startsWith("subAgent");
+  }
   return typeof source === "object" && source !== null && "subAgent" in source;
 }
 

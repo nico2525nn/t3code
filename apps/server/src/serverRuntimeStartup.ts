@@ -782,6 +782,11 @@ function hasCodexNativeSettingsMarker(runtimePayload: unknown): boolean {
   return readRuntimePayload(runtimePayload).preserveProviderSettingsOnResume === true;
 }
 
+function readCodexNativeUpdatedAt(runtimePayload: unknown): string | undefined {
+  const value = readRuntimePayload(runtimePayload).nativeUpdatedAt;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 function codexWorkspaceKey(workspaceRoot: string): string {
   return normalizeProjectPathForComparison(workspaceRoot);
 }
@@ -867,9 +872,9 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
     }
   }
 
-  const hydratePersistedMessageIds = (thread: CodexThreadSyncState) => {
+  const hydratePersistedMessageIds = (thread: CodexThreadSyncState, force = false) => {
     const getThreadMessageIds = query.getThreadMessageIds;
-    if (getThreadMessageIds === undefined || thread.messageIds.size > 0) {
+    if (getThreadMessageIds === undefined || (!force && thread.messageIds.size > 0)) {
       return Effect.succeed(thread);
     }
     return getThreadMessageIds(thread.id).pipe(
@@ -1013,6 +1018,10 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
         }
 
         const threadId = codexProjectionThreadId(nativeThreadId, persistedBinding, threadsById);
+        const nativeUpdatedAtChanged =
+          persistedBinding !== undefined &&
+          readCodexNativeUpdatedAt(persistedBinding.persisted.runtimePayload) !==
+            listedThread.updatedAt;
         const migratedFromThreadId =
           persistedBinding !== undefined && persistedBinding.threadId !== threadId
             ? persistedBinding.threadId
@@ -1023,11 +1032,12 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
 
         let thread = threadsById.get(threadId);
         if (thread !== undefined) {
-          thread = yield* hydratePersistedMessageIds(thread);
+          thread = yield* hydratePersistedMessageIds(thread, nativeUpdatedAtChanged);
         }
         const needsHistoryRead =
           thread === undefined ||
-          (thread.messageIds.size === 0 && thread.latestTurn === null && thread.session === null);
+          (thread.messageIds.size === 0 && thread.latestTurn === null && thread.session === null) ||
+          nativeUpdatedAtChanged;
         // A resumed app-server subscription does not replay turn/started. Read
         // the native thread once when it is active but not currently attached
         // so the runtime can restore the in-progress turn before the reaper
@@ -1077,7 +1087,12 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
           threadsById.set(threadId, thread);
         }
 
-        if (sourceThread.messages.length > 0 && needsHistoryRead && thread.messageIds.size === 0) {
+        const missingMessages = sourceThread.messages.filter(
+          (message) => !thread.messageIds.has(message.messageId),
+        );
+        const canImportEmptyHistory =
+          thread.messageIds.size === 0 && thread.latestTurn === null && thread.session === null;
+        if (sourceThread.messages.length > 0 && needsHistoryRead && canImportEmptyHistory) {
           const wasArchived = thread.archivedAt !== null;
           if (wasArchived) {
             yield* orchestrationEngine.dispatch({
@@ -1109,6 +1124,22 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
             });
             thread.archivedAt = sourceThread.updatedAt;
           }
+        } else if (missingMessages.length > 0 && needsHistoryRead) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.history.import",
+            commandId: CommandId.make(yield* crypto.randomUUIDv4),
+            threadId,
+            reconcile: true,
+            messages: missingMessages.map((message) => ({
+              messageId: MessageId.make(message.messageId),
+              role: message.role,
+              text: message.text,
+              createdAt: message.createdAt,
+            })),
+          });
+          for (const message of missingMessages) {
+            thread.messageIds.add(message.messageId);
+          }
         }
 
         // Keep the native id even while the provider is idle. ProviderService
@@ -1120,7 +1151,9 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
           persistedBinding === undefined ||
           persistedBinding.threadId !== threadId ||
           persistedBinding.providerInstanceId !== instance.instanceId ||
-          !hasCodexNativeSettingsMarker(persistedBinding.persisted.runtimePayload)
+          !hasCodexNativeSettingsMarker(persistedBinding.persisted.runtimePayload) ||
+          readCodexNativeUpdatedAt(persistedBinding.persisted.runtimePayload) !==
+            sourceThread.updatedAt
         ) {
           const persisted = persistedBinding?.persisted;
           yield* directory.upsert({
@@ -1135,6 +1168,7 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
               cwd: sourceThread.cwd,
               modelSelection: thread.modelSelection,
               preserveProviderSettingsOnResume: true,
+              nativeUpdatedAt: sourceThread.updatedAt,
             },
           });
         }

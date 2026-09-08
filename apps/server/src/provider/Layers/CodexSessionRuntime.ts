@@ -1213,6 +1213,13 @@ function parseThreadSnapshot(
   };
 }
 
+export function findActiveCodexTurnId(
+  thread: Pick<EffectCodexSchema.V2ThreadReadResponse["thread"], "turns">,
+): TurnId | undefined {
+  const activeTurn = thread.turns.findLast((turn) => turn.status === "inProgress");
+  return activeTurn === undefined ? undefined : TurnId.make(activeTurn.id);
+}
+
 export const makeCodexSessionRuntime = (
   options: CodexSessionRuntimeOptions,
 ): Effect.Effect<
@@ -2350,18 +2357,36 @@ export const makeCodexSessionRuntime = (
       });
 
       const providerThreadId = opened.thread.id;
+      const resumedActiveTurnId =
+        options.activeTurnId === undefined
+          ? undefined
+          : yield* client
+              .request("thread/read", {
+                threadId: providerThreadId,
+                includeTurns: true,
+              })
+              .pipe(
+                Effect.map((response) => findActiveCodexTurnId(response.thread)),
+                Effect.catch((cause) =>
+                  Effect.logWarning("could not verify the active Codex turn after resume", {
+                    threadId: providerThreadId,
+                    activeTurnId: options.activeTurnId,
+                    cause,
+                  }).pipe(Effect.as(options.activeTurnId)),
+                ),
+              );
       const session = {
         ...(yield* Ref.get(sessionRef)),
-        status: options.activeTurnId ? "running" : "ready",
+        status: resumedActiveTurnId ? "running" : "ready",
         cwd: opened.cwd,
         model: opened.model,
         resumeCursor: { threadId: providerThreadId },
-        ...(options.activeTurnId ? { activeTurnId: options.activeTurnId } : {}),
+        ...(resumedActiveTurnId ? { activeTurnId: resumedActiveTurnId } : {}),
         updatedAt: yield* nowIso,
       } satisfies ProviderSession;
       yield* Ref.set(sessionRef, session);
       yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
-      if (options.activeTurnId) {
+      if (resumedActiveTurnId) {
         // `thread/resume` does not replay a turn/started notification for a
         // turn that began before T3 attached. Re-emit the normalized event so
         // the ordinary ProviderService event path restores the projection and
@@ -2369,7 +2394,7 @@ export const makeCodexSessionRuntime = (
         yield* emitEvent({
           kind: "notification",
           threadId: options.threadId,
-          turnId: options.activeTurnId,
+          turnId: resumedActiveTurnId,
           method: "turn/started",
         });
       }

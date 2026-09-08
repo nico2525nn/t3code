@@ -31,6 +31,13 @@ it("normalizes Codex catalog metadata without losing native identity", () => {
       name: "  Import   the existing thread  ",
       source: { subAgent: "review" },
       status: { type: "active", activeFlags: [] },
+      turns: [
+        {
+          id: "active-turn",
+          status: "inProgress",
+          items: [],
+        },
+      ],
     }),
     true,
   );
@@ -46,6 +53,7 @@ it("normalizes Codex catalog metadata without losing native identity", () => {
     ephemeral: false,
     subAgent: true,
     active: true,
+    activeTurnId: "active-turn",
   });
 });
 

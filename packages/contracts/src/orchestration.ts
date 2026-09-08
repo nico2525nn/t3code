@@ -1155,6 +1155,8 @@ const ThreadHistoryImportCommand = Schema.Struct({
   type: Schema.Literal("thread.history.import"),
   commandId: CommandId,
   threadId: ThreadId,
+  /** Internal catalog reconciliation may add only native messages not already projected. */
+  reconcile: Schema.optional(Schema.Boolean),
   messages: Schema.Array(
     Schema.Struct({
       messageId: MessageId,

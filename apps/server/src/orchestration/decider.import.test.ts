@@ -174,6 +174,98 @@ it.layer(NodeServices.layer)("thread history import", (it) => {
     }),
   );
 
+  it.effect("reconciles only native messages missing from an existing thread", () =>
+    Effect.gen(function* () {
+      const createdAt = "2026-08-24T10:00:00.000Z";
+      const threadId = ThreadId.make("codex:native-thread-1");
+      const existingMessageId = MessageId.make("import:codex:native-thread-1:turn-1:user-1");
+      const newMessageId = MessageId.make("import:codex:native-thread-1:turn-1:assistant-1");
+      const created = yield* projectEvent(createEmptyReadModel(createdAt), {
+        sequence: 1,
+        eventId: EventId.make("event-reconcile-thread-created"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        type: "thread.created",
+        occurredAt: createdAt,
+        commandId: CommandId.make("command-reconcile-thread-created"),
+        causationEventId: null,
+        correlationId: CommandId.make("command-reconcile-thread-created"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-1"),
+          title: "Codex thread",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      const readModel = yield* projectEvent(created, {
+        sequence: 2,
+        eventId: EventId.make("event-reconcile-existing-message"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        type: "thread.message-sent",
+        occurredAt: createdAt,
+        commandId: CommandId.make("command-reconcile-existing-message"),
+        causationEventId: null,
+        correlationId: CommandId.make("command-reconcile-existing-message"),
+        metadata: { historyImport: true },
+        payload: {
+          threadId,
+          messageId: existingMessageId,
+          role: "user",
+          text: "Continue the existing work",
+          turnId: null,
+          streaming: false,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+
+      const events = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.history.import",
+          commandId: CommandId.make("command-reconcile-history"),
+          threadId,
+          reconcile: true,
+          messages: [
+            {
+              messageId: existingMessageId,
+              role: "user",
+              text: "Continue the existing work",
+              createdAt,
+            },
+            {
+              messageId: newMessageId,
+              role: "assistant",
+              text: "I continued the work.",
+              createdAt: "2026-08-24T10:00:01.000Z",
+            },
+          ],
+        },
+        readModel,
+      });
+
+      expect(events).toMatchObject([
+        {
+          type: "thread.message-sent",
+          metadata: { historyImport: true },
+          payload: {
+            messageId: newMessageId,
+            role: "assistant",
+            text: "I continued the work.",
+          },
+        },
+      ]);
+      expect(events).not.toContainEqual(expect.objectContaining({ type: "thread.settled" }));
+    }),
+  );
+
   it.effect("allows a thread with a newly imported user message to be settled", () =>
     Effect.gen(function* () {
       const createdAt = "2026-08-24T10:00:00.000Z";

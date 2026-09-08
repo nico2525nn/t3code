@@ -9,6 +9,7 @@ import { assert, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Scope from "effect/Scope";
@@ -64,7 +65,7 @@ it.layer(NodeServices.layer)("CodexAppServerManager", (it) => {
     Effect.gen(function* () {
       const markerPath = NodePath.join(
         NodeOS.tmpdir(),
-        `t3-codex-manager-test-${process.pid}-${Date.now()}.log`,
+        `t3-codex-manager-test-${process.pid}-${DateTime.toEpochMillis(DateTime.nowUnsafe())}.log`,
       );
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => NodeFS.rmSync(markerPath, { force: true })),

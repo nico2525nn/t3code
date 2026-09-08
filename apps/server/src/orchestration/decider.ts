@@ -1538,21 +1538,31 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const reconcile = command.reconcile === true;
       if (
-        thread.deletedAt !== null ||
-        thread.archivedAt !== null ||
-        thread.messages.length > 0 ||
-        thread.latestTurn !== null ||
-        thread.session !== null ||
-        openRequests(thread).size > 0
+        !reconcile &&
+        (thread.deletedAt !== null ||
+          thread.archivedAt !== null ||
+          thread.messages.length > 0 ||
+          thread.latestTurn !== null ||
+          thread.session !== null ||
+          openRequests(thread).size > 0)
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Thread '${command.threadId}' must be active and empty before history can be imported.`,
         });
       }
-      const firstMessage = command.messages[0];
+      const messages = reconcile
+        ? command.messages.filter(
+            (message) => !thread.messages.some((existing) => existing.id === message.messageId),
+          )
+        : command.messages;
+      const firstMessage = messages[0];
       if (firstMessage === undefined) {
+        if (reconcile) {
+          return [];
+        }
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: "Thread history imports require at least one message.",
@@ -1560,7 +1570,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       }
 
       const events: Array<PlannedOrchestrationEvent> = [];
-      for (const message of command.messages) {
+      for (const message of messages) {
         events.push({
           ...(yield* withEventBase({
             aggregateKind: "thread",
@@ -1581,6 +1591,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             updatedAt: message.createdAt,
           },
         });
+      }
+      if (reconcile) {
+        return events;
       }
       const settledAt = command.messages.reduce(
         (latest, message) =>
