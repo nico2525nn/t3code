@@ -191,6 +191,12 @@ const ThreadIdLookupInput = Schema.Struct({
 const ProjectionThreadMessageIdRowSchema = Schema.Struct({
   messageId: MessageId,
 });
+const ProjectionThreadMessageSummaryRowSchema = Schema.Struct({
+  messageId: MessageId,
+  role: ProjectionThreadMessage.fields.role,
+  text: Schema.String,
+  createdAt: IsoDateTime,
+});
 const TurnStartMessageLookupInput = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
@@ -1200,6 +1206,22 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           message_id AS "messageId"
+        FROM projection_thread_messages
+        WHERE thread_id = ${threadId}
+        ORDER BY created_at ASC, message_id ASC
+      `,
+  });
+
+  const listThreadMessageSummariesByThread = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadMessageSummaryRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          message_id AS "messageId",
+          role,
+          text,
+          created_at AS "createdAt"
         FROM projection_thread_messages
         WHERE thread_id = ${threadId}
         ORDER BY created_at ASC, message_id ASC
@@ -2366,6 +2388,26 @@ pending_approval_requests AS (
       ),
     );
 
+  const getThreadMessageSummaries: NonNullable<
+    ProjectionSnapshotQueryShape["getThreadMessageSummaries"]
+  > = (threadId) =>
+    listThreadMessageSummariesByThread({ threadId }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getThreadMessageSummaries:query",
+          "ProjectionSnapshotQuery.getThreadMessageSummaries:decodeRows",
+        ),
+      ),
+      Effect.map((rows) =>
+        rows.map((row) => ({
+          id: row.messageId,
+          role: row.role,
+          text: row.text,
+          createdAt: row.createdAt,
+        })),
+      ),
+    );
+
   const getShellSnapshot: ProjectionSnapshotQueryShape["getShellSnapshot"] = () =>
     sql
       .withTransaction(
@@ -3438,6 +3480,7 @@ pending_approval_requests AS (
   return {
     getCommandReadModel,
     getThreadMessageIds,
+    getThreadMessageSummaries,
     getUserInputActivity,
     getSnapshot,
     getShellSnapshot,

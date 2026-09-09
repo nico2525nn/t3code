@@ -13,6 +13,7 @@ import {
   type OrchestrationGetFullThreadDiffResult,
   type OrchestrationGetTurnDiffInput,
   type OrchestrationGetTurnDiffResult as OrchestrationGetTurnDiffResultType,
+  type OrchestrationCheckpointSummary,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -90,6 +91,9 @@ export const make = Effect.gen(function* () {
     threadId: ThreadId,
     fromTurnCount: number,
     toTurnCount: number,
+    checkpoints: ReadonlyArray<
+      Pick<OrchestrationCheckpointSummary, "checkpointTurnCount" | "files">
+    > = [],
   ): Effect.Effect<Option.Option<string>, CheckpointServiceError> =>
     Option.match(providerDiffBlobRepository, {
       onNone: () => Effect.succeed(Option.none()),
@@ -101,16 +105,33 @@ export const make = Effect.gen(function* () {
                 (blob) => blob.fromTurnCount >= fromTurnCount && blob.toTurnCount <= toTurnCount,
               )
               .toSorted((left, right) => left.toTurnCount - right.toTurnCount);
-            let expectedFrom = fromTurnCount;
-            for (const blob of selected) {
-              if (blob.fromTurnCount !== expectedFrom) {
+            const blobsByToTurnCount = new Map(selected.map((blob) => [blob.toTurnCount, blob]));
+            const checkpointsByTurnCount = new Map(
+              checkpoints.map((checkpoint) => [checkpoint.checkpointTurnCount, checkpoint]),
+            );
+            const diffs: Array<string> = [];
+            for (let to = fromTurnCount + 1; to <= toTurnCount; to += 1) {
+              const blob = blobsByToTurnCount.get(to);
+              if (blob !== undefined) {
+                if (blob.fromTurnCount !== to - 1) {
+                  return Option.none<string>();
+                }
+                diffs.push(blob.diff);
+                continue;
+              }
+
+              // Codex does not emit a file-change item for a turn that left
+              // the workspace unchanged. Treat that missing blob as an empty
+              // patch so a later provider-native turn remains viewable across
+              // an unchanged turn. A checkpoint with file metadata but no
+              // blob is still incomplete and must not be silently erased.
+              const checkpoint = checkpointsByTurnCount.get(to);
+              if (checkpoint === undefined || checkpoint.files.length > 0) {
                 return Option.none<string>();
               }
-              expectedFrom = blob.toTurnCount;
+              diffs.push("");
             }
-            return expectedFrom === toTurnCount
-              ? Option.some(selected.map((blob) => blob.diff).join("\n"))
-              : Option.none<string>();
+            return Option.some(diffs.join("\n"));
           }),
         ),
     });
@@ -206,6 +227,7 @@ export const make = Effect.gen(function* () {
           input.threadId,
           input.fromTurnCount,
           input.toTurnCount,
+          threadContext.value.checkpoints,
         );
         if (Option.isSome(providerDiff)) {
           return buildTurnDiffResult(input, providerDiff.value);
@@ -321,7 +343,17 @@ export const make = Effect.gen(function* () {
       threadContext.value.toCheckpointStatus !== null &&
       threadContext.value.toCheckpointStatus !== "ready";
     if (toCheckpointIsProviderDiff || toCheckpointNeedsProviderFallback) {
-      const providerDiff = yield* readProviderDiffRange(input.threadId, 0, input.toTurnCount);
+      const checkpoints = Option.isSome(providerDiffBlobRepository)
+        ? yield* projectionSnapshotQuery
+            .getThreadCheckpointContext(input.threadId)
+            .pipe(Effect.withSpan("checkpoint.fullThread.lookupCheckpoints"))
+        : Option.none();
+      const providerDiff = yield* readProviderDiffRange(
+        input.threadId,
+        0,
+        input.toTurnCount,
+        Option.isSome(checkpoints) ? checkpoints.value.checkpoints : [],
+      );
       if (Option.isSome(providerDiff)) {
         return buildTurnDiffResult(
           {

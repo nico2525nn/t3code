@@ -14,6 +14,7 @@ import type {
 } from "@t3tools/contracts";
 import { isImportedAgentSessionMessageId } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
+import { isDuplicateCodexHistoryMessageForExisting } from "@t3tools/shared/codexMessageReconciliation";
 
 export type ThreadDetailReducerResult =
   | { readonly kind: "updated"; readonly thread: OrchestrationThread }
@@ -327,6 +328,25 @@ export function applyThreadDetailEvent(
         createdAt: event.payload.createdAt,
         updatedAt: event.payload.updatedAt,
       };
+
+      if (
+        isDuplicateCodexHistoryMessageForExisting(
+          {
+            messageId: String(message.id),
+            role: message.role,
+            text: message.text,
+            createdAt: message.createdAt,
+          },
+          thread.messages.map((existing) => ({
+            messageId: String(existing.id),
+            role: existing.role,
+            text: existing.text,
+            createdAt: existing.createdAt,
+          })),
+        )
+      ) {
+        return { kind: "unchanged" };
+      }
 
       const existingMessage = thread.messages.find((entry) => entry.id === message.id);
       const messages = existingMessage

@@ -8,6 +8,10 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
+import {
+  isCodexHistoryMessageId,
+  isDuplicateCodexHistoryMessageForExisting,
+} from "@t3tools/shared/codexMessageReconciliation";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -1032,6 +1036,15 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               updatedAt: event.payload.updatedAt,
             });
             return;
+          }
+
+          if (isCodexHistoryMessageId(event.payload.messageId)) {
+            const existingRows = yield* projectionThreadMessageRepository.listByThreadId({
+              threadId: event.payload.threadId,
+            });
+            if (isDuplicateCodexHistoryMessageForExisting(event.payload, existingRows)) {
+              return;
+            }
           }
 
           const existingMessage = yield* projectionThreadMessageRepository.getByMessageId({

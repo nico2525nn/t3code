@@ -510,6 +510,122 @@ it.effect("does not re-import history hidden by the lightweight command read mod
   }),
 );
 
+it.effect("does not re-import a Codex history copy of a live T3 message", () =>
+  Effect.gen(function* () {
+    const nativeThreadId = "native-live-message";
+    const projectionThreadId = `codex:${nativeThreadId}`;
+    const directMessageId = "user-live-1";
+    const readCalls: string[] = [];
+    const messageSummaryCalls: string[] = [];
+    const commands: OrchestrationCommand[] = [];
+    const upserts: ProviderSessionDirectory.ProviderRuntimeBinding[] = [];
+    const storedThread = makeStoredThread({
+      nativeThreadId,
+      active: false,
+      archived: false,
+      messages: [
+        {
+          messageId: `import:codex:${nativeThreadId}:turn-1:user-1`,
+          role: "user",
+          text: "same prompt",
+          createdAt: "2026-09-01T10:01:00.000Z",
+        },
+      ],
+    });
+    const instance = {
+      instanceId,
+      driverKind: codex,
+      enabled: true,
+      adapter: {
+        storedThreadCatalog: {
+          listStoredThreads: () => Effect.succeed([storedThread]),
+          readStoredThread: (input: { readonly nativeThreadId: string }) =>
+            Effect.sync(() => {
+              readCalls.push(input.nativeThreadId);
+              return storedThread;
+            }),
+        },
+      },
+    };
+    const readModel = {
+      snapshotSequence: 0,
+      projects: [
+        {
+          id: "project-live-message",
+          title: "codex-project",
+          workspaceRoot: "/tmp/codex-project",
+          deletedAt: null,
+        },
+      ],
+      threads: [
+        {
+          id: projectionThreadId,
+          projectId: "project-live-message",
+          title: storedThread.title,
+          modelSelection: { instanceId, model: DEFAULT_MODEL },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          latestTurn: null,
+          session: null,
+          archivedAt: null,
+          deletedAt: null,
+          messages: [],
+        },
+      ],
+      updatedAt: "2026-09-01T10:00:00.000Z",
+    } as unknown as OrchestrationReadModel;
+    const binding: ProviderSessionDirectory.ProviderRuntimeBindingWithMetadata = {
+      threadId: ThreadId.make(projectionThreadId),
+      provider: codex,
+      providerInstanceId: instanceId,
+      status: "stopped",
+      resumeCursor: { threadId: nativeThreadId },
+      runtimePayload: { nativeUpdatedAt: "2026-09-01T10:00:00.000Z" },
+      lastSeenAt: "2026-09-01T10:00:00.000Z",
+    };
+
+    yield* ServerRuntimeStartup.syncCodexAppServerThreads.pipe(
+      Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+        ...makeQuery(readModel),
+        getThreadMessageIds: () => Effect.succeed([directMessageId]),
+        getThreadMessageSummaries: (threadId: string) =>
+          Effect.sync(() => {
+            messageSummaryCalls.push(threadId);
+            return [
+              {
+                id: directMessageId,
+                role: "user" as const,
+                text: "same prompt",
+                createdAt: "2026-09-01T10:01:00.200Z",
+              },
+            ];
+          }),
+      } as unknown as ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"]),
+      Effect.provideService(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+        listInstances: Effect.succeed([instance]),
+      } as never),
+      Effect.provideService(ProviderService.ProviderService, makeProviderService([])),
+      Effect.provideService(
+        ProviderSessionDirectory.ProviderSessionDirectory,
+        makeDirectory(upserts, [], [binding]),
+      ),
+      Effect.provideService(OrchestrationEngine.OrchestrationEngineService, makeEngine(commands)),
+      Effect.provide(
+        Layer.mergeAll(
+          ServerSettings.layerTest({
+            defaultModelSelection: { instanceId, model: DEFAULT_MODEL },
+          }),
+          NodeServices.layer,
+        ),
+      ),
+    );
+
+    expect(readCalls).toEqual([nativeThreadId]);
+    expect(messageSummaryCalls).toEqual([projectionThreadId]);
+    expect(commands).toEqual([]);
+  }),
+);
+
 it.effect("moves a legacy Codex binding to the native-id projection thread", () =>
   Effect.gen(function* () {
     const nativeThreadId = "native-cpp-fabricmc";

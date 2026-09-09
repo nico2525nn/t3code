@@ -434,6 +434,46 @@ describe("applyThreadDetailEvent", () => {
       }
     });
 
+    it("ignores a Codex history copy of a live T3 message", () => {
+      const threadWithLiveMessage: OrchestrationThread = {
+        ...baseThread,
+        messages: [
+          {
+            id: MessageId.make("user-live-1"),
+            role: "user",
+            text: "same prompt",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-04-01T06:00:00.200Z",
+            updatedAt: "2026-04-01T06:00:00.200Z",
+          },
+        ],
+      };
+      const result = applyThreadDetailEvent(threadWithLiveMessage, {
+        ...baseEventFields,
+        sequence: 7,
+        occurredAt: "2026-04-01T06:00:01.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-sent",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageId: MessageId.make("import:codex:session-1:turn-1:user-1"),
+          role: "user",
+          text: "same prompt",
+          turnId: null,
+          streaming: false,
+          createdAt: "2026-04-01T06:00:00.000Z",
+          updatedAt: "2026-04-01T06:00:00.000Z",
+        },
+      });
+
+      expect(result.kind).toBe("unchanged");
+      if (result.kind === "updated") {
+        expect(result.thread.messages).toHaveLength(1);
+      }
+    });
+
     it("keeps imported replies turnless when delivered again", () => {
       const event = {
         ...baseEventFields,

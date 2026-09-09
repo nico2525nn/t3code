@@ -105,6 +105,17 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<ReadonlyArray<MessageId>, ProjectionRepositoryError>;
 
   /**
+   * Read the small message projection needed to reconcile provider history
+   * against messages that were already written by a live provider turn.
+   */
+  readonly getThreadMessageSummaries?: (
+    threadId: ThreadId,
+  ) => Effect.Effect<
+    ReadonlyArray<Pick<OrchestrationMessage, "id" | "role" | "text" | "createdAt">>,
+    ProjectionRepositoryError
+  >;
+
+  /**
    * Read the latest orchestration projection snapshot.
    *
    * Rehydrates from projection tables and derives snapshot sequence from

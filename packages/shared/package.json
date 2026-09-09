@@ -278,6 +278,10 @@
     "./dateTime": {
       "types": "./src/dateTime.ts",
       "import": "./src/dateTime.ts"
+    },
+    "./codexMessageReconciliation": {
+      "types": "./src/codexMessageReconciliation.ts",
+      "import": "./src/codexMessageReconciliation.ts"
     }
   },
   "scripts": {

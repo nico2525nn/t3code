@@ -7,6 +7,10 @@ import {
   OrchestrationThread,
 } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
+import {
+  isCodexHistoryMessageId,
+  isDuplicateCodexHistoryMessageForExisting,
+} from "@t3tools/shared/codexMessageReconciliation";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Predicate from "effect/Predicate";
@@ -580,6 +584,26 @@ export function projectEvent(
           event.type,
           "message",
         );
+
+        if (
+          isCodexHistoryMessageId(String(message.id)) &&
+          isDuplicateCodexHistoryMessageForExisting(
+            {
+              messageId: String(message.id),
+              role: message.role,
+              text: message.text,
+              createdAt: message.createdAt,
+            },
+            thread.messages.map((existing) => ({
+              messageId: String(existing.id),
+              role: existing.role,
+              text: existing.text,
+              createdAt: existing.createdAt,
+            })),
+          )
+        ) {
+          return nextBase;
+        }
 
         const existingMessage = thread.messages.find((entry) => entry.id === message.id);
         const messages = existingMessage

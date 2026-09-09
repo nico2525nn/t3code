@@ -17,6 +17,7 @@ import {
 } from "@t3tools/contracts";
 import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import { resolveProjectAutoPull } from "@t3tools/shared/serverSettings";
+import { isDuplicateCodexHistoryMessageForExisting } from "@t3tools/shared/codexMessageReconciliation";
 import * as Cause from "effect/Cause";
 import * as Console from "effect/Console";
 import * as Context from "effect/Context";
@@ -1222,6 +1223,18 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
               })
             : undefined;
         const sourceThread = storedThread ?? listedThread;
+        const projectedMessageSummaries =
+          thread !== undefined &&
+          needsHistoryRead &&
+          typeof query.getThreadMessageSummaries === "function"
+            ? yield* query.getThreadMessageSummaries(threadId)
+            : [];
+        const projectedMessageIdentities = projectedMessageSummaries.map((message) => ({
+          messageId: String(message.id),
+          role: message.role,
+          text: message.text,
+          createdAt: message.createdAt,
+        }));
 
         if (thread === undefined) {
           const project = yield* ensureProject(sourceThread.cwd);
@@ -1284,9 +1297,12 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
           yield* syncProviderTurnDiffs(threadId, storedThread);
         }
 
-        const missingMessages = sourceThread.messages.filter(
-          (message) => !thread.messageIds.has(message.messageId),
-        );
+        const missingMessages = sourceThread.messages.filter((message) => {
+          if (thread.messageIds.has(message.messageId)) {
+            return false;
+          }
+          return !isDuplicateCodexHistoryMessageForExisting(message, projectedMessageIdentities);
+        });
         const canImportEmptyHistory =
           thread.messageIds.size === 0 && thread.latestTurn === null && thread.session === null;
         if (sourceThread.messages.length > 0 && needsHistoryRead && canImportEmptyHistory) {
