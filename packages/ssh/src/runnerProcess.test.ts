@@ -13,6 +13,8 @@ import * as NodeNet from "node:net";
 
 import { buildRemoteStopScript, buildRemoteT3RunnerScript } from "./tunnel.ts";
 
+const TEST_NODE_ENGINE_RANGE = "^22.16 || ^23.11 || >=24.10";
+
 const Started = Schema.Struct({
   pid: Schema.Number,
   port: Schema.Number,
@@ -424,6 +426,83 @@ if (mode === "etarget" || mode === "failed-with-path") {
         } else {
           assert.equal(calls, "");
         }
+      }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+    );
+
+    it.live("uses bunx when Node is unavailable", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const fixture = yield* fs.makeTempDirectoryScoped({ prefix: "t3-runner-bunx-" });
+        const bin = path.join(fixture, "bin");
+        const cliPath = path.join(fixture, "installed-cli.mjs");
+        const bunxPath = path.join(bin, "bunx");
+        const packageSpec = "t3@0.0.39-nightly.20260905.1286";
+        const args = ["serve", "a path with spaces"];
+        const nodeShebang = `#!${process.execPath}`;
+        yield* fs.makeDirectory(bin);
+        yield* fs.symlink(process.execPath, path.join(bin, "bun"));
+        yield* fs.writeFileString(
+          cliPath,
+          `${nodeShebang}
+process.stdout.write(JSON.stringify(process.argv.slice(2)) + "\\n");
+`,
+        );
+        yield* fs.chmod(cliPath, 0o700);
+        yield* fs.writeFileString(
+          bunxPath,
+          `${nodeShebang}
+const args = process.argv.slice(2);
+if (args[0] !== "--bun" || args[1] !== "${packageSpec}") {
+  process.exit(41);
+}
+const child = require("node:child_process").spawnSync(
+  process.env.T3_TEST_CLI,
+  args.slice(2),
+  { encoding: "utf8" },
+);
+if (child.stdout) process.stdout.write(child.stdout);
+if (child.stderr) process.stderr.write(child.stderr);
+process.exit(child.status ?? 1);
+`,
+        );
+        yield* fs.chmod(bunxPath, 0o700);
+
+        const child = yield* spawner.spawn(
+          ChildProcess.make("/bin/sh", ["-s", "--", ...args], {
+            cwd: fixture,
+            extendEnv: false,
+            env: {
+              HOME: fixture,
+              PATH: bin,
+              T3_TEST_CLI: cliPath,
+            },
+            stdin: Stream.make(
+              new TextEncoder().encode(
+                `node() { return 1; }\n${buildRemoteT3RunnerScript({
+                  packageSpec,
+                  nodeEngineRange: TEST_NODE_ENGINE_RANGE,
+                })}`,
+              ),
+            ),
+          }),
+        );
+        const { stdout, stderr, exitCode } = yield* Effect.all(
+          {
+            stdout: child.stdout.pipe(Stream.decodeText(), Stream.mkString),
+            stderr: child.stderr.pipe(Stream.decodeText(), Stream.mkString),
+            exitCode: child.exitCode,
+          },
+          { concurrency: "unbounded" },
+        );
+
+        assert.equal(exitCode, 0);
+        const decodedArgs = yield* Schema.decodeEffect(
+          Schema.fromJsonString(Schema.Array(Schema.String)),
+        )(stdout.trim());
+        assert.deepEqual(decodedArgs, args);
+        assert.equal(stderr, "");
       }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
     );
   },

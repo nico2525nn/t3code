@@ -102,7 +102,7 @@ function commandArgs(command: ChildProcess.Command): ReadonlyArray<string> {
 }
 
 describe("ssh tunnel scripts", () => {
-  it("builds the remote t3 runner with npx and npm fallbacks", () => {
+  it("builds the remote t3 runner with npx, npm, and bunx fallbacks", () => {
     const script = buildRemoteT3RunnerScript({ nodeEngineRange: TEST_NODE_ENGINE_RANGE });
 
     assert.include(script, "T3_NODE_SCRIPT_PATH=''");
@@ -111,8 +111,12 @@ describe("ssh tunnel scripts", () => {
     assert.include(script, "could not install 't3@latest'");
     assert.include(script, "require_installed_t3_cli npx --yes --package 't3@latest'");
     assert.include(script, "require_installed_t3_cli npm exec --yes --package 't3@latest'");
+    assert.include(script, "exec bunx --bun 't3@latest' \"$@\"");
+    assert.include(script, "exec bun x --bun 't3@latest' \"$@\"");
+    assert.include(script, "ensure_remote_js_runtime_path()");
     assert.include(script, "npm produced no t3 executable");
     assert.include(script, 'prepend_path_if_dir "$HOME/.local/bin"');
+    assert.include(script, 'prepend_path_if_dir "$HOME/.bun/bin"');
     assert.include(script, `T3_NODE_ENGINE_RANGE='${TEST_NODE_ENGINE_RANGE}'`);
     assert.include(script, "remote_node_satisfies_engine()");
     assert.include(script, "function satisfiesSemverRange");
@@ -146,6 +150,8 @@ describe("ssh tunnel scripts", () => {
       script,
       "require_installed_t3_cli npx --yes --package 't3@nightly; touch /tmp/t3-owned'",
     );
+    assert.include(script, "exec bunx --bun 't3@nightly; touch /tmp/t3-owned' \"$@\"");
+    assert.include(script, "exec bun x --bun 't3@nightly; touch /tmp/t3-owned' \"$@\"");
     assert.notInclude(script, "exec npx --yes t3@nightly; touch /tmp/t3-owned");
   });
 
@@ -158,7 +164,7 @@ describe("ssh tunnel scripts", () => {
       script,
       "T3_NODE_SCRIPT_PATH='/Users/julius/Development/Work/codething-mvp/apps/server/dist/bin.mjs'",
     );
-    assert.include(script, 'exec node "$T3_NODE_SCRIPT_PATH" "$@"');
+    assert.include(script, 'exec "$T3_JS_RUNTIME" "$T3_NODE_SCRIPT_PATH" "$@"');
   });
 
   it("uses the remote t3 runner for launch and pairing scripts", () => {
@@ -174,8 +180,8 @@ describe("ssh tunnel scripts", () => {
       '[ -n "$REMOTE_PID" ] && [ -n "$REMOTE_PORT" ] && kill -0 "$REMOTE_PID" 2>/dev/null',
     );
     assert.include(buildRemoteLaunchScript(), "RUNNER_CHANGED=1");
-    assert.include(buildRemoteLaunchScript(), "ensure_remote_node_path()");
-    assert.include(buildRemoteLaunchScript(), "if ! ensure_remote_node_path; then");
+    assert.include(buildRemoteLaunchScript(), "ensure_remote_js_runtime_path()");
+    assert.include(buildRemoteLaunchScript(), "if ! ensure_remote_js_runtime_path; then");
     assert.include(
       buildRemoteLaunchScript({ nodeEngineRange: TEST_NODE_ENGINE_RANGE }),
       `T3_NODE_ENGINE_RANGE='${TEST_NODE_ENGINE_RANGE}'`,

@@ -335,6 +335,7 @@ ensure_remote_node_path() {
 
   prepend_path_if_dir "$HOME/.local/bin"
   prepend_path_if_dir "$HOME/bin"
+  prepend_path_if_dir "$HOME/.bun/bin"
   prepend_path_if_dir "/opt/homebrew/bin"
   prepend_path_if_dir "/usr/local/bin"
   prepend_path_if_dir "/usr/bin"
@@ -400,19 +401,35 @@ ensure_remote_node_path() {
 
   command -v node >/dev/null 2>&1 && remote_node_satisfies_engine
 }
+
+ensure_remote_js_runtime_path() {
+  if ensure_remote_node_path; then
+    T3_JS_RUNTIME=node
+    export T3_JS_RUNTIME
+    return 0
+  fi
+  if command -v bun >/dev/null 2>&1; then
+    # Bun is supported by the development workflow and can run the bundled
+    # server/launcher scripts when Node is not installed on the remote host.
+    T3_JS_RUNTIME=bun
+    export T3_JS_RUNTIME
+    return 0
+  fi
+  return 1
+}
 `;
 
 const REMOTE_RUNNER_SCRIPT = `#!/bin/sh
 set -eu
 @@T3_NODE_ENV_SCRIPT@@
-ensure_remote_node_path || true
+ensure_remote_js_runtime_path || true
 T3_NODE_SCRIPT_PATH=@@T3_NODE_SCRIPT_PATH@@
 if [ -n "$T3_NODE_SCRIPT_PATH" ]; then
-  if ! command -v node >/dev/null 2>&1; then
-    printf 'Remote host is missing node on PATH. Install Node or configure a supported version manager for non-interactive shells.\\n' >&2
+  if [ -z "\${T3_JS_RUNTIME:-}" ]; then
+    printf 'Remote host is missing Node or Bun on PATH. Install Node/Bun or configure a supported version manager for non-interactive shells.\\n' >&2
     exit 1
   fi
-  exec node "$T3_NODE_SCRIPT_PATH" "$@"
+  exec "$T3_JS_RUNTIME" "$T3_NODE_SCRIPT_PATH" "$@"
 fi
 if command -v t3 >/dev/null 2>&1; then
   exec t3 "$@"
@@ -435,6 +452,12 @@ require_installed_t3_cli() {
   return 1
 }
 # The launcher records this PID, so exec the CLI without an npm wrapper process.
+if [ "\${T3_JS_RUNTIME:-}" = "bun" ] && command -v bunx >/dev/null 2>&1; then
+  exec bunx --bun @@T3_PACKAGE_SPEC@@ "$@"
+fi
+if [ "\${T3_JS_RUNTIME:-}" = "bun" ] && command -v bun >/dev/null 2>&1; then
+  exec bun x --bun @@T3_PACKAGE_SPEC@@ "$@"
+fi
 if command -v npx >/dev/null 2>&1; then
   require_installed_t3_cli npx --yes --package @@T3_PACKAGE_SPEC@@ || exit 1
   exec "$T3_CLI_PATH" "$@"
@@ -443,7 +466,13 @@ if command -v npm >/dev/null 2>&1; then
   require_installed_t3_cli npm exec --yes --package @@T3_PACKAGE_SPEC@@ || exit 1
   exec "$T3_CLI_PATH" "$@"
 fi
-printf 'Remote host is missing the t3 CLI and could not install @@T3_PACKAGE_SPEC@@ because node/npm/npx are unavailable on PATH. Install Node or configure a supported version manager for non-interactive shells.\\n' >&2
+if command -v bunx >/dev/null 2>&1; then
+  exec bunx --bun @@T3_PACKAGE_SPEC@@ "$@"
+fi
+if command -v bun >/dev/null 2>&1; then
+  exec bun x --bun @@T3_PACKAGE_SPEC@@ "$@"
+fi
+printf 'Remote host is missing the t3 CLI and could not install @@T3_PACKAGE_SPEC@@ because node/npm/npx/bunx/bun are unavailable on PATH. Install Node or Bun, or configure a supported version manager for non-interactive shells.\\n' >&2
 exit 1
 `;
 
@@ -473,17 +502,17 @@ if [ ! -f "$RUNNER_FILE" ] || ! cmp -s "$RUNNER_NEXT" "$RUNNER_FILE"; then
 fi
 mv "$RUNNER_NEXT" "$RUNNER_FILE"
 chmod 700 "$RUNNER_FILE"
-if ! ensure_remote_node_path; then
-  printf 'Remote host is missing node on PATH. Install Node or configure a supported version manager for non-interactive shells.\\n' >&2
+if ! ensure_remote_js_runtime_path; then
+  printf 'Remote host is missing Node or Bun on PATH. Install Node/Bun or configure a supported version manager for non-interactive shells.\\n' >&2
   exit 1
 fi
 pick_port() {
-  node - "$PORT_FILE" "@@T3_DEFAULT_REMOTE_PORT@@" "@@T3_REMOTE_PORT_SCAN_WINDOW@@" <<'NODE'
+  "$T3_JS_RUNTIME" - "$PORT_FILE" "@@T3_DEFAULT_REMOTE_PORT@@" "@@T3_REMOTE_PORT_SCAN_WINDOW@@" <<'NODE'
 @@T3_PICK_PORT_SCRIPT@@
 NODE
 }
 wait_ready() {
-  node - "$REMOTE_PORT" "$1" "@@T3_READY_PROBE_TIMEOUT_MS@@" <<'NODE'
+  "$T3_JS_RUNTIME" - "$REMOTE_PORT" "$1" "@@T3_READY_PROBE_TIMEOUT_MS@@" <<'NODE'
 @@T3_WAIT_READY_SCRIPT@@
 NODE
 }
@@ -496,7 +525,7 @@ wait_for_pid_exit() {
   done
 }
 resolve_default_runtime_port() {
-  node - "$DEFAULT_RUNTIME_FILE" <<'NODE'
+  "$T3_JS_RUNTIME" - "$DEFAULT_RUNTIME_FILE" <<'NODE'
 const fs = require("node:fs");
 const runtimePath = process.argv[2] ?? "";
 try {
@@ -582,7 +611,7 @@ fi
 if [ -z "$REMOTE_PORT" ]; then
   REMOTE_PORT="$(pick_port)" || true
   if [ -z "$REMOTE_PORT" ]; then
-    printf 'Failed to find an available port on the remote host. Ensure node is available on PATH.\\n' >&2
+    printf 'Failed to find an available port on the remote host. Ensure Node or Bun is available on PATH.\\n' >&2
     exit 1
   fi
   nohup env T3CODE_NO_BROWSER=1 "$RUNNER_FILE" serve --host 127.0.0.1 --port "$REMOTE_PORT" --base-dir "$DEFAULT_SERVER_HOME" >>"$LOG_FILE" 2>&1 < /dev/null &
