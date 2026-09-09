@@ -104,7 +104,14 @@ function commandArgs(command: ChildProcess.Command): ReadonlyArray<string> {
 describe("ssh tunnel scripts", () => {
   it("builds the remote t3 runner with npx, npm, and bunx fallbacks", () => {
     const script = buildRemoteT3RunnerScript({ nodeEngineRange: TEST_NODE_ENGINE_RANGE });
+    const userPathIndex = script.indexOf('prepend_path_if_dir "$HOME/.local/bin"');
+    const nodeProbeIndex = script.indexOf(
+      "if command -v node >/dev/null 2>&1 && remote_node_satisfies_engine",
+    );
 
+    assert.isAtLeast(userPathIndex, 0);
+    assert.isAtLeast(nodeProbeIndex, 0);
+    assert.isBelow(userPathIndex, nodeProbeIndex);
     assert.include(script, "T3_NODE_SCRIPT_PATH=''");
     assert.include(script, 'exec t3 "$@"');
     assert.include(script, 'exec "$T3_CLI_PATH" "$@"');

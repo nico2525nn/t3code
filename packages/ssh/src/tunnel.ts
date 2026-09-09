@@ -329,13 +329,19 @@ NODE
 }
 
 ensure_remote_node_path() {
+  # User-managed runtimes and CLIs must take precedence over the system PATH.
+  # A supported system Node can exist even when the remote t3/Bun installation
+  # is only available below the user's home directory.
+  if [ -n "\${HOME:-}" ]; then
+    prepend_path_if_dir "$HOME/.local/bin"
+    prepend_path_if_dir "$HOME/bin"
+    prepend_path_if_dir "$HOME/.bun/bin"
+  fi
+
   if command -v node >/dev/null 2>&1 && remote_node_satisfies_engine >/dev/null 2>&1; then
     return 0
   fi
 
-  prepend_path_if_dir "$HOME/.local/bin"
-  prepend_path_if_dir "$HOME/bin"
-  prepend_path_if_dir "$HOME/.bun/bin"
   prepend_path_if_dir "/opt/homebrew/bin"
   prepend_path_if_dir "/usr/local/bin"
   prepend_path_if_dir "/usr/bin"
