@@ -289,6 +289,8 @@ export function isDuplicateCodexHistoryMessageForExisting(
  * received live T3 row. This is the reverse-order counterpart to
  * `isDuplicateCodexHistoryMessageForExisting`: history can arrive first, so
  * the live event must be able to remove the already-projected copy too.
+ * Assistant rows use the native item id even when their text differs: a live
+ * delta can be partial or duplicated while the imported item is complete.
  */
 export function findCodexHistoryMessagesDuplicatedByLiveMessage<T extends CodexMessageIdentity>(
   live: CodexMessageIdentity,
@@ -302,7 +304,9 @@ export function findCodexHistoryMessagesDuplicatedByLiveMessage<T extends CodexM
     .filter(
       (existing) =>
         isCodexHistoryMessageId(existing.messageId) &&
-        isDuplicateCodexHistoryMessage(existing, live),
+        (live.role === "assistant"
+          ? isCodexAssistantItemMatch(existing, live)
+          : isDuplicateCodexHistoryMessage(existing, live)),
     )
     .map((existing) => existing.messageId);
 }

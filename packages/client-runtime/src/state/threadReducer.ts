@@ -500,18 +500,42 @@ export function applyThreadDetailEvent(
         },
         existingMessageIdentities,
       );
+      const duplicateHistoryRows = thread.messages.filter((entry) =>
+        duplicateHistoryIds.includes(String(entry.id)),
+      );
+      const nativeHistoryCopy =
+        message.role === "assistant"
+          ? duplicateHistoryRows.find((entry) => !entry.streaming)
+          : undefined;
       const duplicateHistoryTurnId =
-        message.turnId === null
-          ? thread.messages.find((entry) => duplicateHistoryIds.includes(String(entry.id)))?.turnId
-          : undefined;
+        message.turnId === null ? duplicateHistoryRows[0]?.turnId : undefined;
       const duplicateHistoryPhase =
-        message.phase === undefined
-          ? thread.messages.find((entry) => duplicateHistoryIds.includes(String(entry.id)))?.phase
-          : undefined;
+        message.phase === undefined ? duplicateHistoryRows[0]?.phase : undefined;
       const messagesWithoutHistoryCopies =
         duplicateHistoryIds.length === 0
           ? thread.messages
           : thread.messages.filter((entry) => !duplicateHistoryIds.includes(String(entry.id)));
+      const nativeHistoryMessage =
+        nativeHistoryCopy === undefined
+          ? undefined
+          : {
+              ...message,
+              text: nativeHistoryCopy.text,
+              createdAt: nativeHistoryCopy.createdAt,
+              streaming: false,
+              turnId: message.turnId ?? nativeHistoryCopy.turnId,
+              ...(message.phase !== undefined
+                ? { phase: message.phase }
+                : nativeHistoryCopy.phase !== undefined
+                  ? { phase: nativeHistoryCopy.phase }
+                  : {}),
+              ...(message.attachments !== undefined
+                ? { attachments: message.attachments }
+                : nativeHistoryCopy.attachments !== undefined
+                  ? { attachments: nativeHistoryCopy.attachments }
+                  : {}),
+            };
+      const nextMessage = nativeHistoryMessage ?? message;
       const existingMessage = messagesWithoutHistoryCopies.find((entry) => entry.id === message.id);
       const messages = existingMessage
         ? Arr.map(messagesWithoutHistoryCopies, (entry) =>
@@ -519,28 +543,31 @@ export function applyThreadDetailEvent(
               ? entry
               : {
                   ...entry,
-                  text: message.streaming
-                    ? `${entry.text}${message.text}`
-                    : message.text.length > 0
-                      ? message.text
-                      : entry.text,
-                  streaming: message.streaming,
+                  text:
+                    nativeHistoryMessage !== undefined
+                      ? nativeHistoryMessage.text
+                      : message.streaming
+                        ? `${entry.text}${message.text}`
+                        : message.text.length > 0
+                          ? message.text
+                          : entry.text,
+                  streaming: nextMessage.streaming,
                   turnId: message.turnId ?? duplicateHistoryTurnId ?? entry.turnId,
                   ...(message.phase !== undefined || duplicateHistoryPhase !== undefined
                     ? { phase: message.phase ?? duplicateHistoryPhase ?? entry.phase }
                     : {}),
-                  ...(message.streaming ? {} : { updatedAt: message.updatedAt }),
+                  ...(nextMessage.streaming ? {} : { updatedAt: message.updatedAt }),
                   ...(message.attachments !== undefined
                     ? { attachments: message.attachments }
                     : {}),
                 },
           )
         : Arr.append(messagesWithoutHistoryCopies, {
-            ...message,
-            ...(message.turnId === null && duplicateHistoryTurnId !== undefined
+            ...nextMessage,
+            ...(nextMessage.turnId === null && duplicateHistoryTurnId !== undefined
               ? { turnId: duplicateHistoryTurnId }
               : {}),
-            ...(message.phase === undefined && duplicateHistoryPhase !== undefined
+            ...(nextMessage.phase === undefined && duplicateHistoryPhase !== undefined
               ? { phase: duplicateHistoryPhase }
               : {}),
           });

@@ -588,16 +588,6 @@ export function projectEvent(
           "message",
         );
 
-        const existingMessageBeforeReconciliation = thread.messages.find(
-          (entry) => entry.id === message.id,
-        );
-        if (message.streaming && existingMessageBeforeReconciliation?.streaming === false) {
-          // A resumed app-server can replay deltas after the terminal event
-          // has already reached the projector. Do not reopen or append to a
-          // completed message in the in-memory read model.
-          return nextBase;
-        }
-
         const existingMessageIdentities = thread.messages.map((existing) => ({
           messageId: String(existing.id),
           role: existing.role,
@@ -606,6 +596,37 @@ export function projectEvent(
           turnId: existing.turnId,
           phase: existing.phase,
         }));
+        const existingMessageBeforeReconciliation = thread.messages.find(
+          (entry) => entry.id === message.id,
+        );
+        if (message.streaming && existingMessageBeforeReconciliation?.streaming === false) {
+          // A resumed app-server can replay deltas after the terminal event
+          // has already reached the projector. Do not reopen or append to a
+          // completed message in the in-memory read model.
+          const duplicateHistoryIds = findCodexHistoryMessagesDuplicatedByLiveMessage(
+            {
+              messageId: String(message.id),
+              role: message.role,
+              text: message.text,
+              createdAt: message.createdAt,
+              turnId: message.turnId,
+            },
+            existingMessageIdentities,
+          );
+          if (duplicateHistoryIds.length > 0) {
+            return {
+              ...nextBase,
+              threads: updateThread(nextBase.threads, payload.threadId, {
+                messages: thread.messages.filter(
+                  (entry) => !duplicateHistoryIds.includes(String(entry.id)),
+                ),
+                updatedAt: event.occurredAt,
+              }),
+            };
+          }
+          return nextBase;
+        }
+
         if (isCodexHistoryMessageId(String(message.id))) {
           const nativeItemMatches = findCodexHistoryAssistantItemMatches(
             {
@@ -699,15 +720,42 @@ export function projectEvent(
           },
           existingMessageIdentities,
         );
-        const duplicateHistoryTurnId =
-          message.turnId === null
-            ? thread.messages.find((entry) => duplicateHistoryIds.includes(String(entry.id)))
-                ?.turnId
+        const duplicateHistoryRows = thread.messages.filter((entry) =>
+          duplicateHistoryIds.includes(String(entry.id)),
+        );
+        const nativeHistoryCopy =
+          message.role === "assistant"
+            ? duplicateHistoryRows.find((entry) => !entry.streaming)
             : undefined;
+        const duplicateHistoryTurnId =
+          message.turnId === null ? duplicateHistoryRows[0]?.turnId : undefined;
+        const duplicateHistoryPhase =
+          message.phase === undefined ? duplicateHistoryRows[0]?.phase : undefined;
         const messagesWithoutHistoryCopies =
           duplicateHistoryIds.length === 0
             ? thread.messages
             : thread.messages.filter((entry) => !duplicateHistoryIds.includes(String(entry.id)));
+        const nativeHistoryMessage =
+          nativeHistoryCopy === undefined
+            ? undefined
+            : {
+                ...message,
+                text: nativeHistoryCopy.text,
+                createdAt: nativeHistoryCopy.createdAt,
+                streaming: false,
+                turnId: message.turnId ?? nativeHistoryCopy.turnId,
+                ...(message.phase !== undefined
+                  ? { phase: message.phase }
+                  : nativeHistoryCopy.phase !== undefined
+                    ? { phase: nativeHistoryCopy.phase }
+                    : {}),
+                ...(message.attachments !== undefined
+                  ? { attachments: message.attachments }
+                  : nativeHistoryCopy.attachments !== undefined
+                    ? { attachments: nativeHistoryCopy.attachments }
+                    : {}),
+              };
+        const nextMessage = nativeHistoryMessage ?? message;
         const existingMessage = messagesWithoutHistoryCopies.find(
           (entry) => entry.id === message.id,
         );
@@ -716,26 +764,31 @@ export function projectEvent(
               entry.id === message.id
                 ? {
                     ...entry,
-                    text: message.streaming
-                      ? `${entry.text}${message.text}`
-                      : message.text.length > 0
-                        ? message.text
-                        : entry.text,
-                    streaming: message.streaming,
+                    text:
+                      nativeHistoryMessage !== undefined
+                        ? nativeHistoryMessage.text
+                        : message.streaming
+                          ? `${entry.text}${message.text}`
+                          : message.text.length > 0
+                            ? message.text
+                            : entry.text,
+                    streaming: nextMessage.streaming,
                     ...(event.metadata.historyImport === true &&
                     isCodexHistoryMessageId(String(message.id))
                       ? { createdAt: message.createdAt }
                       : {}),
                     updatedAt: message.updatedAt,
-                    turnId: message.turnId ?? duplicateHistoryTurnId ?? null,
-                    ...(message.phase !== undefined ? { phase: message.phase } : {}),
+                    turnId: nextMessage.turnId ?? duplicateHistoryTurnId ?? null,
+                    ...(message.phase !== undefined || duplicateHistoryPhase !== undefined
+                      ? { phase: message.phase ?? duplicateHistoryPhase ?? entry.phase }
+                      : {}),
                     ...(message.attachments !== undefined
                       ? { attachments: message.attachments }
                       : {}),
                   }
                 : entry,
             )
-          : [...messagesWithoutHistoryCopies, message];
+          : [...messagesWithoutHistoryCopies, nextMessage];
         const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
 
         return {

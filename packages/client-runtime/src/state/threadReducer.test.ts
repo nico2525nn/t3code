@@ -657,6 +657,49 @@ describe("applyThreadDetailEvent", () => {
       });
     });
 
+    it("keeps the native text when a replayed live assistant arrives after history", () => {
+      const importedMessage = {
+        id: MessageId.make("import:codex:session-1:turn-1:item-1"),
+        role: "assistant" as const,
+        text: "complete answer",
+        turnId: TurnId.make("turn-1"),
+        streaming: false,
+        createdAt: "2026-04-01T06:00:00.000Z",
+        updatedAt: "2026-04-01T06:00:00.000Z",
+      };
+      const threadWithImportedMessage = { ...baseThread, messages: [importedMessage] };
+      const liveEvent = {
+        ...baseEventFields,
+        sequence: 9,
+        occurredAt: "2026-04-01T06:01:00.000Z",
+        aggregateKind: "thread" as const,
+        aggregateId: baseThread.id,
+        type: "thread.message-sent" as const,
+        payload: {
+          threadId: baseThread.id,
+          messageId: MessageId.make("assistant:item-1"),
+          role: "assistant" as const,
+          text: "partial answerpartial answer",
+          turnId: TurnId.make("turn-1"),
+          streaming: true,
+          createdAt: "2026-04-01T06:01:00.000Z",
+          updatedAt: "2026-04-01T06:01:00.000Z",
+        },
+      };
+
+      const result = applyThreadDetailEvent(threadWithImportedMessage, liveEvent);
+
+      expect(result.kind).toBe("updated");
+      if (result.kind !== "updated") return;
+      expect(result.thread.messages).toHaveLength(1);
+      expect(result.thread.messages[0]).toMatchObject({
+        id: MessageId.make("assistant:item-1"),
+        text: "complete answer",
+        streaming: false,
+        createdAt: importedMessage.createdAt,
+      });
+    });
+
     it("appends text for streaming messages", () => {
       const threadWithMessage: OrchestrationThread = {
         ...baseThread,

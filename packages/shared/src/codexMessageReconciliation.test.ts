@@ -103,7 +103,7 @@ describe("Codex message reconciliation", () => {
 
   it("finds a history copy when the live message arrives after it", () => {
     const imported = assistantAt("import:codex:thread:turn:item");
-    const live = assistantAt("assistant:item");
+    const live = assistantAt("assistant:item", "partial answeranswer");
 
     expect(findCodexHistoryMessagesDuplicatedByLiveMessage(live, [imported])).toEqual([
       imported.messageId,

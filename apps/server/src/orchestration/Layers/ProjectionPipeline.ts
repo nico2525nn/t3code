@@ -495,6 +495,25 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const serverConfig = yield* ServerConfig;
+    // Only the first delta for a live assistant item needs the reverse-order
+    // history check. Reading the whole thread for every token would turn a
+    // duplicate guard into a streaming performance regression. If history is
+    // imported after this first check, the history-import path performs the
+    // same native-id repair when it arrives.
+    const checkedStreamingAssistantIds = new Set<string>();
+    const rememberCheckedStreamingAssistantId = (messageId: string) => {
+      if (checkedStreamingAssistantIds.has(messageId)) {
+        return false;
+      }
+      if (checkedStreamingAssistantIds.size >= 10_000) {
+        const oldest = checkedStreamingAssistantIds.values().next().value;
+        if (typeof oldest === "string") {
+          checkedStreamingAssistantIds.delete(oldest);
+        }
+      }
+      checkedStreamingAssistantIds.add(messageId);
+      return true;
+    };
 
     const applyProjectsProjection: ProjectorDefinition["apply"] = Effect.fn(
       "applyProjectsProjection",
@@ -1022,6 +1041,69 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
 
         case "thread.message-sent": {
           if (event.payload.streaming) {
+            const shouldCheckHistory =
+              event.payload.role === "assistant" &&
+              String(event.payload.messageId).startsWith("assistant:") &&
+              rememberCheckedStreamingAssistantId(String(event.payload.messageId));
+            let duplicateHistoryIds: Array<ProjectionThreadMessage["messageId"]> = [];
+            let duplicateHistoryRows: ReadonlyArray<ProjectionThreadMessage> = [];
+            if (shouldCheckHistory) {
+              const existingRows = yield* projectionThreadMessageRepository.listByThreadId({
+                threadId: event.payload.threadId,
+              });
+              duplicateHistoryIds = findCodexHistoryMessagesDuplicatedByLiveMessage(
+                event.payload,
+                existingRows,
+              );
+              duplicateHistoryRows = existingRows.filter((row) =>
+                duplicateHistoryIds.includes(row.messageId),
+              );
+            }
+            const duplicateHistoryTurnId =
+              event.payload.turnId === null ? duplicateHistoryRows[0]?.turnId : undefined;
+            const duplicateHistoryPhase =
+              event.payload.phase === undefined ? duplicateHistoryRows[0]?.phase : undefined;
+            const nativeHistoryCopy =
+              event.payload.role === "assistant"
+                ? duplicateHistoryRows.find((row) => !row.isStreaming)
+                : undefined;
+            if (duplicateHistoryIds.length > 0) {
+              yield* projectionThreadMessageRepository.deleteByMessageIds({
+                messageIds: duplicateHistoryIds,
+              });
+            }
+            // A complete native item can reach a client before a replayed live
+            // delta. Keep the native text and terminal state in that order too;
+            // appending the late delta would recreate the doubled answer.
+            if (nativeHistoryCopy !== undefined) {
+              const attachments =
+                event.payload.attachments !== undefined
+                  ? yield* materializeAttachmentsForProjection({
+                      attachments: event.payload.attachments,
+                    })
+                  : nativeHistoryCopy.attachments;
+              yield* projectionThreadMessageRepository.upsert({
+                ...nativeHistoryCopy,
+                messageId: event.payload.messageId,
+                threadId: event.payload.threadId,
+                turnId: event.payload.turnId ?? nativeHistoryCopy.turnId,
+                role: event.payload.role,
+                text: nativeHistoryCopy.text,
+                ...(event.payload.phase !== undefined
+                  ? { phase: event.payload.phase }
+                  : nativeHistoryCopy.phase !== undefined
+                    ? { phase: nativeHistoryCopy.phase }
+                    : {}),
+                ...(attachments !== undefined ? { attachments: [...attachments] } : {}),
+                isStreaming: false,
+                createdAt: nativeHistoryCopy.createdAt,
+                updatedAt:
+                  compareDateTimeStrings(nativeHistoryCopy.updatedAt, event.payload.updatedAt) >= 0
+                    ? nativeHistoryCopy.updatedAt
+                    : event.payload.updatedAt,
+              });
+              return;
+            }
             const attachments =
               event.payload.attachments !== undefined
                 ? yield* materializeAttachmentsForProjection({
@@ -1031,10 +1113,14 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* projectionThreadMessageRepository.appendStreaming({
               messageId: event.payload.messageId,
               threadId: event.payload.threadId,
-              turnId: event.payload.turnId,
+              turnId: event.payload.turnId ?? duplicateHistoryTurnId ?? null,
               role: event.payload.role,
               text: event.payload.text,
-              ...(event.payload.phase !== undefined ? { phase: event.payload.phase } : {}),
+              ...(event.payload.phase !== undefined
+                ? { phase: event.payload.phase }
+                : duplicateHistoryPhase !== undefined
+                  ? { phase: duplicateHistoryPhase }
+                  : {}),
               ...(attachments !== undefined ? { attachments: [...attachments] } : {}),
               createdAt: event.payload.createdAt,
               updatedAt: event.payload.updatedAt,
@@ -1043,6 +1129,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
 
           let duplicateHistoryTurnId: TurnId | null | undefined;
+          let duplicateHistoryPhase: ProjectionThreadMessage["phase"];
+          let nativeHistoryCopy: ProjectionThreadMessage | undefined;
           if (isCodexHistoryMessageId(event.payload.messageId)) {
             const existingRows = yield* projectionThreadMessageRepository.listByThreadId({
               threadId: event.payload.threadId,
@@ -1107,10 +1195,17 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               event.payload,
               existingRows,
             );
-            duplicateHistoryTurnId =
-              event.payload.turnId === null
-                ? existingRows.find((row) => duplicateMessageIds.includes(row.messageId))?.turnId
+            const duplicateHistoryRows = existingRows.filter((row) =>
+              duplicateMessageIds.includes(row.messageId),
+            );
+            nativeHistoryCopy =
+              event.payload.role === "assistant"
+                ? duplicateHistoryRows.find((row) => !row.isStreaming)
                 : undefined;
+            duplicateHistoryTurnId =
+              event.payload.turnId === null ? duplicateHistoryRows[0]?.turnId : undefined;
+            duplicateHistoryPhase =
+              event.payload.phase === undefined ? duplicateHistoryRows[0]?.phase : undefined;
             if (duplicateMessageIds.length > 0) {
               yield* projectionThreadMessageRepository.deleteByMessageIds({
                 messageIds: duplicateMessageIds,
@@ -1132,22 +1227,34 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? yield* materializeAttachmentsForProjection({
                   attachments: event.payload.attachments,
                 })
-              : previousMessage?.attachments;
+              : (previousMessage?.attachments ?? nativeHistoryCopy?.attachments);
           yield* projectionThreadMessageRepository.upsert({
             messageId: event.payload.messageId,
             threadId: event.payload.threadId,
-            turnId: event.payload.turnId ?? duplicateHistoryTurnId ?? null,
+            turnId:
+              event.payload.turnId ?? duplicateHistoryTurnId ?? nativeHistoryCopy?.turnId ?? null,
             role: event.payload.role,
-            text: nextText,
-            ...(event.payload.phase !== undefined ? { phase: event.payload.phase } : {}),
+            text: nativeHistoryCopy?.text ?? nextText,
+            ...(event.payload.phase !== undefined
+              ? { phase: event.payload.phase }
+              : nativeHistoryCopy?.phase !== undefined
+                ? { phase: nativeHistoryCopy.phase }
+                : duplicateHistoryPhase !== undefined
+                  ? { phase: duplicateHistoryPhase }
+                  : {}),
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             isStreaming: false,
             createdAt:
-              event.metadata.historyImport === true &&
+              nativeHistoryCopy?.createdAt ??
+              (event.metadata.historyImport === true &&
               isCodexHistoryMessageId(event.payload.messageId)
                 ? event.payload.createdAt
-                : (previousMessage?.createdAt ?? event.payload.createdAt),
-            updatedAt: event.payload.updatedAt,
+                : (previousMessage?.createdAt ?? event.payload.createdAt)),
+            updatedAt:
+              nativeHistoryCopy !== undefined &&
+              compareDateTimeStrings(nativeHistoryCopy.updatedAt, event.payload.updatedAt) >= 0
+                ? nativeHistoryCopy.updatedAt
+                : event.payload.updatedAt,
           });
           return;
         }

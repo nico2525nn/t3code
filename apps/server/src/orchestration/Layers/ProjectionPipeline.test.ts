@@ -296,6 +296,22 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-codex-message-o
             updatedAt: importedUserAt,
           },
         });
+        yield* appendEvent({
+          eventId: "evt-codex-order-imported-second-assistant",
+          commandId: "cmd-codex-order-imported-second-assistant",
+          type: "thread.message-sent",
+          occurredAt: importedAt,
+          payload: {
+            threadId,
+            messageId: MessageId.make("import:codex:native:turn:item-2"),
+            role: "assistant",
+            text: "second answer",
+            turnId: null,
+            streaming: false,
+            createdAt: importedAt,
+            updatedAt: importedAt,
+          },
+        });
         yield* projectionPipeline.bootstrap;
 
         yield* appendEvent({
@@ -303,15 +319,35 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-codex-message-o
           commandId: "cmd-codex-order-live",
           type: "thread.message-sent",
           occurredAt: liveAt,
+          historyImport: false,
           payload: {
             threadId,
             messageId: MessageId.make("assistant:item"),
             role: "assistant",
-            text: "answer from Codex",
+            text: "answer from Codexanswer from Codex",
             turnId: null,
             streaming: false,
             createdAt: liveAt,
             updatedAt: liveAt,
+          },
+        });
+        yield* projectionPipeline.bootstrap;
+
+        yield* appendEvent({
+          eventId: "evt-codex-order-live-second-streaming",
+          commandId: "cmd-codex-order-live-second-streaming",
+          type: "thread.message-sent",
+          occurredAt: "2026-08-24T10:00:00.300Z",
+          historyImport: false,
+          payload: {
+            threadId,
+            messageId: MessageId.make("assistant:item-2"),
+            role: "assistant",
+            text: "second answersecond answer",
+            turnId: null,
+            streaming: true,
+            createdAt: "2026-08-24T10:00:00.300Z",
+            updatedAt: "2026-08-24T10:00:00.300Z",
           },
         });
         yield* projectionPipeline.bootstrap;
@@ -347,6 +383,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-codex-message-o
         `;
         assert.deepEqual(rows, [
           { messageId: "assistant:item", text: "answer from Codex", turnId: null },
+          { messageId: "assistant:item-2", text: "second answer", turnId: null },
           { messageId: "live-user", text: "same delayed prompt", turnId: "turn-user" },
         ]);
       }),
