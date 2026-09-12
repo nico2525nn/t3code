@@ -65,6 +65,7 @@ import {
 import { type CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import type {
   ProviderStoredThread,
+  ProviderStoredThreadActivity,
   ProviderStoredThreadTurnDiff,
   ProviderThreadCatalog,
 } from "../Services/ProviderAdapter.ts";
@@ -444,6 +445,7 @@ export function codexAppServerThreadToStoredThread(
       : {}),
     messages,
     ...("turns" in thread ? { turnDiffs: codexAppServerThreadDiffs(thread) } : {}),
+    ...("turns" in thread ? { activities: codexAppServerThreadActivities(thread) } : {}),
   };
 }
 
@@ -455,8 +457,13 @@ export function codexAppServerThreadMessages(
   const seenMessageIds = new Set<string>();
 
   for (const turn of thread.turns) {
-    const createdAt = codexUnixTimestampToIso(turn.startedAt ?? turn.completedAt, thread.createdAt);
     for (const item of turn.items) {
+      // A turn can contain several user/assistant messages interleaved with
+      // reasoning and tools. The rollout compatibility reader annotates each
+      // item with its durable completion timestamp; using turn.startedAt for
+      // every message makes the mobile feed place the final answer before the
+      // tools that actually preceded it.
+      const createdAt = nativeHistoryItemTimestamp(item, turn, thread.updatedAt);
       const message =
         item.type === "userMessage"
           ? (() => {
@@ -467,6 +474,7 @@ export function codexAppServerThreadMessages(
                     messageId: `import:codex:${thread.id}:${turn.id}:${item.id}`,
                     role: "user" as const,
                     text,
+                    turnId: TurnId.make(turn.id),
                     createdAt,
                   };
             })()
@@ -475,6 +483,10 @@ export function codexAppServerThreadMessages(
                 messageId: `import:codex:${thread.id}:${turn.id}:${item.id}`,
                 role: "assistant" as const,
                 text: item.text,
+                turnId: TurnId.make(turn.id),
+                ...(item.phase === "commentary" || item.phase === "final_answer"
+                  ? { phase: item.phase }
+                  : {}),
                 createdAt,
               }
             : undefined;
@@ -486,6 +498,172 @@ export function codexAppServerThreadMessages(
   }
 
   return messages;
+}
+
+function nativeHistoryItemTimestamp(
+  item: EffectCodexSchema.V2ThreadReadResponse__ThreadItem,
+  turn: EffectCodexSchema.V2ThreadReadResponse__Turn,
+  fallback: number,
+): string {
+  const rawTimestamp = (item as unknown as Record<string, unknown>).__codexRolloutCompletedAt;
+  if (typeof rawTimestamp === "string" && Number.isFinite(Date.parse(rawTimestamp))) {
+    return rawTimestamp;
+  }
+  return codexUnixTimestampToIso(turn.startedAt ?? turn.completedAt, fallback);
+}
+
+function nativeHistoryItemRecord(
+  item: EffectCodexSchema.V2ThreadReadResponse__ThreadItem,
+): Record<string, unknown> {
+  const record = item as unknown as Record<string, unknown>;
+  const { __codexRolloutCompletedAt: _timestamp, ...withoutTimestamp } = record;
+  return withoutTimestamp;
+}
+
+function nativeHistoryItemStatus(item: Record<string, unknown>): string | undefined {
+  const status = typeof item.status === "string" ? item.status : undefined;
+  if (status === "interrupted") return "interrupted";
+  if (
+    status === "inProgress" ||
+    status === "completed" ||
+    status === "failed" ||
+    status === "declined"
+  ) {
+    return status;
+  }
+  return undefined;
+}
+
+/**
+ * Convert the complete native item stream into the activity vocabulary T3
+ * already renders. This is only used during durable-history reconciliation;
+ * live Codex notifications continue through the normal runtime adapter.
+ */
+export function codexAppServerThreadActivities(
+  thread: EffectCodexSchema.V2ThreadReadResponse__Thread,
+): ReadonlyArray<ProviderStoredThreadActivity> {
+  const activities: ProviderStoredThreadActivity[] = [];
+  for (const turn of thread.turns) {
+    const turnId = TurnId.make(turn.id);
+    for (const item of turn.items) {
+      const itemRecord = nativeHistoryItemRecord(item);
+      const itemType = toCanonicalItemType(item.type);
+      const createdAt = nativeHistoryItemTimestamp(item, turn, thread.updatedAt);
+      const itemId = item.id;
+      const lifecycleStatus = nativeHistoryItemStatus(itemRecord);
+      const data = { item: itemRecord, threadId: thread.id, turnId: turn.id };
+      const base = {
+        turnId,
+        createdAt,
+        payload: {
+          itemType,
+          toolCallId: itemId,
+          ...(lifecycleStatus ? { status: lifecycleStatus } : {}),
+          ...(itemType === "command_execution" ? { command: itemRecord.command } : {}),
+          data,
+        },
+      } as const;
+
+      if (itemType === "reasoning") {
+        const summary = [
+          ...(Array.isArray(itemRecord.summary) ? itemRecord.summary : []),
+          ...(Array.isArray(itemRecord.content) ? itemRecord.content : []),
+        ]
+          .filter((value): value is string => typeof value === "string")
+          .join("\n")
+          .trim();
+        if (summary.length === 0) continue;
+        activities.push({
+          id: `codex-history:${thread.id}:${turn.id}:${itemId}:reasoning`,
+          tone: "info",
+          kind: "task.progress",
+          summary: "Reasoning",
+          payload: {
+            itemType,
+            summary,
+            detail: summary,
+            data,
+          },
+          turnId,
+          createdAt,
+        });
+        continue;
+      }
+
+      if (itemType === "context_compaction") {
+        activities.push({
+          id: `codex-history:${thread.id}:${turn.id}:${itemId}:context-compaction`,
+          tone: "info",
+          kind: "context-compaction",
+          summary: "Context compacted",
+          payload: { state: "compacted", data },
+          turnId,
+          createdAt,
+        });
+        continue;
+      }
+
+      if (itemType === "plan") {
+        // Proposed-plan rows are persisted by the normal turn.plan pipeline.
+        // Keep the native plan out of the tool timeline until that projection
+        // has a durable-history field of its own.
+        continue;
+      }
+
+      if (item.type === "subAgentActivity") {
+        activities.push({
+          id: `codex-history:${thread.id}:${turn.id}:${itemId}:subagent`,
+          tone: "tool",
+          kind: "tool.completed",
+          summary: "Subagent activity",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            toolCallId: itemId,
+            status: "completed",
+            data,
+          },
+          turnId,
+          createdAt,
+        });
+        continue;
+      }
+
+      if (
+        itemType !== "command_execution" &&
+        itemType !== "file_change" &&
+        itemType !== "mcp_tool_call" &&
+        itemType !== "dynamic_tool_call" &&
+        itemType !== "collab_agent_tool_call" &&
+        itemType !== "web_search" &&
+        itemType !== "image_view"
+      ) {
+        continue;
+      }
+
+      const lifecycleItem = item as unknown as CodexLifecycleItem;
+      const presentation =
+        lifecycleItem.type === "mcpToolCall" ? mcpToolPresentation(lifecycleItem) : {};
+      const title = itemTitle(itemType, lifecycleItem, presentation) ?? "Tool";
+      const detail = itemDetail(itemType, lifecycleItem);
+      activities.push({
+        id: `codex-history:${thread.id}:${turn.id}:${itemId}:completed`,
+        tone: "tool",
+        kind: "tool.completed",
+        summary: title,
+        payload: {
+          ...base.payload,
+          title,
+          ...(detail ? { detail } : {}),
+          ...(presentation.toolSurface ? { toolSurface: presentation.toolSurface } : {}),
+          ...(presentation.toolIcon ? { toolIcon: presentation.toolIcon } : {}),
+          ...(presentation.toolSource ? { toolSource: presentation.toolSource } : {}),
+        },
+        turnId,
+        createdAt,
+      });
+    }
+  }
+  return activities;
 }
 
 function asUnknownRecord(value: unknown): Record<string, unknown> | undefined {
@@ -1326,6 +1504,10 @@ function mapItemLifecycle(
     payload: {
       itemType,
       ...(status ? { status } : {}),
+      ...(item.type === "agentMessage" &&
+      (item.phase === "commentary" || item.phase === "final_answer")
+        ? { phase: item.phase }
+        : {}),
       ...(title ? { title } : {}),
       ...(detail ? { detail } : {}),
       ...toolPresentation,

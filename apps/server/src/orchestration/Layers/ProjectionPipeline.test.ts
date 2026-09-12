@@ -209,6 +209,151 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-import-shell-")
   },
 );
 
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-codex-message-order-")))(
+  "Codex message projection reconciliation",
+  (it) => {
+    it.effect("removes an imported copy when its live message is projected later", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const threadId = ThreadId.make("codex-message-order-thread");
+        const projectId = ProjectId.make("codex-message-order-project");
+        const importedAt = "2026-08-24T10:00:00.000Z";
+        const liveAt = "2026-08-24T10:00:00.200Z";
+        const importedUserAt = "2026-08-24T10:05:15.000Z";
+        const liveUserAt = "2026-08-24T10:00:00.000Z";
+        const appendEvent = (input: {
+          readonly eventId: string;
+          readonly commandId: string;
+          readonly type: "thread.created" | "thread.message-sent";
+          readonly occurredAt: string;
+          readonly historyImport?: boolean;
+          readonly payload: unknown;
+        }) =>
+          eventStore.append({
+            type: input.type,
+            eventId: EventId.make(input.eventId),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: input.occurredAt,
+            commandId: CommandId.make(input.commandId),
+            causationEventId: null,
+            correlationId: CommandId.make(input.commandId),
+            metadata:
+              input.type === "thread.message-sent" && input.historyImport !== false
+                ? { historyImport: true }
+                : {},
+            payload: input.payload as never,
+          });
+
+        yield* appendEvent({
+          eventId: "evt-codex-order-create",
+          commandId: "cmd-codex-order-create",
+          type: "thread.created",
+          occurredAt: importedAt,
+          payload: {
+            threadId,
+            projectId,
+            title: "Codex message order",
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: importedAt,
+            updatedAt: importedAt,
+          },
+        });
+        yield* appendEvent({
+          eventId: "evt-codex-order-imported",
+          commandId: "cmd-codex-order-imported",
+          type: "thread.message-sent",
+          occurredAt: importedAt,
+          payload: {
+            threadId,
+            messageId: MessageId.make("import:codex:native:turn:item"),
+            role: "assistant",
+            text: "answer from Codex",
+            turnId: null,
+            streaming: false,
+            createdAt: importedAt,
+            updatedAt: importedAt,
+          },
+        });
+        yield* appendEvent({
+          eventId: "evt-codex-order-imported-user",
+          commandId: "cmd-codex-order-imported-user",
+          type: "thread.message-sent",
+          occurredAt: importedUserAt,
+          payload: {
+            threadId,
+            messageId: MessageId.make("import:codex:native:turn:user"),
+            role: "user",
+            text: "same delayed prompt",
+            turnId: TurnId.make("turn-user"),
+            streaming: false,
+            createdAt: importedUserAt,
+            updatedAt: importedUserAt,
+          },
+        });
+        yield* projectionPipeline.bootstrap;
+
+        yield* appendEvent({
+          eventId: "evt-codex-order-live",
+          commandId: "cmd-codex-order-live",
+          type: "thread.message-sent",
+          occurredAt: liveAt,
+          payload: {
+            threadId,
+            messageId: MessageId.make("assistant:item"),
+            role: "assistant",
+            text: "answer from Codex",
+            turnId: null,
+            streaming: false,
+            createdAt: liveAt,
+            updatedAt: liveAt,
+          },
+        });
+        yield* projectionPipeline.bootstrap;
+
+        yield* appendEvent({
+          eventId: "evt-codex-order-live-user",
+          commandId: "cmd-codex-order-live-user",
+          type: "thread.message-sent",
+          occurredAt: liveUserAt,
+          historyImport: false,
+          payload: {
+            threadId,
+            messageId: MessageId.make("live-user"),
+            role: "user",
+            text: "same delayed prompt",
+            turnId: null,
+            streaming: false,
+            createdAt: liveUserAt,
+            updatedAt: liveUserAt,
+          },
+        });
+        yield* projectionPipeline.bootstrap;
+
+        const rows = yield* sql<{
+          readonly messageId: string;
+          readonly text: string;
+          readonly turnId: string | null;
+        }>`
+          SELECT message_id AS "messageId", text, turn_id AS "turnId"
+          FROM projection_thread_messages
+          WHERE thread_id = ${threadId}
+          ORDER BY message_id
+        `;
+        assert.deepEqual(rows, [
+          { messageId: "assistant:item", text: "answer from Codex", turnId: null },
+          { messageId: "live-user", text: "same delayed prompt", turnId: "turn-user" },
+        ]);
+      }),
+    );
+  },
+);
+
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-branch-pr-projection-")))(
   "branch pull request projection",
   (it) => {

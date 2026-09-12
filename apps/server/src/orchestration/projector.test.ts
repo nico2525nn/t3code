@@ -20,6 +20,7 @@ function makeEvent(input: {
   aggregateId: string;
   commandId: string | null;
   payload: unknown;
+  metadata?: OrchestrationEvent["metadata"];
 }): OrchestrationEvent {
   return {
     sequence: input.sequence,
@@ -34,7 +35,7 @@ function makeEvent(input: {
     commandId: input.commandId === null ? null : CommandId.make(input.commandId),
     causationEventId: null,
     correlationId: null,
-    metadata: {},
+    metadata: input.metadata ?? {},
     payload: input.payload as never,
   } as OrchestrationEvent;
 }
@@ -756,6 +757,201 @@ describe("orchestration projector", () => {
     expect(message?.text).toBe("hello");
     expect(message?.streaming).toBe(false);
     expect(message?.updatedAt).toBe(completeAt);
+
+    const afterLateDelta = await Effect.runPromise(
+      projectEvent(
+        afterComplete,
+        makeEvent({
+          sequence: 4,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: "2026-02-23T09:00:04.000Z",
+          commandId: "cmd-late-delta",
+          payload: {
+            threadId: "thread-1",
+            messageId: "assistant:msg-1",
+            role: "assistant",
+            text: " replayed",
+            turnId: "turn-1",
+            streaming: true,
+            createdAt: "2026-02-23T09:00:04.000Z",
+            updatedAt: "2026-02-23T09:00:04.000Z",
+          },
+        }),
+      ),
+    );
+    expect(afterLateDelta.threads[0]?.messages[0]?.text).toBe("hello");
+    expect(afterLateDelta.threads[0]?.messages[0]?.streaming).toBe(false);
+  });
+
+  it("repairs the timestamp of an existing Codex history message", async () => {
+    const oldCreatedAt = "2026-02-23T09:00:00.000Z";
+    const correctedCreatedAt = "2026-02-23T09:00:03.000Z";
+    const threadId = "thread-codex-history-timestamp";
+    const messageId = `import:codex:native:${threadId}:turn-1:assistant-1`;
+    const afterCreate = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(oldCreatedAt),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: oldCreatedAt,
+          commandId: "cmd-history-thread-create",
+          payload: {
+            threadId,
+            projectId: "project-1",
+            title: "Codex history",
+            modelSelection: { provider: ProviderDriverKind.make("codex"), model: "gpt-5" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: oldCreatedAt,
+            updatedAt: oldCreatedAt,
+          },
+        }),
+      ),
+    );
+    const imported = await Effect.runPromise(
+      projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: oldCreatedAt,
+          commandId: "cmd-history-message-old",
+          metadata: { historyImport: true },
+          payload: {
+            threadId,
+            messageId,
+            role: "assistant",
+            text: "The answer",
+            turnId: "turn-1",
+            streaming: false,
+            createdAt: oldCreatedAt,
+            updatedAt: oldCreatedAt,
+          },
+        }),
+      ),
+    );
+    const repaired = await Effect.runPromise(
+      projectEvent(
+        imported,
+        makeEvent({
+          sequence: 3,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: correctedCreatedAt,
+          commandId: "cmd-history-message-corrected",
+          metadata: { historyImport: true },
+          payload: {
+            threadId,
+            messageId,
+            role: "assistant",
+            text: "The answer",
+            turnId: "turn-1",
+            streaming: false,
+            createdAt: correctedCreatedAt,
+            updatedAt: correctedCreatedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(repaired.threads[0]?.messages[0]?.createdAt).toBe(correctedCreatedAt);
+  });
+
+  it("reconciles a doubled live Codex item when native history arrives", async () => {
+    const createdAt = "2026-02-23T09:10:00.000Z";
+    const liveAt = "2026-02-23T09:10:02.000Z";
+    const threadId = "thread-codex-history-live-repair";
+    const liveMessageId = "assistant:item-1";
+    const historyMessageId = "import:codex:native:" + threadId + ":turn-1:item-1";
+    let model = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(createdAt),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: createdAt,
+          commandId: "cmd-live-repair-create",
+          payload: {
+            threadId,
+            projectId: "project-1",
+            title: "Codex live repair",
+            modelSelection: { provider: ProviderDriverKind.make("codex"), model: "gpt-5" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      ),
+    );
+    model = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 2,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: liveAt,
+          commandId: "cmd-live-repair-live",
+          payload: {
+            threadId,
+            messageId: liveMessageId,
+            role: "assistant",
+            text: "answeranswer",
+            turnId: "turn-1",
+            streaming: false,
+            createdAt: liveAt,
+            updatedAt: liveAt,
+          },
+        }),
+      ),
+    );
+    model = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 3,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-02-23T09:10:03.000Z",
+          commandId: "cmd-live-repair-history",
+          metadata: { historyImport: true },
+          payload: {
+            threadId,
+            messageId: historyMessageId,
+            role: "assistant",
+            text: "answer",
+            turnId: "turn-1",
+            streaming: false,
+            createdAt,
+            updatedAt: "2026-02-23T09:10:03.000Z",
+          },
+        }),
+      ),
+    );
+
+    expect(model.threads[0]?.messages).toHaveLength(1);
+    expect(model.threads[0]?.messages[0]).toMatchObject({
+      id: liveMessageId,
+      text: "answer",
+      createdAt,
+      streaming: false,
+      turnId: "turn-1",
+    });
   });
 
   it("prunes reverted turn messages from in-memory thread snapshot", async () => {

@@ -38,4 +38,29 @@ describe("pending timeline messages", () => {
     // Folded messages still count as delivered even when absent from the presented rows.
     expect(appendPendingThreadMessages([], [delivered], [queued])).toEqual([]);
   });
+
+  it("suppresses a queued prompt when only its Codex history copy was delivered", () => {
+    const queued = {
+      ...pending("live-prompt"),
+      text: "same prompt",
+      createdAt: "2026-09-06T10:01:00.000Z",
+    };
+    const imported = {
+      type: "message" as const,
+      id: MessageId.make("import:codex:session-1:turn-1:item-1"),
+      createdAt: "2026-09-06T10:00:00.000Z",
+      message: {
+        id: MessageId.make("import:codex:session-1:turn-1:item-1"),
+        role: "user" as const,
+        text: queued.text,
+        attachments: [],
+        turnId: null,
+        streaming: false,
+        createdAt: "2026-09-06T10:00:00.000Z",
+        updatedAt: "2026-09-06T10:00:00.000Z",
+      },
+    };
+
+    expect(appendPendingThreadMessages([], [imported], [queued])).toEqual([]);
+  });
 });

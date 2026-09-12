@@ -7,6 +7,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  TurnId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as TestClock from "effect/testing/TestClock";
@@ -174,9 +175,10 @@ it.layer(NodeServices.layer)("thread history import", (it) => {
     }),
   );
 
-  it.effect("reconciles only native messages missing from an existing thread", () =>
+  it.effect("reconciles missing native messages and stale history timestamps", () =>
     Effect.gen(function* () {
       const createdAt = "2026-08-24T10:00:00.000Z";
+      const correctedCreatedAt = "2026-08-24T10:00:00.500Z";
       const threadId = ThreadId.make("codex:native-thread-1");
       const existingMessageId = MessageId.make("import:codex:native-thread-1:turn-1:user-1");
       const newMessageId = MessageId.make("import:codex:native-thread-1:turn-1:assistant-1");
@@ -238,12 +240,14 @@ it.layer(NodeServices.layer)("thread history import", (it) => {
               messageId: existingMessageId,
               role: "user",
               text: "Continue the existing work",
-              createdAt,
+              turnId: TurnId.make("turn-1"),
+              createdAt: correctedCreatedAt,
             },
             {
               messageId: newMessageId,
               role: "assistant",
               text: "I continued the work.",
+              turnId: TurnId.make("turn-1"),
               createdAt: "2026-08-24T10:00:01.000Z",
             },
           ],
@@ -256,9 +260,21 @@ it.layer(NodeServices.layer)("thread history import", (it) => {
           type: "thread.message-sent",
           metadata: { historyImport: true },
           payload: {
+            messageId: existingMessageId,
+            role: "user",
+            text: "Continue the existing work",
+            turnId: TurnId.make("turn-1"),
+            createdAt: correctedCreatedAt,
+          },
+        },
+        {
+          type: "thread.message-sent",
+          metadata: { historyImport: true },
+          payload: {
             messageId: newMessageId,
             role: "assistant",
             text: "I continued the work.",
+            turnId: TurnId.make("turn-1"),
           },
         },
       ]);

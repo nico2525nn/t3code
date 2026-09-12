@@ -14,7 +14,12 @@ import type {
 } from "@t3tools/contracts";
 import { isImportedAgentSessionMessageId } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
-import { isDuplicateCodexHistoryMessageForExisting } from "@t3tools/shared/codexMessageReconciliation";
+import {
+  findCodexHistoryMessageMatchForExisting,
+  findCodexHistoryMessagesDuplicatedByLiveMessage,
+  isCodexHistoryMessageId,
+  reconcileCodexHistoryMessages,
+} from "@t3tools/shared/codexMessageReconciliation";
 
 export type ThreadDetailReducerResult =
   | { readonly kind: "updated"; readonly thread: OrchestrationThread }
@@ -32,8 +37,6 @@ const checkpointOrder = O.mapInput(
     cp.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER,
 );
 
-const isProviderDiffCheckpointRef = (ref: string): boolean => ref.startsWith("provider-diff:");
-
 const activityOrder = O.combineAll<OrchestrationThreadActivity>([
   O.mapInput(O.Number, (a) => a.sequence ?? Number.MAX_SAFE_INTEGER),
   O.mapInput(O.String, (a) => a.createdAt),
@@ -48,6 +51,94 @@ const activityIdIndex = new WeakMap<
   ReadonlyArray<OrchestrationThreadActivity>,
   Set<OrchestrationThreadActivity["id"]>
 >();
+
+/**
+ * Repair message duplication already present in a warm client cache before
+ * applying new events. A server-side projection repair cannot rewrite a
+ * mobile/web cache that was persisted before the repair, and replaying an
+ * imported event is not guaranteed to arrive after the stale live/history
+ * pair already in that cache.
+ *
+ * Exact ids are unique first. The second pass reconciles assistant history by
+ * native item id and removes user history copies one-to-one, so two
+ * intentional identical prompts remain two prompts.
+ */
+export function normalizeCodexThreadMessages(
+  messages: ReadonlyArray<OrchestrationThread["messages"][number]>,
+): ReadonlyArray<OrchestrationThread["messages"][number]> {
+  const uniqueById: Array<OrchestrationThread["messages"][number]> = [];
+  const indexById = new Map<string, number>();
+  let changed = false;
+
+  for (const message of messages) {
+    const messageId = String(message.id);
+    const existingIndex = indexById.get(messageId);
+    if (existingIndex === undefined) {
+      indexById.set(messageId, uniqueById.length);
+      uniqueById.push(message);
+      continue;
+    }
+
+    changed = true;
+    const existing = uniqueById[existingIndex]!;
+    // If a malformed cache contains both a streaming and terminal copy of the
+    // same id, keep the terminal state and the most complete text/metadata.
+    const preferred = existing.streaming && !message.streaming ? message : existing;
+    const other = preferred === existing ? message : existing;
+    uniqueById[existingIndex] = {
+      ...preferred,
+      text: preferred.text.length >= other.text.length ? preferred.text : other.text,
+      turnId: preferred.turnId ?? other.turnId,
+      ...(preferred.attachments === undefined && other.attachments !== undefined
+        ? { attachments: other.attachments }
+        : {}),
+      updatedAt:
+        preferred.updatedAt.localeCompare(other.updatedAt) >= 0
+          ? preferred.updatedAt
+          : other.updatedAt,
+    };
+  }
+
+  const identities = uniqueById.map((message) => ({
+    messageId: String(message.id),
+    role: message.role,
+    text: message.text,
+    createdAt: message.createdAt,
+    turnId: message.turnId,
+    phase: message.phase,
+    streaming: message.streaming,
+  }));
+  const reconciled = reconcileCodexHistoryMessages(identities);
+  const reconciledById = new Map(
+    reconciled.map((message) => [message.messageId, message] as const),
+  );
+  const normalizedMessages = uniqueById.flatMap((message) => {
+    const reconciledMessage = reconciledById.get(String(message.id));
+    if (reconciledMessage === undefined) {
+      changed = true;
+      return [];
+    }
+    const nextMessage = {
+      ...message,
+      text: reconciledMessage.text,
+      createdAt: reconciledMessage.createdAt,
+      turnId: reconciledMessage.turnId ?? message.turnId,
+      streaming: reconciledMessage.streaming ?? message.streaming,
+      ...(reconciledMessage.phase !== undefined ? { phase: reconciledMessage.phase } : {}),
+    };
+    if (
+      nextMessage.text !== message.text ||
+      nextMessage.createdAt !== message.createdAt ||
+      nextMessage.turnId !== message.turnId ||
+      nextMessage.streaming !== message.streaming ||
+      nextMessage.phase !== message.phase
+    ) {
+      changed = true;
+    }
+    return [nextMessage];
+  });
+  return changed ? normalizedMessages : messages;
+}
 
 /**
  * Matches the validity rule in `deriveLatestContextWindowSnapshot` (and the
@@ -316,6 +407,11 @@ export function applyThreadDetailEvent(
 
     // ── Messages ────────────────────────────────────────────────────
     case "thread.message-sent": {
+      const normalizedMessages = normalizeCodexThreadMessages(thread.messages);
+      const normalizedCache = normalizedMessages !== thread.messages;
+      if (normalizedCache) {
+        thread = { ...thread, messages: normalizedMessages };
+      }
       const message: OrchestrationMessage = {
         id: event.payload.messageId,
         role: event.payload.role,
@@ -323,34 +419,102 @@ export function applyThreadDetailEvent(
         ...(event.payload.attachments !== undefined
           ? { attachments: event.payload.attachments }
           : {}),
+        ...(event.payload.phase !== undefined ? { phase: event.payload.phase } : {}),
         turnId: event.payload.turnId,
         streaming: event.payload.streaming,
         createdAt: event.payload.createdAt,
         updatedAt: event.payload.updatedAt,
       };
 
-      if (
-        isDuplicateCodexHistoryMessageForExisting(
+      const existingMessageBeforeReconciliation = thread.messages.find(
+        (entry) => entry.id === message.id,
+      );
+      if (message.streaming && existingMessageBeforeReconciliation?.streaming === false) {
+        // A resumed app-server can replay deltas after the terminal event has
+        // already reached the client. Do not reopen or append to a completed
+        // message while catching up.
+        return normalizedCache ? { kind: "updated", thread } : { kind: "unchanged" };
+      }
+
+      const existingMessageIdentities = thread.messages.map((existing) => ({
+        messageId: String(existing.id),
+        role: existing.role,
+        text: existing.text,
+        createdAt: existing.createdAt,
+        turnId: existing.turnId,
+        phase: existing.phase,
+      }));
+      if (isCodexHistoryMessageId(String(message.id))) {
+        const matchingLiveMessage = findCodexHistoryMessageMatchForExisting(
           {
             messageId: String(message.id),
             role: message.role,
             text: message.text,
             createdAt: message.createdAt,
+            turnId: message.turnId,
+            phase: message.phase,
           },
-          thread.messages.map((existing) => ({
-            messageId: String(existing.id),
-            role: existing.role,
-            text: existing.text,
-            createdAt: existing.createdAt,
-          })),
-        )
-      ) {
-        return { kind: "unchanged" };
+          existingMessageIdentities,
+        );
+        if (matchingLiveMessage !== undefined) {
+          // History and the live path use different IDs for the same native
+          // item. Keep the already-rendered live ID, but take the native turn
+          // association when history supplies it so activity grouping stays
+          // correct after a reconnect.
+          if (
+            (message.turnId !== null && matchingLiveMessage.turnId !== message.turnId) ||
+            (message.phase !== undefined && matchingLiveMessage.phase !== message.phase)
+          ) {
+            return {
+              kind: "updated",
+              thread: {
+                ...thread,
+                messages: thread.messages.map((entry) =>
+                  String(entry.id) === matchingLiveMessage.messageId
+                    ? {
+                        ...entry,
+                        ...(message.turnId !== null ? { turnId: message.turnId } : {}),
+                        ...(message.phase !== undefined ? { phase: message.phase } : {}),
+                      }
+                    : entry,
+                ),
+                updatedAt: event.occurredAt,
+              },
+            };
+          }
+          return normalizedCache ? { kind: "updated", thread } : { kind: "unchanged" };
+        }
       }
 
-      const existingMessage = thread.messages.find((entry) => entry.id === message.id);
+      // The reverse arrival order is possible too: a history snapshot may
+      // reach the client before a live event. Remove only the matched native
+      // history copies when the live row arrives; one-to-one matching keeps
+      // intentional repeated prompts intact.
+      const duplicateHistoryIds = findCodexHistoryMessagesDuplicatedByLiveMessage(
+        {
+          messageId: String(message.id),
+          role: message.role,
+          text: message.text,
+          createdAt: message.createdAt,
+          turnId: message.turnId,
+        },
+        existingMessageIdentities,
+      );
+      const duplicateHistoryTurnId =
+        message.turnId === null
+          ? thread.messages.find((entry) => duplicateHistoryIds.includes(String(entry.id)))?.turnId
+          : undefined;
+      const duplicateHistoryPhase =
+        message.phase === undefined
+          ? thread.messages.find((entry) => duplicateHistoryIds.includes(String(entry.id)))?.phase
+          : undefined;
+      const messagesWithoutHistoryCopies =
+        duplicateHistoryIds.length === 0
+          ? thread.messages
+          : thread.messages.filter((entry) => !duplicateHistoryIds.includes(String(entry.id)));
+      const existingMessage = messagesWithoutHistoryCopies.find((entry) => entry.id === message.id);
       const messages = existingMessage
-        ? Arr.map(thread.messages, (entry) =>
+        ? Arr.map(messagesWithoutHistoryCopies, (entry) =>
             entry.id !== message.id
               ? entry
               : {
@@ -361,14 +525,25 @@ export function applyThreadDetailEvent(
                       ? message.text
                       : entry.text,
                   streaming: message.streaming,
-                  ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+                  turnId: message.turnId ?? duplicateHistoryTurnId ?? entry.turnId,
+                  ...(message.phase !== undefined || duplicateHistoryPhase !== undefined
+                    ? { phase: message.phase ?? duplicateHistoryPhase ?? entry.phase }
+                    : {}),
                   ...(message.streaming ? {} : { updatedAt: message.updatedAt }),
                   ...(message.attachments !== undefined
                     ? { attachments: message.attachments }
                     : {}),
                 },
           )
-        : Arr.append(thread.messages, message);
+        : Arr.append(messagesWithoutHistoryCopies, {
+            ...message,
+            ...(message.turnId === null && duplicateHistoryTurnId !== undefined
+              ? { turnId: duplicateHistoryTurnId }
+              : {}),
+            ...(message.phase === undefined && duplicateHistoryPhase !== undefined
+              ? { phase: duplicateHistoryPhase }
+              : {}),
+          });
       // Update latestTurn for assistant messages bound to a turn. A completed
       // assistant message only settles the turn once the session is no longer
       // running it — providers may emit several assistant messages per turn
@@ -532,52 +707,17 @@ export function applyThreadDetailEvent(
       };
 
       const existing = thread.checkpoints.find((entry) => entry.turnId === checkpoint.turnId);
-      const existingByTurnCount = thread.checkpoints.find(
-        (entry) => entry.checkpointTurnCount === checkpoint.checkpointTurnCount,
-      );
-      const existingReadyGitCheckpoint = [existing, existingByTurnCount].find(
-        (entry) =>
-          entry !== undefined &&
-          entry.status === "ready" &&
-          !isProviderDiffCheckpointRef(String(entry.checkpointRef)),
-      );
       // Don't overwrite a non-missing checkpoint with a missing one.
-      if (
-        existingReadyGitCheckpoint !== undefined &&
-        (checkpoint.status === "missing" ||
-          (checkpoint.status === "ready" &&
-            isProviderDiffCheckpointRef(String(checkpoint.checkpointRef))))
-      ) {
+      if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
         return { kind: "unchanged" };
       }
 
-      const replaceProviderCheckpointAtSameCount =
-        checkpoint.status === "ready" &&
-        existingByTurnCount !== undefined &&
-        isProviderDiffCheckpointRef(String(existingByTurnCount.checkpointRef));
-
       const checkpoints = pipe(
         thread.checkpoints,
-        Arr.filter(
-          (entry) =>
-            entry.turnId !== checkpoint.turnId &&
-            !(
-              replaceProviderCheckpointAtSameCount &&
-              entry.checkpointTurnCount === checkpoint.checkpointTurnCount
-            ),
-        ),
+        Arr.filter((entry) => entry.turnId !== checkpoint.turnId),
         Arr.append(checkpoint),
         Arr.sort(checkpointOrder),
       );
-
-      const highestKnownCheckpointTurnCount = thread.checkpoints.reduce(
-        (max, entry) => Math.max(max, entry.checkpointTurnCount ?? 0),
-        0,
-      );
-      const canAdvanceLatestTurn =
-        thread.latestTurn === null ||
-        thread.latestTurn.turnId === checkpoint.turnId ||
-        checkpoint.checkpointTurnCount > highestKnownCheckpointTurnCount;
 
       // Mid-turn diff updates produce placeholder checkpoints; record the
       // checkpoint, but don't settle a turn its session is still running.
@@ -585,7 +725,8 @@ export function applyThreadDetailEvent(
         thread.session?.status === "running" &&
         thread.session.activeTurnId === event.payload.turnId;
       const latestTurn =
-        !diffTurnStillRunning && canAdvanceLatestTurn
+        !diffTurnStillRunning &&
+        (thread.latestTurn === null || thread.latestTurn.turnId === event.payload.turnId)
           ? {
               turnId: event.payload.turnId,
               state:

@@ -1607,6 +1607,7 @@ function deriveThreadFeedTurnFolds(
   latestTurn: ThreadFeedLatestTurn | null,
 ): ReadonlyMap<string, ThreadFeedTurnFold> {
   const firstAssistantMessageIdByTurn = new Map<TurnId, string>();
+  const finalAnswerMessageIdByTurn = new Map<TurnId, string>();
   const terminalAssistantMessageIdByTurn = new Map<TurnId, string>();
   for (const entry of feed) {
     if (entry.type === "message" && entry.message.role === "assistant" && entry.message.turnId) {
@@ -1614,6 +1615,9 @@ function deriveThreadFeedTurnFolds(
         firstAssistantMessageIdByTurn.set(entry.message.turnId, entry.id);
       }
       terminalAssistantMessageIdByTurn.set(entry.message.turnId, entry.id);
+      if (entry.message.phase === "final_answer") {
+        finalAnswerMessageIdByTurn.set(entry.message.turnId, entry.id);
+      }
     }
   }
 
@@ -1661,7 +1665,12 @@ function deriveThreadFeedTurnFolds(
     }
 
     const firstAssistantMessageId = firstAssistantMessageIdByTurn.get(turnId);
-    const terminalAssistantMessageId = terminalAssistantMessageIdByTurn.get(turnId);
+    // Codex can emit commentary after an earlier assistant segment and then
+    // finish the turn with a separately identified final answer. Prefer that
+    // explicit terminal phase; older providers have no phase and retain the
+    // previous last-assistant fallback.
+    const terminalAssistantMessageId =
+      finalAnswerMessageIdByTurn.get(turnId) ?? terminalAssistantMessageIdByTurn.get(turnId);
     const hiddenEntryIds = new Set(
       entries
         .filter(

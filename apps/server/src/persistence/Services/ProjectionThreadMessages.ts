@@ -9,6 +9,7 @@
 import {
   ChatAttachment,
   MessageId,
+  OrchestrationMessagePhase,
   OrchestrationMessageRole,
   ThreadId,
   TurnId,
@@ -28,6 +29,7 @@ export const ProjectionThreadMessage = Schema.Struct({
   turnId: Schema.NullOr(TurnId),
   role: OrchestrationMessageRole,
   text: Schema.String,
+  phase: Schema.optional(OrchestrationMessagePhase),
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   isStreaming: Schema.Boolean,
   createdAt: IsoDateTime,
@@ -63,6 +65,12 @@ export const DeleteProjectionThreadMessagesInput = Schema.Struct({
   threadId: ThreadId,
 });
 export type DeleteProjectionThreadMessagesInput = typeof DeleteProjectionThreadMessagesInput.Type;
+
+export const DeleteProjectionThreadMessagesByIdsInput = Schema.Struct({
+  messageIds: Schema.Array(MessageId),
+});
+export type DeleteProjectionThreadMessagesByIdsInput =
+  typeof DeleteProjectionThreadMessagesByIdsInput.Type;
 
 /**
  * ProjectionThreadMessageRepositoryShape - Service API for projected thread messages.
@@ -115,6 +123,11 @@ export interface ProjectionThreadMessageRepositoryShape {
    */
   readonly deleteByThreadId: (
     input: DeleteProjectionThreadMessagesInput,
+  ) => Effect.Effect<void, ProjectionRepositoryError>;
+
+  /** Delete selected projected messages while retaining the rest of a thread. */
+  readonly deleteByMessageIds: (
+    input: DeleteProjectionThreadMessagesByIdsInput,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 

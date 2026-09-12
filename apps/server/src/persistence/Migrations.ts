@@ -63,6 +63,9 @@ import Migration0048 from "./Migrations/048_ProjectionThreadBranchPullRequest.ts
 import Migration0049 from "./Migrations/049_ProjectionThreadsActiveOrderKey.ts";
 import Migration0050 from "./Migrations/050_CheckpointDiffBlobStatus.ts";
 import Migration0051 from "./Migrations/051_RepairCodexMessageDuplicates.ts";
+import Migration0052 from "./Migrations/052_RepairCodexLiveHistoryDuplicates.ts";
+import Migration0053 from "./Migrations/053_RepairCodexLiveMessageTurnIds.ts";
+import Migration0054 from "./Migrations/054_ProjectionThreadMessagePhase.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -126,6 +129,9 @@ const migrationEntries = [
   [49, "ProjectionThreadsActiveOrderKey", Migration0049],
   [50, "CheckpointDiffBlobStatus", Migration0050],
   [51, "RepairCodexMessageDuplicates", Migration0051],
+  [52, "RepairCodexLiveHistoryDuplicates", Migration0052],
+  [53, "RepairCodexLiveMessageTurnIds", Migration0053],
+  [54, "ProjectionThreadMessagePhase", Migration0054],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

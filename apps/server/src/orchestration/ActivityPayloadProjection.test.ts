@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { OrchestrationThreadActivity } from "@t3tools/contracts";
-import { projectActivityPayload } from "./ActivityPayloadProjection.ts";
+import { MessageId, TurnId } from "@t3tools/contracts";
+import type {
+  OrchestrationEvent,
+  OrchestrationMessage,
+  OrchestrationThreadActivity,
+  OrchestrationThreadDetailSnapshot,
+} from "@t3tools/contracts";
+import {
+  projectActivityEvent,
+  projectActivityPayload,
+  projectThreadDetailSnapshot,
+} from "./ActivityPayloadProjection.ts";
 
 function activity(payload: Record<string, unknown>): OrchestrationThreadActivity {
   return {
@@ -12,6 +22,45 @@ function activity(payload: Record<string, unknown>): OrchestrationThreadActivity
     turnId: null,
     createdAt: "2026-08-01T10:00:00.000Z",
   } as unknown as OrchestrationThreadActivity;
+}
+
+function collabActivity(
+  kind: OrchestrationThreadActivity["kind"],
+  id: string,
+  item: Record<string, unknown>,
+): OrchestrationThreadActivity {
+  return {
+    id,
+    tone: "tool",
+    kind,
+    summary: "Collaboration tool",
+    payload: {
+      itemType: "collab_agent_tool_call",
+      data: { item },
+    },
+    turnId: null,
+    sequence: Number(id.replace(/\D/gu, "")) || undefined,
+    createdAt: `2026-08-01T10:00:0${id.replace(/\D/gu, "") || "0"}.000Z`,
+  } as unknown as OrchestrationThreadActivity;
+}
+
+function message(
+  overrides: Omit<Partial<OrchestrationMessage>, "id" | "turnId"> & {
+    id?: string;
+    turnId?: string | null;
+  },
+): OrchestrationMessage {
+  const { id = "message-default", turnId = null, ...rest } = overrides;
+  return {
+    id: MessageId.make(id),
+    role: "user",
+    text: "message",
+    turnId: turnId === null ? null : TurnId.make(turnId),
+    streaming: false,
+    createdAt: "2026-08-01T10:00:00.000Z",
+    updatedAt: "2026-08-01T10:00:00.000Z",
+    ...rest,
+  };
 }
 
 /**
@@ -264,5 +313,238 @@ describe("projectActivityPayload", () => {
     });
     const projected = projectActivityPayload(source);
     expect(projected.payload).toEqual(source.payload);
+  });
+
+  it("projects legacy Codex collaboration history to the existing task contract", () => {
+    const snapshot = {
+      thread: {
+        activities: [
+          collabActivity("tool.started", "activity-1", {
+            type: "collabAgentToolCall",
+            tool: "spawnAgent",
+            receiverThreadIds: ["native-child"],
+            prompt: "Review the provider history",
+          }),
+          collabActivity("tool.completed", "activity-2", {
+            type: "collabAgentToolCall",
+            tool: "wait",
+            receiverThreadIds: ["native-child"],
+            agentsStates: {
+              "native-child": { status: "completed", message: "Review complete" },
+            },
+          }),
+        ],
+      },
+    } as unknown as OrchestrationThreadDetailSnapshot;
+
+    const projected = projectThreadDetailSnapshot(snapshot);
+    const tasks = projected.thread.activities.filter((entry) => entry.kind.startsWith("task."));
+
+    expect(tasks.map((entry) => entry.kind)).toEqual(["task.started", "task.completed"]);
+    expect(tasks[0]?.payload).toMatchObject({
+      taskId: "native-child",
+      taskType: "subagent",
+      agentKind: "agent",
+      title: "Review the provider history",
+      timelineBypass: true,
+    });
+    expect(tasks[1]?.payload).toMatchObject({
+      taskId: "native-child",
+      status: "completed",
+      summary: "Review complete",
+    });
+  });
+
+  it("does not synthesize a second task when the live adapter already projected it", () => {
+    const existingTask = {
+      ...activity({
+        taskId: "native-child",
+        taskType: "subagent",
+        agentKind: "agent",
+        title: "Canonical child",
+      }),
+      kind: "task.started",
+    } as unknown as OrchestrationThreadActivity;
+    const snapshot = {
+      thread: {
+        activities: [
+          existingTask,
+          collabActivity("tool.completed", "activity-3", {
+            type: "collabAgentToolCall",
+            tool: "wait",
+            receiverThreadIds: ["native-child"],
+            agentsStates: { "native-child": { status: "completed" } },
+          }),
+        ],
+      },
+    } as unknown as OrchestrationThreadDetailSnapshot;
+
+    const projected = projectThreadDetailSnapshot(snapshot);
+    expect(projected.thread.activities.filter((entry) => entry.kind.startsWith("task."))).toEqual([
+      existingTask,
+    ]);
+  });
+
+  it("collapses duplicate completed tool rows by provider call id", () => {
+    const duplicate = (id: string, detail?: string): OrchestrationThreadActivity =>
+      ({
+        id,
+        tone: "tool",
+        kind: "tool.completed",
+        summary: "Ran command",
+        payload: {
+          itemType: "command_execution",
+          toolCallId: "exec-duplicate",
+          ...(detail ? { detail } : {}),
+        },
+        turnId: null,
+        createdAt: "2026-08-01T10:00:00.000Z",
+      }) as unknown as OrchestrationThreadActivity;
+    const snapshot = {
+      thread: {
+        activities: [duplicate("duplicate-1"), duplicate("duplicate-2", "richer detail")],
+      },
+    } as unknown as OrchestrationThreadDetailSnapshot;
+
+    const projected = projectThreadDetailSnapshot(snapshot);
+    expect(projected.thread.activities).toHaveLength(1);
+    expect(projected.thread.activities[0]?.id).toBe("duplicate-2");
+  });
+
+  it("does not send live and Codex history copies in a thread snapshot", () => {
+    const live = message({
+      id: "user-live",
+      text: "same prompt",
+      turnId: "turn-1",
+    });
+    const imported = message({
+      id: "import:codex:native:turn-1:item-1",
+      text: "same prompt",
+      turnId: "turn-1",
+    });
+    const snapshot = {
+      snapshotSequence: 42,
+      thread: {
+        messages: [live, imported, imported],
+        activities: [],
+      },
+    } as unknown as OrchestrationThreadDetailSnapshot;
+
+    const projected = projectThreadDetailSnapshot(snapshot);
+
+    expect(projected.thread.messages).toEqual([live]);
+  });
+
+  it("uses the Codex history text when an old live bridge doubled the same item", () => {
+    const live = message({
+      id: "assistant:item-1",
+      role: "assistant",
+      text: "first answerfirst answer",
+      turnId: "turn-1",
+      streaming: true,
+      createdAt: "2026-08-01T10:00:02.000Z",
+      updatedAt: "2026-08-01T10:00:03.000Z",
+    });
+    const imported = message({
+      id: "import:codex:native:turn-1:item-1",
+      role: "assistant",
+      text: "first answer",
+      turnId: "turn-1",
+      streaming: false,
+      createdAt: "2026-08-01T10:00:01.000Z",
+      updatedAt: "2026-08-01T10:00:01.000Z",
+    });
+    const duplicateSegment = message({
+      id: "assistant:item-1:segment:1",
+      role: "assistant",
+      text: "first answer",
+      turnId: "turn-1",
+      createdAt: "2026-08-01T10:00:02.000Z",
+    });
+    const snapshot = {
+      snapshotSequence: 42,
+      thread: {
+        messages: [live, imported, duplicateSegment],
+        activities: [],
+      },
+    } as unknown as OrchestrationThreadDetailSnapshot;
+
+    const projected = projectThreadDetailSnapshot(snapshot);
+
+    expect(projected.thread.messages).toHaveLength(1);
+    expect(projected.thread.messages[0]).toMatchObject({
+      id: live.id,
+      role: "assistant",
+      text: imported.text,
+      createdAt: imported.createdAt,
+      turnId: imported.turnId,
+      streaming: false,
+    });
+  });
+
+  it("keeps identical prompts from separate Codex turns", () => {
+    const first = message({
+      id: "import:codex:native:turn-1:item-1",
+      text: "repeat",
+      turnId: "turn-1",
+    });
+    const second = message({
+      id: "import:codex:native:turn-2:item-1",
+      text: "repeat",
+      turnId: "turn-2",
+    });
+    const snapshot = {
+      snapshotSequence: 42,
+      thread: { messages: [first, second], activities: [] },
+    } as unknown as OrchestrationThreadDetailSnapshot;
+
+    const projected = projectThreadDetailSnapshot(snapshot);
+
+    expect(projected.thread.messages).toEqual([first, second]);
+  });
+});
+
+describe("projectActivityEvent", () => {
+  it("maps Codex history assistant events onto the existing live item id", () => {
+    const event = {
+      type: "thread.message-sent",
+      metadata: { historyImport: true },
+      payload: {
+        threadId: "codex:thread-1",
+        messageId: "import:codex:thread-1:turn-1:item-1",
+        role: "assistant",
+        text: "completed answer",
+        turnId: "turn-1",
+        streaming: false,
+        createdAt: "2026-08-01T10:00:00.000Z",
+        updatedAt: "2026-08-01T10:00:00.000Z",
+      },
+    } as unknown as OrchestrationEvent;
+
+    const projected = projectActivityEvent(event);
+
+    expect(projected).toMatchObject({
+      type: "thread.message-sent",
+      payload: { messageId: "assistant:item-1", text: "completed answer" },
+    });
+  });
+
+  it("does not rewrite user history ids because they have no native live id", () => {
+    const event = {
+      type: "thread.message-sent",
+      metadata: { historyImport: true },
+      payload: {
+        threadId: "codex:thread-1",
+        messageId: "import:codex:thread-1:turn-1:user-1",
+        role: "user",
+        text: "prompt",
+        turnId: "turn-1",
+        streaming: false,
+        createdAt: "2026-08-01T10:00:00.000Z",
+        updatedAt: "2026-08-01T10:00:00.000Z",
+      },
+    } as unknown as OrchestrationEvent;
+
+    expect(projectActivityEvent(event)).toBe(event);
   });
 });

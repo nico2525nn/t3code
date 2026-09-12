@@ -5,6 +5,7 @@ import {
   hasProviderUsageLimits,
   isUsageLimitsCommand,
 } from "@t3tools/shared/usageLimits";
+import { findCodexHistoryMessagesDuplicatedByLiveMessage } from "@t3tools/shared/codexMessageReconciliation";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { usageLimitsBannerItem } from "./chat/ComposerUsageLimits";
 import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
@@ -3197,7 +3198,27 @@ export default function ChatView(props: ChatViewProps) {
       return serverMessagesWithPreviewHandoff;
     }
     const serverIds = new Set(serverMessagesWithPreviewHandoff.map((message) => message.id));
-    const pendingMessages = localMessages.filter((message) => !serverIds.has(message.id));
+    const serverMessageIdentities = serverMessagesWithPreviewHandoff.map((message) => ({
+      messageId: String(message.id),
+      role: message.role,
+      text: message.text,
+      createdAt: message.createdAt,
+      turnId: message.turnId,
+    }));
+    const pendingMessages = localMessages.filter(
+      (message) =>
+        !serverIds.has(message.id) &&
+        findCodexHistoryMessagesDuplicatedByLiveMessage(
+          {
+            messageId: String(message.id),
+            role: message.role,
+            text: message.text,
+            createdAt: message.createdAt,
+            turnId: message.turnId,
+          },
+          serverMessageIdentities,
+        ).length === 0,
+    );
     if (pendingMessages.length === 0) {
       return serverMessagesWithPreviewHandoff;
     }
@@ -5194,13 +5215,46 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
     const serverIds = new Set(activeThread.messages.map((message) => message.id));
-    const removedMessages = optimisticUserMessages.filter((message) => serverIds.has(message.id));
+    const serverMessageIdentities = activeThread.messages.map((message) => ({
+      messageId: String(message.id),
+      role: message.role,
+      text: message.text,
+      createdAt: message.createdAt,
+      turnId: message.turnId,
+    }));
+    const removedMessages = optimisticUserMessages.filter(
+      (message) =>
+        serverIds.has(message.id) ||
+        findCodexHistoryMessagesDuplicatedByLiveMessage(
+          {
+            messageId: String(message.id),
+            role: message.role,
+            text: message.text,
+            createdAt: message.createdAt,
+            turnId: message.turnId,
+          },
+          serverMessageIdentities,
+        ).length > 0,
+    );
     if (removedMessages.length === 0) {
       return;
     }
     const timer = window.setTimeout(() => {
       setOptimisticUserMessages((existing) =>
-        existing.filter((message) => !serverIds.has(message.id)),
+        existing.filter(
+          (message) =>
+            !serverIds.has(message.id) &&
+            findCodexHistoryMessagesDuplicatedByLiveMessage(
+              {
+                messageId: String(message.id),
+                role: message.role,
+                text: message.text,
+                createdAt: message.createdAt,
+                turnId: message.turnId,
+              },
+              serverMessageIdentities,
+            ).length === 0,
+        ),
       );
     }, 0);
     for (const removedMessage of removedMessages) {

@@ -6,6 +6,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   DEFAULT_SERVER_SETTINGS,
   MessageId,
+  EventId,
   type ModelSelection,
   ProviderDriverKind,
   type OrchestrationProjectShell,
@@ -17,7 +18,11 @@ import {
 } from "@t3tools/contracts";
 import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import { resolveProjectAutoPull } from "@t3tools/shared/serverSettings";
-import { isDuplicateCodexHistoryMessageForExisting } from "@t3tools/shared/codexMessageReconciliation";
+import {
+  findCodexHistoryAssistantItemMatches,
+  isCodexHistoryMessageId,
+  isDuplicateCodexHistoryMessageForExisting,
+} from "@t3tools/shared/codexMessageReconciliation";
 import * as Cause from "effect/Cause";
 import * as Console from "effect/Console";
 import * as Context from "effect/Context";
@@ -748,6 +753,23 @@ export const reconcileProviderSessions = Effect.gen(function* () {
 
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
 const CODEX_APP_SERVER_THREAD_SYNC_INTERVAL = "5 seconds" as const;
+// A binding written before the paginated App Server history bridge was
+// deployed cannot tell startup reconciliation that its projection contains a
+// complete native history.  Keep this marker in the provider runtime payload
+// so the first post-deployment pass repairs existing projections once, while
+// later catalog passes remain lightweight.
+export const CODEX_NATIVE_HISTORY_SYNC_VERSION = "paginated-v8-native-item-repair" as const;
+// The projection repair changes derived rows without appending a compensating
+// domain event. A client that resumes from a pre-repair cursor would therefore
+// keep its stale rows and replay the old live+history pair. Persist the
+// authoritative event-store watermark alongside the marker so the thread
+// subscription can send one clean snapshot to such clients.
+export const CODEX_NATIVE_HISTORY_SYNC_SEQUENCE_KEY = "nativeHistorySyncSequence" as const;
+
+export function readCodexNativeHistorySyncSequence(runtimePayload: unknown): number | undefined {
+  const value = readRuntimePayload(runtimePayload)[CODEX_NATIVE_HISTORY_SYNC_SEQUENCE_KEY];
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
 
 const isProviderDiffRef = (ref: CheckpointRef): boolean => String(ref).startsWith("provider-diff:");
 
@@ -792,6 +814,13 @@ function hasCodexNativeSettingsMarker(runtimePayload: unknown): boolean {
 function readCodexNativeUpdatedAt(runtimePayload: unknown): string | undefined {
   const value = readRuntimePayload(runtimePayload).nativeUpdatedAt;
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+export function hasCodexNativeHistorySyncMarker(runtimePayload: unknown): boolean {
+  return (
+    readRuntimePayload(runtimePayload).nativeHistorySyncVersion ===
+    CODEX_NATIVE_HISTORY_SYNC_VERSION
+  );
 }
 
 function codexWorkspaceKey(workspaceRoot: string): string {
@@ -1187,6 +1216,11 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
         }
 
         let thread = threadsById.get(threadId);
+        // A shell that looks empty can still represent an existing thread
+        // whose event-sourced state was replayed incompletely. Never send the
+        // non-reconcile import to such a projection: the decider quite
+        // correctly rejects it once it sees the durable thread history.
+        const isNewProjectionThread = thread === undefined;
         if (thread !== undefined) {
           thread = yield* hydratePersistedMessageIds(thread, nativeUpdatedAtChanged);
         }
@@ -1206,8 +1240,10 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
           checkpointContext.value.checkpoints.some((checkpoint) => checkpoint.status !== "ready");
         const needsHistoryRead =
           thread === undefined ||
+          persistedBinding === undefined ||
           (thread.messageIds.size === 0 && thread.latestTurn === null && thread.session === null) ||
           nativeUpdatedAtChanged ||
+          !hasCodexNativeHistorySyncMarker(persistedBinding?.persisted.runtimePayload) ||
           needsNativeDiffRead;
         // A resumed app-server subscription does not replay turn/started. Read
         // the native thread once when it is active but not currently attached
@@ -1223,6 +1259,39 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
               })
             : undefined;
         const sourceThread = storedThread ?? listedThread;
+
+        // A server restart can leave the event-sourced projection carrying a
+        // running/error session even though Codex reports the native thread
+        // idle. Codex owns that status, so clear the orphaned T3 session
+        // without asking the client to send a recovery message.
+        const session = thread?.session;
+        const shouldReconcileIdleSession =
+          session !== null &&
+          session !== undefined &&
+          !liveThreadIds.has(threadId) &&
+          sourceThread.activeTurnId === undefined &&
+          (session.activeTurnId !== null ||
+            session.status === "starting" ||
+            session.status === "running" ||
+            session.status === "error" ||
+            session.lastError !== null);
+        if (shouldReconcileIdleSession && session !== undefined && session !== null) {
+          const reconciledAt = DateTime.formatIso(yield* DateTime.now);
+          yield* orchestrationEngine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.make(yield* crypto.randomUUIDv4),
+            threadId,
+            session: {
+              ...session,
+              status: "stopped",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: reconciledAt,
+            },
+            createdAt: reconciledAt,
+          });
+        }
+
         const projectedMessageSummaries =
           thread !== undefined &&
           needsHistoryRead &&
@@ -1234,7 +1303,41 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
           role: message.role,
           text: message.text,
           createdAt: message.createdAt,
+          turnId: message.turnId,
+          phase: message.phase,
         }));
+        const projectedMessagesById = new Map(
+          projectedMessageIdentities.map((message) => [message.messageId, message]),
+        );
+
+        const projectedNativeActivityKeys =
+          thread !== undefined &&
+          needsHistoryRead &&
+          sourceThread.activities !== undefined &&
+          sourceThread.activities.length > 0
+            ? typeof query.getThreadNativeActivityKeys === "function"
+              ? yield* query.getThreadNativeActivityKeys(threadId)
+              : yield* query.getThreadDetailById(threadId).pipe(
+                  Effect.map((detail) =>
+                    Option.isSome(detail)
+                      ? detail.value.activities.map((activity) => {
+                          const payload =
+                            typeof activity.payload === "object" && activity.payload !== null
+                              ? (activity.payload as { readonly toolCallId?: unknown })
+                              : undefined;
+                          return {
+                            id: activity.id,
+                            kind: activity.kind,
+                            turnId: activity.turnId,
+                            createdAt: activity.createdAt,
+                            toolCallId:
+                              typeof payload?.toolCallId === "string" ? payload.toolCallId : null,
+                          };
+                        })
+                      : [],
+                  ),
+                )
+            : [];
 
         if (thread === undefined) {
           const project = yield* ensureProject(sourceThread.cwd);
@@ -1298,14 +1401,52 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
         }
 
         const missingMessages = sourceThread.messages.filter((message) => {
+          const existing = projectedMessagesById.get(message.messageId);
+          const nativeAssistantMismatch =
+            message.role === "assistant" &&
+            findCodexHistoryAssistantItemMatches(message, projectedMessageIdentities).some(
+              (live) =>
+                live.text !== message.text ||
+                live.createdAt !== message.createdAt ||
+                (live.turnId ?? null) !== (message.turnId ?? null) ||
+                (live.phase ?? null) !== (message.phase ?? null),
+            );
+          if (
+            existing !== undefined &&
+            isCodexHistoryMessageId(message.messageId) &&
+            (existing.role !== message.role ||
+              existing.text !== message.text ||
+              existing.createdAt !== message.createdAt ||
+              (existing.turnId ?? null) !== (message.turnId ?? null) ||
+              (existing.phase ?? null) !== (message.phase ?? null) ||
+              nativeAssistantMismatch)
+          ) {
+            // History rows are immutable identities, but their old bridge
+            // import used the turn start for every message and could also
+            // leave the native turn association unset. Reconcile the
+            // canonical item timestamp and turn so tools and answers sort and
+            // group together on every client instead of appearing duplicated
+            // or after the answer.
+            return true;
+          }
           if (thread.messageIds.has(message.messageId)) {
-            return false;
+            // A reconciliation migration can remove a derived history row
+            // while the original message-sent event remains in the event
+            // log. Re-dispatch only that native-history identity so the
+            // projector can repair the live row and restore its native turn
+            // association without recreating a duplicate.
+            return existing === undefined && isCodexHistoryMessageId(message.messageId);
           }
           return !isDuplicateCodexHistoryMessageForExisting(message, projectedMessageIdentities);
         });
         const canImportEmptyHistory =
           thread.messageIds.size === 0 && thread.latestTurn === null && thread.session === null;
-        if (sourceThread.messages.length > 0 && needsHistoryRead && canImportEmptyHistory) {
+        if (
+          sourceThread.messages.length > 0 &&
+          needsHistoryRead &&
+          canImportEmptyHistory &&
+          isNewProjectionThread
+        ) {
           const wasArchived = thread.archivedAt !== null;
           if (wasArchived) {
             yield* orchestrationEngine.dispatch({
@@ -1323,6 +1464,8 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
               messageId: MessageId.make(message.messageId),
               role: message.role,
               text: message.text,
+              ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+              ...(message.phase !== undefined ? { phase: message.phase } : {}),
               createdAt: message.createdAt,
             })),
           });
@@ -1337,7 +1480,11 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
             });
             thread.archivedAt = sourceThread.updatedAt;
           }
-        } else if (missingMessages.length > 0 && needsHistoryRead) {
+        } else if (
+          missingMessages.length > 0 &&
+          needsHistoryRead &&
+          (!isNewProjectionThread || !canImportEmptyHistory)
+        ) {
           yield* orchestrationEngine.dispatch({
             type: "thread.history.import",
             commandId: CommandId.make(yield* crypto.randomUUIDv4),
@@ -1347,12 +1494,80 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
               messageId: MessageId.make(message.messageId),
               role: message.role,
               text: message.text,
+              ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+              ...(message.phase !== undefined ? { phase: message.phase } : {}),
               createdAt: message.createdAt,
             })),
           });
           for (const message of missingMessages) {
             thread.messageIds.add(message.messageId);
           }
+        }
+
+        if (
+          needsHistoryRead &&
+          sourceThread.activities !== undefined &&
+          sourceThread.activities.length > 0
+        ) {
+          const existingActivityIds = new Set(
+            projectedNativeActivityKeys.map((activity) => String(activity.id)),
+          );
+          const existingCompletedToolIds = new Set<string>();
+          const existingContextCompactions = new Set<string>();
+          for (const activity of projectedNativeActivityKeys) {
+            if (activity.kind === "tool.completed" && activity.toolCallId !== null) {
+              existingCompletedToolIds.add(activity.toolCallId);
+            }
+            if (activity.kind === "context-compaction") {
+              existingContextCompactions.add(
+                `${String(activity.turnId ?? "")}:${activity.createdAt}`,
+              );
+            }
+          }
+
+          const missingNativeActivities = sourceThread.activities.filter((activity) => {
+            if (existingActivityIds.has(activity.id)) {
+              return false;
+            }
+            if (activity.kind === "tool.completed") {
+              const payload =
+                typeof activity.payload === "object" && activity.payload !== null
+                  ? (activity.payload as { readonly toolCallId?: unknown })
+                  : undefined;
+              if (typeof payload?.toolCallId === "string") {
+                return !existingCompletedToolIds.has(payload.toolCallId);
+              }
+            }
+            if (activity.kind === "context-compaction") {
+              return !existingContextCompactions.has(
+                `${String(activity.turnId ?? "")}:${activity.createdAt}`,
+              );
+            }
+            return true;
+          });
+
+          yield* Effect.forEach(
+            missingNativeActivities,
+            (activity) =>
+              Effect.gen(function* () {
+                return yield* orchestrationEngine.dispatch({
+                  type: "thread.activity.append",
+                  commandId: CommandId.make(yield* crypto.randomUUIDv4),
+                  threadId,
+                  activity: {
+                    id: EventId.make(activity.id),
+                    tone: activity.tone,
+                    kind: activity.kind,
+                    summary: activity.summary,
+                    payload: activity.payload,
+                    turnId: activity.turnId,
+                    createdAt: activity.createdAt,
+                  },
+                  createdAt: activity.createdAt,
+                });
+              }),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
         }
 
         // Keep the native id even while the provider is idle. ProviderService
@@ -1365,6 +1580,9 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
           persistedBinding.threadId !== threadId ||
           persistedBinding.providerInstanceId !== instance.instanceId ||
           !hasCodexNativeSettingsMarker(persistedBinding.persisted.runtimePayload) ||
+          !hasCodexNativeHistorySyncMarker(persistedBinding.persisted.runtimePayload) ||
+          readCodexNativeHistorySyncSequence(persistedBinding.persisted.runtimePayload) ===
+            undefined ||
           readCodexNativeUpdatedAt(persistedBinding.persisted.runtimePayload) !==
             sourceThread.updatedAt
         ) {
@@ -1382,6 +1600,8 @@ export const syncCodexAppServerThreads = Effect.gen(function* () {
               modelSelection: thread.modelSelection,
               preserveProviderSettingsOnResume: true,
               nativeUpdatedAt: sourceThread.updatedAt,
+              nativeHistorySyncVersion: CODEX_NATIVE_HISTORY_SYNC_VERSION,
+              [CODEX_NATIVE_HISTORY_SYNC_SEQUENCE_KEY]: yield* orchestrationEngine.latestSequence,
             },
           });
         }

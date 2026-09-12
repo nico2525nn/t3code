@@ -23,6 +23,7 @@ import type {
   ThreadId,
   ProviderTurnStartResult,
   TurnId,
+  OrchestrationMessagePhase,
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
@@ -71,6 +72,10 @@ export interface ProviderStoredThreadMessage {
   readonly messageId: string;
   readonly role: "user" | "assistant";
   readonly text: string;
+  /** Native turn containing this message, when the provider exposes it. */
+  readonly turnId?: TurnId;
+  /** Native assistant delivery phase, when the provider exposes it. */
+  readonly phase?: OrchestrationMessagePhase;
   readonly createdAt: string;
 }
 
@@ -84,6 +89,23 @@ export interface ProviderStoredThreadTurnDiff {
   readonly status?: "ready" | "missing";
   /** Imported assistant text that the checkpoint should remain attached to. */
   readonly assistantMessageId?: MessageId;
+}
+
+/**
+ * A provider-owned activity recovered from a durable native thread.
+ *
+ * This deliberately mirrors only the wire-neutral activity boundary that T3
+ * already renders. Provider-specific item bodies remain nested in `payload` so
+ * the client does not need to know that the row came from Codex history.
+ */
+export interface ProviderStoredThreadActivity {
+  readonly id: string;
+  readonly tone: "info" | "tool" | "error";
+  readonly kind: string;
+  readonly summary: string;
+  readonly payload: unknown;
+  readonly turnId: TurnId | null;
+  readonly createdAt: string;
 }
 
 /**
@@ -107,6 +129,8 @@ export interface ProviderStoredThread {
   readonly messages: ReadonlyArray<ProviderStoredThreadMessage>;
   /** Provider-native diffs available when a durable thread was fully read. */
   readonly turnDiffs?: ReadonlyArray<ProviderStoredThreadTurnDiff>;
+  /** Provider-native operational items projected to T3's activity rows. */
+  readonly activities?: ReadonlyArray<ProviderStoredThreadActivity>;
 }
 
 /** Optional durable-thread catalog exposed by providers such as Codex. */

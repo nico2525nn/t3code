@@ -12,7 +12,7 @@ import {
 } from "@t3tools/contracts";
 import type { OrchestrationThread } from "@t3tools/contracts";
 
-import { applyThreadDetailEvent } from "./threadReducer.ts";
+import { applyThreadDetailEvent, normalizeCodexThreadMessages } from "./threadReducer.ts";
 
 const baseEventFields = {
   eventId: EventId.make("event-1"),
@@ -407,6 +407,114 @@ describe("applyThreadDetailEvent", () => {
   });
 
   describe("thread.message-sent", () => {
+    it("repairs a duplicate pair already restored from a warm cache", () => {
+      const liveMessage = {
+        id: MessageId.make("live-cached-message"),
+        role: "user" as const,
+        text: "same prompt from a stale cache",
+        turnId: TurnId.make("turn-1"),
+        streaming: false,
+        createdAt: "2026-04-01T06:00:00.000Z",
+        updatedAt: "2026-04-01T06:00:00.000Z",
+      };
+      const historyMessage = {
+        ...liveMessage,
+        id: MessageId.make("import:codex:session-1:turn-1:item-1"),
+        createdAt: "2026-04-01T05:59:00.000Z",
+      };
+      const cachedThread = { ...baseThread, messages: [liveMessage, historyMessage] };
+
+      const result = applyThreadDetailEvent(cachedThread, {
+        ...baseEventFields,
+        sequence: 9,
+        occurredAt: "2026-04-01T06:01:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: baseThread.id,
+        type: "thread.message-sent",
+        payload: {
+          threadId: baseThread.id,
+          messageId: historyMessage.id,
+          role: "user",
+          text: historyMessage.text,
+          turnId: historyMessage.turnId,
+          streaming: false,
+          createdAt: historyMessage.createdAt,
+          updatedAt: historyMessage.updatedAt,
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind !== "updated") return;
+      expect(result.thread.messages).toHaveLength(1);
+      expect(result.thread.messages[0]?.id).toBe(liveMessage.id);
+    });
+
+    it("removes exact duplicate ids while preserving the terminal copy", () => {
+      const streaming = {
+        id: MessageId.make("duplicate-id"),
+        role: "assistant" as const,
+        text: "partial",
+        turnId: TurnId.make("turn-1"),
+        streaming: true,
+        createdAt: "2026-04-01T06:00:00.000Z",
+        updatedAt: "2026-04-01T06:00:01.000Z",
+      };
+      const terminal = {
+        ...streaming,
+        text: "partial and complete",
+        streaming: false,
+        updatedAt: "2026-04-01T06:00:02.000Z",
+      };
+
+      const normalized = normalizeCodexThreadMessages([streaming, terminal]);
+
+      expect(normalized).toHaveLength(1);
+      expect(normalized[0]).toMatchObject({
+        id: streaming.id,
+        text: terminal.text,
+        streaming: false,
+      });
+    });
+
+    it("repairs a doubled live assistant item from the native history copy", () => {
+      const liveMessage = {
+        id: MessageId.make("assistant:item-1"),
+        role: "assistant" as const,
+        text: "answeranswer",
+        turnId: TurnId.make("turn-1"),
+        streaming: true,
+        createdAt: "2026-04-01T06:00:02.000Z",
+        updatedAt: "2026-04-01T06:00:03.000Z",
+      };
+      const importedMessage = {
+        ...liveMessage,
+        id: MessageId.make("import:codex:session-1:turn-1:item-1"),
+        text: "answer",
+        createdAt: "2026-04-01T06:00:01.000Z",
+        streaming: false,
+      };
+      const duplicateSegment = {
+        ...liveMessage,
+        id: MessageId.make("assistant:item-1:segment:1"),
+        text: "answer",
+        streaming: true,
+      };
+
+      const normalized = normalizeCodexThreadMessages([
+        liveMessage,
+        importedMessage,
+        duplicateSegment,
+      ]);
+
+      expect(normalized).toHaveLength(1);
+      expect(normalized[0]).toMatchObject({
+        id: liveMessage.id,
+        text: importedMessage.text,
+        createdAt: importedMessage.createdAt,
+        streaming: false,
+      });
+    });
+
     it("appends a new message", () => {
       const result = applyThreadDetailEvent(baseThread, {
         ...baseEventFields,
@@ -431,46 +539,6 @@ describe("applyThreadDetailEvent", () => {
       if (result.kind === "updated") {
         expect(result.thread.messages).toHaveLength(1);
         expect(result.thread.messages[0]?.text).toBe("Hello, world!");
-      }
-    });
-
-    it("ignores a Codex history copy of a live T3 message", () => {
-      const threadWithLiveMessage: OrchestrationThread = {
-        ...baseThread,
-        messages: [
-          {
-            id: MessageId.make("user-live-1"),
-            role: "user",
-            text: "same prompt",
-            turnId: null,
-            streaming: false,
-            createdAt: "2026-04-01T06:00:00.200Z",
-            updatedAt: "2026-04-01T06:00:00.200Z",
-          },
-        ],
-      };
-      const result = applyThreadDetailEvent(threadWithLiveMessage, {
-        ...baseEventFields,
-        sequence: 7,
-        occurredAt: "2026-04-01T06:00:01.000Z",
-        aggregateKind: "thread",
-        aggregateId: ThreadId.make("thread-1"),
-        type: "thread.message-sent",
-        payload: {
-          threadId: ThreadId.make("thread-1"),
-          messageId: MessageId.make("import:codex:session-1:turn-1:user-1"),
-          role: "user",
-          text: "same prompt",
-          turnId: null,
-          streaming: false,
-          createdAt: "2026-04-01T06:00:00.000Z",
-          updatedAt: "2026-04-01T06:00:00.000Z",
-        },
-      });
-
-      expect(result.kind).toBe("unchanged");
-      if (result.kind === "updated") {
-        expect(result.thread.messages).toHaveLength(1);
       }
     });
 
@@ -506,6 +574,87 @@ describe("applyThreadDetailEvent", () => {
       expect(repeated.thread.messages).toEqual(imported.thread.messages);
       expect(repeated.thread.latestTurn).toBeNull();
       expect(repeated.thread.checkpoints).toBe(baseThread.checkpoints);
+    });
+
+    it("does not re-add a Codex history copy of a live user message", () => {
+      const liveMessage = {
+        id: MessageId.make("b0f9d7f1-807c-419b-b3b9-deafaf3f9628"),
+        role: "user" as const,
+        text: "なんか送信したメッセージ２つ見えてる\nバグだらけすぎ\nもっと真面目に検証して",
+        turnId: null,
+        streaming: false,
+        createdAt: "2026-09-10T02:53:15.507Z",
+        updatedAt: "2026-09-10T02:53:15.507Z",
+      };
+      const threadWithLiveMessage = { ...baseThread, messages: [liveMessage] };
+      const importedEvent = {
+        ...baseEventFields,
+        sequence: 236837,
+        occurredAt: "2026-09-10T02:46:56.000Z",
+        aggregateKind: "thread" as const,
+        aggregateId: baseThread.id,
+        type: "thread.message-sent" as const,
+        payload: {
+          threadId: baseThread.id,
+          messageId: MessageId.make(
+            "import:codex:01a07b99-5e6e-7211-9700-73b5dc71e559:01a08936-6998-7140-8dfa-f9013c435125:01a0893d-8f5e-7a3e-8a63-2c6d1a0f0000",
+          ),
+          role: "user" as const,
+          text: liveMessage.text,
+          turnId: null,
+          streaming: false,
+          createdAt: "2026-09-10T02:46:56.000Z",
+          updatedAt: "2026-09-10T02:46:56.000Z",
+        },
+      };
+
+      const result = applyThreadDetailEvent(threadWithLiveMessage, importedEvent);
+
+      expect(result.kind).toBe("unchanged");
+      if (result.kind === "updated") {
+        expect(result.thread.messages).toHaveLength(1);
+      }
+    });
+
+    it("removes a history copy when the live message arrives second", () => {
+      const importedMessage = {
+        id: MessageId.make("import:codex:session-1:turn-1:item-1"),
+        role: "user" as const,
+        text: "same prompt",
+        turnId: TurnId.make("turn-1"),
+        streaming: false,
+        createdAt: "2026-04-01T06:00:00.000Z",
+        updatedAt: "2026-04-01T06:00:00.000Z",
+      };
+      const threadWithImportedMessage = { ...baseThread, messages: [importedMessage] };
+      const liveEvent = {
+        ...baseEventFields,
+        sequence: 8,
+        occurredAt: "2026-04-01T06:01:00.000Z",
+        aggregateKind: "thread" as const,
+        aggregateId: baseThread.id,
+        type: "thread.message-sent" as const,
+        payload: {
+          threadId: baseThread.id,
+          messageId: MessageId.make("live-message-1"),
+          role: "user" as const,
+          text: importedMessage.text,
+          turnId: null,
+          streaming: false,
+          createdAt: "2026-04-01T06:01:00.000Z",
+          updatedAt: "2026-04-01T06:01:00.000Z",
+        },
+      };
+
+      const result = applyThreadDetailEvent(threadWithImportedMessage, liveEvent);
+
+      expect(result.kind).toBe("updated");
+      if (result.kind !== "updated") return;
+      expect(result.thread.messages).toHaveLength(1);
+      expect(result.thread.messages[0]).toMatchObject({
+        id: MessageId.make("live-message-1"),
+        turnId: TurnId.make("turn-1"),
+      });
     });
 
     it("appends text for streaming messages", () => {
@@ -1303,94 +1452,6 @@ describe("applyThreadDetailEvent", () => {
         }
       },
     );
-
-    it("keeps a newer Git checkpoint authoritative over historical provider repair", () => {
-      const thread: OrchestrationThread = {
-        ...baseThread,
-        latestTurn: {
-          turnId: TurnId.make("turn-2"),
-          state: "completed",
-          requestedAt: "2026-04-01T11:02:00.000Z",
-          startedAt: "2026-04-01T11:02:00.000Z",
-          completedAt: "2026-04-01T11:02:01.000Z",
-          assistantMessageId: null,
-        },
-        checkpoints: [
-          {
-            turnId: TurnId.make("turn-2"),
-            checkpointTurnCount: 2,
-            checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-1/turn/2"),
-            status: "ready",
-            files: [],
-            assistantMessageId: null,
-            completedAt: "2026-04-01T11:02:01.000Z",
-          },
-        ],
-      };
-
-      const result = applyThreadDetailEvent(thread, {
-        ...baseEventFields,
-        sequence: 14,
-        occurredAt: "2026-04-01T12:00:00.000Z",
-        aggregateKind: "thread",
-        aggregateId: thread.id,
-        type: "thread.turn-diff-completed",
-        payload: {
-          threadId: thread.id,
-          turnId: TurnId.make("turn-1"),
-          checkpointTurnCount: 1,
-          checkpointRef: CheckpointRef.make("provider-diff:thread-1:turn-1"),
-          status: "ready",
-          files: [],
-          assistantMessageId: null,
-          completedAt: "2026-04-01T11:01:00.000Z",
-        },
-      });
-
-      expect(result.kind).toBe("updated");
-      if (result.kind === "updated") {
-        expect(result.thread.latestTurn?.turnId).toBe("turn-2");
-        expect(result.thread.checkpoints.map((entry) => entry.checkpointTurnCount)).toEqual([1, 2]);
-      }
-    });
-
-    it("does not replace a Git checkpoint with a provider checkpoint at the same count", () => {
-      const thread: OrchestrationThread = {
-        ...baseThread,
-        checkpoints: [
-          {
-            turnId: TurnId.make("turn-1"),
-            checkpointTurnCount: 1,
-            checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-1/turn/1"),
-            status: "ready",
-            files: [],
-            assistantMessageId: null,
-            completedAt: "2026-04-01T11:01:00.000Z",
-          },
-        ],
-      };
-
-      const result = applyThreadDetailEvent(thread, {
-        ...baseEventFields,
-        sequence: 15,
-        occurredAt: "2026-04-01T12:00:00.000Z",
-        aggregateKind: "thread",
-        aggregateId: thread.id,
-        type: "thread.turn-diff-completed",
-        payload: {
-          threadId: thread.id,
-          turnId: TurnId.make("native-turn-1"),
-          checkpointTurnCount: 1,
-          checkpointRef: CheckpointRef.make("provider-diff:thread-1:native-turn-1"),
-          status: "ready",
-          files: [],
-          assistantMessageId: null,
-          completedAt: "2026-04-01T11:01:00.000Z",
-        },
-      });
-
-      expect(result.kind).toBe("unchanged");
-    });
   });
 
   describe("thread.reverted", () => {

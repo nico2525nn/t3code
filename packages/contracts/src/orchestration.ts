@@ -476,10 +476,15 @@ export type OrchestrationProject = typeof OrchestrationProject.Type;
 export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
 
+/** Native assistant delivery phase, when the provider distinguishes it. */
+export const OrchestrationMessagePhase = Schema.Literals(["commentary", "final_answer"]);
+export type OrchestrationMessagePhase = typeof OrchestrationMessagePhase.Type;
+
 export const OrchestrationMessage = Schema.Struct({
   id: MessageId,
   role: OrchestrationMessageRole,
   text: Schema.String,
+  phase: Schema.optional(OrchestrationMessagePhase),
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
@@ -1265,6 +1270,7 @@ const ThreadMessageAssistantDeltaCommand = Schema.Struct({
   messageId: MessageId,
   delta: Schema.String,
   turnId: Schema.optional(TurnId),
+  phase: Schema.optional(OrchestrationMessagePhase),
   createdAt: IsoDateTime,
 });
 
@@ -1274,6 +1280,7 @@ const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   turnId: Schema.optional(TurnId),
+  phase: Schema.optional(OrchestrationMessagePhase),
   createdAt: IsoDateTime,
 });
 
@@ -1288,6 +1295,10 @@ const ThreadHistoryImportCommand = Schema.Struct({
       messageId: MessageId,
       role: Schema.Literals(["user", "assistant"]),
       text: Schema.String,
+      /** Native provider turn, present for durable Codex history imports. */
+      turnId: Schema.optional(TurnId),
+      /** Native assistant delivery phase, when exposed by the provider. */
+      phase: Schema.optional(OrchestrationMessagePhase),
       createdAt: IsoDateTime,
     }),
   ).check(Schema.isNonEmpty()),
@@ -1567,6 +1578,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   messageId: MessageId,
   role: OrchestrationMessageRole,
   text: Schema.String,
+  phase: Schema.optional(OrchestrationMessagePhase),
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,

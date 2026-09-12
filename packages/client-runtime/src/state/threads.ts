@@ -26,7 +26,7 @@ import { EnvironmentCacheStore } from "../platform/persistence.ts";
 import { subscribeDynamic } from "../rpc/client.ts";
 import { ThreadSnapshotLoader, type ThreadSnapshotWindow } from "./threadSnapshotHttp.ts";
 import { parseThreadKey, threadKey } from "./entities.ts";
-import { applyThreadDetailEvent } from "./threadReducer.ts";
+import { applyThreadDetailEvent, normalizeCodexThreadMessages } from "./threadReducer.ts";
 import { THREAD_SNAPSHOT_IDLE_TTL_MS } from "./threadRetention.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
 import {
@@ -202,7 +202,12 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           ),
         )
       : Option.none<OrchestrationThreadDetailSnapshot>();
-  const cachedThread = Option.map(cached, (snapshot) => snapshot.thread);
+  const cachedThread = Option.map(cached, (snapshot) => {
+    const messages = normalizeCodexThreadMessages(snapshot.thread.messages);
+    return messages === snapshot.thread.messages
+      ? snapshot.thread
+      : { ...snapshot.thread, messages };
+  });
   const initialState: EnvironmentThreadState = retained
     ? cachedThreadState(retained.state)
     : {
@@ -359,6 +364,10 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     // recent turns); a snapshot or merged page passes its own page state.
     page: Option.Option<EnvironmentThreadPageState> | "keep",
   ) {
+    const normalizedMessages = normalizeCodexThreadMessages(thread.messages);
+    if (normalizedMessages !== thread.messages) {
+      thread = { ...thread, messages: normalizedMessages };
+    }
     const waiting = yield* Ref.get(awaitingCompletion);
     yield* SubscriptionRef.update(state, (current) => ({
       data: Option.some(thread),
@@ -542,7 +551,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         // Thread metadata stays the loaded (newer) snapshot's; only the
         // windowed collections gain rows from the older page.
         ...loaded,
-        messages: mergeById(older.messages, loaded.messages),
+        messages: normalizeCodexThreadMessages(mergeById(older.messages, loaded.messages)),
         activities: mergeById(older.activities, loaded.activities),
         proposedPlans: mergeById(older.proposedPlans, loaded.proposedPlans),
         checkpoints: [

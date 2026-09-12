@@ -13,6 +13,10 @@ import {
   type OrchestrationThreadActivity,
 } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
+import {
+  findCodexHistoryAssistantItemMatches,
+  isCodexHistoryMessageId,
+} from "@t3tools/shared/codexMessageReconciliation";
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -1560,6 +1564,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           role: "assistant",
           text: command.delta,
           turnId: command.turnId ?? null,
+          ...(command.phase !== undefined ? { phase: command.phase } : {}),
           streaming: true,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
@@ -1593,6 +1598,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           role: "assistant",
           text: "",
           turnId: command.turnId ?? null,
+          ...(command.phase !== undefined ? { phase: command.phase } : {}),
           streaming: false,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
@@ -1622,9 +1628,49 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       const messages = reconcile
-        ? command.messages.filter(
-            (message) => !thread.messages.some((existing) => existing.id === message.messageId),
-          )
+        ? command.messages.filter((message) => {
+            const existing = thread.messages.find((entry) => entry.id === message.messageId);
+            if (existing === undefined) {
+              return true;
+            }
+            if (!isCodexHistoryMessageId(String(message.messageId))) {
+              return false;
+            }
+            const nativeAssistantMismatch =
+              message.role === "assistant" &&
+              findCodexHistoryAssistantItemMatches(
+                {
+                  messageId: String(message.messageId),
+                  role: message.role,
+                  text: message.text,
+                  createdAt: message.createdAt,
+                  ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+                  ...(message.phase !== undefined ? { phase: message.phase } : {}),
+                },
+                thread.messages.map((entry) => ({
+                  messageId: String(entry.id),
+                  role: entry.role,
+                  text: entry.text,
+                  createdAt: entry.createdAt,
+                  turnId: entry.turnId,
+                  phase: entry.phase,
+                })),
+              ).some(
+                (live) =>
+                  live.text !== message.text ||
+                  live.createdAt !== message.createdAt ||
+                  (live.turnId ?? null) !== (message.turnId ?? null) ||
+                  (live.phase ?? null) !== (message.phase ?? null),
+              );
+            return (
+              existing.role !== message.role ||
+              existing.text !== message.text ||
+              existing.createdAt !== message.createdAt ||
+              (existing.turnId ?? null) !== (message.turnId ?? null) ||
+              (existing.phase ?? null) !== (message.phase ?? null) ||
+              nativeAssistantMismatch
+            );
+          })
         : command.messages;
       const firstMessage = messages[0];
       if (firstMessage === undefined) {
@@ -1653,7 +1699,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             messageId: message.messageId,
             role: message.role,
             text: message.text,
-            turnId: null,
+            turnId: message.turnId ?? null,
+            ...(message.phase !== undefined ? { phase: message.phase } : {}),
             streaming: false,
             createdAt: message.createdAt,
             updatedAt: message.createdAt,

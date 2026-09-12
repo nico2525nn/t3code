@@ -91,19 +91,53 @@ it("imports only durable user and assistant text with deterministic ids", () => 
       messageId: "import:codex:native-thread-1:turn-1:user-1",
       role: "user",
       text: "Fix the import",
+      turnId: "turn-1",
       createdAt: "2023-11-14T22:13:21.000Z",
     },
     {
       messageId: "import:codex:native-thread-1:turn-1:assistant-1",
       role: "assistant",
       text: "I fixed the import.",
+      turnId: "turn-1",
       createdAt: "2023-11-14T22:13:21.000Z",
     },
     {
       messageId: "import:codex:native-thread-1:turn-1:image-only",
       role: "user",
       text: "[1 Codex attachment]",
+      turnId: "turn-1",
       createdAt: "2023-11-14T22:13:21.000Z",
     },
+  ]);
+});
+
+it("uses rollout item timestamps when ordering messages around tools", () => {
+  const thread = makeThread({
+    turns: [
+      {
+        id: "turn-1",
+        startedAt: 1_700_000_001,
+        status: "completed",
+        items: [
+          {
+            id: "user-1",
+            type: "userMessage",
+            content: [{ type: "text", text: "Run the tests" }],
+            __codexRolloutCompletedAt: "2026-09-10T00:00:01.000Z",
+          } as unknown as EffectCodexSchema.V2ThreadReadResponse__ThreadItem,
+          {
+            id: "assistant-1",
+            type: "agentMessage",
+            text: "The tests pass.",
+            __codexRolloutCompletedAt: "2026-09-10T00:00:03.000Z",
+          } as unknown as EffectCodexSchema.V2ThreadReadResponse__ThreadItem,
+        ],
+      },
+    ],
+  });
+
+  expect(codexAppServerThreadMessages(thread).map((message) => message.createdAt)).toEqual([
+    "2026-09-10T00:00:01.000Z",
+    "2026-09-10T00:00:03.000Z",
   ]);
 });

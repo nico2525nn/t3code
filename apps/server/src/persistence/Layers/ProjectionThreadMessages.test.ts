@@ -132,6 +132,51 @@ layer("ProjectionThreadMessageRepository", (it) => {
     }),
   );
 
+  it.effect("ignores a streaming delta that arrives after completion", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionThreadMessageRepository;
+      const threadId = ThreadId.make("thread-streaming-late-delta");
+      const messageId = MessageId.make("message-streaming-late-delta");
+
+      yield* repository.appendStreaming({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: "complete text",
+        createdAt: "2026-02-28T19:05:00.000Z",
+        updatedAt: "2026-02-28T19:05:00.000Z",
+      });
+      yield* repository.upsert({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: "complete text",
+        isStreaming: false,
+        createdAt: "2026-02-28T19:05:00.000Z",
+        updatedAt: "2026-02-28T19:05:01.000Z",
+      });
+      yield* repository.appendStreaming({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: "replayed text",
+        createdAt: "2026-02-28T19:05:02.000Z",
+        updatedAt: "2026-02-28T19:05:02.000Z",
+      });
+
+      const row = yield* repository.getByMessageId({ messageId });
+      assert.equal(row._tag, "Some");
+      if (row._tag === "Some") {
+        assert.equal(row.value.text, "complete text");
+        assert.isFalse(row.value.isStreaming);
+        assert.equal(row.value.updatedAt, "2026-02-28T19:05:01.000Z");
+      }
+    }),
+  );
+
   it.effect("preserves existing attachments when upsert omits attachments", () =>
     Effect.gen(function* () {
       const repository = yield* ProjectionThreadMessageRepository;

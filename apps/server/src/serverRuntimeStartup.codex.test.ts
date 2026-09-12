@@ -64,6 +64,7 @@ const makeEngine = (commands: OrchestrationCommand[]) =>
         commands.push(command);
         return { sequence: commands.length };
       }),
+    latestSequence: Effect.sync(() => commands.length),
   }) as unknown as OrchestrationEngine.OrchestrationEngineService["Service"];
 
 const makeProviderService = (starts: ProviderSessionStartInput[]) =>
@@ -467,6 +468,19 @@ it.effect("does not re-import history hidden by the lightweight command read mod
       ],
       updatedAt: "2026-09-01T10:00:00.000Z",
     } as unknown as OrchestrationReadModel;
+    const binding: ProviderSessionDirectory.ProviderRuntimeBindingWithMetadata = {
+      threadId: ThreadId.make(projectionThreadId),
+      provider: codex,
+      providerInstanceId: instanceId,
+      status: "stopped",
+      resumeCursor: { threadId: nativeThreadId },
+      runtimePayload: {
+        nativeUpdatedAt: "2026-09-01T10:05:00.000Z",
+        nativeHistorySyncVersion: "paginated-v8-native-item-repair",
+        preserveProviderSettingsOnResume: true,
+      },
+      lastSeenAt: "2026-09-01T10:00:00.000Z",
+    };
 
     yield* ServerRuntimeStartup.syncCodexAppServerThreads.pipe(
       Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
@@ -483,7 +497,7 @@ it.effect("does not re-import history hidden by the lightweight command read mod
       Effect.provideService(ProviderService.ProviderService, makeProviderService([])),
       Effect.provideService(
         ProviderSessionDirectory.ProviderSessionDirectory,
-        makeDirectory(upserts),
+        makeDirectory(upserts, [], [binding]),
       ),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, makeEngine(commands)),
       Effect.provide(
@@ -501,10 +515,11 @@ it.effect("does not re-import history hidden by the lightweight command read mod
     expect(commands).toEqual([]);
     expect(upserts).toMatchObject([
       {
-        provider: codex,
-        providerInstanceId: instanceId,
-        resumeCursor: { threadId: nativeThreadId },
-        runtimePayload: { preserveProviderSettingsOnResume: true },
+        threadId: projectionThreadId,
+        runtimePayload: {
+          nativeHistorySyncVersion: "paginated-v8-native-item-repair",
+          nativeHistorySyncSequence: 0,
+        },
       },
     ]);
   }),
@@ -528,6 +543,7 @@ it.effect("does not re-import a Codex history copy of a live T3 message", () =>
           messageId: `import:codex:${nativeThreadId}:turn-1:user-1`,
           role: "user",
           text: "same prompt",
+          turnId: TurnId.make("turn-1"),
           createdAt: "2026-09-01T10:01:00.000Z",
         },
       ],
@@ -596,6 +612,7 @@ it.effect("does not re-import a Codex history copy of a live T3 message", () =>
                 id: directMessageId,
                 role: "user" as const,
                 text: "same prompt",
+                turnId: "turn-1",
                 createdAt: "2026-09-01T10:01:00.200Z",
               },
             ];
@@ -623,6 +640,130 @@ it.effect("does not re-import a Codex history copy of a live T3 message", () =>
     expect(readCalls).toEqual([nativeThreadId]);
     expect(messageSummaryCalls).toEqual([projectionThreadId]);
     expect(commands).toEqual([]);
+  }),
+);
+
+it.effect("re-hydrates an existing Codex projection after the history bridge changes", () =>
+  Effect.gen(function* () {
+    const nativeThreadId = "native-history-migration";
+    const projectionThreadId = `codex:${nativeThreadId}`;
+    const commands: OrchestrationCommand[] = [];
+    const upserts: ProviderSessionDirectory.ProviderRuntimeBinding[] = [];
+    const readCalls: string[] = [];
+    const storedThread = makeStoredThread({
+      nativeThreadId,
+      active: false,
+      archived: false,
+      messages: [
+        {
+          messageId: `import:codex:${nativeThreadId}:turn-1:user-1`,
+          role: "user",
+          text: "recover the complete native history",
+          createdAt: "2026-09-01T10:01:00.000Z",
+        },
+      ],
+    });
+    const instance = {
+      instanceId,
+      driverKind: codex,
+      enabled: true,
+      adapter: {
+        storedThreadCatalog: {
+          listStoredThreads: () =>
+            Effect.succeed([
+              makeStoredThread({
+                nativeThreadId,
+                active: false,
+                archived: false,
+                messages: [],
+              }),
+            ]),
+          readStoredThread: (input: { readonly nativeThreadId: string }) =>
+            Effect.sync(() => {
+              readCalls.push(input.nativeThreadId);
+              return storedThread;
+            }),
+        },
+      },
+    };
+    const readModel = {
+      snapshotSequence: 0,
+      projects: [
+        {
+          id: "project-history-migration",
+          title: "codex-project",
+          workspaceRoot: "/tmp/codex-project",
+          deletedAt: null,
+        },
+      ],
+      threads: [
+        {
+          id: projectionThreadId,
+          projectId: "project-history-migration",
+          title: storedThread.title,
+          modelSelection: { instanceId, model: DEFAULT_MODEL },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          latestTurn: null,
+          session: null,
+          archivedAt: null,
+          deletedAt: null,
+          messages: [],
+        },
+      ],
+      updatedAt: "2026-09-01T10:00:00.000Z",
+    } as unknown as OrchestrationReadModel;
+    const binding: ProviderSessionDirectory.ProviderRuntimeBindingWithMetadata = {
+      threadId: ThreadId.make(projectionThreadId),
+      provider: codex,
+      providerInstanceId: instanceId,
+      status: "stopped",
+      resumeCursor: { threadId: nativeThreadId },
+      runtimePayload: {
+        nativeUpdatedAt: storedThread.updatedAt,
+        preserveProviderSettingsOnResume: true,
+      },
+      lastSeenAt: "2026-09-01T10:00:00.000Z",
+    };
+
+    yield* ServerRuntimeStartup.syncCodexAppServerThreads.pipe(
+      Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, makeQuery(readModel)),
+      Effect.provideService(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+        listInstances: Effect.succeed([instance]),
+      } as never),
+      Effect.provideService(ProviderService.ProviderService, makeProviderService([])),
+      Effect.provideService(
+        ProviderSessionDirectory.ProviderSessionDirectory,
+        makeDirectory(upserts, [], [binding]),
+      ),
+      Effect.provideService(OrchestrationEngine.OrchestrationEngineService, makeEngine(commands)),
+      Effect.provide(
+        Layer.mergeAll(
+          ServerSettings.layerTest({
+            defaultModelSelection: { instanceId, model: DEFAULT_MODEL },
+          }),
+          NodeServices.layer,
+        ),
+      ),
+    );
+
+    expect(readCalls).toEqual([nativeThreadId]);
+    expect(commands).toMatchObject([
+      {
+        type: "thread.history.import",
+        threadId: projectionThreadId,
+        reconcile: true,
+        messages: storedThread.messages,
+      },
+    ]);
+    expect(upserts).toMatchObject([
+      {
+        threadId: projectionThreadId,
+        runtimePayload: {
+          nativeHistorySyncVersion: "paginated-v8-native-item-repair",
+        },
+      },
+    ]);
   }),
 );
 
@@ -747,5 +888,112 @@ it.effect("moves a legacy Codex binding to the native-id projection thread", () 
     ]);
     expect(deletedBindings).toEqual([legacyThreadId]);
     expect(starts).toMatchObject([{ threadId: canonicalThreadId }]);
+  }),
+);
+
+it.effect("clears an orphaned Codex session when the native thread is idle", () =>
+  Effect.gen(function* () {
+    const nativeThreadId = "native-idle-session";
+    const projectionThreadId = `codex:${nativeThreadId}`;
+    const commands: OrchestrationCommand[] = [];
+    const storedThread = makeStoredThread({
+      nativeThreadId,
+      active: false,
+      archived: false,
+      messages: [],
+    });
+    const instance = {
+      instanceId,
+      driverKind: codex,
+      enabled: true,
+      adapter: {
+        storedThreadCatalog: {
+          listStoredThreads: () => Effect.succeed([storedThread]),
+          readStoredThread: () => Effect.succeed(storedThread),
+        },
+      },
+    };
+    const binding: ProviderSessionDirectory.ProviderRuntimeBindingWithMetadata = {
+      threadId: ThreadId.make(projectionThreadId),
+      provider: codex,
+      providerInstanceId: instanceId,
+      status: "stopped",
+      resumeCursor: { threadId: nativeThreadId },
+      runtimePayload: {
+        nativeUpdatedAt: storedThread.updatedAt,
+        nativeHistorySyncVersion: "paginated-v8-native-item-repair",
+        preserveProviderSettingsOnResume: true,
+      },
+      lastSeenAt: storedThread.updatedAt,
+    };
+    const readModel = {
+      snapshotSequence: 0,
+      projects: [
+        {
+          id: "project-idle-session",
+          title: "idle-session",
+          workspaceRoot: storedThread.cwd,
+          deletedAt: null,
+        },
+      ],
+      threads: [
+        {
+          id: projectionThreadId,
+          projectId: "project-idle-session",
+          title: storedThread.title,
+          modelSelection: { instanceId, model: DEFAULT_MODEL },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          latestTurn: null,
+          session: {
+            threadId: projectionThreadId,
+            status: "stopped",
+            providerName: "codex",
+            providerInstanceId: instanceId,
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: "Provider session did not survive a server restart.",
+            updatedAt: storedThread.updatedAt,
+          },
+          archivedAt: null,
+          deletedAt: null,
+          messages: [],
+        },
+      ],
+      updatedAt: storedThread.updatedAt,
+    } as unknown as OrchestrationReadModel;
+
+    yield* ServerRuntimeStartup.syncCodexAppServerThreads.pipe(
+      Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, makeQuery(readModel)),
+      Effect.provideService(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+        listInstances: Effect.succeed([instance]),
+      } as never),
+      Effect.provideService(ProviderService.ProviderService, makeProviderService([])),
+      Effect.provideService(
+        ProviderSessionDirectory.ProviderSessionDirectory,
+        makeDirectory([], [], [binding]),
+      ),
+      Effect.provideService(OrchestrationEngine.OrchestrationEngineService, makeEngine(commands)),
+      Effect.provide(
+        Layer.mergeAll(
+          ServerSettings.layerTest({
+            defaultModelSelection: { instanceId, model: DEFAULT_MODEL },
+          }),
+          NodeServices.layer,
+        ),
+      ),
+    );
+
+    expect(commands).toContainEqual(
+      expect.objectContaining({
+        type: "thread.session.set",
+        threadId: projectionThreadId,
+        session: expect.objectContaining({
+          status: "stopped",
+          activeTurnId: null,
+          lastError: null,
+        }),
+      }),
+    );
   }),
 );

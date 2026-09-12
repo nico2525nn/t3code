@@ -22,6 +22,10 @@ import * as CodexErrors from "effect-codex-app-server/errors";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+// The history reader deliberately uses small pages, but a single Codex turn
+// may still contain a large command output. Bound the connection explicitly
+// instead of inheriting ws's 100 MiB default and losing the whole socket.
+export const CODEX_APP_SERVER_MAX_PAYLOAD_BYTES = 256 * 1024 * 1024;
 
 function rawDataToString(data: NodeSocket.NodeWS.RawData): string {
   if (typeof data === "string") {
@@ -76,6 +80,7 @@ export const makeCodexAppServerUnixWebSocketStdio = Effect.fn(
           // over the Unix domain socket rather than trying localhost:80.
           createConnection: () => NodeNet.createConnection({ path: socketPath }),
           perMessageDeflate: false,
+          maxPayload: CODEX_APP_SERVER_MAX_PAYLOAD_BYTES,
         });
         let settled = false;
         let opened = false;

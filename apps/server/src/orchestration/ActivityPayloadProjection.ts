@@ -1,9 +1,90 @@
+import { MessageId } from "@t3tools/contracts";
 import type {
   OrchestrationEvent,
+  OrchestrationMessage,
   OrchestrationThreadActivity,
   OrchestrationThreadDetailSnapshot,
 } from "@t3tools/contracts";
+import {
+  codexLiveMessageIdFromCodexHistoryMessageId,
+  isCodexHistoryMessageId,
+  reconcileCodexHistoryMessages,
+} from "@t3tools/shared/codexMessageReconciliation";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
+import { projectCodexNativeActivities } from "./CodexNativeActivityProjection.ts";
+
+/**
+ * Keep the snapshot contract canonical even when an older projection or a
+ * partially rebuilt cache contains both the live T3 row and its Codex history
+ * copy. The normal projector already prevents this for new writes, but this
+ * is the last server-side boundary before an unchanged client renders data.
+ * Exact ids are also collapsed because an interrupted import can leave the
+ * same immutable event in a replayed snapshot more than once.
+ */
+function normalizeThreadMessagesForWire(
+  messages: ReadonlyArray<OrchestrationMessage>,
+): ReadonlyArray<OrchestrationMessage> {
+  const uniqueMessages: Array<OrchestrationMessage> = [];
+  const indexById = new Map<string, number>();
+
+  for (const message of messages) {
+    const id = String(message.id);
+    const existingIndex = indexById.get(id);
+    if (existingIndex === undefined) {
+      indexById.set(id, uniqueMessages.length);
+      uniqueMessages.push(message);
+      continue;
+    }
+
+    const existing = uniqueMessages[existingIndex]!;
+    const preferred = existing.streaming && !message.streaming ? message : existing;
+    const other = preferred === existing ? message : existing;
+    uniqueMessages[existingIndex] = {
+      ...preferred,
+      text: preferred.text.length >= other.text.length ? preferred.text : other.text,
+      turnId: preferred.turnId ?? other.turnId,
+      ...(preferred.phase === undefined && other.phase !== undefined ? { phase: other.phase } : {}),
+      ...(preferred.attachments === undefined && other.attachments !== undefined
+        ? { attachments: other.attachments }
+        : {}),
+      updatedAt:
+        preferred.updatedAt.localeCompare(other.updatedAt) >= 0
+          ? preferred.updatedAt
+          : other.updatedAt,
+    };
+  }
+
+  const reconciled = reconcileCodexHistoryMessages(
+    uniqueMessages.map((message) => ({
+      messageId: String(message.id),
+      role: message.role,
+      text: message.text,
+      createdAt: message.createdAt,
+      turnId: message.turnId,
+      phase: message.phase,
+      streaming: message.streaming,
+    })),
+  );
+  const reconciledById = new Map(
+    reconciled.map((message) => [message.messageId, message] as const),
+  );
+  return uniqueMessages.flatMap((message) => {
+    const reconciledMessage = reconciledById.get(String(message.id));
+    if (reconciledMessage === undefined) {
+      return [];
+    }
+    return [
+      {
+        ...message,
+        text: reconciledMessage.text,
+        createdAt: reconciledMessage.createdAt,
+        turnId: reconciledMessage.turnId ?? message.turnId,
+        streaming: reconciledMessage.streaming ?? message.streaming,
+        ...(reconciledMessage.phase !== undefined ? { phase: reconciledMessage.phase } : {}),
+      },
+    ];
+  });
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -572,21 +653,109 @@ function dropSupersededToolUpdatedActivities(
   });
 }
 
+function toolCallId(activity: OrchestrationThreadActivity): string | null {
+  const payload = asRecord(activity.payload);
+  return (
+    asTrimmedString(payload?.toolCallId) ?? asTrimmedString(asRecord(payload?.data)?.toolCallId)
+  );
+}
+
+/**
+ * A previous Codex/T3 bridge could persist the same completed item twice under
+ * two event ids. The provider call id is the stable identity, so collapse only
+ * duplicate completion rows at the server projection boundary. In-progress
+ * updates are intentionally left alone: they are a lifecycle stream and are
+ * handled by the supersession pass above.
+ */
+function dropDuplicateToolCompletedActivities(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyArray<OrchestrationThreadActivity> {
+  const bestIndexByToolCallId = new Map<string, number>();
+  const dropped = new Set<number>();
+
+  for (let index = 0; index < activities.length; index += 1) {
+    const activity = activities[index]!;
+    if (activity.kind !== "tool.completed") {
+      continue;
+    }
+    const id = toolCallId(activity);
+    if (id === null) {
+      continue;
+    }
+    const previousIndex = bestIndexByToolCallId.get(id);
+    if (previousIndex === undefined) {
+      bestIndexByToolCallId.set(id, index);
+      continue;
+    }
+
+    const previous = activities[previousIndex]!;
+    const previousSize = JSON.stringify(previous.payload).length;
+    const currentSize = JSON.stringify(activity.payload).length;
+    if (
+      currentSize > previousSize ||
+      (currentSize === previousSize && activity.createdAt > previous.createdAt)
+    ) {
+      dropped.add(previousIndex);
+      bestIndexByToolCallId.set(id, index);
+    } else {
+      dropped.add(index);
+    }
+  }
+
+  return dropped.size === 0 ? activities : activities.filter((_, index) => !dropped.has(index));
+}
+
 export function projectThreadDetailSnapshot(
   snapshot: OrchestrationThreadDetailSnapshot,
 ): OrchestrationThreadDetailSnapshot {
+  const retainedActivities = dropSupersededToolUpdatedActivities(
+    dropDuplicateToolCompletedActivities(
+      dropStaleContextWindowActivities(snapshot.thread.activities),
+    ),
+  );
+  const projectedActivities = retainedActivities.map(projectActivityPayload);
+  const nativeCompatibilityActivities = projectCodexNativeActivities(retainedActivities);
   return {
     ...snapshot,
     thread: {
       ...snapshot.thread,
-      activities: dropSupersededToolUpdatedActivities(
-        dropStaleContextWindowActivities(snapshot.thread.activities),
-      ).map(projectActivityPayload),
+      messages: normalizeThreadMessagesForWire(
+        Array.isArray(snapshot.thread.messages) ? snapshot.thread.messages : [],
+      ),
+      activities: [...projectedActivities, ...nativeCompatibilityActivities].toSorted(
+        (left, right) =>
+          (left.sequence ?? -1) - (right.sequence ?? -1) ||
+          left.createdAt.localeCompare(right.createdAt) ||
+          String(left.id).localeCompare(String(right.id)),
+      ),
     },
   };
 }
 
 export function projectActivityEvent(event: OrchestrationEvent): OrchestrationEvent {
+  if (event.type === "thread.message-sent") {
+    if (
+      event.metadata.historyImport !== true ||
+      event.payload.streaming ||
+      event.payload.role !== "assistant" ||
+      !isCodexHistoryMessageId(String(event.payload.messageId))
+    ) {
+      return event;
+    }
+    const liveMessageId = codexLiveMessageIdFromCodexHistoryMessageId(
+      String(event.payload.messageId),
+    );
+    if (liveMessageId === undefined) {
+      return event;
+    }
+    return {
+      ...event,
+      payload: {
+        ...event.payload,
+        messageId: MessageId.make(liveMessageId),
+      },
+    };
+  }
   if (event.type !== "thread.activity-appended") {
     return event;
   }

@@ -342,6 +342,10 @@ export class GitVcsDriver extends Context.Service<
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const GIT_CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
 const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
+// Checkpoint capture walks the whole worktree with a temporary index. T3
+// projects can be much larger than the quick status/diff operations, so the
+// normal 30s process deadline is too short for this specific operation.
+const CHECKPOINT_CAPTURE_TIMEOUT_MS = 300_000;
 const WORKSPACE_GIT_HARDENED_CONFIG_ARGS = [
   "-c",
   "core.fsmonitor=false",
@@ -660,12 +664,13 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       maxOutputBytes: 64 * 1024,
     }).pipe(Effect.asVoid);
 
-  const resolveHeadCommit = (cwd: string) =>
+  const resolveHeadCommit = (cwd: string, timeoutMs?: number) =>
     execute({
       operation: "GitVcsDriver.checkpoints.resolveHeadCommit",
       cwd,
       args: ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
       allowNonZeroExit: true,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     }).pipe(
       Effect.map((result) => {
         if (result.exitCode !== 0) {
@@ -676,20 +681,22 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       }),
     );
 
-  const hasHeadCommit = (cwd: string) =>
+  const hasHeadCommit = (cwd: string, timeoutMs?: number) =>
     execute({
       operation: "GitVcsDriver.checkpoints.hasHeadCommit",
       cwd,
       args: ["rev-parse", "--verify", "HEAD"],
       allowNonZeroExit: true,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     }).pipe(Effect.map((result) => result.exitCode === 0));
 
-  const resolveCheckpointCommit = (cwd: string, checkpointRef: string) =>
+  const resolveCheckpointCommit = (cwd: string, checkpointRef: string, timeoutMs?: number) =>
     execute({
       operation: "GitVcsDriver.checkpoints.resolveCheckpointCommit",
       cwd,
       args: ["rev-parse", "--verify", "--quiet", `${checkpointRef}^{commit}`],
       allowNonZeroExit: true,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     }).pipe(
       Effect.map((result) => {
         if (result.exitCode !== 0) {
@@ -700,12 +707,13 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       }),
     );
 
-  const resolveGitCommonDir = (cwd: string) =>
+  const resolveGitCommonDir = (cwd: string, timeoutMs?: number) =>
     Effect.gen(function* () {
       const result = yield* execute({
         operation: "GitVcsDriver.checkpoints.resolveGitCommonDir",
         cwd,
         args: ["rev-parse", "--git-common-dir"],
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       });
       const gitCommonDir = result.stdout.trim();
       return path.isAbsolute(gitCommonDir) ? gitCommonDir : path.resolve(cwd, gitCommonDir);
@@ -714,7 +722,8 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
   const checkpoints: VcsDriver.VcsCheckpointOps = {
     captureCheckpoint: Effect.fn("GitVcsDriver.checkpoints.captureCheckpoint")(function* (input) {
       const operation = "GitVcsDriver.checkpoints.captureCheckpoint";
-      const gitCommonDir = yield* resolveGitCommonDir(input.cwd);
+      const timeoutMs = CHECKPOINT_CAPTURE_TIMEOUT_MS;
+      const gitCommonDir = yield* resolveGitCommonDir(input.cwd, timeoutMs);
       const tempIndexPath = path.join(
         gitCommonDir,
         `t3-checkpoint-index-${NodeCrypto.randomUUID()}`,
@@ -733,13 +742,14 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         .pipe(Effect.ignore);
 
       yield* Effect.gen(function* () {
-        const headExists = yield* hasHeadCommit(input.cwd);
+        const headExists = yield* hasHeadCommit(input.cwd, timeoutMs);
         if (headExists) {
           yield* execute({
             operation,
             cwd: input.cwd,
             args: ["read-tree", "HEAD"],
             env: commitEnv,
+            timeoutMs,
           });
         }
 
@@ -748,6 +758,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           cwd: input.cwd,
           args: ["add", "-A", "--", "."],
           env: commitEnv,
+          timeoutMs,
         });
 
         const writeTreeResult = yield* execute({
@@ -755,6 +766,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           cwd: input.cwd,
           args: ["write-tree"],
           env: commitEnv,
+          timeoutMs,
         });
         const treeOid = writeTreeResult.stdout.trim();
         if (treeOid.length === 0) {
@@ -773,6 +785,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           cwd: input.cwd,
           args: ["commit-tree", treeOid, "-m", message],
           env: commitEnv,
+          timeoutMs,
         });
         const commitOid = commitTreeResult.stdout.trim();
         if (commitOid.length === 0) {
@@ -789,6 +802,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           operation,
           cwd: input.cwd,
           args: ["update-ref", input.checkpointRef, commitOid],
+          timeoutMs,
         });
       }).pipe(Effect.ensuring(cleanupTempIndex));
     }),

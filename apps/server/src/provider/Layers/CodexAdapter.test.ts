@@ -20,7 +20,7 @@ import {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { it, vi } from "@effect/vitest";
+import { expect, it, vi } from "@effect/vitest";
 
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -46,7 +46,11 @@ import {
   type CodexSessionRuntimeShape,
   type CodexThreadSnapshot,
 } from "./CodexSessionRuntime.ts";
-import { codexAppServerThreadDiffs, makeCodexAdapter } from "./CodexAdapter.ts";
+import {
+  codexAppServerThreadActivities,
+  codexAppServerThreadDiffs,
+  makeCodexAdapter,
+} from "./CodexAdapter.ts";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CodexAdapter`.
@@ -147,6 +151,66 @@ it.effect("normalizes Codex hunk-only file changes into a renderable turn diff",
     NodeAssert.match(interruptedDiff.diff, /src\/interrupted\.ts/);
   }),
 );
+
+it("projects native reasoning, tool, and child-agent items into durable activities", () => {
+  const thread = {
+    id: "native-thread",
+    updatedAt: 1_778_000_100,
+    turns: [
+      {
+        id: "turn-1",
+        startedAt: 1_778_000_010,
+        completedAt: 1_778_000_020,
+        status: "completed",
+        items: [
+          {
+            id: "reasoning-1",
+            type: "reasoning",
+            summary: ["Checking the repository"],
+            __codexRolloutCompletedAt: "2026-09-10T00:00:01.000Z",
+          },
+          {
+            id: "command-1",
+            type: "commandExecution",
+            command: "git status --short",
+            cwd: "/tmp/project",
+            commandActions: [],
+            status: "completed",
+            source: "unifiedExecStartup",
+            __codexRolloutCompletedAt: "2026-09-10T00:00:02.000Z",
+          },
+          {
+            id: "collab-1",
+            type: "collabAgentToolCall",
+            tool: "spawnAgent",
+            status: "completed",
+            senderThreadId: "native-thread",
+            receiverThreadIds: ["child-thread"],
+            agentsStates: { "child-thread": { status: "completed" } },
+            __codexRolloutCompletedAt: "2026-09-10T00:00:03.000Z",
+          },
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof codexAppServerThreadActivities>[0];
+
+  const activities = codexAppServerThreadActivities(thread);
+  expect(activities.map((activity) => [activity.kind, activity.createdAt])).toEqual([
+    ["task.progress", "2026-09-10T00:00:01.000Z"],
+    ["tool.completed", "2026-09-10T00:00:02.000Z"],
+    ["tool.completed", "2026-09-10T00:00:03.000Z"],
+  ]);
+  expect(activities[1]?.payload).toMatchObject({
+    itemType: "command_execution",
+    toolCallId: "command-1",
+    status: "completed",
+    data: { item: { command: "git status --short" } },
+  });
+  expect(activities[2]?.payload).toMatchObject({
+    itemType: "collab_agent_tool_call",
+    data: { item: { receiverThreadIds: ["child-thread"] } },
+  });
+});
 
 class FakeCodexRuntime implements CodexSessionRuntimeShape {
   private readonly eventQueue = Effect.runSync(Queue.unbounded<ProviderEvent>());

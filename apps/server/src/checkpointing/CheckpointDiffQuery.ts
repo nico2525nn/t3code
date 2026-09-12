@@ -34,6 +34,7 @@ import {
 import type { CheckpointServiceError } from "./Errors.ts";
 import { checkpointRefForThreadTurn } from "./Utils.ts";
 import * as CheckpointStore from "./CheckpointStore.ts";
+import { normalizeProviderDiff } from "./ProviderDiffNormalization.ts";
 
 /** Service tag for checkpoint diff queries. */
 export class CheckpointDiffQuery extends Context.Service<
@@ -131,7 +132,7 @@ export const make = Effect.gen(function* () {
               }
               diffs.push("");
             }
-            return Option.some(diffs.join("\n"));
+            return Option.some(normalizeProviderDiff(diffs.join("\n")));
           }),
         ),
     });

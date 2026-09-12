@@ -351,6 +351,40 @@ const THREAD_RESUME_MAX_EVENTS = 1_000;
 // payload bytes of the range in SQL and reset with a snapshot past this budget.
 const ORCHESTRATION_REPLAY_PAYLOAD_BUDGET_BYTES = 8 * 1024 * 1024;
 
+export function shouldReplaceCodexHistorySnapshot(
+  threadId: ThreadId,
+  afterSequence: number | undefined,
+  historySyncSequence: number | undefined,
+): boolean {
+  return (
+    String(threadId).startsWith("codex:") &&
+    afterSequence !== undefined &&
+    (historySyncSequence === undefined || afterSequence < historySyncSequence)
+  );
+}
+
+/**
+ * A client can stay connected while the startup repair rewrites the derived
+ * projection. Its cursor then advances past the repair watermark even though
+ * its in-memory thread still contains the old live/history pair. The cursor
+ * check above cannot identify that state, so give each WebSocket connection
+ * one authoritative snapshot for every repaired Codex generation.
+ */
+export function shouldSendCodexHistoryRepairSnapshot(
+  threadId: ThreadId,
+  afterSequence: number | undefined,
+  historySyncSequence: number | undefined,
+  repairSnapshotAlreadySent: boolean,
+): boolean {
+  return (
+    shouldReplaceCodexHistorySnapshot(threadId, afterSequence, historySyncSequence) ||
+    (String(threadId).startsWith("codex:") &&
+      afterSequence !== undefined &&
+      historySyncSequence !== undefined &&
+      !repairSnapshotAlreadySent)
+  );
+}
+
 function toAuthAccessStreamEvent(
   change: PairingGrantStore.BootstrapCredentialChange | SessionStore.SessionCredentialChange,
   revision: number,
@@ -575,6 +609,11 @@ const makeWsRpcLayer = (
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
+      // This state is scoped to one authenticated WebSocket. A reconnect gets
+      // a new set, which is exactly what heals a warm cache on that device;
+      // keeping the generation in the value avoids sending the large repaired
+      // snapshot repeatedly while the connection remains healthy.
+      const codexHistoryRepairSnapshotsSent = new Map<string, number>();
       yield* Effect.addFinalizer(() =>
         Ref.get(rpcClientIds).pipe(
           Effect.flatMap((clientIds) =>
@@ -1612,7 +1651,7 @@ const makeWsRpcLayer = (
                 Stream.filter(isThisThreadDetailEvent),
                 Stream.map((event) => ({
                   kind: "event" as const,
-                  event,
+                  event: projectActivityEvent(event),
                 })),
               );
 
@@ -1628,6 +1667,81 @@ const makeWsRpcLayer = (
                 { startImmediately: true },
               );
               const bufferedLiveStream = liveBuffer.stream;
+
+              // Migration 052/053 repaired the derived message projection in
+              // place, so the old event log still contains the live message
+              // followed by its imported Codex-history copy. A client whose
+              // cache cursor predates that repair cannot be healed by replay:
+              // replaying those immutable events would recreate the duplicate
+              // row in the client reducer. Also, a client that stayed connected
+              // through the repair can have a cursor newer than the watermark
+              // while still holding the old pair in memory. Send one
+              // authoritative full snapshot per connection and repair
+              // generation. The snapshot is intentionally unwindowed for this
+              // repair so a reconnect does not silently discard older pages a
+              // client had already loaded.
+              const providerBinding = yield* providerSessionDirectory
+                .getBinding(input.threadId)
+                .pipe(Effect.orElseSucceed(() => Option.none()));
+              const historySyncSequence = Option.match(providerBinding, {
+                onNone: () => undefined,
+                onSome: (binding) =>
+                  String(binding.provider) === "codex" &&
+                  ServerRuntimeStartup.hasCodexNativeHistorySyncMarker(binding.runtimePayload)
+                    ? ServerRuntimeStartup.readCodexNativeHistorySyncSequence(
+                        binding.runtimePayload,
+                      )
+                    : undefined,
+              });
+              const threadKey = String(input.threadId);
+              const repairSnapshotAlreadySent =
+                historySyncSequence !== undefined &&
+                codexHistoryRepairSnapshotsSent.get(threadKey) === historySyncSequence;
+              if (
+                shouldSendCodexHistoryRepairSnapshot(
+                  input.threadId,
+                  input.afterSequence,
+                  historySyncSequence,
+                  repairSnapshotAlreadySent,
+                )
+              ) {
+                const snapshot = yield* projectionSnapshotQuery
+                  .getThreadDetailSnapshot(input.threadId)
+                  .pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new OrchestrationGetSnapshotError({
+                          message: `Failed to load repaired thread ${input.threadId} snapshot`,
+                          cause,
+                        }),
+                    ),
+                  );
+                if (Option.isNone(snapshot)) {
+                  return yield* new OrchestrationGetSnapshotError({
+                    message: `Thread ${input.threadId} was not found`,
+                    cause: input.threadId,
+                  });
+                }
+                if (historySyncSequence !== undefined) {
+                  codexHistoryRepairSnapshotsSent.set(threadKey, historySyncSequence);
+                }
+                const afterSnapshot =
+                  input.requestCompletionMarker === true
+                    ? Stream.unwrap(
+                        liveBuffer
+                          .offer({ kind: "synchronized" as const })
+                          .pipe(Effect.as(bufferedLiveStream)),
+                      )
+                    : bufferedLiveStream;
+                return Stream.concat(
+                  Stream.make({
+                    kind: "snapshot" as const,
+                    snapshot: projectThreadDetailSnapshot(snapshot.value),
+                  }),
+                  afterSnapshot,
+                );
+              }
+
               let replayOnMissingSnapshot: typeof bufferedLiveStream | undefined;
 
               // When the client already loaded the snapshot over HTTP it passes

@@ -18,6 +18,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -29,11 +30,16 @@ import * as CodexSchema from "effect-codex-app-server/schema";
 
 import { buildCodexInitializeParams } from "./CodexProvider.ts";
 import { makeCodexAppServerUnixWebSocketStdio } from "./CodexAppServerTransport.ts";
+import { readCodexRolloutTurns } from "./CodexRolloutHistory.ts";
 import { codexManagedAppServerArgs } from "./codexLaunchArgs.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 
 const CODEX_APP_SERVER_FORCE_KILL_AFTER = "2 seconds" as const;
 const MAX_SESSION_RAW_MESSAGES = 32;
+// Full Codex items can include large command outputs. Keep each paginated
+// response comfortably below ws's default 100 MiB frame limit while allowing
+// a single unusually large turn through the transport's explicit cap.
+export const CODEX_HISTORY_PAGE_SIZE = 10;
 
 /**
  * Sources that represent user-visible Codex conversations. Sub-agent source
@@ -227,6 +233,119 @@ function makeTransportError(message: string, cause?: unknown) {
   });
 }
 
+const CodexPaginatedThreadPage = Schema.Struct({
+  data: Schema.Array(Schema.Unknown),
+  nextCursor: Schema.optionalKey(Schema.Union([Schema.String, Schema.Null])),
+});
+
+type CodexPaginatedThreadPage = Schema.Schema.Type<typeof CodexPaginatedThreadPage>;
+
+const decodeCodexPaginatedThreadPage = (method: string, payload: unknown) =>
+  Schema.decodeUnknownEffect(CodexPaginatedThreadPage)(payload).pipe(
+    Effect.mapError((cause) =>
+      makeTransportError(`Codex app-server returned an invalid ${method} page.`, cause),
+    ),
+  );
+
+const isPaginationUnavailable = (cause: CodexErrors.CodexAppServerError): boolean =>
+  cause._tag === "CodexAppServerRequestError" &&
+  (cause.code === -32601 ||
+    (cause.code === -32602 &&
+      /thread\/(?:turns|items)\/list|paginated|history/i.test(cause.errorMessage)));
+
+/**
+ * Hydrate paginated Codex history into the chronological shape used by the
+ * adapter. The app-server returns descending pages for backward hydration;
+ * each turn's items remain in their native chronological order.
+ */
+const readPaginatedCodexTurns = (
+  client: CodexAppServerClientService,
+  nativeThreadId: string,
+): Effect.Effect<
+  ReadonlyArray<CodexSchema.V2ThreadReadResponse__Turn>,
+  CodexErrors.CodexAppServerError
+> =>
+  Effect.gen(function* () {
+    const turns: Array<CodexSchema.V2ThreadReadResponse__Turn> = [];
+    let cursor: string | undefined;
+    const seenCursors = new Set<string>();
+
+    for (;;) {
+      const pageParams = {
+        threadId: nativeThreadId,
+        limit: CODEX_HISTORY_PAGE_SIZE,
+        sortDirection: "desc" as const,
+        itemsView: "full" as const,
+        ...(cursor === undefined ? {} : { cursor }),
+      };
+      const rawPage = yield* client.raw.request("thread/turns/list", pageParams);
+      const page: CodexPaginatedThreadPage = yield* decodeCodexPaginatedThreadPage(
+        "thread/turns/list",
+        rawPage,
+      );
+      const decodedTurns = yield* Effect.forEach(
+        page.data,
+        (turn) =>
+          Schema.decodeUnknownEffect(CodexSchema.V2ThreadReadResponse__Turn)(turn).pipe(
+            Effect.mapError((cause) =>
+              makeTransportError("Codex app-server returned an invalid thread turn.", cause),
+            ),
+          ),
+        { concurrency: 1 },
+      );
+      turns.push(...decodedTurns);
+
+      const nextCursor = page.nextCursor ?? undefined;
+      if (nextCursor === undefined) {
+        return turns.reverse();
+      }
+      if (seenCursors.has(nextCursor)) {
+        return yield* makeTransportError(
+          `Codex app-server returned a repeated thread/turns/list cursor '${nextCursor}'.`,
+        );
+      }
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    }
+  });
+
+const readFiniteNumber = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const mergeCodexTurns = (
+  indexedTurns: ReadonlyArray<CodexSchema.V2ThreadReadResponse__Turn>,
+  rolloutTurns: ReadonlyArray<CodexSchema.V2ThreadReadResponse__Turn>,
+): ReadonlyArray<CodexSchema.V2ThreadReadResponse__Turn> => {
+  const byId = new Map(indexedTurns.map((turn) => [turn.id, turn]));
+  for (const rolloutTurn of rolloutTurns) {
+    const indexedTurn = byId.get(rolloutTurn.id);
+    if (indexedTurn === undefined) {
+      byId.set(rolloutTurn.id, rolloutTurn);
+      continue;
+    }
+    const rolloutItemIds = new Set(rolloutTurn.items.map((item) => item.id));
+    // The append-only rollout is the source of chronological item order. The
+    // paginated projection can stop in the middle of a turn, so appending its
+    // missing items to the indexed array makes commands/reasoning appear after
+    // later messages. Keep indexed-only items as a compatibility tail for old
+    // app-server item kinds the rollout decoder does not know yet.
+    const mergedItems = [
+      ...rolloutTurn.items,
+      ...indexedTurn.items.filter((item) => !rolloutItemIds.has(item.id)),
+    ];
+    byId.set(rolloutTurn.id, {
+      ...indexedTurn,
+      ...rolloutTurn,
+      items: mergedItems,
+    });
+  }
+  return [...byId.values()].toSorted(
+    (left, right) =>
+      (left.startedAt ?? Number.MAX_SAFE_INTEGER) - (right.startedAt ?? Number.MAX_SAFE_INTEGER) ||
+      left.id.localeCompare(right.id),
+  );
+};
+
 const waitForSocketPath = Effect.fn("CodexAppServerManager.waitForSocketPath")(function* (
   socketPath: string,
 ): Effect.fn.Return<void, CodexErrors.CodexAppServerError> {
@@ -305,6 +424,14 @@ export const makeCodexAppServerManager = Effect.fn("CodexAppServerManager.make")
   let pendingThreadStart: NativeSession | undefined;
   let lastRequestOwner: NativeSession | undefined;
   let activeConnection: ActiveConnection | undefined;
+  const rolloutHistoryCache = new Map<
+    string,
+    {
+      readonly size: number;
+      readonly mtimeMs: number;
+      readonly turns: ReadonlyArray<CodexSchema.V2ThreadReadResponse__Turn>;
+    }
+  >();
 
   const signalAppServerExit = (connection: ActiveConnection) => {
     connection.terminated = true;
@@ -922,12 +1049,99 @@ export const makeCodexAppServerManager = Effect.fn("CodexAppServerManager.make")
   const readThread: CodexAppServerManagerShape["readThread"] = (nativeThreadId) =>
     ensureClient().pipe(
       Effect.flatMap((client) =>
-        client.request("thread/read", {
-          threadId: nativeThreadId,
-          includeTurns: true,
-        }),
+        client
+          .request("thread/read", {
+            threadId: nativeThreadId,
+            includeTurns: false,
+          })
+          .pipe(
+            Effect.flatMap((metadataResponse) =>
+              readPaginatedCodexTurns(client, nativeThreadId).pipe(
+                Effect.flatMap((turns) => {
+                  const nativeUpdatedAt = readFiniteNumber(metadataResponse.thread.updatedAt);
+                  const latestIndexedTurnAt = turns.reduce(
+                    (latest, turn) =>
+                      Math.max(
+                        latest,
+                        turn.completedAt ?? turn.startedAt ?? Number.MIN_SAFE_INTEGER,
+                      ),
+                    Number.MIN_SAFE_INTEGER,
+                  );
+                  const rolloutPath = readString(metadataResponse.thread.path);
+                  const historyLooksStale =
+                    rolloutPath !== undefined &&
+                    (turns.length === 0 ||
+                      (nativeUpdatedAt !== undefined && nativeUpdatedAt > latestIndexedTurnAt + 1));
+                  if (!historyLooksStale) {
+                    return Effect.succeed({
+                      ...metadataResponse.thread,
+                      turns,
+                    });
+                  }
+
+                  return Effect.gen(function* () {
+                    const stat = yield* Effect.try({
+                      try: () => NodeFS.statSync(rolloutPath),
+                      catch: () => undefined,
+                    });
+                    if (stat === undefined || !stat.isFile()) {
+                      return {
+                        ...metadataResponse.thread,
+                        turns,
+                      };
+                    }
+
+                    const cached = rolloutHistoryCache.get(rolloutPath);
+                    const rolloutTurns =
+                      cached?.size === stat.size && cached.mtimeMs === stat.mtimeMs
+                        ? cached.turns
+                        : yield* Effect.tryPromise({
+                            try: () => readCodexRolloutTurns(rolloutPath),
+                            catch: (cause) =>
+                              makeTransportError(
+                                `Could not recover Codex rollout history from ${rolloutPath}.`,
+                                cause,
+                              ),
+                          });
+                    rolloutHistoryCache.set(rolloutPath, {
+                      size: stat.size,
+                      mtimeMs: stat.mtimeMs,
+                      turns: rolloutTurns,
+                    });
+                    return {
+                      ...metadataResponse.thread,
+                      turns: mergeCodexTurns(turns, rolloutTurns),
+                    };
+                  }).pipe(
+                    Effect.catchCause((cause) =>
+                      Effect.logWarning("could not recover stale Codex rollout history", {
+                        nativeThreadId,
+                        rolloutPath,
+                        cause,
+                      }).pipe(
+                        Effect.as({
+                          ...metadataResponse.thread,
+                          turns,
+                        }),
+                      ),
+                    ),
+                  );
+                }),
+                // Older app-server versions predate the paginated history
+                // methods. Keep those installations usable with their legacy
+                // full-history response until they are upgraded.
+                Effect.catchIf(isPaginationUnavailable, () =>
+                  client
+                    .request("thread/read", {
+                      threadId: nativeThreadId,
+                      includeTurns: true,
+                    })
+                    .pipe(Effect.map((response) => response.thread)),
+                ),
+              ),
+            ),
+          ),
       ),
-      Effect.map((response) => response.thread),
     );
 
   const openSession = Effect.fn("CodexAppServerManager.openSession")(function* (

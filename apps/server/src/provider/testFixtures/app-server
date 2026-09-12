@@ -81,6 +81,8 @@ const makeCatalogReadThread = (id) => ({
   ],
 });
 
+const useLegacyHistoryResponse = process.env.T3_CODEX_MANAGER_TEST_LEGACY_HISTORY === "1";
+
 webSocketServer.on("connection", (socket) => {
   socket.on("message", (raw) => {
     const message = JSON.parse(raw.toString());
@@ -156,9 +158,24 @@ webSocketServer.on("connection", (socket) => {
 
     if (message.method === "thread/read") {
       const id = typeof message.params?.threadId === "string" ? message.params.threadId : "unknown";
+      const thread = makeCatalogReadThread(id);
       write(socket, {
         id: message.id,
-        result: { thread: makeCatalogReadThread(id) },
+        result: {
+          thread: {
+            ...thread,
+            turns: message.params?.includeTurns === true || useLegacyHistoryResponse ? thread.turns : [],
+          },
+        },
+      });
+      return;
+    }
+
+    if (message.method === "thread/turns/list" && !useLegacyHistoryResponse) {
+      const id = typeof message.params?.threadId === "string" ? message.params.threadId : "unknown";
+      write(socket, {
+        id: message.id,
+        result: { data: makeCatalogReadThread(id).turns },
       });
       return;
     }

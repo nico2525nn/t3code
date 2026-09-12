@@ -10,6 +10,7 @@ import {
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
+  OrchestrationMessagePhase,
   OrchestrationThreadSearchSource,
   OrchestrationShellSnapshot,
   OrchestrationThread,
@@ -107,6 +108,7 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
+    phase: Schema.NullOr(OrchestrationMessagePhase),
   }),
 );
 const ProjectionTurnStartMessageDbRowSchema = ProjectionThreadMessageDbRowSchema.mapFields(
@@ -128,6 +130,13 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
 );
 const ProjectionThreadActivityIdRowSchema = Schema.Struct({
   activityId: ProjectionThreadActivity.fields.activityId,
+});
+const ProjectionThreadNativeActivityKeyRowSchema = Schema.Struct({
+  activityId: ProjectionThreadActivity.fields.activityId,
+  kind: ProjectionThreadActivity.fields.kind,
+  turnId: ProjectionThreadActivity.fields.turnId,
+  createdAt: ProjectionThreadActivity.fields.createdAt,
+  toolCallId: Schema.NullOr(Schema.String),
 });
 const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession;
 const ProjectionThreadRuntimeContextDbRowSchema = Schema.Struct({
@@ -195,6 +204,8 @@ const ProjectionThreadMessageSummaryRowSchema = Schema.Struct({
   messageId: MessageId,
   role: ProjectionThreadMessage.fields.role,
   text: Schema.String,
+  turnId: ProjectionThreadMessage.fields.turnId,
+  phase: Schema.NullOr(OrchestrationMessagePhase),
   createdAt: IsoDateTime,
 });
 const TurnStartMessageLookupInput = Schema.Struct({
@@ -440,6 +451,26 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
   const threadPlanProgress = yield* ThreadPlanProgressService;
   const sql = yield* SqlClient.SqlClient;
+  // Codex durable history is an operational transcript, not a live activity
+  // stream. A fixed 500-row cap silently drops most tool calls from a single
+  // large turn (the target thread has thousands). Keep the protective cap for
+  // ordinary threads, but let a thread identified as Codex by its session (or
+  // by the canonical codex: id prefix) hydrate the complete requested turn
+  // window. The client can still page older turns, so this does not turn every
+  // full-thread read into an unbounded allocation.
+  const threadDetailActivityLimit = (threadId: string) => sql`
+    CASE
+      WHEN ${threadId} LIKE 'codex:%'
+        OR EXISTS (
+          SELECT 1
+          FROM projection_thread_sessions AS codex_session
+          WHERE codex_session.thread_id = ${threadId}
+            AND codex_session.provider_name = 'codex'
+        )
+      THEN -1
+      ELSE ${THREAD_DETAIL_ACTIVITY_LIMIT}
+    END
+  `;
   const repositoryIdentityResolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
   const repositoryIdentityResolutionConcurrency = 4;
   const resolveRepositoryIdentitiesForProjects = Effect.fn(
@@ -632,6 +663,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turn_id AS "turnId",
           role,
           text,
+          phase,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
@@ -1157,6 +1189,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         turn_id AS "turnId",
         role,
         text,
+        phase,
         attachments_json AS "attachments",
         is_streaming AS "isStreaming",
         created_at AS "createdAt",
@@ -1189,6 +1222,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turn_id AS "turnId",
           role,
           text,
+          phase,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
@@ -1221,6 +1255,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           message_id AS "messageId",
           role,
           text,
+          turn_id AS "turnId",
+          phase,
           created_at AS "createdAt"
         FROM projection_thread_messages
         WHERE thread_id = ${threadId}
@@ -1280,7 +1316,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             sequence DESC,
             created_at DESC,
             activity_id DESC
-          LIMIT ${THREAD_DETAIL_ACTIVITY_LIMIT}
+          LIMIT ${threadDetailActivityLimit(threadId)}
         ) AS recent_activities
         ORDER BY
           sequence ASC,
@@ -1335,9 +1371,51 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sequence DESC,
           created_at DESC,
           activity_id DESC
-        LIMIT ${THREAD_DETAIL_ACTIVITY_LIMIT}
+        LIMIT ${threadDetailActivityLimit(threadId)}
       `,
   });
+
+  const listThreadNativeActivityKeyRowsByThread = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadNativeActivityKeyRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          activity_id AS "activityId",
+          kind,
+          turn_id AS "turnId",
+          created_at AS "createdAt",
+          CASE
+            WHEN json_type(payload_json, '$.toolCallId') = 'text'
+              THEN json_extract(payload_json, '$.toolCallId')
+            ELSE NULL
+          END AS "toolCallId"
+        FROM projection_thread_activities
+        WHERE thread_id = ${threadId}
+        ORDER BY created_at ASC, activity_id ASC
+      `,
+  });
+
+  const getThreadNativeActivityKeys: NonNullable<
+    ProjectionSnapshotQueryShape["getThreadNativeActivityKeys"]
+  > = (threadId) =>
+    listThreadNativeActivityKeyRowsByThread({ threadId }).pipe(
+      Effect.map((rows) =>
+        rows.map((row) => ({
+          id: row.activityId,
+          kind: row.kind,
+          turnId: row.turnId,
+          createdAt: row.createdAt,
+          toolCallId: row.toolCallId,
+        })),
+      ),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getThreadNativeActivityKeys:query",
+          "ProjectionSnapshotQuery.getThreadNativeActivityKeys:decodeRows",
+        ),
+      ),
+    );
 
   const listThreadActivityRowsByIds = SqlSchema.findAll({
     Request: ThreadActivityIdsLookupInput,
@@ -1394,7 +1472,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             sequence DESC,
             created_at DESC,
             activity_id DESC
-          LIMIT ${THREAD_DETAIL_ACTIVITY_LIMIT}
+          LIMIT ${threadDetailActivityLimit(threadId)}
         ) AS recent_activities
         ORDER BY
           sequence ASC,
@@ -1575,6 +1653,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turn_id AS "turnId",
           role,
           text,
+          phase,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
@@ -1773,7 +1852,7 @@ pending_approval_requests AS (
             sequence DESC,
             created_at DESC,
             activity_id DESC
-          LIMIT ${THREAD_DETAIL_ACTIVITY_LIMIT}
+          LIMIT ${threadDetailActivityLimit(threadId)}
         ) AS recent_activities
         ORDER BY
           sequence ASC,
@@ -1820,7 +1899,7 @@ pending_approval_requests AS (
           sequence DESC,
           created_at DESC,
           activity_id DESC
-        LIMIT ${THREAD_DETAIL_ACTIVITY_LIMIT}
+        LIMIT ${threadDetailActivityLimit(threadId)}
       `,
   });
 
@@ -1982,6 +2061,7 @@ pending_approval_requests AS (
                   role: row.role,
                   text: row.text,
                   ...(row.attachments !== null ? { attachments: row.attachments } : {}),
+                  ...(row.phase !== null ? { phase: row.phase } : {}),
                   turnId: row.turnId,
                   streaming: row.isStreaming === 1,
                   createdAt: row.createdAt,
@@ -2403,6 +2483,8 @@ pending_approval_requests AS (
           id: row.messageId,
           role: row.role,
           text: row.text,
+          turnId: row.turnId,
+          ...(row.phase !== null ? { phase: row.phase } : {}),
           createdAt: row.createdAt,
         })),
       ),
@@ -3045,6 +3127,7 @@ pending_approval_requests AS (
         role: row.role,
         text: row.text,
         turnId: row.turnId,
+        ...(row.phase !== null ? { phase: row.phase } : {}),
         streaming: row.isStreaming === 1,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
@@ -3289,6 +3372,7 @@ pending_approval_requests AS (
             role: row.role,
             text: row.text,
             turnId: row.turnId,
+            ...(row.phase !== null ? { phase: row.phase } : {}),
             streaming: row.isStreaming === 1,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
@@ -3481,6 +3565,7 @@ pending_approval_requests AS (
     getCommandReadModel,
     getThreadMessageIds,
     getThreadMessageSummaries,
+    getThreadNativeActivityKeys,
     getUserInputActivity,
     getSnapshot,
     getShellSnapshot,

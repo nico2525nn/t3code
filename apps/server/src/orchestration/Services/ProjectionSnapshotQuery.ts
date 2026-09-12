@@ -67,6 +67,20 @@ export interface ProjectionFullThreadDiffContext {
   readonly toCheckpointStatus?: OrchestrationCheckpointStatus | null;
 }
 
+/**
+ * Lightweight identity fields used by startup reconciliation. This deliberately
+ * avoids hydrating the retained activity payloads, which are capped for client
+ * detail reads, while still allowing provider-native activities to be deduped
+ * against the complete projection history.
+ */
+export interface ProjectionThreadNativeActivityKey {
+  readonly id: OrchestrationThreadActivity["id"];
+  readonly kind: OrchestrationThreadActivity["kind"];
+  readonly turnId: OrchestrationThreadActivity["turnId"];
+  readonly createdAt: OrchestrationThreadActivity["createdAt"];
+  readonly toolCallId: string | null;
+}
+
 export interface ProjectionThreadDetailQuery {
   /**
    * Limit activities before SQLite returns and decodes their payloads.
@@ -111,9 +125,20 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadMessageSummaries?: (
     threadId: ThreadId,
   ) => Effect.Effect<
-    ReadonlyArray<Pick<OrchestrationMessage, "id" | "role" | "text" | "createdAt">>,
+    ReadonlyArray<
+      Pick<OrchestrationMessage, "id" | "role" | "text" | "turnId" | "phase" | "createdAt">
+    >,
     ProjectionRepositoryError
   >;
+
+  /**
+   * Read identities for all persisted activities without decoding their full
+   * payloads. Provider history reconciliation uses this to avoid creating a
+   * second activity when the client detail query only retains its recent page.
+   */
+  readonly getThreadNativeActivityKeys?: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<ProjectionThreadNativeActivityKey>, ProjectionRepositoryError>;
 
   /**
    * Read the latest orchestration projection snapshot.

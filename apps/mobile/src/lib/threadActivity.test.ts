@@ -1887,6 +1887,78 @@ describe("buildThreadFeed", () => {
     ]);
   });
 
+  it("uses Codex final_answer as the fold anchor when a later commentary item exists", () => {
+    const turnId = TurnId.make("turn-final-phase");
+    const thread = makeThread({
+      id: ThreadId.make("thread-final-phase"),
+      projectId: ProjectId.make("project-1"),
+      title: "Explicit final answer",
+      latestTurn: {
+        turnId,
+        state: "completed",
+        requestedAt: "2026-04-01T00:00:00.000Z",
+        startedAt: "2026-04-01T00:00:01.000Z",
+        completedAt: "2026-04-01T00:00:08.000Z",
+        assistantMessageId: MessageId.make("assistant-final-phase"),
+      },
+      messages: [
+        {
+          id: MessageId.make("assistant-commentary-phase"),
+          role: "assistant",
+          text: "I am checking the result.",
+          phase: "commentary",
+          turnId,
+          streaming: false,
+          createdAt: "2026-04-01T00:00:02.000Z",
+          updatedAt: "2026-04-01T00:00:03.000Z",
+        },
+        {
+          id: MessageId.make("assistant-final-phase"),
+          role: "assistant",
+          text: "The result is complete.",
+          phase: "final_answer",
+          turnId,
+          streaming: false,
+          createdAt: "2026-04-01T00:00:06.000Z",
+          updatedAt: "2026-04-01T00:00:07.000Z",
+        },
+        {
+          id: MessageId.make("assistant-late-commentary-phase"),
+          role: "assistant",
+          text: "One internal note arrived late.",
+          phase: "commentary",
+          turnId,
+          streaming: false,
+          createdAt: "2026-04-01T00:00:07.500Z",
+          updatedAt: "2026-04-01T00:00:07.500Z",
+        },
+      ],
+      activities: [
+        makeActivity({
+          id: EventId.make("phase-tool"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Verify result",
+          createdAt: "2026-04-01T00:00:04.000Z",
+          turnId,
+          payload: { title: "Verify result", itemType: "command_execution", status: "completed" },
+        }),
+      ],
+    });
+
+    const collapsed = deriveThreadFeedPresentation(
+      buildThreadFeed(thread),
+      thread.latestTurn,
+      new Set(),
+    );
+
+    expect(collapsed.map((entry) => entry.id)).toEqual([
+      "assistant-commentary-phase",
+      "turn-fold:turn-final-phase",
+      "assistant-final-phase",
+    ]);
+  });
+
   it("measures a steer-superseded turn from its user boundary through trailing work", () => {
     const firstTurnId = TurnId.make("turn-1");
     const secondTurnId = TurnId.make("turn-2");

@@ -8,8 +8,10 @@ import {
 } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
 import {
+  findCodexHistoryAssistantItemMatches,
+  findCodexHistoryMessagesDuplicatedByLiveMessage,
+  findCodexHistoryMessageMatchForExisting,
   isCodexHistoryMessageId,
-  isDuplicateCodexHistoryMessageForExisting,
 } from "@t3tools/shared/codexMessageReconciliation";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -575,6 +577,7 @@ export function projectEvent(
             id: payload.messageId,
             role: payload.role,
             text: payload.text,
+            ...(payload.phase !== undefined ? { phase: payload.phase } : {}),
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
@@ -585,29 +588,131 @@ export function projectEvent(
           "message",
         );
 
-        if (
-          isCodexHistoryMessageId(String(message.id)) &&
-          isDuplicateCodexHistoryMessageForExisting(
+        const existingMessageBeforeReconciliation = thread.messages.find(
+          (entry) => entry.id === message.id,
+        );
+        if (message.streaming && existingMessageBeforeReconciliation?.streaming === false) {
+          // A resumed app-server can replay deltas after the terminal event
+          // has already reached the projector. Do not reopen or append to a
+          // completed message in the in-memory read model.
+          return nextBase;
+        }
+
+        const existingMessageIdentities = thread.messages.map((existing) => ({
+          messageId: String(existing.id),
+          role: existing.role,
+          text: existing.text,
+          createdAt: existing.createdAt,
+          turnId: existing.turnId,
+          phase: existing.phase,
+        }));
+        if (isCodexHistoryMessageId(String(message.id))) {
+          const nativeItemMatches = findCodexHistoryAssistantItemMatches(
             {
               messageId: String(message.id),
               role: message.role,
               text: message.text,
               createdAt: message.createdAt,
+              turnId: message.turnId,
+              phase: message.phase,
             },
-            thread.messages.map((existing) => ({
-              messageId: String(existing.id),
-              role: existing.role,
-              text: existing.text,
-              createdAt: existing.createdAt,
-            })),
-          )
-        ) {
-          return nextBase;
+            existingMessageIdentities,
+          );
+          if (nativeItemMatches.length > 0) {
+            const canonicalLiveMessageId = nativeItemMatches[0]!.messageId;
+            const redundantMessageIds = new Set([
+              String(message.id),
+              ...nativeItemMatches.slice(1).map((entry) => entry.messageId),
+            ]);
+            const messages = thread.messages
+              .filter((entry) => !redundantMessageIds.has(String(entry.id)))
+              .map((entry) =>
+                String(entry.id) === canonicalLiveMessageId
+                  ? {
+                      ...entry,
+                      text: message.text,
+                      streaming: false,
+                      createdAt: message.createdAt,
+                      updatedAt:
+                        compareDateTimeStrings(entry.updatedAt, message.updatedAt) >= 0
+                          ? entry.updatedAt
+                          : message.updatedAt,
+                      turnId: message.turnId ?? entry.turnId,
+                      ...(message.phase !== undefined ? { phase: message.phase } : {}),
+                      ...(message.attachments !== undefined
+                        ? { attachments: message.attachments }
+                        : {}),
+                    }
+                  : entry,
+              );
+            return {
+              ...nextBase,
+              threads: updateThread(nextBase.threads, payload.threadId, {
+                messages: messages.slice(-MAX_THREAD_MESSAGES),
+                updatedAt: event.occurredAt,
+              }),
+            };
+          }
+          const matchingLiveMessage = findCodexHistoryMessageMatchForExisting(
+            {
+              messageId: String(message.id),
+              role: message.role,
+              text: message.text,
+              createdAt: message.createdAt,
+              turnId: message.turnId,
+              phase: message.phase,
+            },
+            existingMessageIdentities,
+          );
+          if (matchingLiveMessage !== undefined) {
+            if (
+              (message.turnId !== null && matchingLiveMessage.turnId !== message.turnId) ||
+              (message.phase !== undefined && matchingLiveMessage.phase !== message.phase)
+            ) {
+              return {
+                ...nextBase,
+                threads: updateThread(nextBase.threads, payload.threadId, {
+                  messages: thread.messages.map((entry) =>
+                    String(entry.id) === matchingLiveMessage.messageId
+                      ? {
+                          ...entry,
+                          ...(message.turnId !== null ? { turnId: message.turnId } : {}),
+                          ...(message.phase !== undefined ? { phase: message.phase } : {}),
+                        }
+                      : entry,
+                  ),
+                  updatedAt: event.occurredAt,
+                }),
+              };
+            }
+            return nextBase;
+          }
         }
 
-        const existingMessage = thread.messages.find((entry) => entry.id === message.id);
+        const duplicateHistoryIds = findCodexHistoryMessagesDuplicatedByLiveMessage(
+          {
+            messageId: String(message.id),
+            role: message.role,
+            text: message.text,
+            createdAt: message.createdAt,
+            turnId: message.turnId,
+          },
+          existingMessageIdentities,
+        );
+        const duplicateHistoryTurnId =
+          message.turnId === null
+            ? thread.messages.find((entry) => duplicateHistoryIds.includes(String(entry.id)))
+                ?.turnId
+            : undefined;
+        const messagesWithoutHistoryCopies =
+          duplicateHistoryIds.length === 0
+            ? thread.messages
+            : thread.messages.filter((entry) => !duplicateHistoryIds.includes(String(entry.id)));
+        const existingMessage = messagesWithoutHistoryCopies.find(
+          (entry) => entry.id === message.id,
+        );
         const messages = existingMessage
-          ? thread.messages.map((entry) =>
+          ? messagesWithoutHistoryCopies.map((entry) =>
               entry.id === message.id
                 ? {
                     ...entry,
@@ -617,15 +722,20 @@ export function projectEvent(
                         ? message.text
                         : entry.text,
                     streaming: message.streaming,
+                    ...(event.metadata.historyImport === true &&
+                    isCodexHistoryMessageId(String(message.id))
+                      ? { createdAt: message.createdAt }
+                      : {}),
                     updatedAt: message.updatedAt,
-                    turnId: message.turnId,
+                    turnId: message.turnId ?? duplicateHistoryTurnId ?? null,
+                    ...(message.phase !== undefined ? { phase: message.phase } : {}),
                     ...(message.attachments !== undefined
                       ? { attachments: message.attachments }
                       : {}),
                   }
                 : entry,
             )
-          : [...thread.messages, message];
+          : [...messagesWithoutHistoryCopies, message];
         const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
 
         return {

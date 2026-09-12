@@ -4,6 +4,7 @@ import {
   CommandId,
   MessageId,
   type OrchestrationEvent,
+  type OrchestrationMessagePhase,
   OrchestrationProposedPlanId,
   CheckpointRef,
   classifyTaskAgentKind,
@@ -96,6 +97,7 @@ interface AssistantSegmentState {
   baseKey: string;
   nextSegmentIndex: number;
   activeMessageId: MessageId | null;
+  phase?: OrchestrationMessagePhase;
 }
 
 const TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY = 10_000;
@@ -1047,6 +1049,7 @@ const make = Effect.gen(function* () {
     threadId: ThreadId;
     turnId: TurnId;
     baseKey: string;
+    phase?: OrchestrationMessagePhase;
   }) =>
     getAssistantSegmentStateForTurn(input.threadId, input.turnId).pipe(
       Effect.flatMap((existingState) =>
@@ -1056,6 +1059,7 @@ const make = Effect.gen(function* () {
               baseKey: input.baseKey,
               nextSegmentIndex: 1,
               activeMessageId: assistantSegmentMessageId(input.baseKey, 0),
+              ...(input.phase ? { phase: input.phase } : {}),
             }),
             onSome: (state) => {
               const segmentIndex = state.baseKey === input.baseKey ? state.nextSegmentIndex : 0;
@@ -1064,6 +1068,10 @@ const make = Effect.gen(function* () {
                 baseKey: input.baseKey,
                 nextSegmentIndex: state.baseKey === input.baseKey ? state.nextSegmentIndex + 1 : 1,
                 activeMessageId: messageId,
+                ...(input.phase !== undefined ? { phase: input.phase } : {}),
+                ...(input.phase === undefined && state.phase !== undefined
+                  ? { phase: state.phase }
+                  : {}),
               } satisfies AssistantSegmentState;
             },
           });
@@ -1212,6 +1220,7 @@ const make = Effect.gen(function* () {
     threadId: ThreadId;
     messageId: MessageId;
     turnId?: TurnId;
+    phase?: OrchestrationMessagePhase;
     createdAt: string;
     commandTag: string;
     finalDeltaCommandTag: string;
@@ -1236,6 +1245,7 @@ const make = Effect.gen(function* () {
           messageId: input.messageId,
           delta: text,
           ...(input.turnId ? { turnId: input.turnId } : {}),
+          ...(input.phase ? { phase: input.phase } : {}),
           createdAt: input.createdAt,
         });
       }
@@ -1247,6 +1257,7 @@ const make = Effect.gen(function* () {
           threadId: input.threadId,
           messageId: input.messageId,
           ...(input.turnId ? { turnId: input.turnId } : {}),
+          ...(input.phase ? { phase: input.phase } : {}),
           createdAt: input.createdAt,
         });
       }
@@ -1271,12 +1282,16 @@ const make = Effect.gen(function* () {
       if (Option.isNone(activeMessageId)) {
         return;
       }
+      const state = yield* getAssistantSegmentStateForTurn(input.threadId, input.turnId);
 
       yield* finalizeAssistantMessage({
         event: input.event,
         threadId: input.threadId,
         messageId: activeMessageId.value,
         turnId: input.turnId,
+        ...(Option.isSome(state) && state.value.phase !== undefined
+          ? { phase: state.value.phase }
+          : {}),
         createdAt: input.createdAt,
         commandTag: input.commandTag,
         finalDeltaCommandTag: input.finalDeltaCommandTag,
@@ -1286,7 +1301,6 @@ const make = Effect.gen(function* () {
       });
       yield* forgetAssistantMessageId(input.threadId, input.turnId, activeMessageId.value);
 
-      const state = yield* getAssistantSegmentStateForTurn(input.threadId, input.turnId);
       if (Option.isSome(state)) {
         yield* setAssistantSegmentStateForTurn(input.threadId, input.turnId, {
           ...state.value,
@@ -1644,6 +1658,34 @@ const make = Effect.gen(function* () {
         }
       }
 
+      const nativeAssistantPhase =
+        (event.type === "item.started" ||
+          event.type === "item.updated" ||
+          event.type === "item.completed") &&
+        event.payload.itemType === "assistant_message"
+          ? event.payload.phase
+          : undefined;
+      const nativeAssistantTurnId = toTurnId(event.turnId);
+      if (nativeAssistantPhase !== undefined && nativeAssistantTurnId !== undefined) {
+        const existingAssistantSegment = yield* getAssistantSegmentStateForTurn(
+          thread.id,
+          nativeAssistantTurnId,
+        );
+        if (Option.isSome(existingAssistantSegment)) {
+          yield* setAssistantSegmentStateForTurn(thread.id, nativeAssistantTurnId, {
+            ...existingAssistantSegment.value,
+            phase: nativeAssistantPhase,
+          });
+        } else if (event.type === "item.started") {
+          yield* startAssistantSegmentForTurn({
+            threadId: thread.id,
+            turnId: nativeAssistantTurnId,
+            baseKey: assistantSegmentBaseKeyFromEvent(event),
+            phase: nativeAssistantPhase,
+          });
+        }
+      }
+
       const assistantDelta =
         event.type === "content.delta" && event.payload.streamKind === "assistant_text"
           ? event.payload.delta
@@ -1750,6 +1792,7 @@ const make = Effect.gen(function* () {
                 `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
               ),
               fallbackText: event.payload.detail,
+              phase: event.payload.phase,
             }
           : undefined;
       const proposedPlanCompletion =
@@ -1799,6 +1842,7 @@ const make = Effect.gen(function* () {
             threadId: thread.id,
             messageId: assistantMessageId,
             ...(turnId ? { turnId } : {}),
+            ...(assistantCompletion.phase ? { phase: assistantCompletion.phase } : {}),
             createdAt: now,
             commandTag: "assistant-complete",
             finalDeltaCommandTag: "assistant-delta-finalize",

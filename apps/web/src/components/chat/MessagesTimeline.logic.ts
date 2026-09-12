@@ -458,6 +458,7 @@ export function resolveAssistantMessageCopyState({
 
 function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<TimelineEntry>) {
   const lastAssistantMessageIdByResponseKey = new Map<string, string>();
+  const finalAnswerMessageIdByResponseKey = new Map<string, string>();
   let nullTurnResponseIndex = 0;
 
   for (const timelineEntry of timelineEntries) {
@@ -477,9 +478,16 @@ function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<Timeli
       ? `turn:${message.turnId}`
       : `unkeyed:${nullTurnResponseIndex}`;
     lastAssistantMessageIdByResponseKey.set(responseKey, message.id);
+    if (message.phase === "final_answer") {
+      finalAnswerMessageIdByResponseKey.set(responseKey, message.id);
+    }
   }
 
-  return new Set(lastAssistantMessageIdByResponseKey.values());
+  return new Set(
+    [...lastAssistantMessageIdByResponseKey].map(
+      ([responseKey, messageId]) => finalAnswerMessageIdByResponseKey.get(responseKey) ?? messageId,
+    ),
+  );
 }
 
 interface TurnFold {

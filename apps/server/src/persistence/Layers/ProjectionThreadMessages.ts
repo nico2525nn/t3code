@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
-import { ChatAttachment } from "@t3tools/contracts";
+import { ChatAttachment, OrchestrationMessagePhase } from "@t3tools/contracts";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -15,6 +15,7 @@ import {
   ProjectionThreadMessageRepository,
   type ProjectionThreadMessageRepositoryShape,
   DeleteProjectionThreadMessagesInput,
+  DeleteProjectionThreadMessagesByIdsInput,
   ListProjectionThreadMessagesInput,
   ProjectionThreadMessage,
 } from "../Services/ProjectionThreadMessages.ts";
@@ -23,6 +24,7 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
+    phase: Schema.NullOr(OrchestrationMessagePhase),
   }),
 );
 const ProjectionThreadMessageExistsDbRowSchema = Schema.Struct({ exists: Schema.Number });
@@ -36,6 +38,7 @@ function toProjectionThreadMessage(
     turnId: row.turnId,
     role: row.role,
     text: row.text,
+    ...(row.phase !== null ? { phase: row.phase } : {}),
     isStreaming: row.isStreaming === 1,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -51,6 +54,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     execute: (row) => {
       const nextAttachmentsJson =
         row.attachments !== undefined ? JSON.stringify(row.attachments) : null;
+      const nextPhase = row.phase ?? null;
       return sql`
         INSERT INTO projection_thread_messages (
           message_id,
@@ -58,6 +62,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           turn_id,
           role,
           text,
+          phase,
           attachments_json,
           is_streaming,
           created_at,
@@ -69,6 +74,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ${row.turnId},
           ${row.role},
           ${row.text},
+          ${nextPhase},
           COALESCE(
             ${nextAttachmentsJson},
             (
@@ -87,6 +93,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           turn_id = excluded.turn_id,
           role = excluded.role,
           text = excluded.text,
+          phase = COALESCE(excluded.phase, projection_thread_messages.phase),
           attachments_json = COALESCE(
             excluded.attachments_json,
             projection_thread_messages.attachments_json
@@ -103,6 +110,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     execute: (row) => {
       const nextAttachmentsJson =
         row.attachments !== undefined ? JSON.stringify(row.attachments) : null;
+      const nextPhase = row.phase ?? null;
       return sql`
         INSERT INTO projection_thread_messages (
           message_id,
@@ -110,6 +118,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           turn_id,
           role,
           text,
+          phase,
           attachments_json,
           is_streaming,
           created_at,
@@ -121,6 +130,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ${row.turnId},
           ${row.role},
           ${row.text},
+          ${nextPhase},
           ${nextAttachmentsJson},
           1,
           ${row.createdAt},
@@ -128,16 +138,28 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
         )
         ON CONFLICT (message_id)
         DO UPDATE SET
-          thread_id = excluded.thread_id,
-          turn_id = excluded.turn_id,
-          role = excluded.role,
-          text = projection_thread_messages.text || excluded.text,
+          thread_id = projection_thread_messages.thread_id,
+          turn_id = projection_thread_messages.turn_id,
+          role = projection_thread_messages.role,
+          phase = COALESCE(excluded.phase, projection_thread_messages.phase),
+          -- A late delta must not reopen a completed message. This can happen
+          -- when a shared app-server resumes a turn and replays buffered
+          -- deltas after the terminal item event has already been projected.
+          text = CASE
+            WHEN projection_thread_messages.is_streaming = 1
+              THEN projection_thread_messages.text || excluded.text
+            ELSE projection_thread_messages.text
+          END,
           attachments_json = COALESCE(
             excluded.attachments_json,
             projection_thread_messages.attachments_json
           ),
-          is_streaming = 1,
-          updated_at = excluded.updated_at
+          is_streaming = projection_thread_messages.is_streaming,
+          updated_at = CASE
+            WHEN projection_thread_messages.is_streaming = 1
+              THEN excluded.updated_at
+            ELSE projection_thread_messages.updated_at
+          END
       `;
     },
   });
@@ -153,6 +175,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           turn_id AS "turnId",
           role,
           text,
+          phase,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
@@ -191,6 +214,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           turn_id AS "turnId",
           role,
           text,
+          phase,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
@@ -221,6 +245,19 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
         DELETE FROM projection_thread_messages
         WHERE thread_id = ${threadId}
       `,
+  });
+
+  const deleteProjectionThreadMessageRowsByIds = SqlSchema.void({
+    Request: DeleteProjectionThreadMessagesByIdsInput,
+    execute: ({ messageIds }) => {
+      if (messageIds.length === 0) {
+        return sql``;
+      }
+      return sql`
+        DELETE FROM projection_thread_messages
+        WHERE message_id IN ${sql.in(messageIds)}
+      `;
+    },
   });
 
   const upsert: ProjectionThreadMessageRepositoryShape["upsert"] = (row) =>
@@ -279,6 +316,15 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
       ),
     );
 
+  const deleteByMessageIds: ProjectionThreadMessageRepositoryShape["deleteByMessageIds"] = (
+    input,
+  ) =>
+    deleteProjectionThreadMessageRowsByIds(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlError("ProjectionThreadMessageRepository.deleteByMessageIds:query"),
+      ),
+    );
+
   return {
     upsert,
     appendStreaming,
@@ -287,6 +333,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     listByThreadId,
     getLatestUserMessageAt,
     deleteByThreadId,
+    deleteByMessageIds,
   } satisfies ProjectionThreadMessageRepositoryShape;
 });
 

@@ -6,11 +6,14 @@ import {
   type OrchestrationEvent,
   type OrchestrationSessionStatus,
   ThreadId,
+  type TurnId,
 } from "@t3tools/contracts";
 import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
 import {
+  findCodexHistoryAssistantItemMatches,
+  findCodexHistoryMessagesDuplicatedByLiveMessage,
+  findCodexHistoryMessageMatchForExisting,
   isCodexHistoryMessageId,
-  isDuplicateCodexHistoryMessageForExisting,
 } from "@t3tools/shared/codexMessageReconciliation";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -1031,6 +1034,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               turnId: event.payload.turnId,
               role: event.payload.role,
               text: event.payload.text,
+              ...(event.payload.phase !== undefined ? { phase: event.payload.phase } : {}),
               ...(attachments !== undefined ? { attachments: [...attachments] } : {}),
               createdAt: event.payload.createdAt,
               updatedAt: event.payload.updatedAt,
@@ -1038,12 +1042,79 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             return;
           }
 
+          let duplicateHistoryTurnId: TurnId | null | undefined;
           if (isCodexHistoryMessageId(event.payload.messageId)) {
             const existingRows = yield* projectionThreadMessageRepository.listByThreadId({
               threadId: event.payload.threadId,
             });
-            if (isDuplicateCodexHistoryMessageForExisting(event.payload, existingRows)) {
+            const nativeItemMatches = findCodexHistoryAssistantItemMatches(
+              event.payload,
+              existingRows,
+            );
+            if (nativeItemMatches.length > 0) {
+              const canonicalLiveRow = nativeItemMatches[0]!;
+              const redundantMessageIds = [
+                event.payload.messageId,
+                ...nativeItemMatches.slice(1).map((row) => row.messageId),
+              ];
+              yield* projectionThreadMessageRepository.deleteByMessageIds({
+                messageIds: redundantMessageIds,
+              });
+              const attachments =
+                event.payload.attachments !== undefined
+                  ? yield* materializeAttachmentsForProjection({
+                      attachments: event.payload.attachments,
+                    })
+                  : canonicalLiveRow.attachments;
+              yield* projectionThreadMessageRepository.upsert({
+                ...canonicalLiveRow,
+                text: event.payload.text,
+                turnId: event.payload.turnId ?? canonicalLiveRow.turnId,
+                ...(event.payload.phase !== undefined ? { phase: event.payload.phase } : {}),
+                ...(attachments !== undefined ? { attachments: [...attachments] } : {}),
+                isStreaming: false,
+                createdAt: event.payload.createdAt,
+                updatedAt:
+                  compareDateTimeStrings(canonicalLiveRow.updatedAt, event.payload.updatedAt) >= 0
+                    ? canonicalLiveRow.updatedAt
+                    : event.payload.updatedAt,
+              });
               return;
+            }
+            const matchingLiveRow = findCodexHistoryMessageMatchForExisting(
+              event.payload,
+              existingRows,
+            );
+            if (matchingLiveRow !== undefined) {
+              if (
+                (event.payload.turnId !== null &&
+                  matchingLiveRow.turnId !== event.payload.turnId) ||
+                (event.payload.phase !== undefined && matchingLiveRow.phase !== event.payload.phase)
+              ) {
+                yield* projectionThreadMessageRepository.upsert({
+                  ...matchingLiveRow,
+                  ...(event.payload.turnId !== null ? { turnId: event.payload.turnId } : {}),
+                  ...(event.payload.phase !== undefined ? { phase: event.payload.phase } : {}),
+                });
+              }
+              return;
+            }
+          } else {
+            const existingRows = yield* projectionThreadMessageRepository.listByThreadId({
+              threadId: event.payload.threadId,
+            });
+            const duplicateMessageIds = findCodexHistoryMessagesDuplicatedByLiveMessage(
+              event.payload,
+              existingRows,
+            );
+            duplicateHistoryTurnId =
+              event.payload.turnId === null
+                ? existingRows.find((row) => duplicateMessageIds.includes(row.messageId))?.turnId
+                : undefined;
+            if (duplicateMessageIds.length > 0) {
+              yield* projectionThreadMessageRepository.deleteByMessageIds({
+                messageIds: duplicateMessageIds,
+              });
             }
           }
 
@@ -1065,12 +1136,17 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadMessageRepository.upsert({
             messageId: event.payload.messageId,
             threadId: event.payload.threadId,
-            turnId: event.payload.turnId,
+            turnId: event.payload.turnId ?? duplicateHistoryTurnId ?? null,
             role: event.payload.role,
             text: nextText,
+            ...(event.payload.phase !== undefined ? { phase: event.payload.phase } : {}),
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             isStreaming: false,
-            createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
+            createdAt:
+              event.metadata.historyImport === true &&
+              isCodexHistoryMessageId(event.payload.messageId)
+                ? event.payload.createdAt
+                : (previousMessage?.createdAt ?? event.payload.createdAt),
             updatedAt: event.payload.updatedAt,
           });
           return;

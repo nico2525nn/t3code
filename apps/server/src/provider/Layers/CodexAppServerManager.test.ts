@@ -61,6 +61,33 @@ it.layer(NodeServices.layer)("CodexAppServerManager", (it) => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("falls back to legacy full-history reads when pagination is unavailable", () =>
+    Effect.gen(function* () {
+      const manager = yield* makeCodexAppServerManager({
+        instanceId: ProviderInstanceId.make("codex-manager-legacy-history-test"),
+        binaryPath: process.execPath,
+        cwd: fixtureDirectory,
+        environment: {
+          ...process.env,
+          T3_CODEX_MANAGER_TEST_LEGACY_HISTORY: "1",
+        },
+      });
+      yield* Effect.addFinalizer(() => manager.close);
+
+      const thread = yield* manager.readThread("catalog-thread-1");
+      expect(thread.turns[0]?.items).toMatchObject([
+        {
+          id: "catalog-thread-1-user",
+          type: "userMessage",
+        },
+        {
+          id: "catalog-thread-1-assistant",
+          type: "agentMessage",
+        },
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("shares one daemon and routes native thread notifications to bindings", () =>
     Effect.gen(function* () {
       const markerPath = NodePath.join(
