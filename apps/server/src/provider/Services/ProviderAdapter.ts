@@ -9,6 +9,7 @@
  */
 import type {
   ApprovalRequestId,
+  MessageId,
   ProviderApprovalDecision,
   ProviderDriverKind,
   ProviderUserInputAnswers,
@@ -18,6 +19,7 @@ import type {
   ProviderSessionStartInput,
   ProviderUploadFeedbackInput,
   ProviderUploadFeedbackResult,
+  OrchestrationCheckpointFile,
   ThreadId,
   ProviderTurnStartResult,
   TurnId,
@@ -64,12 +66,101 @@ export interface ProviderThreadSnapshot {
   readonly turns: ReadonlyArray<ProviderThreadTurnSnapshot>;
 }
 
+/** A text message recovered from a provider-owned durable thread. */
+export interface ProviderStoredThreadMessage {
+  readonly messageId: string;
+  readonly role: "user" | "assistant";
+  readonly text: string;
+  /** Native turn containing this message, when the provider exposes it. */
+  readonly turnId?: TurnId;
+  readonly createdAt: string;
+}
+
+/** A provider-native turn diff recovered from a durable thread. */
+export interface ProviderStoredThreadTurnDiff {
+  readonly turnId: TurnId;
+  readonly completedAt: string;
+  readonly diff: string;
+  readonly files: ReadonlyArray<OrchestrationCheckpointFile>;
+  /** In-progress native turns remain a missing/preview checkpoint. */
+  readonly status?: "ready" | "missing";
+  /** Imported assistant text that the checkpoint should remain attached to. */
+  readonly assistantMessageId?: MessageId;
+}
+
+/** Minimal native turn metadata needed for a provider-owned paged snapshot. */
+export interface ProviderStoredThreadTurn {
+  readonly turnId: TurnId;
+  /** Stable ordering key shared by the snapshot cursor and the native turn. */
+  readonly anchorAt: string;
+  readonly status: "inProgress" | "completed" | "interrupted" | "failed";
+  readonly startedAt: string;
+  readonly completedAt: string | null;
+  readonly hasUserMessage: boolean;
+}
+
+/** Provider-owned metadata returned by a cheap thread catalog query. */
+export interface ProviderStoredThreadSummary {
+  readonly nativeThreadId: string;
+  readonly cwd: string;
+  readonly title: string;
+  readonly preview: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly archived: boolean;
+  readonly ephemeral: boolean;
+  readonly subAgent: boolean;
+  readonly active: boolean;
+  /** Native turn currently in progress, when the provider read it. */
+  readonly activeTurnId?: TurnId;
+  /** Newest native turn observed by a complete or incremental history read. */
+  readonly latestTurnId?: TurnId;
+}
+
+/**
+ * Complete provider-owned history. The catalog deliberately returns this
+ * separately from its summary so a normal liveness/discovery pass cannot
+ * accidentally carry (or re-import) a transcript.
+ */
+export interface ProviderStoredThreadHistory extends ProviderStoredThreadSummary {
+  /** Native turn order for providers that support read-through pagination. */
+  readonly turns?: ReadonlyArray<ProviderStoredThreadTurn>;
+  readonly messages: ReadonlyArray<ProviderStoredThreadMessage>;
+  /** Provider-native diffs available in the complete snapshot. */
+  readonly turnDiffs: ReadonlyArray<ProviderStoredThreadTurnDiff>;
+  /**
+   * Provider-native operational items projected to the shared runtime-event
+   * vocabulary. The normal runtime ingestion path turns these into activity
+   * rows, so history and live delivery cannot drift apart.
+   */
+  readonly runtimeEvents: ReadonlyArray<ProviderRuntimeEvent>;
+}
+
+/** Optional durable-thread catalog exposed by providers such as Codex. */
+export interface ProviderThreadCatalog<TError> {
+  readonly listStoredThreads: () => Effect.Effect<
+    ReadonlyArray<ProviderStoredThreadSummary>,
+    TError
+  >;
+  readonly readStoredThread: (input: {
+    readonly nativeThreadId: string;
+    readonly archived: boolean;
+    /** Read this many native turns, plus one sentinel for `hasMore`. */
+    readonly turnLimit?: number;
+    /** Read the page strictly older than this native turn. */
+    readonly beforeTurnId?: TurnId;
+  }) => Effect.Effect<ProviderStoredThreadHistory, TError>;
+}
+
 export interface ProviderAdapterShape<TError> {
   /**
    * Provider kind implemented by this adapter.
    */
   readonly provider: ProviderDriverKind;
   readonly capabilities: ProviderAdapterCapabilities;
+
+  /** Present when this provider owns a durable thread catalog. */
+  readonly storedThreadCatalog?: ProviderThreadCatalog<TError>;
 
   /**
    * Start a provider-backed session.

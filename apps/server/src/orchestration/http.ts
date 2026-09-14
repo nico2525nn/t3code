@@ -8,6 +8,11 @@ import * as Option from "effect/Option";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import { projectThreadDetailSnapshot } from "./ActivityPayloadProjection.ts";
+import {
+  CodexAppServerHistoryUnavailableError,
+  isCodexAppServerThread,
+  readCodexThreadThrough,
+} from "../provider/Layers/CodexAppServerThreadSnapshot.ts";
 import { cleanupFailedUploadedAttachments, normalizeDispatchCommand } from "./Normalizer.ts";
 import {
   annotateEnvironmentRequest,
@@ -18,6 +23,7 @@ import {
 } from "../auth/http.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
+import { ProviderInstanceRegistry } from "../provider/Services/ProviderInstanceRegistry.ts";
 
 export const orchestrationHttpApiLayer = HttpApiBuilder.group(
   EnvironmentHttpApi,
@@ -25,6 +31,7 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
+    const providerInstances = yield* Effect.serviceOption(ProviderInstanceRegistry);
 
     return handlers
       .handle(
@@ -85,7 +92,47 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
           if (Option.isNone(snapshot)) {
             return yield* failEnvironmentNotFound("thread_not_found");
           }
-          return projectThreadDetailSnapshot(snapshot.value);
+          const nativeSnapshot = yield* Option.match(providerInstances, {
+            onNone: () =>
+              isCodexAppServerThread(String(args.params.threadId))
+                ? failEnvironmentInternal(
+                    "orchestration_thread_snapshot_failed",
+                    new CodexAppServerHistoryUnavailableError({
+                      threadId: String(args.params.threadId),
+                    }),
+                  )
+                : Effect.succeed(snapshot.value),
+            onSome: (instances) =>
+              readCodexThreadThrough(
+                snapshot.value,
+                instances,
+                args.payload.turnLimit === undefined
+                  ? undefined
+                  : {
+                      turnLimit: args.payload.turnLimit,
+                      ...(args.payload.beforeCursor !== undefined
+                        ? { beforeCursor: args.payload.beforeCursor }
+                        : {}),
+                    },
+              ).pipe(
+                Effect.catchCause((cause) => {
+                  const nativeThread = isCodexAppServerThread(String(args.params.threadId));
+                  return Effect.logWarning(
+                    nativeThread
+                      ? "Codex native thread read failed; preserving canonical source"
+                      : "Codex native thread read failed; using T3 projection",
+                    { threadId: args.params.threadId, cause },
+                  ).pipe(
+                    Effect.andThen(
+                      nativeThread
+                        ? failEnvironmentInternal("orchestration_thread_snapshot_failed", cause)
+                        : Effect.succeed(snapshot.value),
+                    ),
+                  );
+                }),
+              ),
+          });
+          return projectThreadDetailSnapshot(nativeSnapshot);
         }),
       )
       .handle(

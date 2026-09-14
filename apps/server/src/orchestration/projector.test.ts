@@ -20,6 +20,7 @@ function makeEvent(input: {
   aggregateId: string;
   commandId: string | null;
   payload: unknown;
+  metadata?: OrchestrationEvent["metadata"];
 }): OrchestrationEvent {
   return {
     sequence: input.sequence,
@@ -34,7 +35,7 @@ function makeEvent(input: {
     commandId: input.commandId === null ? null : CommandId.make(input.commandId),
     causationEventId: null,
     correlationId: null,
-    metadata: {},
+    metadata: input.metadata ?? {},
     payload: input.payload as never,
   } as OrchestrationEvent;
 }
@@ -700,6 +701,32 @@ describe("orchestration projector", () => {
     expect(message?.text).toBe("hello");
     expect(message?.streaming).toBe(false);
     expect(message?.updatedAt).toBe(completeAt);
+
+    const afterLateDelta = await Effect.runPromise(
+      projectEvent(
+        afterComplete,
+        makeEvent({
+          sequence: 4,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: "2026-02-23T09:00:04.000Z",
+          commandId: "cmd-late-delta",
+          payload: {
+            threadId: "thread-1",
+            messageId: "assistant:msg-1",
+            role: "assistant",
+            text: " replayed",
+            turnId: "turn-1",
+            streaming: true,
+            createdAt: "2026-02-23T09:00:04.000Z",
+            updatedAt: "2026-02-23T09:00:04.000Z",
+          },
+        }),
+      ),
+    );
+    expect(afterLateDelta.threads[0]?.messages[0]?.text).toBe("hello");
+    expect(afterLateDelta.threads[0]?.messages[0]?.streaming).toBe(false);
   });
 
   it("prunes reverted turn messages from in-memory thread snapshot", async () => {

@@ -96,7 +96,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
         ON CONFLICT (message_id)
         DO UPDATE SET
           thread_id = excluded.thread_id,
-          turn_id = excluded.turn_id,
+          turn_id = COALESCE(excluded.turn_id, projection_thread_messages.turn_id),
           role = excluded.role,
           text = excluded.text,
           attachments_json = COALESCE(
@@ -147,10 +147,17 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
         )
         ON CONFLICT (message_id)
         DO UPDATE SET
-          thread_id = excluded.thread_id,
-          turn_id = excluded.turn_id,
-          role = excluded.role,
-          text = projection_thread_messages.text || excluded.text,
+          thread_id = projection_thread_messages.thread_id,
+          turn_id = projection_thread_messages.turn_id,
+          role = projection_thread_messages.role,
+          -- A late delta must not reopen a completed message. This can happen
+          -- when a shared app-server resumes a turn and replays buffered
+          -- deltas after the terminal item event has already been projected.
+          text = CASE
+            WHEN projection_thread_messages.is_streaming = 1
+              THEN projection_thread_messages.text || excluded.text
+            ELSE projection_thread_messages.text
+          END,
           attachments_json = COALESCE(
             excluded.attachments_json,
             projection_thread_messages.attachments_json
@@ -159,8 +166,12 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             excluded.context_json,
             projection_thread_messages.context_json
           ),
-          is_streaming = 1,
-          updated_at = excluded.updated_at
+          is_streaming = projection_thread_messages.is_streaming,
+          updated_at = CASE
+            WHEN projection_thread_messages.is_streaming = 1
+              THEN excluded.updated_at
+            ELSE projection_thread_messages.updated_at
+          END
       `;
     },
   });

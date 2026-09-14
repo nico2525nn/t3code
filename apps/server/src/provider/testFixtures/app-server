@@ -1,0 +1,315 @@
+import * as NodeFS from "node:fs";
+import * as NodeHttp from "node:http";
+import * as NodePath from "node:path";
+
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
+
+const listenIndex = process.argv.indexOf("--listen");
+const listenUrl = listenIndex >= 0 ? process.argv[listenIndex + 1] : undefined;
+if (!listenUrl?.startsWith("unix://")) {
+  throw new Error(`Expected --listen unix://… but received ${listenUrl ?? "nothing"}`);
+}
+
+const socketPath = listenUrl.slice("unix://".length);
+const markerPath = process.env.T3_CODEX_MANAGER_TEST_MARKER;
+if (markerPath) {
+  NodeFS.appendFileSync(markerPath, "started\n", "utf8");
+}
+NodeFS.rmSync(socketPath, { force: true });
+
+const server = NodeHttp.createServer();
+const webSocketServer = new NodeSocket.NodeWS.WebSocketServer({ server });
+let nextThreadId = 1;
+const EXIT_AFTER_START_CWD = "/tmp/t3-codex-manager-exit-after-start";
+
+const write = (socket, message) => {
+  socket.send(JSON.stringify(message));
+};
+
+const makeThread = (id, cwd, ephemeral = true, updatedAt = 0) => ({
+  cliVersion: "mock-codex",
+  createdAt: 0,
+  cwd,
+  ephemeral,
+  id,
+  modelProvider: "openai",
+  preview: "",
+  sessionId: id,
+  source: "appServer",
+  status: { type: "idle" },
+  turns: [],
+  updatedAt,
+});
+
+const makeThreadResponse = (id, cwd) => ({
+  approvalPolicy: "never",
+  approvalsReviewer: "user",
+  cwd,
+  model: "gpt-5",
+  modelProvider: "openai",
+  reasoningEffort: null,
+  sandbox: { type: "dangerFullAccess" },
+  thread: makeThread(id, cwd),
+});
+
+const catalogThreads = [
+  makeThread("catalog-thread-1", "/tmp/catalog-project", false, 2),
+  // The real daemon has returned duplicate ids across catalog pages. The
+  // manager must retain the newer record instead of letting this stale row
+  // overwrite it.
+  makeThread("catalog-thread-1", "/tmp/catalog-project", false, 1),
+  makeThread("catalog-thread-2", "/tmp/catalog-project", false, 0),
+];
+
+const makeCatalogReadThread = (id) => ({
+  ...catalogThreads.find((thread) => thread.id === id),
+  turns: [
+    {
+      id: `${id}-turn`,
+      startedAt: 1,
+      completedAt: 2,
+      status: "completed",
+      items: [
+        {
+          id: `${id}-user`,
+          type: "userMessage",
+          content: [{ type: "text", text: `user message for ${id}` }],
+        },
+        {
+          id: `${id}-assistant`,
+          type: "agentMessage",
+          text: `assistant message for ${id}`,
+        },
+      ],
+    },
+  ],
+});
+
+const useLegacyHistoryResponse = process.env.T3_CODEX_MANAGER_TEST_LEGACY_HISTORY === "1";
+const restartCatalogOnce = process.env.T3_CODEX_MANAGER_TEST_CATALOG_RESTART_ONCE === "1";
+let catalogRestartInjected =
+  restartCatalogOnce &&
+  markerPath !== undefined &&
+  NodeFS.existsSync(markerPath) &&
+  NodeFS.readFileSync(markerPath, "utf8").includes("catalog-restart-injected\n");
+
+webSocketServer.on("connection", (socket) => {
+  socket.on("message", (raw) => {
+    const message = JSON.parse(raw.toString());
+    if (markerPath) {
+      if (typeof message.method === "string") {
+        NodeFS.appendFileSync(markerPath, `${message.method}\n`, "utf8");
+      } else {
+        NodeFS.appendFileSync(
+          markerPath,
+          `response:${String(message.id)}:${JSON.stringify(message.result ?? message.error)}\n`,
+          "utf8",
+        );
+      }
+    }
+    if (typeof message.method !== "string") {
+      if (String(message.id).startsWith("server-request-")) {
+        const threadId = String(message.id).slice("server-request-".length);
+        write(socket, {
+          method: "test/server-response-seen",
+          params: {
+            threadId,
+            requestId: message.id,
+            result: message.result,
+            error: message.error,
+          },
+        });
+      }
+      if (message.id === "server-request-unknown") {
+        write(socket, {
+          method: "test/unknown-response-seen",
+          params: {
+            result: message.result,
+            error: message.error,
+          },
+        });
+      }
+      return;
+    }
+
+    if (message.method === "test/exit-daemon") {
+      setImmediate(() => process.exit(17));
+      return;
+    }
+
+    if (message.method === "initialize") {
+      write(socket, {
+        id: message.id,
+        result: {
+          userAgent: "mock-codex-app-server",
+          codexHome: process.cwd(),
+          platformFamily: "unix",
+          platformOs: "linux",
+        },
+      });
+      return;
+    }
+
+    if (message.method === "initialized") {
+      return;
+    }
+
+    if (message.method === "thread/list") {
+      if (restartCatalogOnce && !catalogRestartInjected) {
+        catalogRestartInjected = true;
+        if (markerPath) {
+          NodeFS.appendFileSync(markerPath, "catalog-restart-injected\n", "utf8");
+        }
+        setImmediate(() => process.exit(23));
+        return;
+      }
+      const page = message.params?.cursor === "catalog-next" ? catalogThreads.slice(1) : catalogThreads.slice(0, 1);
+      write(socket, {
+        id: message.id,
+        result: {
+          data: page,
+          ...(message.params?.cursor === "catalog-next" ? {} : { nextCursor: "catalog-next" }),
+        },
+      });
+      return;
+    }
+
+    if (message.method === "thread/read") {
+      const id = typeof message.params?.threadId === "string" ? message.params.threadId : "unknown";
+      const thread = makeCatalogReadThread(id);
+      write(socket, {
+        id: message.id,
+        result: {
+          thread: {
+            ...thread,
+            turns: message.params?.includeTurns === true || useLegacyHistoryResponse ? thread.turns : [],
+          },
+        },
+      });
+      return;
+    }
+
+    if (message.method === "thread/turns/list" && !useLegacyHistoryResponse) {
+      const id = typeof message.params?.threadId === "string" ? message.params.threadId : "unknown";
+      write(socket, {
+        id: message.id,
+        result: { data: makeCatalogReadThread(id).turns },
+      });
+      return;
+    }
+
+    if (message.method === "thread/start") {
+      const id = `native-thread-${nextThreadId++}`;
+      const cwd =
+        typeof message.params?.cwd === "string" && NodePath.isAbsolute(message.params.cwd)
+          ? message.params.cwd
+          : process.cwd();
+      const thread = makeThread(id, cwd);
+      write(socket, { method: "thread/started", params: { thread } });
+      write(socket, {
+        id: message.id,
+        result: makeThreadResponse(id, cwd),
+      });
+      write(socket, {
+        method: "item/agentMessage/delta",
+        params: {
+          delta: `hello from ${id}`,
+          itemId: `${id}-item`,
+          threadId: id,
+          turnId: `${id}-turn`,
+        },
+      });
+      process.stderr.write(`mock stderr ${id}\n`);
+      write(socket, {
+        method: "test/global-notification",
+        params: { value: `global for ${id}` },
+      });
+      if (cwd === EXIT_AFTER_START_CWD) {
+        write(socket, {
+          method: "test/ready-to-exit",
+          params: { threadId: id },
+        });
+      }
+      if (process.env.T3_CODEX_MANAGER_TEST_SERVER_REQUESTS === "1") {
+        write(socket, {
+          id: `server-request-${id}`,
+          method: "test/session-request",
+          params: { threadId: id },
+        });
+        if (id === "native-thread-2") {
+          write(socket, {
+            id: "server-request-unknown",
+            method: "test/session-request",
+            params: { threadId: "native-thread-unknown" },
+          });
+        }
+      }
+      return;
+    }
+
+    if (message.method === "thread/resume") {
+      const id = typeof message.params?.threadId === "string" ? message.params.threadId : "unknown";
+      const cwd = process.cwd();
+      write(socket, {
+        id: message.id,
+        result: makeThreadResponse(id, cwd),
+      });
+      return;
+    }
+
+    if (message.method === "turn/start") {
+      const threadId =
+        typeof message.params?.threadId === "string" ? message.params.threadId : "unknown";
+      const turnId = `${threadId}-turn`;
+      write(socket, {
+        method: "turn/started",
+        params: {
+          threadId,
+          turn: {
+            id: turnId,
+            items: [],
+            status: "inProgress",
+          },
+        },
+      });
+      write(socket, {
+        id: message.id,
+        result: {
+          turn: {
+            id: turnId,
+            items: [],
+            status: "inProgress",
+          },
+        },
+      });
+      return;
+    }
+
+    if (message.method === "turn/interrupt") {
+      write(socket, { id: message.id, result: {} });
+      return;
+    }
+
+    if (message.id !== undefined) {
+      write(socket, {
+        id: message.id,
+        error: {
+          code: -32601,
+          message: `Unhandled request: ${message.method}`,
+        },
+      });
+    }
+  });
+});
+
+server.listen(socketPath);
+
+const close = () => {
+  for (const socket of webSocketServer.clients) {
+    socket.terminate();
+  }
+  webSocketServer.close();
+  server.close(() => process.exit(0));
+};
+process.once("SIGTERM", close);
+process.once("SIGINT", close);

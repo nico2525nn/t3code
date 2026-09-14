@@ -30,6 +30,22 @@ layer("ProjectionThreadMessageRepository", (it) => {
       });
       assert.isNull(yield* repository.getLatestUserMessageAt({ threadId }));
 
+      const codexThreadId = ThreadId.make("codex:native-latest-user-message");
+      yield* repository.upsert({
+        messageId: MessageId.make("import:codex:native-latest-user-message:turn-1:user"),
+        threadId: codexThreadId,
+        turnId: TurnId.make("turn-1"),
+        role: "user",
+        text: "Native Codex prompt",
+        isStreaming: false,
+        createdAt: "2026-02-28T19:05:07.000Z",
+        updatedAt: "2026-02-28T19:05:07.000Z",
+      });
+      assert.strictEqual(
+        yield* repository.getLatestUserMessageAt({ threadId: codexThreadId }),
+        "2026-02-28T19:05:07.000Z",
+      );
+
       const messages = [
         { role: "user", createdAt: "2026-02-28T19:05:02.000Z" },
         { role: "user", createdAt: "2026-02-28T19:05:01.000Z" },
@@ -176,6 +192,51 @@ layer("ProjectionThreadMessageRepository", (it) => {
         assert.equal(row.value.createdAt, createdAt);
         assert.equal(row.value.updatedAt, "2026-02-28T19:05:02.000Z");
         assert.isTrue(row.value.isStreaming);
+      }
+    }),
+  );
+
+  it.effect("ignores a streaming delta that arrives after completion", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionThreadMessageRepository;
+      const threadId = ThreadId.make("thread-streaming-late-delta");
+      const messageId = MessageId.make("message-streaming-late-delta");
+
+      yield* repository.appendStreaming({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: "complete text",
+        createdAt: "2026-02-28T19:05:00.000Z",
+        updatedAt: "2026-02-28T19:05:00.000Z",
+      });
+      yield* repository.upsert({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: "complete text",
+        isStreaming: false,
+        createdAt: "2026-02-28T19:05:00.000Z",
+        updatedAt: "2026-02-28T19:05:01.000Z",
+      });
+      yield* repository.appendStreaming({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: "replayed text",
+        createdAt: "2026-02-28T19:05:02.000Z",
+        updatedAt: "2026-02-28T19:05:02.000Z",
+      });
+
+      const row = yield* repository.getByMessageId({ messageId });
+      assert.equal(row._tag, "Some");
+      if (row._tag === "Some") {
+        assert.equal(row.value.text, "complete text");
+        assert.isFalse(row.value.isStreaming);
+        assert.equal(row.value.updatedAt, "2026-02-28T19:05:01.000Z");
       }
     }),
   );

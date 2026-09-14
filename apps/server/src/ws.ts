@@ -87,6 +87,10 @@ import {
   projectActivityEvent,
   projectThreadDetailSnapshot,
 } from "./orchestration/ActivityPayloadProjection.ts";
+import {
+  isCodexAppServerThread,
+  readCodexThreadThrough,
+} from "./provider/Layers/CodexAppServerThreadSnapshot.ts";
 import { makeThreadLiveEventCoalescer } from "./orchestration/ThreadLiveEventCoalescer.ts";
 import { makeLiveStreamBudget, type RetainedLiveItem } from "./orchestration/LiveStreamBudget.ts";
 import {
@@ -1666,7 +1670,14 @@ const makeWsRpcLayer = (
               // Measure only this thread's rows. Global sequence gaps can
               // contain unrelated or pruned streams. Keep an explicit upper
               // bound so events after the captured head stay in the live tail.
-              if (input.afterSequence !== undefined) {
+              // Codex transcript state is read through from App Server. A
+              // cached T3 sequence can describe only the compatibility shell,
+              // so reconnects must refresh the native snapshot instead of
+              // replaying an incomplete T3 transcript.
+              if (
+                input.afterSequence !== undefined &&
+                !isCodexAppServerThread(String(input.threadId))
+              ) {
                 const afterSequence = input.afterSequence;
                 const headSequence = yield* orchestrationEngine.latestSequence;
                 const range = {
@@ -1762,6 +1773,33 @@ const makeWsRpcLayer = (
                 });
               }
 
+              const nativeSnapshot = yield* readCodexThreadThrough(
+                snapshot.value,
+                providerInstances,
+                input.turnLimit === undefined ? undefined : { turnLimit: input.turnLimit },
+              ).pipe(
+                Effect.catchCause((cause) => {
+                  const nativeThread = isCodexAppServerThread(String(input.threadId));
+                  return Effect.logWarning(
+                    nativeThread
+                      ? "Codex native thread read failed; preserving canonical source"
+                      : "Codex native thread read failed; using T3 projection",
+                    { threadId: input.threadId, cause },
+                  ).pipe(
+                    Effect.andThen(
+                      nativeThread
+                        ? Effect.fail(
+                            new OrchestrationGetSnapshotError({
+                              message: `Failed to read canonical Codex thread ${input.threadId}`,
+                              cause,
+                            }),
+                          )
+                        : Effect.succeed(snapshot.value),
+                    ),
+                  );
+                }),
+              );
+
               const afterSnapshot =
                 input.requestCompletionMarker === true
                   ? Stream.unwrap(
@@ -1773,7 +1811,7 @@ const makeWsRpcLayer = (
               return Stream.concat(
                 Stream.make({
                   kind: "snapshot" as const,
-                  snapshot: projectThreadDetailSnapshot(snapshot.value),
+                  snapshot: projectThreadDetailSnapshot(nativeSnapshot),
                 }),
                 afterSnapshot,
               );

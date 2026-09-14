@@ -646,13 +646,21 @@ function dropSupersededToolUpdatedActivities(
 export function projectThreadDetailSnapshot(
   snapshot: OrchestrationThreadDetailSnapshot,
 ): OrchestrationThreadDetailSnapshot {
+  const retainedActivities = dropSupersededToolUpdatedActivities(
+    dropStaleContextWindowActivities(snapshot.thread.activities),
+  );
+  const projectedActivities = retainedActivities.map(projectActivityPayload);
   return {
     ...snapshot,
     thread: {
       ...snapshot.thread,
-      activities: dropSupersededToolUpdatedActivities(
-        dropStaleContextWindowActivities(snapshot.thread.activities),
-      ).map(projectActivityPayload),
+      messages: Array.isArray(snapshot.thread.messages) ? snapshot.thread.messages : [],
+      activities: projectedActivities.toSorted(
+        (left, right) =>
+          (left.sequence ?? -1) - (right.sequence ?? -1) ||
+          left.createdAt.localeCompare(right.createdAt) ||
+          String(left.id).localeCompare(String(right.id)),
+      ),
     },
   };
 }

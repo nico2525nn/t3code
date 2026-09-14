@@ -1163,6 +1163,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           AND threads.deleted_at IS NULL
           AND threads.archived_at IS NULL
           AND projects.deleted_at IS NULL
+          -- Canonical Codex projections are synced from app-server directly;
+          -- they must not be offered to the legacy transcript importer. Keep
+          -- provider-owned imports (import:codex:*) eligible so an explicit
+          -- old-rollout import remains resumable and is not re-imported forever.
+          AND threads.thread_id NOT GLOB 'codex:*'
           AND EXISTS (
             SELECT 1
             FROM projection_thread_messages AS messages

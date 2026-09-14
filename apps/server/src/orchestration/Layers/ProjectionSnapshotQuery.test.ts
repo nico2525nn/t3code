@@ -3121,6 +3121,69 @@ projectionSnapshotLayer("ProjectionSnapshotQuery windowed thread detail", (it) =
     }),
   );
 
+  it.effect("caps stale Codex compatibility rows before native read-through", () =>
+    Effect.gen(function* () {
+      yield* seedFanOutThread();
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      // The provider session is the compatibility signal for legacy Codex
+      // thread IDs that predate the canonical codex:<id> prefix.
+      yield* sql`DELETE FROM projection_thread_sessions WHERE thread_id = 'thread-w'`;
+      yield* sql`
+        INSERT INTO projection_thread_sessions (thread_id, status, provider_name, updated_at)
+        VALUES ('thread-w', 'stopped', 'codex', '2026-03-01T00:00:10.000Z')
+      `;
+      yield* sql`DELETE FROM projection_thread_activities WHERE thread_id = 'thread-w'`;
+      yield* sql`
+        WITH RECURSIVE activity_rows(sequence) AS (
+          SELECT 1
+          UNION ALL
+          SELECT sequence + 1 FROM activity_rows WHERE sequence < 501
+        )
+        INSERT INTO projection_thread_activities (
+          activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at
+        )
+        SELECT
+          printf('codex-activity-%04d', sequence),
+          'thread-w',
+          'turn-5',
+          'tool',
+          'tool.completed',
+          'Codex tool',
+          json_object(
+            'itemType', 'command_execution',
+            'toolCallId', printf('codex-tool-%04d', sequence),
+            'status', 'completed',
+            'data', json_object('item', json_object('command', printf('echo %d', sequence)))
+          ),
+          sequence,
+          '2026-03-01T00:04:00.000Z'
+        FROM activity_rows
+      `;
+
+      const fullDetail = yield* snapshotQuery.getThreadDetailById(threadW);
+      assert.equal(fullDetail._tag, "Some");
+      if (fullDetail._tag === "Some") {
+        assert.equal(fullDetail.value.activities.length, 500);
+        assert.equal(fullDetail.value.activities[0]?.id, asEventId("codex-activity-0002"));
+        assert.equal(fullDetail.value.activities.at(-1)?.id, asEventId("codex-activity-0501"));
+      }
+
+      const windowedDetail = yield* snapshotQuery.getThreadDetailSnapshot(threadW, {
+        turnLimit: 2,
+      });
+      assert.equal(windowedDetail._tag, "Some");
+      if (windowedDetail._tag === "Some") {
+        assert.equal(windowedDetail.value.thread.activities.length, 500);
+        assert.equal(
+          windowedDetail.value.thread.activities.at(-1)?.id,
+          asEventId("codex-activity-0501"),
+        );
+      }
+    }),
+  );
+
   it.effect("a thread with no turns returns its content unwindowed on the first page", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

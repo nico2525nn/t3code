@@ -5,6 +5,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type ServerSettings as ServerSettingsValue,
   type ModelSelection,
+  ProviderDriverKind,
   type OrchestrationProjectShell,
   ProjectId,
   ProviderInstanceId,
@@ -12,6 +13,7 @@ import {
   TurnId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { resolveProjectAutoPull } from "@t3tools/shared/serverSettings";
 import * as Cause from "effect/Cause";
 import * as Console from "effect/Console";
 import * as Context from "effect/Context";
@@ -25,6 +27,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
@@ -32,6 +35,7 @@ import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
+import * as CodexAppServerThreadSync from "./orchestration/CodexAppServerThreadSync.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as OrchestrationReactor from "./orchestration/Services/OrchestrationReactor.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -384,6 +388,32 @@ function readRuntimePayload(runtimePayload: unknown): Record<string, unknown> {
     : {};
 }
 
+const CODEX_DRIVER = ProviderDriverKind.make("codex");
+
+function readCodexResumeThreadId(value: unknown): string | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const threadId = (value as Record<string, unknown>).threadId;
+  return typeof threadId === "string" && threadId.trim().length > 0 ? threadId.trim() : undefined;
+}
+
+function isCodexAppServerOwnedBinding(
+  binding: ProviderSessionDirectory.ProviderRuntimeBinding,
+): boolean {
+  if (
+    binding.provider !== CODEX_DRIVER ||
+    readCodexResumeThreadId(binding.resumeCursor) === undefined
+  ) {
+    return false;
+  }
+  // The catalog sync writes this marker after it has claimed the binding. The
+  // canonical id check keeps already-migrated bindings safe while allowing an
+  // older, unclaimed binding to use the generic recovery fallback.
+  return (
+    String(binding.threadId).startsWith("codex:") ||
+    readRuntimePayload(binding.runtimePayload).preserveProviderSettingsOnResume === true
+  );
+}
+
 const isServerUpdateThreadContinuationError = Schema.is(ServerUpdateThreadContinuationError);
 
 function readServerUpdateContinuationTurnId(runtimePayload: unknown): TurnId | null {
@@ -502,25 +532,26 @@ export const reconcileProviderSessions = Effect.gen(function* () {
   const { threads } = yield* query.getCommandReadModel();
   // Provider startup can report ready before the continuation is submitted.
   // Find those markers in one read rather than querying every idle thread.
-  const preparedThreadIds = new Set(
-    (yield* directory.listBindings().pipe(
-      Effect.catch((cause) =>
-        Effect.logWarning("failed to read prepared provider continuations", { cause }).pipe(
-          Effect.andThen(
-            Effect.forEach(
-              threads.filter(
-                (thread) => thread.session?.status === "ready" && !liveThreadIds.has(thread.id),
-              ),
-              (thread) =>
-                directory.getBinding(thread.id).pipe(Effect.orElseSucceed(() => Option.none())),
+  const providerBindings = yield* directory.listBindings().pipe(
+    Effect.catch((cause) =>
+      Effect.logWarning("failed to read prepared provider continuations", { cause }).pipe(
+        Effect.andThen(
+          Effect.forEach(
+            threads.filter(
+              (thread) => thread.session?.status === "ready" && !liveThreadIds.has(thread.id),
             ),
-          ),
-          Effect.map((bindings) =>
-            bindings.flatMap((binding) => (Option.isSome(binding) ? [binding.value] : [])),
+            (thread) =>
+              directory.getBinding(thread.id).pipe(Effect.orElseSucceed(() => Option.none())),
           ),
         ),
+        Effect.map((bindings) =>
+          bindings.flatMap((binding) => (Option.isSome(binding) ? [binding.value] : [])),
+        ),
       ),
-    ))
+    ),
+  );
+  const preparedThreadIds = new Set(
+    providerBindings
       .filter(
         (binding) =>
           readServerUpdateContinuationTurnId(binding.runtimePayload) !== null &&
@@ -529,6 +560,13 @@ export const reconcileProviderSessions = Effect.gen(function* () {
       )
       .map((binding) => binding.threadId),
   );
+  // Once the catalog has claimed a Codex binding, let that owner decide
+  // whether the native thread can be resumed. Generic orphan recovery remains
+  // available for old/unclaimed bindings and for a daemon that is unavailable
+  // during startup.
+  const codexOwnedThreadIds = new Set(
+    providerBindings.filter(isCodexAppServerOwnedBinding).map((binding) => binding.threadId),
+  );
   const orphanedThreads = threads.filter(
     (thread) =>
       thread.session !== null &&
@@ -536,7 +574,8 @@ export const reconcileProviderSessions = Effect.gen(function* () {
         thread.session.status === "running" ||
         thread.session.activeTurnId !== null ||
         (thread.session.status === "ready" && preparedThreadIds.has(thread.id))) &&
-      !liveThreadIds.has(thread.id),
+      !liveThreadIds.has(thread.id) &&
+      !codexOwnedThreadIds.has(thread.id),
   );
 
   for (const thread of orphanedThreads) {
@@ -880,7 +919,34 @@ export const make = (options?: StartupOptions) =>
         }),
       );
 
+      yield* Effect.logDebug("startup phase: attaching Codex App Server thread catalog");
+      yield* runStartupPhase(
+        "codex-app-server.catalog",
+        CodexAppServerThreadSync.syncCodexAppServerThreads.pipe(
+          Effect.catchCause((cause) =>
+            Cause.hasInterrupts(cause)
+              ? Effect.failCause(cause)
+              : Effect.logWarning("Codex App Server initial thread catalog sync failed", {
+                  cause,
+                }),
+          ),
+        ),
+      );
       yield* runStartupPhase("provider-sessions.reconcile", reconcileProviderSessions);
+
+      yield* forkParked(
+        CodexAppServerThreadSync.syncCodexAppServerThreadsRecurring.pipe(
+          Effect.catchCause((cause) =>
+            Cause.hasInterrupts(cause)
+              ? Effect.failCause(cause)
+              : Effect.logWarning("Codex App Server thread catalog sync failed", { cause }),
+          ),
+          Effect.repeat(
+            Schedule.spaced(CodexAppServerThreadSync.CODEX_APP_SERVER_THREAD_SYNC_INTERVAL),
+          ),
+          Effect.asVoid,
+        ),
+      );
 
       yield* Effect.logDebug("startup phase: syncing clean projects");
       yield* runStartupPhase("projects.auto-pull", syncAutoPullProjects);

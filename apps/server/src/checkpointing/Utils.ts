@@ -9,6 +9,10 @@ export function checkpointRefForThreadTurn(threadId: ThreadId, turnCount: number
   );
 }
 
+export function isProviderDiffCheckpointRef(ref: string | CheckpointRef): boolean {
+  return String(ref).startsWith("provider-diff:");
+}
+
 export function resolveThreadWorkspaceCwd(input: {
   readonly thread: {
     readonly projectId: ProjectId;

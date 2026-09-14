@@ -20,7 +20,7 @@ import {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { it, vi } from "@effect/vitest";
+import { expect, it, vi } from "@effect/vitest";
 
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -37,6 +37,7 @@ import * as CodexErrors from "effect-codex-app-server/errors";
 
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { runtimeEventToActivities } from "../../orchestration/ProviderRuntimeActivityProjection.ts";
 import { ProviderAdapterValidationError } from "../Errors.ts";
 import type { CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
@@ -47,6 +48,14 @@ import {
   type CodexThreadSnapshot,
 } from "./CodexSessionRuntime.ts";
 import { makeCodexAdapter } from "./CodexAdapter.ts";
+import {
+  codexAppServerThreadActivities,
+  mapToRuntimeEvents,
+} from "./CodexAppServerEventProjection.ts";
+import {
+  codexAppServerThreadDiffs,
+  codexAppServerThreadMessages,
+} from "./CodexAppServerHistoryProjection.ts";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CodexAdapter`.
@@ -58,6 +67,433 @@ const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
 const asItemId = (value: string): ProviderItemId => ProviderItemId.make(value);
+
+it.effect("normalizes Codex hunk-only file changes into a renderable turn diff", () =>
+  Effect.sync(() => {
+    const thread = {
+      id: "native-thread",
+      sessionId: "native-session",
+      cwd: "/tmp/project",
+      createdAt: 1_778_000_000,
+      updatedAt: 1_778_000_100,
+      cliVersion: "test",
+      modelProvider: "openai",
+      preview: "test",
+      source: "appServer",
+      status: { type: "idle" },
+      ephemeral: false,
+      turns: [
+        {
+          id: "turn-1",
+          startedAt: 1_778_000_010,
+          completedAt: 1_778_000_020,
+          status: "completed",
+          items: [
+            {
+              id: "agent-message-1",
+              type: "agentMessage",
+              text: "Updated example.ts",
+            },
+            {
+              id: "file-change-1",
+              type: "fileChange",
+              status: "completed",
+              changes: [
+                {
+                  path: "/tmp/project/src/example.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: [
+                    "diff --git a//tmp/project/src/example.ts b//tmp/project/src/example.ts",
+                    "--- a//tmp/project/src/example.ts",
+                    "+++ b//tmp/project/src/example.ts",
+                    "@@ -1 +1 @@",
+                    "-old",
+                    "+new",
+                  ].join("\n"),
+                },
+              ],
+            },
+            {
+              id: "file-change-2",
+              type: "fileChange",
+              status: "completed",
+              changes: [
+                {
+                  path: "/tmp/project/src/example.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: "@@ -8 +8 @@\n-old-two\n+new-two",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: "turn-interrupted",
+          startedAt: 1_778_000_030,
+          completedAt: 1_778_000_040,
+          status: "interrupted",
+          items: [
+            {
+              id: "file-change-interrupted",
+              type: "fileChange",
+              status: "completed",
+              changes: [
+                {
+                  path: "/tmp/project/src/interrupted.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: "@@ -1 +1 @@\n-old\n+new",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as Parameters<typeof codexAppServerThreadDiffs>[0];
+
+    const turnDiffs = codexAppServerThreadDiffs(thread);
+    const turnDiff = turnDiffs[0];
+    NodeAssert.ok(turnDiff);
+    NodeAssert.equal(turnDiff.turnId, "turn-1");
+    NodeAssert.equal(turnDiff.status, "ready");
+    NodeAssert.equal(turnDiff.files[0]?.path, "src/example.ts");
+    NodeAssert.deepEqual(turnDiff.files[0], {
+      path: "src/example.ts",
+      kind: "modified",
+      additions: 2,
+      deletions: 2,
+    });
+    NodeAssert.match(turnDiff.diff, /diff --git a\/src\/example\.ts b\/src\/example\.ts/);
+    NodeAssert.match(turnDiff.diff, /--- a\/src\/example\.ts/);
+    NodeAssert.match(turnDiff.diff, /\+\+\+ b\/src\/example\.ts/);
+    NodeAssert.equal(turnDiff.diff.match(/^diff --git /gmu)?.length, 1);
+    NodeAssert.match(turnDiff.diff, /@@ -8 \+8 @@/);
+    NodeAssert.equal(turnDiff.assistantMessageId, "assistant:agent-message-1");
+    const interruptedDiff = turnDiffs.find((entry) => entry.turnId === "turn-interrupted");
+    NodeAssert.ok(interruptedDiff);
+    NodeAssert.equal(interruptedDiff.status, "ready");
+    NodeAssert.match(interruptedDiff.diff, /src\/interrupted\.ts/);
+  }),
+);
+
+it("uses one native item identity for live and recovered activity rows", () => {
+  const item = {
+    id: "command-1",
+    type: "commandExecution",
+    command: "git status --short",
+    cwd: "/tmp/project",
+    commandActions: [],
+    status: "completed",
+    source: "unifiedExecStartup",
+  } as const;
+  const thread = {
+    id: "native-thread",
+    cwd: "/tmp/project",
+    updatedAt: 1_778_000_100,
+    turns: [
+      {
+        id: "turn-1",
+        startedAt: 1_778_000_010,
+        completedAt: 1_778_000_020,
+        status: "completed",
+        items: [item],
+      },
+    ],
+  } as Parameters<typeof codexAppServerThreadActivities>[0];
+  const liveEvent: ProviderEvent = {
+    id: asEventId("live-assistant-1"),
+    kind: "notification",
+    provider: ProviderDriverKind.make("codex"),
+    createdAt: "2026-05-12T00:00:00.000Z",
+    method: "item/completed",
+    threadId: asThreadId("native-thread"),
+    turnId: asTurnId("turn-1"),
+    itemId: asItemId("command-1"),
+    payload: {
+      completedAtMs: 1_778_000_020_000,
+      threadId: "native-thread",
+      turnId: "turn-1",
+      item,
+    },
+  };
+
+  const liveRuntimeEvent = mapToRuntimeEvents(liveEvent, asThreadId("codex:native-thread")).find(
+    (event) => event.type === "item.completed",
+  );
+  NodeAssert.ok(liveRuntimeEvent);
+  const liveActivity = runtimeEventToActivities(liveRuntimeEvent)[0];
+  const recoveredActivity = codexAppServerThreadActivities(thread).find(
+    (activity) => activity.id === liveActivity?.id,
+  );
+
+  if (liveActivity === undefined || recoveredActivity === undefined) {
+    throw new Error("The native item was not projected into a T3 activity.");
+  }
+  const activityShape = (activity: NonNullable<typeof liveActivity>) => {
+    const payload = activity.payload as Record<string, unknown>;
+    return {
+      id: activity.id,
+      kind: activity.kind,
+      summary: activity.summary,
+      itemType: payload.itemType,
+      detail: payload.detail,
+    };
+  };
+  NodeAssert.deepEqual(activityShape(liveActivity), activityShape(recoveredActivity));
+});
+
+it("uses App Server client ids for imported user messages", () => {
+  const messages = codexAppServerThreadMessages({
+    id: "native-thread",
+    updatedAt: 1_778_000_100,
+    turns: [
+      {
+        id: "turn-1",
+        startedAt: 1_778_000_010,
+        completedAt: 1_778_000_020,
+        status: "completed",
+        items: [
+          {
+            id: "native-user-item",
+            type: "userMessage",
+            clientId: "message-created-by-t3",
+            content: [{ type: "text", text: "Keep this exact id" }],
+          },
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof codexAppServerThreadMessages>[0]);
+
+  expect(messages).toEqual([
+    expect.objectContaining({
+      messageId: "message-created-by-t3",
+      role: "user",
+      turnId: "turn-1",
+      text: "Keep this exact id",
+    }),
+  ]);
+});
+
+it("projects native reasoning, tool, and child-agent items into durable activities", () => {
+  const thread = {
+    id: "native-thread",
+    updatedAt: 1_778_000_100,
+    turns: [
+      {
+        id: "turn-1",
+        startedAt: 1_778_000_010,
+        completedAt: 1_778_000_020,
+        status: "completed",
+        items: [
+          {
+            id: "user-1",
+            type: "userMessage",
+            content: [{ type: "text", text: "Inspect the repository" }],
+          },
+          {
+            id: "assistant-1",
+            type: "agentMessage",
+            text: "I inspected it.",
+          },
+          {
+            id: "reasoning-1",
+            type: "reasoning",
+            summary: [{ type: "summary_text", text: "Checking the repository" }],
+            content: [{ type: "text", text: "Inspecting the relevant files" }],
+          },
+          {
+            id: "command-1",
+            type: "commandExecution",
+            command: "git status --short",
+            cwd: "/tmp/project",
+            commandActions: [],
+            status: "completed",
+            source: "unifiedExecStartup",
+          },
+          {
+            id: "collab-1",
+            type: "collabAgentToolCall",
+            tool: "spawnAgent",
+            status: "completed",
+            senderThreadId: "native-thread",
+            receiverThreadIds: ["child-thread"],
+            agentsStates: { "child-thread": { status: "completed" } },
+          },
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof codexAppServerThreadActivities>[0];
+
+  const activities = codexAppServerThreadActivities(thread);
+  expect(activities.map((activity) => [activity.kind, activity.createdAt])).toEqual([
+    ["task.progress", "2026-05-05T16:53:30.002Z"],
+    ["tool.completed", "2026-05-05T16:53:30.003Z"],
+    ["tool.completed", "2026-05-05T16:53:30.004Z"],
+    ["task.started", "2026-05-05T16:53:30.004Z"],
+    ["task.completed", "2026-05-05T16:53:30.004Z"],
+  ]);
+  expect(activities[1]?.payload).toMatchObject({
+    itemType: "command_execution",
+    toolCallId: "command-1",
+    status: "completed",
+    data: { item: { command: "git status --short" } },
+  });
+  expect(activities[2]?.payload).toMatchObject({
+    itemType: "collab_agent_tool_call",
+    data: { item: { receiverThreadIds: ["child-thread"] } },
+  });
+  expect(activities[3]).toMatchObject({
+    id: "codex:agent:child-thread:started",
+    kind: "task.started",
+    payload: {
+      taskId: "child-thread",
+      timelineBypass: true,
+    },
+  });
+  expect(activities[4]).toMatchObject({
+    id: "codex:agent:child-thread:completed",
+    kind: "task.completed",
+    payload: { taskId: "child-thread", status: "completed" },
+  });
+  expect(activities[0]?.payload).toMatchObject({
+    summary: "Checking the repository\nInspecting the relevant files",
+    detail: "Checking the repository\nInspecting the relevant files",
+  });
+});
+
+it("keys imported tool rows by the native item, like live lifecycle rows", () => {
+  const activities = codexAppServerThreadActivities({
+    id: "native-thread",
+    updatedAt: 1_778_000_100,
+    turns: [
+      {
+        id: "turn-1",
+        startedAt: 1_778_000_010,
+        completedAt: 1_778_000_020,
+        status: "completed",
+        items: [
+          {
+            id: "command-1",
+            type: "commandExecution",
+            command: "git status --short",
+            cwd: "/tmp/project",
+            commandActions: [],
+            status: "completed",
+          },
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof codexAppServerThreadActivities>[0]);
+
+  expect(activities).toHaveLength(1);
+  expect(activities[0]).toMatchObject({
+    id: "codex:item:turn-1:command-1:completed",
+    kind: "tool.completed",
+    payload: {
+      itemType: "command_execution",
+      toolCallId: "command-1",
+      status: "completed",
+      data: { item: { id: "command-1", command: "git status --short" } },
+    },
+  });
+});
+
+it("keeps an in-progress native tool in progress after history import", () => {
+  const activities = codexAppServerThreadActivities({
+    id: "native-thread",
+    updatedAt: 1_778_000_100,
+    turns: [
+      {
+        id: "turn-1",
+        startedAt: 1_778_000_010,
+        status: "inProgress",
+        items: [
+          {
+            id: "command-1",
+            type: "commandExecution",
+            command: "bun test",
+            cwd: "/tmp/project",
+            commandActions: [],
+            status: "inProgress",
+          },
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof codexAppServerThreadActivities>[0]);
+
+  expect(activities).toMatchObject([
+    {
+      id: "codex:item:turn-1:command-1:updated",
+      kind: "tool.updated",
+      payload: {
+        itemType: "command_execution",
+        toolCallId: "command-1",
+        status: "inProgress",
+      },
+    },
+  ]);
+});
+
+it("keeps native agent names and lifecycle ids when importing history", () => {
+  const thread = {
+    id: "native-thread",
+    updatedAt: 1_778_000_100,
+    turns: [
+      {
+        id: "turn-1",
+        startedAt: 1_778_000_010,
+        completedAt: 1_778_000_020,
+        status: "completed",
+        items: [
+          {
+            id: "collab-1",
+            type: "collabAgentToolCall",
+            tool: "spawnAgent",
+            status: "completed",
+            receiverThreadIds: ["child-thread"],
+            receiverAgents: [{ threadId: "child-thread", agentNickname: "Hume" }],
+            agentRole: "reviewer",
+            agentPath: "/root/reviewer",
+            agentsStates: { "child-thread": { status: "pendingInit" } },
+          },
+          {
+            id: "collab-2",
+            type: "collabAgentToolCall",
+            tool: "sendInput",
+            status: "completed",
+            receiverThreadIds: ["child-thread"],
+            agentsStates: {
+              "child-thread": {
+                status: "completed",
+                message: "Review complete",
+              },
+            },
+          },
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof codexAppServerThreadActivities>[0];
+
+  const tasks = codexAppServerThreadActivities(thread).filter((activity) =>
+    activity.kind.startsWith("task."),
+  );
+  expect(tasks.map((activity) => [activity.kind, activity.id])).toEqual([
+    ["task.started", "codex:agent:child-thread:started"],
+    ["task.updated", "codex:agent:child-thread:updated"],
+    ["task.completed", "codex:agent:child-thread:completed"],
+  ]);
+  expect(tasks[0]?.payload).toMatchObject({
+    taskId: "child-thread",
+    title: "Hume",
+    role: "reviewer",
+    timelineBypass: true,
+  });
+  expect(tasks[2]?.payload).toMatchObject({
+    taskId: "child-thread",
+    title: "Hume",
+    status: "completed",
+    summary: "Review complete",
+  });
+});
 
 class FakeCodexRuntime implements CodexSessionRuntimeShape {
   private readonly eventQueue = Effect.runSync(Queue.unbounded<ProviderEvent>());
@@ -453,7 +889,9 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
     const layer = Layer.effect(
       CodexAdapter,
       Effect.gen(function* () {
-        const codexConfig = decodeCodexSettings({ launchArgs: "--strict-config --enable foo" });
+        const codexConfig = decodeCodexSettings({
+          launchArgs: "--strict-config --enable foo",
+        });
         return yield* makeCodexAdapter(codexConfig, {
           makeRuntime: runtimeFactory.factory,
         });
@@ -484,9 +922,13 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
     const layer = Layer.effect(
       CodexAdapter,
       Effect.gen(function* () {
-        const codexConfig = decodeCodexSettings({ launchArgs: "--enable settings-feature" });
+        const codexConfig = decodeCodexSettings({
+          launchArgs: "--enable settings-feature",
+        });
         return yield* makeCodexAdapter(codexConfig, {
-          environment: { T3CODE_CODEX_LAUNCH_ARGS: " --strict-config --enable env-feature " },
+          environment: {
+            T3CODE_CODEX_LAUNCH_ARGS: " --strict-config --enable env-feature ",
+          },
           makeRuntime: runtimeFactory.factory,
         });
       }),
@@ -1119,6 +1561,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         NodeAssert.equal(payload.model, "gpt-5.6-sol");
         NodeAssert.equal(payload.effort, "high");
       }
+      NodeAssert.equal(events[0]?.eventId, "codex:agent:child-model:started");
+      NodeAssert.equal(events[2]?.eventId, "codex:agent:child-model:updated");
+      NodeAssert.equal(events[5]?.eventId, "codex:agent:child-model:progress");
 
       const metadataPayload = events[8]?.payload as Record<string, unknown>;
       NodeAssert.equal("status" in metadataPayload, false);
@@ -1230,6 +1675,122 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       NodeAssert.equal(firstEvent.value.itemId, "msg_1");
       NodeAssert.equal(firstEvent.value.turnId, "turn-1");
       NodeAssert.equal(firstEvent.value.payload.itemType, "assistant_message");
+    }),
+  );
+
+  it("coalesces native reasoning deltas into one stable activity identity", () => {
+    const state = { reasoningTextByItem: new Map<string, string>() };
+    const canonicalThreadId = asThreadId("codex:native-thread");
+    const deltaEvent = (id: string, delta: string): ProviderEvent => ({
+      id: asEventId(id),
+      kind: "notification",
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      method: "item/reasoning/summaryTextDelta",
+      threadId: asThreadId("native-thread"),
+      turnId: asTurnId("turn-reasoning"),
+      itemId: asItemId("reasoning-1"),
+      payload: {
+        delta,
+        itemId: "reasoning-1",
+        summaryIndex: 0,
+        threadId: "native-thread",
+        turnId: "turn-reasoning",
+      },
+    });
+
+    const first = mapToRuntimeEvents(
+      deltaEvent("evt-reasoning-delta-1", "Checking "),
+      canonicalThreadId,
+      state,
+    );
+    const second = mapToRuntimeEvents(
+      deltaEvent("evt-reasoning-delta-2", "the repository"),
+      canonicalThreadId,
+      state,
+    );
+
+    expect(first).toMatchObject([
+      {
+        type: "item.updated",
+        eventId: "codex:item:turn-reasoning:reasoning-1:reasoning",
+        payload: { itemType: "reasoning", detail: "Checking " },
+      },
+    ]);
+    expect(second).toMatchObject([
+      {
+        type: "item.updated",
+        eventId: "codex:item:turn-reasoning:reasoning-1:reasoning",
+        payload: { itemType: "reasoning", detail: "Checking the repository" },
+      },
+    ]);
+  });
+
+  it.effect("uses the native reasoning item id for both live and imported activities", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      const reasoningItem = {
+        type: "reasoning",
+        id: "reasoning-1",
+        summary: ["Checking the repository"],
+        content: ["Inspecting the relevant files"],
+      };
+      const event: ProviderEvent = {
+        id: asEventId("evt-reasoning-complete"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "item/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-reasoning"),
+        itemId: asItemId("reasoning-1"),
+        payload: {
+          completedAtMs: 1_778_000_000_000,
+          threadId: "thread-1",
+          turnId: "turn-reasoning",
+          item: reasoningItem,
+        },
+      };
+
+      yield* runtime.emit(event);
+      const liveEvent = yield* Fiber.join(firstEventFiber);
+      NodeAssert.equal(liveEvent._tag, "Some");
+      if (liveEvent._tag !== "Some") return;
+      const livePayload = liveEvent.value.payload as {
+        readonly itemType?: string;
+        readonly detail?: string;
+      };
+      NodeAssert.equal(liveEvent.value.eventId, "codex:item:turn-reasoning:reasoning-1:reasoning");
+      NodeAssert.equal(livePayload.itemType, "reasoning");
+      NodeAssert.equal(
+        livePayload.detail,
+        "Checking the repository\nInspecting the relevant files",
+      );
+
+      const imported = codexAppServerThreadActivities({
+        id: "thread-1",
+        updatedAt: 1_778_000_100,
+        turns: [
+          {
+            id: "turn-reasoning",
+            startedAt: 1_778_000_010,
+            completedAt: 1_778_000_020,
+            status: "completed",
+            items: [reasoningItem],
+          },
+        ],
+      } as unknown as Parameters<typeof codexAppServerThreadActivities>[0]);
+      expect(imported).toMatchObject([
+        {
+          id: "codex:item:turn-reasoning:reasoning-1:reasoning",
+          kind: "task.progress",
+          payload: {
+            itemType: "reasoning",
+            detail: "Checking the repository\nInspecting the relevant files",
+          },
+        },
+      ]);
     }),
   );
 
@@ -1355,7 +1916,10 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
             id: "browser_1",
             server: "node_repl",
             tool: "js",
-            arguments: { code: "await tab.playwright.domSnapshot()", title: "Inspect checkout" },
+            arguments: {
+              code: "await tab.playwright.domSnapshot()",
+              title: "Inspect checkout",
+            },
             durationMs: 12,
             error: null,
             result: {
@@ -2006,7 +2570,11 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
           conversationId: "provider-thread-1",
           reason: "   ",
           fileChanges: {
-            "/tmp/moved.ts": { type: "update", unified_diff: "@@", move_path: "/tmp/renamed.ts" },
+            "/tmp/moved.ts": {
+              type: "update",
+              unified_diff: "@@",
+              move_path: "/tmp/renamed.ts",
+            },
           },
         },
       } satisfies ProviderEvent);
@@ -2043,7 +2611,11 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         requestKind: "file-change",
         requestId: ApprovalRequestId.make("req-patch-many"),
         turnId: asTurnId("turn-1"),
-        payload: { callId: "call-4", conversationId: "provider-thread-1", fileChanges },
+        payload: {
+          callId: "call-4",
+          conversationId: "provider-thread-1",
+          fileChanges,
+        },
       } satisfies ProviderEvent);
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
@@ -2073,7 +2645,11 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         requestKind: "file-change",
         requestId: ApprovalRequestId.make("req-patch-empty"),
         turnId: asTurnId("turn-1"),
-        payload: { callId: "call-5", conversationId: "provider-thread-1", fileChanges: {} },
+        payload: {
+          callId: "call-5",
+          conversationId: "provider-thread-1",
+          fileChanges: {},
+        },
       } satisfies ProviderEvent);
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
@@ -2587,7 +3163,9 @@ scopedLifecycleLayer("CodexAdapterLive scoped lifecycle", (it) => {
   );
 });
 
-const scopedFailureRuntimeFactory = makeScopedRuntimeFactory({ failConstruction: true });
+const scopedFailureRuntimeFactory = makeScopedRuntimeFactory({
+  failConstruction: true,
+});
 const scopedFailureLayer = it.layer(
   Layer.effect(
     CodexAdapter,
@@ -2760,8 +3338,14 @@ function codexErrorNotification(input: {
 function codexRateLimitsNotification(input: {
   readonly id: string;
   readonly rateLimitReachedType?: string;
-  readonly primary?: { readonly usedPercent: number; readonly resetsInSeconds: number };
-  readonly secondary?: { readonly usedPercent: number; readonly resetsInSeconds: number };
+  readonly primary?: {
+    readonly usedPercent: number;
+    readonly resetsInSeconds: number;
+  };
+  readonly secondary?: {
+    readonly usedPercent: number;
+    readonly resetsInSeconds: number;
+  };
 }): ProviderEvent {
   return {
     id: asEventId(input.id),
@@ -2813,7 +3397,10 @@ function codexUsageLimitTurnFailed(id: string, turnId = "turn-limit"): ProviderE
         id: turnId,
         items: [],
         status: "failed",
-        error: { message: CODEX_OUT_OF_CREDITS, codexErrorInfo: "usageLimitExceeded" },
+        error: {
+          message: CODEX_OUT_OF_CREDITS,
+          codexErrorInfo: "usageLimitExceeded",
+        },
       },
     },
   };
@@ -2841,7 +3428,10 @@ usageLimitLayer("CodexAdapterLive usage limits", (it) => {
           id: "evt-limit-rate-limits",
           rateLimitReachedType: "workspace_owner_credits_depleted",
           primary: { usedPercent: 40, resetsInSeconds: 3_600 },
-          secondary: { usedPercent: 100, resetsInSeconds: 5 * 86_400 + 5 * 3_600 },
+          secondary: {
+            usedPercent: 100,
+            resetsInSeconds: 5 * 86_400 + 5 * 3_600,
+          },
         }),
       );
       yield* runtime.emit(codexUsageLimitTurnFailed("evt-limit-turn"));

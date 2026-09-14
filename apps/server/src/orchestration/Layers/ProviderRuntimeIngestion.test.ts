@@ -47,9 +47,6 @@ import {
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
-import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
-import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
-import * as VcsProcess from "../../vcs/VcsProcess.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -60,8 +57,8 @@ import { DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
-import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ServerConfig } from "../../config.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { makeSqlStatementCounter } from "../../../integration/SqlStatementCounter.integration.ts";
 
@@ -263,15 +260,13 @@ describe("ProviderRuntimeIngestion", () => {
   async function createHarness(options?: {
     serverSettings?: Partial<ServerSettings>;
     threadTitle?: string;
-    workspaceSubdirectory?: string;
   }) {
     const repositoryRoot = makeTempDir("t3-provider-project-");
     NodeChildProcess.execFileSync("git", ["init", "--initial-branch=main"], {
       cwd: repositoryRoot,
       stdio: "ignore",
     });
-    const workspaceRoot = NodePath.join(repositoryRoot, options?.workspaceSubdirectory ?? "");
-    NodeFS.mkdirSync(workspaceRoot, { recursive: true });
+    const workspaceRoot = repositoryRoot;
     const provider = createProviderServiceHarness();
     const sqlCounter = makeSqlStatementCounter();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
@@ -307,8 +302,6 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
-      Layer.provideMerge(CheckpointStore.layer.pipe(Layer.provide(VcsDriverRegistry.layer))),
-      Layer.provideMerge(VcsProcess.layer),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
       Layer.provideMerge(NodeServices.layer),
       Layer.provideMerge(Layer.succeed(Tracer.Tracer, sqlCounter.tracer)),
@@ -1396,6 +1389,81 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(message?.text).toBe("hello world");
     expect(message?.streaming).toBe(false);
+  });
+
+  it("keeps separate Codex assistant items separate within one turn", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const base = {
+      provider: ProviderDriverKind.make("codex"),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-two-items"),
+    };
+
+    await harness.emitAndDrain([
+      {
+        ...base,
+        type: "content.delta",
+        eventId: asEventId("evt-two-items-first-delta"),
+        createdAt: now,
+        itemId: asItemId("assistant-item-first"),
+        payload: { streamKind: "assistant_text", delta: "first answer" },
+      },
+      {
+        ...base,
+        type: "content.delta",
+        eventId: asEventId("evt-two-items-second-delta"),
+        createdAt: now,
+        itemId: asItemId("assistant-item-second"),
+        payload: { streamKind: "assistant_text", delta: "second answer" },
+      },
+      {
+        ...base,
+        type: "item.completed",
+        eventId: asEventId("evt-two-items-first-completed"),
+        createdAt: now,
+        itemId: asItemId("assistant-item-first"),
+        payload: { itemType: "assistant_message", status: "completed" },
+      },
+      {
+        ...base,
+        type: "item.completed",
+        eventId: asEventId("evt-two-items-second-completed"),
+        createdAt: now,
+        itemId: asItemId("assistant-item-second"),
+        payload: { itemType: "assistant_message", status: "completed" },
+      },
+      {
+        ...base,
+        type: "turn.completed",
+        eventId: asEventId("evt-two-items-turn-completed"),
+        createdAt: now,
+        payload: { state: "completed" },
+      },
+    ]);
+
+    const thread = await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:assistant-item-first" && !message.streaming,
+        ) &&
+        entry.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:assistant-item-second" && !message.streaming,
+        ),
+    );
+    expect(
+      thread.messages.find(
+        (message: ProviderRuntimeTestMessage) => message.id === "assistant:assistant-item-first",
+      )?.text,
+    ).toBe("first answer");
+    expect(
+      thread.messages.find(
+        (message: ProviderRuntimeTestMessage) => message.id === "assistant:assistant-item-second",
+      )?.text,
+    ).toBe("second answer");
   });
 
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {
@@ -3531,34 +3599,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
-  effectIt.effect("tracks provider diff updates from a nested Git workspace", () =>
-    Effect.gen(function* () {
-      const harness = yield* Effect.promise(() =>
-        createHarness({ workspaceSubdirectory: "apps/server" }),
-      );
-      yield* Effect.promise(() =>
-        harness.emitAndDrain([
-          {
-            type: "turn.diff.updated",
-            eventId: asEventId("evt-nested-diff"),
-            provider: ProviderDriverKind.make("codex"),
-            createdAt: "2026-01-01T00:00:00.000Z",
-            threadId: asThreadId("thread-1"),
-            turnId: asTurnId("nested-turn"),
-            payload: {
-              unifiedDiff: "diff --git a/apps/server/file.ts b/apps/server/file.ts\n+new\n",
-            },
-          },
-        ]),
-      );
-      const snapshot = yield* Effect.promise(harness.readModel);
-      expect(snapshot.threads[0]?.checkpoints).toEqual([
-        expect.objectContaining({ turnId: "nested-turn", status: "missing" }),
-      ]);
-    }),
-  );
-
-  it("consumes P1 runtime events into thread metadata, diff checkpoints, and activities", async () => {
+  it("consumes P1 runtime events into thread metadata and activities", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
@@ -3620,19 +3661,6 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    harness.emit({
-      type: "turn.diff.updated",
-      eventId: asEventId("evt-turn-diff-updated"),
-      provider: ProviderDriverKind.make("codex"),
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-p1"),
-      itemId: asItemId("item-p1-assistant"),
-      payload: {
-        unifiedDiff: "diff --git a/file.txt b/file.txt\n+hello\n",
-      },
-    });
-
     const thread = await waitForThread(
       harness.readModel,
       (entry) =>
@@ -3645,9 +3673,6 @@ describe("ProviderRuntimeIngestion", () => {
         ) &&
         entry.activities.some(
           (activity: ProviderRuntimeTestActivity) => activity.kind === "runtime.warning",
-        ) &&
-        entry.checkpoints.some(
-          (checkpoint: ProviderRuntimeTestCheckpoint) => checkpoint.turnId === "turn-p1",
         ),
     );
 
@@ -3684,13 +3709,6 @@ describe("ProviderRuntimeIngestion", () => {
         : undefined;
     expect(warning?.kind).toBe("runtime.warning");
     expect(warningPayload?.message).toBe("Provider got slow");
-
-    const checkpoint = thread.checkpoints.find(
-      (entry: ProviderRuntimeTestCheckpoint) => entry.turnId === "turn-p1",
-    );
-    expect(checkpoint?.status).toBe("missing");
-    expect(checkpoint?.assistantMessageId).toBe("assistant:item-p1-assistant");
-    expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
   });
 
   it("mirrors a provider title only while the thread still has the default title", async () => {

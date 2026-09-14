@@ -39,6 +39,41 @@ function makeThreadCheckpointContext(input: {
 }
 
 describe("CheckpointDiffQuery.layer", () => {
+  it("reads contiguous legacy provider rows and fills empty no-change turns", () => {
+    const result = CheckpointDiffQuery.legacyProviderDiffFromRows(
+      [
+        { fromTurnCount: 0, toTurnCount: 1, diff: "first patch" },
+        { fromTurnCount: 2, toTurnCount: 3, diff: "third patch" },
+      ],
+      0,
+      3,
+      [
+        { checkpointTurnCount: 1, files: [] },
+        { checkpointTurnCount: 2, files: [] },
+        { checkpointTurnCount: 3, files: [] },
+      ],
+    );
+
+    expect(result).toEqual(Option.some("first patch\n\nthird patch"));
+  });
+
+  it("does not invent a legacy diff for a missing file-bearing turn", () => {
+    const result = CheckpointDiffQuery.legacyProviderDiffFromRows(
+      [{ fromTurnCount: 0, toTurnCount: 1, diff: "first patch" }],
+      0,
+      2,
+      [
+        { checkpointTurnCount: 1, files: [] },
+        {
+          checkpointTurnCount: 2,
+          files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 }],
+        },
+      ],
+    );
+
+    expect(result).toEqual(Option.none());
+  });
+
   it.effect("uses the narrow full-thread context lookup for all-turns diffs", () =>
     Effect.gen(function* () {
       const projectId = ProjectId.make("project-full-thread");

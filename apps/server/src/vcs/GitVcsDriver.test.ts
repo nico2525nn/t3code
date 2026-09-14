@@ -176,3 +176,46 @@ it.effect("GitVcsDriver forwards execute env to the VCS process", () => {
     ),
   );
 });
+
+it.effect("GitVcsDriver gives checkpoint capture enough time for large worktrees", () => {
+  const observedTimeouts: Array<number | null | undefined> = [];
+
+  return Effect.gen(function* () {
+    const driver = yield* GitVcsDriver.makeVcsDriverShape();
+
+    yield* driver.checkpoints.captureCheckpoint({
+      cwd: "/repo",
+      checkpointRef: CheckpointRef.make("refs/t3/checkpoints/test/1"),
+    });
+
+    assert.isTrue(observedTimeouts.length > 0);
+    assert.isTrue(observedTimeouts.every((timeoutMs) => timeoutMs === 300_000));
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(VcsProcess.VcsProcess)({
+          run: (input) =>
+            Effect.sync(() => {
+              observedTimeouts.push(input.timeoutMs);
+              let stdout = "";
+              if (input.operation.endsWith("resolveGitCommonDir")) {
+                stdout = ".git\n";
+              } else if (input.args.includes("write-tree")) {
+                stdout = "tree-oid\n";
+              } else if (input.args.includes("commit-tree")) {
+                stdout = "commit-oid\n";
+              }
+              return {
+                exitCode: ChildProcessSpawner.ExitCode(0),
+                stdout,
+                stderr: "",
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              };
+            }),
+        }),
+      ),
+    ),
+  );
+});

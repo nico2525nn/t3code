@@ -2809,9 +2809,10 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
-  it.effect("recovers stale sessions for sendTurn using persisted cwd", () =>
+  it.effect("recovers stale Codex sessions with persisted cwd and native settings", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
 
       const initial = yield* provider.startSession(asThreadId("thread-1"), {
         provider: ProviderDriverKind.make("codex"),
@@ -2822,6 +2823,12 @@ routing.layer("ProviderServiceLive routing", (it) => {
       });
 
       yield* routing.codex.stopAll();
+      const persistedBinding = yield* directory.getBinding(initial.threadId);
+      assert(Option.isSome(persistedBinding));
+      yield* directory.upsert({
+        ...persistedBinding.value,
+        runtimePayload: { preserveProviderSettingsOnResume: true },
+      });
       routing.codex.startSession.mockClear();
       routing.codex.sendTurn.mockClear();
 
@@ -2840,11 +2847,13 @@ routing.layer("ProviderServiceLive routing", (it) => {
           cwd?: string;
           resumeCursor?: unknown;
           threadId?: string;
+          preserveProviderSettingsOnResume?: boolean;
         };
         assert.equal(startPayload.provider, "codex");
         assert.equal(startPayload.cwd, fixtureCwd("project-send-turn"));
         assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
         assert.equal(startPayload.threadId, initial.threadId);
+        assert.equal(startPayload.preserveProviderSettingsOnResume, true);
       }
       assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
     }),

@@ -220,6 +220,43 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
         }),
     );
 
+    it.effect.skipIf(!symlinksSupported)(
+      "removes old shadow links for account-local app-server state",
+      () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
+          const shadowHome = path.join(shadowRoot, "shadow");
+          const sharedControl = path.join(sharedHome, "app-server-control");
+          const sharedDaemon = path.join(sharedHome, "app-server-daemon");
+          const shadowControl = path.join(shadowHome, "app-server-control");
+          const shadowDaemon = path.join(shadowHome, "app-server-daemon");
+
+          yield* fileSystem.makeDirectory(sharedControl, { recursive: true });
+          yield* fileSystem.makeDirectory(sharedDaemon, { recursive: true });
+          yield* fileSystem.makeDirectory(shadowHome, { recursive: true });
+          yield* fileSystem.symlink(sharedControl, shadowControl);
+          yield* fileSystem.symlink(sharedDaemon, shadowDaemon);
+
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({
+              homePath: sharedHome,
+              shadowHomePath: shadowHome,
+            }),
+          );
+
+          yield* materializeCodexShadowHome(layout);
+
+          const controlLinkResult = yield* fileSystem.readLink(shadowControl).pipe(Effect.result);
+          const daemonLinkResult = yield* fileSystem.readLink(shadowDaemon).pipe(Effect.result);
+
+          expect(controlLinkResult._tag).toBe("Failure");
+          expect(daemonLinkResult._tag).toBe("Failure");
+        }),
+    );
+
     it.effect("rejects shadow homes that point at the shared home", () =>
       Effect.gen(function* () {
         const sharedHome = yield* makeTempDir("t3code-codex-shared-");

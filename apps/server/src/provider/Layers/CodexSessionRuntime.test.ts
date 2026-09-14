@@ -4,7 +4,7 @@ import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { describe } from "vite-plus/test";
-import { DEFAULT_MODEL, ThreadId } from "@t3tools/contracts";
+import { DEFAULT_MODEL, ThreadId, TurnId } from "@t3tools/contracts";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexRpc from "effect-codex-app-server/rpc";
 import * as EffectCodexSchema from "effect-codex-app-server/schema";
@@ -20,11 +20,117 @@ import {
   openCodexThread,
   readCodexThread,
   rollbackCodexThread,
+  routeCodexChildNotification,
+  shouldReemitResumedCodexTurn,
   toMcpElicitationResponse,
 } from "./CodexSessionRuntime.ts";
+import {
+  readCodexAppServerActiveTurnId,
+  readCodexAppServerThread,
+} from "./CodexAppServerHistory.ts";
 const isCodexAppServerRequestError = Schema.is(CodexErrors.CodexAppServerRequestError);
 
+describe("Codex child notification routing", () => {
+  it("keeps lifecycle, chatter, and unknown methods on one routing policy", () => {
+    NodeAssert.equal(routeCodexChildNotification("turn/started"), "agent-event");
+    NodeAssert.equal(routeCodexChildNotification("item/agentMessage/delta"), "drop");
+    NodeAssert.equal(routeCodexChildNotification("serverRequest/resolved"), "parent");
+    NodeAssert.equal(routeCodexChildNotification("future/thread/event"), "parent");
+  });
+});
+
 describe("Codex thread history", () => {
+  it.effect("stops an incremental history read at the known turn", () =>
+    Effect.gen(function* () {
+      const requests: Array<string> = [];
+      const client: Parameters<typeof readCodexAppServerThread>[0] = {
+        request: () => Effect.die("Legacy history API must not be used"),
+        raw: {
+          request: (method, params) =>
+            Effect.sync(() => {
+              requests.push(method);
+              if (method === "thread/read") return { thread: { historyMode: "paginated" } };
+              const cursor = (params as { cursor?: string | null }).cursor;
+              NodeAssert.equal(cursor, null);
+              return {
+                data: [
+                  { id: "turn-3", items: [], status: "completed" },
+                  { id: "turn-2", items: [], status: "completed" },
+                ],
+                nextCursor: "older",
+              };
+            }),
+        },
+      };
+
+      const result = yield* readCodexAppServerThread(client, "thread-1", {
+        sortDirection: "desc",
+        pageSize: 2,
+        initialCursor: null,
+        afterTurnId: "turn-2",
+      });
+      NodeAssert.deepEqual(
+        result.turns.map((turn) => turn.id),
+        ["turn-2", "turn-3"],
+      );
+      NodeAssert.deepEqual(requests, ["thread/read", "thread/turns/list"]);
+    }),
+  );
+
+  it.effect("reads a bounded page strictly older than a native turn", () =>
+    Effect.gen(function* () {
+      const userItem = (id: string) => ({ type: "userMessage", id, content: [] });
+      const requestedCursors: Array<string | null | undefined> = [];
+      const client: Parameters<typeof readCodexAppServerThread>[0] = {
+        request: () => Effect.die("Legacy history API must not be used"),
+        raw: {
+          request: (method, params) =>
+            Effect.sync(() => {
+              if (method === "thread/read") return { thread: { historyMode: "paginated" } };
+              const cursor = (params as { cursor?: string | null }).cursor;
+              requestedCursors.push(cursor);
+              if (cursor === null) {
+                return {
+                  data: [
+                    { id: "turn-5", items: [userItem("user-5")], status: "completed" },
+                    { id: "turn-4", items: [userItem("user-4")], status: "completed" },
+                  ],
+                  nextCursor: "page-2",
+                };
+              }
+              if (cursor === "page-2") {
+                return {
+                  data: [
+                    { id: "turn-3", items: [userItem("user-3")], status: "completed" },
+                    { id: "turn-2", items: [userItem("user-2")], status: "completed" },
+                  ],
+                  nextCursor: "page-3",
+                };
+              }
+              return {
+                data: [{ id: "turn-1", items: [userItem("user-1")], status: "completed" }],
+                nextCursor: null,
+              };
+            }),
+        },
+      };
+
+      const result = yield* readCodexAppServerThread(client, "thread-1", {
+        sortDirection: "desc",
+        pageSize: 2,
+        initialCursor: null,
+        userTurnLimit: 2,
+        beforeTurnId: "turn-3",
+      });
+
+      NodeAssert.deepEqual(
+        result.turns.map((turn) => turn.id),
+        ["turn-1", "turn-2"],
+      );
+      NodeAssert.deepEqual(requestedCursors, [null, "page-2", "page-3"]);
+    }),
+  );
+
   for (const numTurns of [1, 2, 3, 5]) {
     it.effect(`reverts ${numTurns} paginated turns at the durable boundary`, () =>
       Effect.gen(function* () {
@@ -153,7 +259,62 @@ function makeThreadOpenResponse(
   } as unknown as CodexRpc.ClientRequestResponsesByMethod["thread/start"];
 }
 
+it("does not re-emit a resumed turn after its completion was observed", () => {
+  NodeAssert.equal(
+    shouldReemitResumedCodexTurn(TurnId.make("completed-turn"), new Set(["completed-turn"])),
+    false,
+  );
+  NodeAssert.equal(
+    shouldReemitResumedCodexTurn(TurnId.make("active-turn"), new Set(["other-turn"])),
+    true,
+  );
+  NodeAssert.equal(shouldReemitResumedCodexTurn(undefined, new Set()), false);
+});
+
+it.effect("checks only the newest paginated turn during reattach", () =>
+  Effect.gen(function* () {
+    const client: Parameters<typeof readCodexAppServerActiveTurnId>[0] = {
+      raw: {
+        request: (method, params) =>
+          Effect.sync(() => {
+            if (method === "thread/read") {
+              return { thread: { historyMode: "paginated" } };
+            }
+            NodeAssert.equal(method, "thread/turns/list");
+            NodeAssert.deepStrictEqual(params, {
+              threadId: "thread-1",
+              limit: 1,
+              sortDirection: "desc",
+              itemsView: "notLoaded",
+              cursor: null,
+            });
+            return {
+              data: [{ id: "active-turn", status: "inProgress", items: [] }],
+              nextCursor: "older-turns",
+            };
+          }),
+      },
+      request: () => Effect.die("Legacy full history must not be used"),
+    };
+
+    NodeAssert.equal(yield* readCodexAppServerActiveTurnId(client, "thread-1"), "active-turn");
+  }),
+);
+
 describe("buildTurnStartParams", () => {
+  it("passes the T3 message id through to Codex history", () => {
+    const params = Effect.runSync(
+      buildTurnStartParams({
+        threadId: "provider-thread-1",
+        clientUserMessageId: "message-created-by-t3",
+        runtimeMode: "full-access",
+        prompt: "Keep this exact id",
+      }),
+    );
+
+    NodeAssert.equal(params.clientUserMessageId, "message-created-by-t3");
+  });
+
   it("keeps invalid turn values only in the schema cause", () => {
     const secret = "codex-turn-input-secret-sentinel";
     const error = Effect.runSync(
@@ -872,6 +1033,90 @@ describe("isRecoverableThreadResumeError", () => {
 });
 
 describe("openCodexThread", () => {
+  it.effect("forwards per-thread config overrides to start and resume", () =>
+    Effect.gen(function* () {
+      const threadConfig = {
+        "mcp_servers.t3-code.url": "http://127.0.0.1/mcp",
+        "mcp_servers.t3-code.http_headers.Authorization": "Bearer test-token",
+      };
+      const startCalls: unknown[] = [];
+      yield* openCodexThread({
+        client: {
+          request: (_method, payload) => {
+            startCalls.push(payload);
+            return Effect.succeed(makeThreadOpenResponse("started-thread"));
+          },
+          raw: {
+            request: () => Effect.die("A fresh thread must use thread/start"),
+          },
+        },
+        threadId: ThreadId.make("thread-1"),
+        runtimeMode: "full-access",
+        cwd: "/tmp/project",
+        requestedModel: undefined,
+        serviceTier: undefined,
+        resumeThreadId: undefined,
+        threadConfig,
+      });
+
+      const resumeCalls: unknown[] = [];
+      yield* openCodexThread({
+        client: {
+          request: () => Effect.die("A resumed thread must use thread/resume"),
+          raw: {
+            request: (_method, payload) => {
+              resumeCalls.push(payload);
+              return Effect.succeed(makeThreadOpenResponse("saved-thread"));
+            },
+          },
+        },
+        threadId: ThreadId.make("thread-2"),
+        runtimeMode: "full-access",
+        cwd: "/tmp/project",
+        requestedModel: undefined,
+        serviceTier: undefined,
+        resumeThreadId: "saved-thread",
+        threadConfig,
+      });
+
+      NodeAssert.deepStrictEqual((startCalls[0] as { config?: unknown }).config, threadConfig);
+      NodeAssert.deepStrictEqual((resumeCalls[0] as { config?: unknown }).config, threadConfig);
+    }),
+  );
+
+  it.effect("preserves native settings when rejoining a catalog thread", () =>
+    Effect.gen(function* () {
+      const calls: unknown[] = [];
+      yield* openCodexThread({
+        client: {
+          request: () => Effect.die("A resumed thread must use thread/resume"),
+          raw: {
+            request: (_method, payload) => {
+              calls.push(payload);
+              return Effect.succeed(makeThreadOpenResponse("saved-thread"));
+            },
+          },
+        },
+        threadId: ThreadId.make("thread-catalog-rejoin"),
+        runtimeMode: "full-access",
+        cwd: "/tmp/project",
+        requestedModel: "gpt-5.4",
+        serviceTier: "fast",
+        resumeThreadId: "saved-thread",
+        threadConfig: { "mcp_servers.t3-code.url": "http://127.0.0.1/mcp" },
+        preserveProviderSettingsOnResume: true,
+      });
+
+      NodeAssert.deepStrictEqual(calls, [
+        {
+          threadId: "saved-thread",
+          config: { "mcp_servers.t3-code.url": "http://127.0.0.1/mcp" },
+          excludeTurns: true,
+        },
+      ]);
+    }),
+  );
+
   it.effect("resumes metadata when historical turns contain unknown error values", () =>
     Effect.gen(function* () {
       const response = makeThreadOpenResponse("saved-thread");

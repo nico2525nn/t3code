@@ -427,6 +427,20 @@ function readPersistedCwd(
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function readRuntimePayload(runtimePayload: unknown): Record<string, unknown> {
+  return runtimePayload !== null &&
+    typeof runtimePayload === "object" &&
+    !Array.isArray(runtimePayload)
+    ? (runtimePayload as Record<string, unknown>)
+    : {};
+}
+
+function preserveProviderSettingsOnResume(
+  runtimePayload: ProviderSessionDirectory.ProviderRuntimeBinding["runtimePayload"],
+): boolean {
+  return readRuntimePayload(runtimePayload).preserveProviderSettingsOnResume === true;
+}
+
 const dieOnMissingBindingInstanceId = (
   operation: string,
   payload: {
@@ -1279,6 +1293,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
           ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
           runtimeMode: input.binding.runtimeMode ?? "full-access",
+          ...(preserveProviderSettingsOnResume(input.binding.runtimePayload)
+            ? { preserveProviderSettingsOnResume: true }
+            : {}),
         })
         .pipe(Effect.onError(() => clearMcpSession(input.binding.threadId)));
       if (resumed.provider !== adapter.provider) {
@@ -1465,6 +1482,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           (persistedBinding?.providerInstanceId === resolvedInstanceId
             ? readPersistedCwd(persistedBinding.runtimePayload)
             : undefined);
+        const preserveNativeSettings =
+          input.preserveProviderSettingsOnResume === true ||
+          (persistedBinding?.providerInstanceId === resolvedInstanceId &&
+            preserveProviderSettingsOnResume(persistedBinding.runtimePayload));
         yield* Effect.annotateCurrentSpan({
           "provider.kind": resolvedProvider,
           "provider.resume_cursor.source":
@@ -1507,6 +1528,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             providerInstanceId: resolvedInstanceId,
             ...(effectiveCwd !== undefined ? { cwd: effectiveCwd } : {}),
             ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
+            ...(preserveNativeSettings ? { preserveProviderSettingsOnResume: true } : {}),
           })
           .pipe(Effect.onError(() => clearMcpSession(threadId)));
 

@@ -57,6 +57,45 @@ run before the prompt. They reject profiles with such configuration before launc
 instructions and tool denial do not create a native sandbox.
 See [helper constraints](../../apps/server/src/textGeneration/AntigravityTextGeneration.ts).
 
+Codex uses one app-server daemon per provider instance on Unix platforms. The
+[Codex app-server manager](../../apps/server/src/provider/Layers/CodexAppServerManager.ts)
+attaches to the provider's canonical `app-server-control` socket when it
+exists, or owns a daemon at that socket when it does not. An auth-overlay
+instance uses its effective `CODEX_HOME` for this socket: rollout directories
+are shared through the shadow-home links, but accounts never share a daemon
+or its authentication context. A T3 thread is only a binding to one or more
+native Codex thread IDs. The manager demultiplexes notifications and server
+requests by native `threadId`, with `thread/started.parentThreadId` handling
+native collaboration children. The session runtime remains responsible for
+T3 orchestration, permissions, approval correlation, and checkpoint-facing
+events, but it no longer owns a Codex child process on Unix. Windows retains
+the legacy per-thread process fallback while the shared Unix transport is
+unavailable there.
+
+Per-thread MCP configuration is passed through `thread/start` and
+`thread/resume` config overrides. This keeps T3's temporary MCP endpoint at
+the native thread boundary instead of mutating a provider-instance-global
+configuration in the shared daemon. The manager only removes a socket and
+child process that it started itself; an existing daemon socket is never
+unlinked when the provider instance closes.
+
+`syncCodexAppServerThreads` in
+[`serverRuntimeStartup.ts`](../../apps/server/src/serverRuntimeStartup.ts) is
+the catalog bridge. It requests both active and archived pages with an
+explicit source-kind list, materializes unseen native threads as small T3
+shells, and stores a stopped native binding even for idle threads. It never
+imports transcript rows. Detail snapshots and checkpoint diffs read the
+canonical native history on demand and project it into the unchanged T3
+contracts. This lets the normal ProviderService resume path handle the next
+user turn while keeping T3's database out of transcript ownership. Active,
+non-archived threads are resumed through the adapter; their typed App Server
+events then flow through the existing provider reactor, approval, question,
+and client streaming paths. The catalog is polled for changes because the
+current App Server protocol does not expose one global thread-list
+subscription. Native sub-agent threads are intentionally not duplicated as
+top-level T3 threads; their collaboration activity remains attached to the
+parent thread.
+
 ## Provider updates run only through the owning installer
 
 A one-click update is offered only when the resolved executable's path proves which installer owns

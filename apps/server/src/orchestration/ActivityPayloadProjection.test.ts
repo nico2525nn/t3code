@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { OrchestrationThreadActivity } from "@t3tools/contracts";
-import { projectActivityPayload } from "./ActivityPayloadProjection.ts";
+import { MessageId, TurnId } from "@t3tools/contracts";
+import type {
+  OrchestrationEvent,
+  OrchestrationMessage,
+  OrchestrationThreadActivity,
+  OrchestrationThreadDetailSnapshot,
+} from "@t3tools/contracts";
+import {
+  projectActivityEvent,
+  projectActivityPayload,
+  projectThreadDetailSnapshot,
+} from "./ActivityPayloadProjection.ts";
 
 function activity(payload: Record<string, unknown>): OrchestrationThreadActivity {
   return {
@@ -12,6 +22,25 @@ function activity(payload: Record<string, unknown>): OrchestrationThreadActivity
     turnId: null,
     createdAt: "2026-08-01T10:00:00.000Z",
   } as unknown as OrchestrationThreadActivity;
+}
+
+function message(
+  overrides: Omit<Partial<OrchestrationMessage>, "id" | "turnId"> & {
+    id?: string;
+    turnId?: string | null;
+  },
+): OrchestrationMessage {
+  const { id = "message-default", turnId = null, ...rest } = overrides;
+  return {
+    id: MessageId.make(id),
+    role: "user",
+    text: "message",
+    turnId: turnId === null ? null : TurnId.make(turnId),
+    streaming: false,
+    createdAt: "2026-08-01T10:00:00.000Z",
+    updatedAt: "2026-08-01T10:00:00.000Z",
+    ...rest,
+  };
 }
 
 /**
@@ -342,5 +371,47 @@ describe("projectActivityPayload", () => {
     });
     const projected = projectActivityPayload(source);
     expect(projected.payload).toEqual(source.payload);
+  });
+
+  it("keeps identical prompts from separate Codex turns", () => {
+    const first = message({
+      id: "import:codex:native:turn-1:item-1",
+      text: "repeat",
+      turnId: "turn-1",
+    });
+    const second = message({
+      id: "import:codex:native:turn-2:item-1",
+      text: "repeat",
+      turnId: "turn-2",
+    });
+    const snapshot = {
+      snapshotSequence: 42,
+      thread: { messages: [first, second], activities: [] },
+    } as unknown as OrchestrationThreadDetailSnapshot;
+
+    const projected = projectThreadDetailSnapshot(snapshot);
+
+    expect(projected.thread.messages).toEqual([first, second]);
+  });
+});
+
+describe("projectActivityEvent", () => {
+  it("preserves imported message identity", () => {
+    const event = {
+      type: "thread.message-sent",
+      metadata: { historyImport: true },
+      payload: {
+        threadId: "codex:thread-1",
+        messageId: "import:codex:thread-1:turn-1:user-1",
+        role: "user",
+        text: "prompt",
+        turnId: "turn-1",
+        streaming: false,
+        createdAt: "2026-08-01T10:00:00.000Z",
+        updatedAt: "2026-08-01T10:00:00.000Z",
+      },
+    } as unknown as OrchestrationEvent;
+
+    expect(projectActivityEvent(event)).toBe(event);
   });
 });

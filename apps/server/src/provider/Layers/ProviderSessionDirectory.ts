@@ -153,6 +153,11 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
       .pipe(Effect.mapError(toPersistenceError("ProviderSessionDirectory.upsert:upsert")));
   });
 
+  const deleteBinding: NonNullable<ProviderSessionDirectoryShape["deleteBinding"]> = (threadId) =>
+    repository
+      .deleteByThreadId({ threadId })
+      .pipe(Effect.mapError(toPersistenceError("ProviderSessionDirectory.deleteBinding")));
+
   const getProvider: ProviderSessionDirectoryShape["getProvider"] = (threadId) =>
     getBinding(threadId).pipe(
       Effect.flatMap((binding) =>
@@ -198,6 +203,7 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
 
   return {
     upsert,
+    deleteBinding,
     recordImportedTranscript,
     getProvider,
     getBinding,

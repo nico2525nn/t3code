@@ -751,7 +751,7 @@ export function projectEvent(
           return nextBase;
         }
 
-        const message: OrchestrationMessage = yield* decodeForEvent(
+        const decodedMessage: OrchestrationMessage = yield* decodeForEvent(
           OrchestrationMessage,
           {
             id: payload.messageId,
@@ -767,6 +767,17 @@ export function projectEvent(
           event.type,
           "message",
         );
+        const message: OrchestrationMessage = decodedMessage;
+
+        const existingMessageBeforeReplay = thread.messages.find(
+          (entry) => entry.id === message.id,
+        );
+        if (message.streaming && existingMessageBeforeReplay?.streaming === false) {
+          // A resumed app-server can replay deltas after the terminal event
+          // has already reached the projector. Do not reopen or append to a
+          // completed message in the in-memory read model.
+          return nextBase;
+        }
 
         const existingMessage = thread.messages.find((entry) => entry.id === message.id);
         const messages = existingMessage
@@ -781,7 +792,7 @@ export function projectEvent(
                         : entry.text,
                     streaming: message.streaming,
                     updatedAt: message.updatedAt,
-                    turnId: message.turnId,
+                    turnId: message.turnId ?? entry.turnId,
                     ...(message.attachments !== undefined
                       ? { attachments: message.attachments }
                       : {}),
@@ -924,11 +935,8 @@ export function projectEvent(
           "checkpoint",
         );
 
-        // Do not let a placeholder (status "missing") overwrite a checkpoint
-        // that has already been captured with a real git ref (status "ready").
-        // ProviderRuntimeIngestion may fire multiple turn.diff.updated events
-        // per turn; without this guard later placeholders would clobber the
-        // real capture dispatched by CheckpointReactor.
+        // A missing checkpoint must not replace a checkpoint that is already
+        // ready. This also makes repeated completion receipts idempotent.
         const existing = thread.checkpoints.find((entry) => entry.turnId === checkpoint.turnId);
         if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
           return nextBase;

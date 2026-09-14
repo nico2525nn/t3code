@@ -36,6 +36,7 @@ import * as ProviderSessionRuntime from "../src/persistence/ProviderSessionRunti
 import * as ExternalLauncher from "../src/process/externalLauncher.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
 import * as ProviderService from "../src/provider/Services/ProviderService.ts";
+import * as ProviderInstanceRegistry from "../src/provider/Services/ProviderInstanceRegistry.ts";
 import * as ProviderSessionDirectory from "../src/provider/Services/ProviderSessionDirectory.ts";
 import * as ProviderSessionReaper from "../src/provider/Services/ProviderSessionReaper.ts";
 import * as RepositoryIdentityResolver from "../src/project/RepositoryIdentityResolver.ts";
@@ -125,6 +126,13 @@ const startupDependencies = Layer.mergeAll(
     rollbackConversation: () => Effect.die("unused"),
     uploadFeedback: () => Effect.die("unused"),
     streamEvents: Stream.empty,
+  }),
+  Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+    getInstance: () => Effect.succeed(undefined),
+    listInstances: Effect.succeed([]),
+    listUnavailable: Effect.succeed([]),
+    streamChanges: Stream.empty,
+    subscribeChanges: Effect.die("unused"),
   }),
 );
 

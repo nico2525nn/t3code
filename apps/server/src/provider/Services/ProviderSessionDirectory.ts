@@ -51,6 +51,11 @@ export interface ProviderSessionDirectoryShape {
     options?: ProviderSessionDirectoryUpsertOptions,
   ) => Effect.Effect<void, ProviderSessionDirectoryWriteError>;
 
+  /** Remove a stale binding after a provider thread has been re-keyed. */
+  readonly deleteBinding?: (
+    threadId: ThreadId,
+  ) => Effect.Effect<void, ProviderSessionDirectoryPersistenceError>;
+
   /** Record an imported file without changing the current provider session. */
   readonly recordImportedTranscript: (input: {
     readonly threadId: ThreadId;

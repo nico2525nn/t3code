@@ -4,6 +4,32 @@ For one account, use the default Codex provider with your normal Codex login.
 [Provider setup](./install.md#providers) covers installation, Settings > Providers,
 and custom binaries or environment variables.
 
+## App-server sessions
+
+On macOS and Linux, each configured Codex provider instance uses one Codex
+app-server daemon. When the normal Codex daemon is already running, T3 Code
+connects to its control socket; otherwise T3 starts a compatible daemon for
+that provider instance. T3 opens native Codex threads inside the daemon and
+keeps each displayed thread linked to its native Codex `threadId`, so several
+T3 threads can use the same provider instance without starting a separate
+Codex process for every thread. The daemon uses the provider instance's
+`CODEX_HOME` and account.
+
+Existing Codex threads are loaded from the app-server catalog, including
+archived threads, and active threads are resumed so new events, approvals, and
+questions continue to appear in T3. Catalog changes are picked up
+automatically while the server is running. T3 keeps only the project/thread
+shell and a live compatibility view; messages, tool activity, agent activity,
+and diffs are read from the native Codex thread, which remains the source of
+truth.
+
+The daemon must use the same `CODEX_HOME` and account as the provider instance.
+
+T3's per-thread MCP endpoint is supplied as native thread configuration, so
+concurrent threads keep their own MCP connection even though they share the
+app-server daemon. Windows currently keeps the compatibility process-per-thread
+path.
+
 ## Use multiple accounts
 
 A shared Codex home with a shadow home lets work and personal accounts continue
