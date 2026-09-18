@@ -645,6 +645,7 @@ function dropSupersededToolUpdatedActivities(
 
 export function projectThreadDetailSnapshot(
   snapshot: OrchestrationThreadDetailSnapshot,
+  reasoningMessages = true,
 ): OrchestrationThreadDetailSnapshot {
   const retainedActivities = dropSupersededToolUpdatedActivities(
     dropStaleContextWindowActivities(snapshot.thread.activities),
@@ -654,7 +655,14 @@ export function projectThreadDetailSnapshot(
     ...snapshot,
     thread: {
       ...snapshot.thread,
-      messages: Array.isArray(snapshot.thread.messages) ? snapshot.thread.messages : [],
+      messages: reasoningMessages
+        ? Array.isArray(snapshot.thread.messages)
+          ? snapshot.thread.messages
+          : []
+        : (Array.isArray(snapshot.thread.messages) ? snapshot.thread.messages : []).map(
+            (message) =>
+              message.role === "reasoning" ? { ...message, role: "system" as const } : message,
+          ),
       activities: projectedActivities.toSorted(
         (left, right) =>
           (left.sequence ?? -1) - (right.sequence ?? -1) ||
@@ -665,7 +673,19 @@ export function projectThreadDetailSnapshot(
   };
 }
 
-export function projectActivityEvent(event: OrchestrationEvent): OrchestrationEvent {
+export function projectActivityEvent(
+  event: OrchestrationEvent,
+  reasoningMessages = true,
+): OrchestrationEvent {
+  // Preserve sequence watermarks and message identities for clients whose role
+  // decoder predates reasoning. Filtering would strand their history pages.
+  if (
+    !reasoningMessages &&
+    event.type === "thread.message-sent" &&
+    event.payload.role === "reasoning"
+  ) {
+    return { ...event, payload: { ...event.payload, role: "system" } };
+  }
   if (event.type !== "thread.activity-appended") {
     return event;
   }
