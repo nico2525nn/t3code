@@ -432,9 +432,19 @@ const make = Effect.gen(function* () {
       Effect.andThen(orchestrator.getCheckpointContext(threadId)),
     );
 
+  // A conversation the catalog adopted carries no transcript. The first
+  // reader asks the provider for one; every later read finds local rows and
+  // skips it, so this costs one provider read per adopted thread rather than
+  // one per open. Both read paths go through it: a client without the paging
+  // layers asks for the plain snapshot, and a client with them asks for the
+  // window, so covering only one would leave half the clients seeing nothing.
+  const withNativeHistory = (snapshot: NativeTimelineReader.NativeTimelineSnapshotReader) =>
+    nativeTimelineReader.readThrough(snapshot);
+
   const getThreadSnapshot: ThreadManagementServiceShape["getThreadSnapshot"] = (threadId) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getThreadSnapshot(threadId)),
+      Effect.flatMap(withNativeHistory),
     );
   // A conversation the catalog adopted carries no transcript. The first
   // reader asks the provider for one; every later read finds local rows and
@@ -446,13 +456,7 @@ const make = Effect.gen(function* () {
   ) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getThreadSnapshotWindow(threadId, options)),
-      Effect.flatMap((snapshot) =>
-        nativeTimelineReader.readThrough({
-          projection: snapshot.projection,
-          schemaVersion: snapshot.schemaVersion,
-          snapshotSequence: snapshot.snapshotSequence,
-        }),
-      ),
+      Effect.flatMap(withNativeHistory),
     );
 
   const dispatch: ThreadManagementServiceShape["dispatch"] = (command) =>
