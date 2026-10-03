@@ -23,6 +23,16 @@ import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 
+/**
+ * How often the catalog is re-read once startup has run.
+ *
+ * The pass is driven by a stored watermark, so an unchanged catalog costs one
+ * page per partition regardless of this interval. It is local traffic between
+ * the server and its own provider, not traffic a client pays for, so this can
+ * stay well below the old five-second full-history poll without cost.
+ */
+export const NATIVE_CATALOG_SYNC_INTERVAL = "30 seconds" as const;
+
 export class NativeCatalogSyncError extends Schema.TaggedError<NativeCatalogSyncError>()(
   "NativeCatalogSyncError",
   {

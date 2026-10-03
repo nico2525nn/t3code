@@ -33,6 +33,8 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as EffectWorker from "./orchestration-v2/EffectWorker.ts";
 import * as LegacyV1ThreadImporter from "./orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
 import * as NativeCatalogSync from "./orchestration-v2/NativeCatalogSync.ts";
+import { NATIVE_CATALOG_SYNC_INTERVAL } from "./orchestration-v2/NativeCatalogSync.ts";
+import * as Schedule from "effect/Schedule";
 import * as ProviderRuntimeRecovery from "./orchestration-v2/ProviderRuntimeRecoveryService.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as ThreadLaunch from "./orchestration-v2/ThreadLaunchService.ts";
@@ -562,9 +564,13 @@ const make = (options?: StartupOptions) =>
       ).pipe(forkParked);
 
       // Conversations created outside T3 (a CLI, another client, another
-      // machine) only become visible once their native catalog is read. Parked
-      // so an unreachable provider cannot delay the rest of startup, and
-      // idempotent so the next pass resumes from the stored watermark.
+      // machine) only become visible once their native catalog is read.
+      //
+      // Parked so an unreachable provider cannot delay the rest of startup, and
+      // repeated because a conversation started after startup must not wait for
+      // the next restart. The stored watermark makes an idle pass cost one
+      // catalog page per partition, and command receipts make a replayed row a
+      // no-op, so the interval is free when nothing changed.
       yield* forkParked(
         nativeCatalogSync.syncOnce.pipe(
           Effect.tap((summary) => Effect.logInfo("Native conversation catalog synced", summary)),
@@ -572,6 +578,7 @@ const make = (options?: StartupOptions) =>
             Effect.logWarning("Native conversation catalog sync failed", { cause }),
           ),
           Effect.asVoid,
+          Effect.repeat(Schedule.spaced(NATIVE_CATALOG_SYNC_INTERVAL)),
         ),
       );
 

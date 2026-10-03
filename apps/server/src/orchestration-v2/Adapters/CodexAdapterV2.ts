@@ -1629,8 +1629,10 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                         : DateTime.formatIso(codexTimestamp(thread.createdAt)),
                     archived: page.archived,
                     ephemeral: thread.ephemeral,
-                    // `thread/list` never populates turns, so activity is
-                    // probed separately and only for threads that changed.
+                    // `thread/list` leaves turns empty, so a listing cannot say
+                    // whether a conversation is mid-turn. Nothing consumes this
+                    // yet; the field exists so a driver that can answer does not
+                    // have to change the shape later.
                     active: false,
                   })),
                   nextCursor: response.nextCursor ?? null,
