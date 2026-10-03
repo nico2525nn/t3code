@@ -616,6 +616,17 @@ export interface ProviderAdapterV2ListNativeThreadsInput {
   readonly limit: number;
 }
 
+/**
+ * Models for conversations this driver owns, keyed by native id.
+ *
+ * A listing cannot answer this, so a driver reads it per thread. Absent ids are
+ * omitted rather than answered with a guess: a wrong model is worse than the
+ * default T3 would have used.
+ */
+export type ProviderAdapterV2NativeModelReader = (
+  nativeThreadIds: ReadonlyArray<string>,
+) => Effect.Effect<Readonly<Record<string, string>>, ProviderAdapterV2Error>;
+
 export type ProviderAdapterV2NativeTimelineReader = (
   input: NativeTimelineReadInput,
 ) => Effect.Effect<NativeTimelinePage, ProviderAdapterV2Error>;
@@ -659,6 +670,16 @@ export interface ProviderAdapterV2Shape {
       readPage: ProviderAdapterV2NativeThreadPageReader,
     ) => Effect.Effect<A, ProviderAdapterV2Error>,
   ) => Effect.Effect<A, ProviderAdapterV2Error>;
+  /**
+   * Models for conversations this driver owns, keyed by native id.
+   *
+   * A listing cannot report them, so they are read per conversation. A driver
+   * omits ids it cannot answer rather than returning a guess: resuming a
+   * conversation under a model nobody chose is worse than not knowing.
+   */
+  readonly readNativeModels?: (
+    nativeThreadIds: ReadonlyArray<string>,
+  ) => Effect.Effect<Readonly<Record<string, string>>, ProviderAdapterV2Error>;
   readonly planSelectionTransition: (
     input: ProviderSelectionTransitionInput,
   ) => Effect.Effect<ProviderSelectionTransitionPlan, ProviderAdapterV2Error>;

@@ -14,6 +14,7 @@ import type { ProviderAdapterV2NativeThreadSummary } from "./ProviderAdapter.ts"
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import type { ThreadLaunchInput } from "./ThreadLaunchService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 
@@ -84,6 +85,12 @@ const baseLayer = (
     readonly existingOwner?: (nativeThreadId: string) => ThreadId | null;
     /** Titles written onto threads that already existed. */
     readonly reconciled?: string[];
+    /** Models the driver reports, keyed by native id. */
+    readonly models?: Readonly<Record<string, string>>;
+    /** Models the caller asked for, to prove it only asks for real imports. */
+    readonly modelsRequested?: string[];
+    /** Sees every launch the sync issues. */
+    readonly observeLaunch?: (request: ThreadLaunchInput) => void;
   },
 ) =>
   NativeCatalogSync.layer.pipe(
@@ -96,6 +103,7 @@ const baseLayer = (
         Layer.mock(ThreadLaunchService.ThreadLaunchService)({
           launch: (request) => {
             launched.push(String(request.commandId));
+            options?.observeLaunch?.(request);
             const nativeId = request.importedNativeThread?.ref.nativeId;
             if (nativeId !== undefined && nativeId === options?.failNativeThreadId?.()) {
               return Effect.fail(
@@ -131,6 +139,25 @@ const baseLayer = (
     ),
     Layer.provideMerge(NodeSqliteClient.layer({ filename: ":memory:" })),
   );
+
+/** Wrap a driver so its model reader answers from a fixed table. */
+const adapterWithModels = (
+  adapter: ProviderAdapter.ProviderAdapterV2Shape,
+  models: Readonly<Record<string, string>>,
+  requested: string[],
+) =>
+  ProviderAdapter.ProviderAdapterV2.of({
+    ...adapter,
+    readNativeModels: (ids) => {
+      requested.push(...ids);
+      const found: Record<string, string> = {};
+      for (const id of ids) {
+        const model = models[id];
+        if (model !== undefined) found[id] = model;
+      }
+      return Effect.succeed(found);
+    },
+  });
 
 const readWatermarks = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -289,6 +316,52 @@ describe("NativeCatalogSync", () => {
     expect(result.launched[0]).toContain(":foreign");
     // A rename has to reach the thread that already owns the conversation.
     expect(result.reconciled).toEqual(["owned"]);
+  });
+
+  it("imports with the provider own model instead of T3's default", async () => {
+    const launched: Array<{ readonly nativeId: string; readonly model: string }> = [];
+    const modelsRequested: string[] = [];
+    const adapter = ProviderAdapter.ProviderAdapterV2.of({
+      instanceId: INSTANCE,
+      driver: DRIVER,
+      getCapabilities: () => Effect.die("unused"),
+      readNativeModels: () => Effect.succeed({}),
+      withNativeCatalog: (use) =>
+        use((request) =>
+          Effect.succeed({
+            threads: request.archived
+              ? []
+              : [nativeThread({ nativeId: "cli-made", updatedAt: "2026-10-05T00:00:00Z" })],
+            nextCursor: null,
+          }),
+        ),
+      planSelectionTransition: () => Effect.die("unused"),
+      openSession: () => Effect.die("unused"),
+    });
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* runMigrations({});
+        const service = yield* NativeCatalogSync.NativeCatalogSync;
+        yield* service.syncOnce;
+      }).pipe(
+        Effect.provide(
+          baseLayer(adapterWithModels(adapter, { "cli-made": "gpt-6-luna" }, modelsRequested), [], {
+            observeLaunch: (request) => {
+              launched.push({
+                nativeId: request.importedNativeThread?.ref.nativeId ?? "",
+                model: request.modelSelection.model,
+              });
+            },
+          }),
+        ),
+      ),
+    );
+
+    // A conversation created elsewhere runs on the model its author chose
+    // there. Importing it under T3's default would switch it silently.
+    expect(launched).toEqual([{ nativeId: "cli-made", model: "gpt-6-luna" }]);
+    expect(modelsRequested).toEqual(["cli-made"]);
   });
 
   it("keeps the watermark when a pass fails so the next pass still sees the thread", async () => {

@@ -76,6 +76,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -1755,6 +1756,41 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 })),
               ),
           );
+        }),
+      ),
+    /**
+     * Read the model each conversation runs on.
+     *
+     * `thread/list` carries no model, and reading one conversation's whole
+     * history to learn which model it uses would defeat the point of a lazy
+     * catalog. `thread/read` without turns answers it cheaply.
+     *
+     * A conversation whose model cannot be read is left out of the result
+     * rather than guessed: resuming it under a model nobody chose would be a
+     * silent switch.
+     */
+    readNativeModels: (nativeThreadIds) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          if (nativeThreadIds.length === 0) return {};
+          const client = yield* clientFactory.open({
+            instanceId: adapterOptions.instanceId,
+            settings: adapterOptions.settings,
+            environment: adapterOptions.environment,
+          });
+          yield* codexHandshake(client);
+          const models: Record<string, string> = {};
+          for (const nativeThreadId of nativeThreadIds) {
+            const read = yield* Effect.result(
+              client.request("thread/read", { threadId: nativeThreadId, includeTurns: false }),
+            );
+            if (Result.isFailure(read)) continue;
+            const model = read.success.thread.model;
+            if (model !== undefined && model !== null) {
+              models[nativeThreadId] = model;
+            }
+          }
+          return models;
         }),
       ),
     instanceId: adapterOptions.instanceId,

@@ -200,6 +200,7 @@ export const make = Effect.gen(function* () {
   const importThread = (
     adapter: ProviderAdapter.ProviderAdapterV2Shape,
     thread: ProviderAdapter.ProviderAdapterV2NativeThreadSummary,
+    nativeModel: string | undefined,
   ) =>
     Effect.gen(function* () {
       const failure = (cause: unknown) =>
@@ -263,7 +264,13 @@ export const make = Effect.gen(function* () {
           threadId,
           projectId: project.id,
           title: thread.title ?? thread.nativeId,
-          modelSelection: { instanceId: adapter.instanceId, model: DEFAULT_MODEL },
+          // A conversation created elsewhere already runs on a model its author
+          // chose there. Resuming it under T3's default would silently switch
+          // it, so the provider's own model wins until the user changes it.
+          modelSelection: {
+            instanceId: adapter.instanceId,
+            model: nativeModel ?? DEFAULT_MODEL,
+          },
           runtimeMode: DEFAULT_RUNTIME_MODE,
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           workspaceStrategy: { type: "root" },
@@ -336,8 +343,22 @@ export const make = Effect.gen(function* () {
 
         const scan = scanned.success;
         let partitionFailed = false;
+
+        // A listing cannot report which model a conversation runs on, so the
+        // models for rows this pass will actually import are read here, once,
+        // on a connection of their own. Reading them per row would cost one
+        // request per conversation on every pass.
+        const models =
+          scan.changed.length === 0 || adapter.readNativeModels === undefined
+            ? {}
+            : yield* Effect.result(
+                adapter.readNativeModels(scan.changed.map((thread) => thread.nativeId)),
+              ).pipe(Effect.map(Result.getOrElse(() => ({}) as Readonly<Record<string, string>>)));
+
         for (const thread of scan.changed) {
-          const outcome = yield* Effect.result(importThread(adapter, thread));
+          const outcome = yield* Effect.result(
+            importThread(adapter, thread, models[thread.nativeId]),
+          );
           if (Result.isSuccess(outcome)) {
             if (outcome.success.kind === "imported") {
               imported += 1;
