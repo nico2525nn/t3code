@@ -151,6 +151,21 @@ const importCommandId = (source: {
     `native-catalog:${source.driver}:${source.providerInstanceId}:${source.nativeThreadId}`,
   );
 
+/**
+ * Reconciliation ids carry the value being written. A repeated pass with the
+ * same title replays the same command and is absorbed by the receipt; a rename
+ * produces a different id, so the update actually runs.
+ */
+const reconcileCommandId = (source: {
+  readonly driver: ProviderDriverKind;
+  readonly providerInstanceId: ProviderInstanceId;
+  readonly nativeThreadId: string;
+  readonly title: string;
+}) =>
+  CommandId.make(
+    `native-catalog:${source.driver}:${source.providerInstanceId}:${source.nativeThreadId}:title:${source.title}`,
+  );
+
 const projectCommandId = (workspaceRoot: string) =>
   CommandId.make(`native-catalog:project:${workspaceRoot}`);
 
@@ -195,20 +210,6 @@ export const make = Effect.gen(function* () {
         nativeThreadId: thread.nativeId,
       });
 
-      // The native catalog also lists conversations T3 created itself. When an
-      // app thread already owns this native id, that thread is canonical and
-      // importing again would show the user the same conversation twice.
-      const owner = yield* projectionStore
-        .findThreadIdByNativeIdentity({
-          driver: adapter.driver,
-          providerInstanceId: adapter.instanceId,
-          nativeThreadId: thread.nativeId,
-        })
-        .pipe(Effect.mapError(failure));
-      if (owner !== null) {
-        return { kind: "reconciled" as const, threadId: owner };
-      }
-
       // `bootstrap` resolves by workspace root, so a replayed pass reuses the
       // project an earlier pass created instead of forking a second one.
       const { project } = yield* projects
@@ -219,6 +220,38 @@ export const make = Effect.gen(function* () {
           workspaceRoot: thread.cwd,
         })
         .pipe(Effect.mapError(failure));
+
+      // The native catalog also lists conversations T3 created itself. When an
+      // app thread already owns this native id, that thread is canonical, so
+      // importing again would show the user the same conversation twice.
+      const owner = yield* projectionStore
+        .findThreadIdByNativeIdentity({
+          driver: adapter.driver,
+          providerInstanceId: adapter.instanceId,
+          nativeThreadId: thread.nativeId,
+        })
+        .pipe(Effect.mapError(failure));
+      if (owner !== null) {
+        // Refresh the shell metadata the provider owns. The command id carries
+        // the title being written, so a rename runs a new command while an
+        // unchanged title replays as a no-op.
+        if (thread.title !== undefined) {
+          yield* threadLaunch
+            .reconcileImportedThread({
+              projectId: project.id,
+              commandId: reconcileCommandId({
+                driver: adapter.driver,
+                providerInstanceId: adapter.instanceId,
+                nativeThreadId: thread.nativeId,
+                title: thread.title,
+              }),
+              threadId: owner,
+              title: thread.title,
+            })
+            .pipe(Effect.mapError(failure));
+        }
+        return { kind: "reconciled" as const, threadId: owner };
+      }
 
       yield* threadLaunch
         .launch({
@@ -244,8 +277,8 @@ export const make = Effect.gen(function* () {
           },
           createdBy: "system",
           creationSource: "server",
-          // The provider lists archived and active conversations separately, so
-          // a catalog-imported thread must follow the native flag. Without this
+          // The provider lists archived and active conversations separately, so a
+          // catalog-imported thread must follow the native flag. Without this
           // every archived conversation lands in the active shell that mobile
           // reloads on resume.
           ...(thread.archived ? { archived: true as const } : {}),

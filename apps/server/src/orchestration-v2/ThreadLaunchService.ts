@@ -136,6 +136,20 @@ export class ThreadLaunchService extends Context.Service<
     readonly launch: (
       input: ThreadLaunchInput,
     ) => Effect.Effect<ThreadLaunchResult, ThreadLaunchError>;
+    /**
+     * Refresh shell metadata on a thread that already exists.
+     *
+     * Used when the provider owns the conversation: the app thread is already
+     * canonical, so a rename has to reach it instead of creating a second
+     * thread. No emptiness check applies here because the thread may already
+     * carry history.
+     */
+    readonly reconcileImportedThread: (input: {
+      readonly commandId: CommandId;
+      readonly projectId: ProjectId;
+      readonly threadId: ThreadId;
+      readonly title: string;
+    }) => Effect.Effect<void, ThreadLaunchError>;
   }
 >()("t3/orchestration-v2/ThreadLaunchService") {}
 
@@ -857,7 +871,31 @@ const make = Effect.gen(function* () {
     },
   );
 
-  return ThreadLaunchService.of({ launch });
+  const reconcileImportedThread: ThreadLaunchService["Service"]["reconcileImportedThread"] = (
+    input,
+  ) =>
+    threads
+      .dispatch({
+        type: "thread.metadata.update",
+        commandId: input.commandId,
+        threadId: input.threadId,
+        title: input.title,
+      })
+      .pipe(
+        Effect.asVoid,
+        Effect.mapError(
+          (cause) =>
+            new ThreadLaunchError({
+              operation: "update-thread",
+              commandId: input.commandId,
+              projectId: input.projectId,
+              threadId: input.threadId,
+              cause,
+            }),
+        ),
+      );
+
+  return ThreadLaunchService.of({ launch, reconcileImportedThread });
 });
 
 export const layer = Layer.effect(ThreadLaunchService, make);

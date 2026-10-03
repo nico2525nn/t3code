@@ -82,6 +82,8 @@ const baseLayer = (
     readonly failNativeThreadId?: () => string | undefined;
     /** Native ids already owned by a T3 thread, keyed by native id. */
     readonly existingOwner?: (nativeThreadId: string) => ThreadId | null;
+    /** Titles written onto threads that already existed. */
+    readonly reconciled?: string[];
   },
 ) =>
   NativeCatalogSync.layer.pipe(
@@ -106,6 +108,10 @@ const baseLayer = (
               projection: null as unknown as OrchestrationV2ThreadProjection,
               resumed: false,
             });
+          },
+          reconcileImportedThread: (request) => {
+            options?.reconciled?.push(request.title);
+            return Effect.void;
           },
         }),
         Layer.mock(ProjectService.ProjectService)({
@@ -257,17 +263,19 @@ describe("NativeCatalogSync", () => {
       openSession: () => Effect.die("unused"),
     });
 
+    const reconciled: string[] = [];
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         yield* runMigrations({});
         const service = yield* NativeCatalogSync.NativeCatalogSync;
         const first = yield* service.syncOnce;
-        return { first, launched };
+        return { first, launched, reconciled };
       }).pipe(
         Effect.provide(
           baseLayer(adapter, launched, {
             existingOwner: (nativeId) =>
               nativeId === "owned" ? ThreadId.make("thread-existing") : null,
+            reconciled,
           }),
         ),
       ),
@@ -279,6 +287,8 @@ describe("NativeCatalogSync", () => {
     expect(result.first.threadsImported).toBe(1);
     expect(result.launched).toHaveLength(1);
     expect(result.launched[0]).toContain(":foreign");
+    // A rename has to reach the thread that already owns the conversation.
+    expect(result.reconciled).toEqual(["owned"]);
   });
 
   it("keeps the watermark when a pass fails so the next pass still sees the thread", async () => {
