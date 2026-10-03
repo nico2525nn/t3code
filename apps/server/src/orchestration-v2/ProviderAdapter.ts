@@ -39,6 +39,8 @@ import type * as Effect from "effect/Effect";
 import type * as Scope from "effect/Scope";
 import type * as Stream from "effect/Stream";
 
+import type { NativeTimelinePage, NativeTimelineReadInput } from "./NativeTimeline.ts";
+
 import type {
   ProviderSelectionTransitionInput,
   ProviderSelectionTransitionPlan,
@@ -614,6 +616,10 @@ export interface ProviderAdapterV2ListNativeThreadsInput {
   readonly limit: number;
 }
 
+export type ProviderAdapterV2NativeTimelineReader = (
+  input: NativeTimelineReadInput,
+) => Effect.Effect<NativeTimelinePage, ProviderAdapterV2Error>;
+
 export type ProviderAdapterV2NativeThreadPageReader = (
   input: ProviderAdapterV2ListNativeThreadsInput,
 ) => Effect.Effect<ProviderAdapterV2NativeThreadPage, ProviderAdapterV2Error>;
@@ -634,6 +640,20 @@ export interface ProviderAdapterV2Shape {
    * must be ordered by descending update time: that ordering is what lets a
    * sync stop at a watermark instead of reading the driver's entire history.
    */
+  /**
+   * Read a conversation the provider owns, without attaching a session to it.
+   *
+   * `use` receives a reader bound to one provider connection. A driver pages
+   * by descending turn order so an older page can be requested on demand; the
+   * caller supplies the turn budget and the byte budget is the driver's
+   * responsibility, because only the driver knows how large one of its items
+   * can be.
+   *
+   * Reading is lazy by design: the catalog sync must not pull transcripts.
+   */
+  readonly withNativeTimeline?: <A>(
+    use: (read: ProviderAdapterV2NativeTimelineReader) => Effect.Effect<A, ProviderAdapterV2Error>,
+  ) => Effect.Effect<A, ProviderAdapterV2Error>;
   readonly withNativeCatalog?: <A>(
     use: (
       readPage: ProviderAdapterV2NativeThreadPageReader,
