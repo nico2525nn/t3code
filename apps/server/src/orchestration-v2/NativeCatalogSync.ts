@@ -284,11 +284,6 @@ export const make = Effect.gen(function* () {
           },
           createdBy: "system",
           creationSource: "server",
-          // The provider lists archived and active conversations separately, so a
-          // catalog-imported thread must follow the native flag. Without this
-          // every archived conversation lands in the active shell that mobile
-          // reloads on resume.
-          ...(thread.archived ? { archived: true as const } : {}),
         })
         .pipe(Effect.mapError(failure));
 

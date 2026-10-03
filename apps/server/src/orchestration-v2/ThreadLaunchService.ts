@@ -88,14 +88,6 @@ export interface ThreadLaunchInput {
   };
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
-  /**
-   * Create the thread already archived.
-   *
-   * Used when the provider owns the archive flag natively: listing both sets
-   * separately and creating them all active would put every archived
-   * conversation into the shell a client reloads on resume.
-   */
-  readonly archived?: boolean;
 }
 
 export interface ThreadLaunchResult {
@@ -847,19 +839,6 @@ const make = Effect.gen(function* () {
               }
             }).pipe(Effect.onError(() => releasePreparation(input.commandId)));
           }
-        }
-
-        // Archive after creation rather than during: `thread.create` carries no
-        // archive intent, and a separate command keeps both idempotent through
-        // their own receipts.
-        if (input.archived === true && projection.thread.archivedAt === null) {
-          yield* threads
-            .dispatch({
-              type: "thread.archive",
-              commandId: CommandId.make(`${input.commandId}:archive`),
-              threadId,
-            })
-            .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
         }
 
         return {
