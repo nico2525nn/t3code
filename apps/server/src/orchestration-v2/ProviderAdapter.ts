@@ -579,44 +579,13 @@ export interface ProviderAdapterV2SessionRuntime {
 }
 
 /**
- * One conversation the provider owns natively, independent of whether T3 ever
- * created it. `updatedAt` is the catalog's own clock and is the only ordering
+ * created it. `updatedAt` is the catalog own clock and is the only ordering
  * key a sync may rely on: a driver that cannot page by descending update time
  * forces every sync to walk its entire history.
- */
-export interface ProviderAdapterV2NativeThreadSummary {
-  readonly nativeId: string;
-  /** Native user-facing title. `undefined` means the provider has not named it yet. */
-  readonly title: string | undefined;
-  /** Absolute working directory the conversation belongs to. */
-  readonly cwd: string;
-  /** ISO-8601 instant the provider last modified the conversation. */
-  readonly updatedAt: string;
-  readonly createdAt: string | undefined;
-  readonly archived: boolean;
-  /** Ephemeral conversations are never materialized on disk and must not be listed. */
-  readonly ephemeral: boolean;
-  /** True when the driver can stream this conversation while it is already running. */
-  readonly active: boolean;
-}
-
-export interface ProviderAdapterV2NativeThreadPage {
-  readonly threads: ReadonlyArray<ProviderAdapterV2NativeThreadSummary>;
-  /** Opaque continuation cursor, or `null` when the catalog is exhausted. */
-  readonly nextCursor: string | null;
-}
-
-export interface ProviderAdapterV2ListNativeThreadsInput {
-  readonly archived: boolean;
-  readonly cursor: string | undefined;
-  readonly limit: number;
-}
-
-/**
+ *
+ * `active` is the drivers own claim that the conversation is running. Catalog
+ * listings that cannot answer this report false; nothing consumes it yet.
  * One conversation the provider owns natively, independent of whether T3 ever
- * created it. `updatedAt` is the catalog's own clock and is the only ordering
- * key a sync may rely on: a driver that cannot page by descending update time
- * forces every sync to walk its entire history.
  */
 export interface ProviderAdapterV2NativeThreadSummary {
   readonly nativeId: string;

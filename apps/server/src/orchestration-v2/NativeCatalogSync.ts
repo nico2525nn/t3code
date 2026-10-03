@@ -18,6 +18,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as IdAllocator from "./IdAllocator.ts";
 import * as NativeCatalog from "./NativeCatalog.ts";
 import * as ProviderAdapter from "./ProviderAdapter.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -52,6 +53,8 @@ export class NativeThreadImportError extends Schema.TaggedError<NativeThreadImpo
 export interface NativeCatalogSyncSummary {
   readonly instancesScanned: number;
   readonly threadsImported: number;
+  /** Native rows whose app thread already existed; no second thread was made. */
+  readonly threadsReconciled: number;
   readonly threadsFailed: number;
   /** Passes that hit the page cap before reaching the end of the catalog. */
   readonly truncatedPasses: number;
@@ -59,6 +62,7 @@ export interface NativeCatalogSyncSummary {
 
 interface NativeCatalogWatermarkRow {
   readonly watermark: string | null;
+  readonly resume_cursor: string | null;
 }
 
 /** One catalog partition: a driver instance's threads on one side of the archive split. */
@@ -71,7 +75,7 @@ interface CatalogSource {
 const readWatermark = (sql: SqlClient.SqlClient, source: CatalogSource) =>
   Effect.gen(function* () {
     const rows = yield* sql<NativeCatalogWatermarkRow>`
-      SELECT watermark
+      SELECT watermark, resume_cursor
       FROM orchestration_v2_native_catalog_state
       WHERE driver = ${source.driver}
         AND provider_instance_id = ${source.providerInstanceId}
@@ -81,28 +85,37 @@ const readWatermark = (sql: SqlClient.SqlClient, source: CatalogSource) =>
         (cause) => new NativeCatalogSyncError({ ...source, operation: "read-watermark", cause }),
       ),
     );
-    return rows.at(0)?.watermark ?? undefined;
+    const row = rows.at(0);
+    return {
+      watermark: row?.watermark ?? undefined,
+      resumeCursor: row?.resume_cursor ?? undefined,
+    };
   });
 
 const writeWatermark = (
   sql: SqlClient.SqlClient,
-  source: CatalogSource & { readonly watermark: string },
+  source: CatalogSource & {
+    readonly watermark: string | undefined;
+    readonly resumeCursor: string | null;
+  },
 ) =>
   Effect.gen(function* () {
     const now = DateTime.formatIso(yield* DateTime.now);
     yield* sql`
       INSERT INTO orchestration_v2_native_catalog_state
-        (driver, provider_instance_id, archived, watermark, updated_at)
+        (driver, provider_instance_id, archived, watermark, resume_cursor, updated_at)
       VALUES (
         ${source.driver},
         ${source.providerInstanceId},
         ${source.archived ? 1 : 0},
-        ${source.watermark},
+        ${source.watermark ?? null},
+        ${source.resumeCursor},
         ${now}
       )
       ON CONFLICT (driver, provider_instance_id, archived)
       DO UPDATE SET
         watermark = excluded.watermark,
+        resume_cursor = excluded.resume_cursor,
         updated_at = excluded.updated_at,
         last_error = NULL
     `.pipe(
@@ -133,12 +146,15 @@ const projectCommandId = (workspaceRoot: string) =>
 
 interface InstanceSyncResult {
   readonly imported: number;
+  /** Rows already owned by a T3 thread; these were reconciled, not created. */
+  readonly reconciled: number;
   readonly failed: number;
   readonly truncated: number;
 }
 
 const noInstanceWork = {
   imported: 0,
+  reconciled: 0,
   failed: 0,
   truncated: 0,
 } satisfies InstanceSyncResult;
@@ -153,6 +169,7 @@ export const make = Effect.gen(function* () {
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const projects = yield* ProjectService.ProjectService;
   const ids = yield* IdAllocator.IdAllocatorV2;
+  const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
   const sql = yield* SqlClient.SqlClient;
 
   const importThread = (
@@ -162,6 +179,25 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const failure = (cause: unknown) =>
         new NativeThreadImportError({ nativeThreadId: thread.nativeId, cause });
+      const threadId = IdAllocator.deriveThreadFromProviderThread({
+        driver: adapter.driver,
+        providerInstanceId: adapter.instanceId,
+        nativeThreadId: thread.nativeId,
+      });
+
+      // The native catalog also lists conversations T3 created itself. When an
+      // app thread already owns this native id, that thread is canonical and
+      // importing again would show the user the same conversation twice.
+      const owner = yield* projectionStore
+        .findThreadIdByNativeIdentity({
+          driver: adapter.driver,
+          providerInstanceId: adapter.instanceId,
+          nativeThreadId: thread.nativeId,
+        })
+        .pipe(Effect.mapError(failure));
+      if (owner !== null) {
+        return { kind: "reconciled" as const, threadId: owner };
+      }
 
       // `bootstrap` resolves by workspace root, so a replayed pass reuses the
       // project an earlier pass created instead of forking a second one.
@@ -181,11 +217,7 @@ export const make = Effect.gen(function* () {
             providerInstanceId: adapter.instanceId,
             nativeThreadId: thread.nativeId,
           }),
-          threadId: IdAllocator.deriveThreadFromProviderThread({
-            driver: adapter.driver,
-            providerInstanceId: adapter.instanceId,
-            nativeThreadId: thread.nativeId,
-          }),
+          threadId,
           projectId: project.id,
           title: thread.title ?? thread.nativeId,
           modelSelection: { instanceId: adapter.instanceId, model: DEFAULT_MODEL },
@@ -202,8 +234,15 @@ export const make = Effect.gen(function* () {
           },
           createdBy: "system",
           creationSource: "server",
+          // The provider lists archived and active conversations separately, so
+          // a catalog-imported thread must follow the native flag. Without this
+          // every archived conversation lands in the active shell that mobile
+          // reloads on resume.
+          ...(thread.archived ? { archived: true as const } : {}),
         })
         .pipe(Effect.mapError(failure));
+
+      return { kind: "imported" as const, threadId };
     });
 
   const syncInstance = (
@@ -218,6 +257,7 @@ export const make = Effect.gen(function* () {
       }
 
       let imported = 0;
+      let reconciled = 0;
       let failed = 0;
       let truncated = 0;
 
@@ -227,20 +267,21 @@ export const make = Effect.gen(function* () {
           providerInstanceId: adapter.instanceId,
           archived,
         };
-        const watermark = yield* readWatermark(sql, source);
+        const { watermark, resumeCursor } = yield* readWatermark(sql, source);
         const scanned = yield* Effect.result(
           withCatalog((readPage) =>
             NativeCatalog.scanNativeCatalog(readPage, {
               archived,
               watermark,
+              resumeCursor,
               pageSize: NativeCatalog.NATIVE_CATALOG_PAGE_SIZE,
               maxPages: NativeCatalog.NATIVE_CATALOG_MAX_PAGES_PER_PASS,
             }),
           ),
         );
 
-        // A failed read must not advance the watermark: the next pass would then
-        // skip every conversation this one never saw.
+        // A failed read must not move the commit point: the next pass would
+        // then skip every conversation this one never saw.
         if (Result.isFailure(scanned)) {
           yield* Effect.logWarning("native catalog scan failed", {
             ...source,
@@ -251,15 +292,18 @@ export const make = Effect.gen(function* () {
         }
 
         const scan = scanned.success;
-        if (scan.truncated) {
-          truncated += 1;
-        }
+        let partitionFailed = false;
         for (const thread of scan.changed) {
           const outcome = yield* Effect.result(importThread(adapter, thread));
           if (Result.isSuccess(outcome)) {
-            imported += 1;
+            if (outcome.success.kind === "imported") {
+              imported += 1;
+            } else {
+              reconciled += 1;
+            }
             continue;
           }
+          partitionFailed = true;
           failed += 1;
           yield* Effect.logWarning("native catalog import failed", {
             driver: adapter.driver,
@@ -268,12 +312,23 @@ export const make = Effect.gen(function* () {
             cause: outcome.failure,
           });
         }
-        if (scan.watermark !== undefined) {
-          yield* writeWatermark(sql, { ...source, watermark: scan.watermark });
+
+        // The watermark is a commit point. It advances only when this pass
+        // reached the previous one (or the end of the catalog) and every row
+        // it saw imported cleanly; otherwise the rows behind the boundary are
+        // retried from the recorded cursor.
+        if (!scan.complete) {
+          truncated += 1;
         }
+        const canCommit = scan.complete && !partitionFailed;
+        yield* writeWatermark(sql, {
+          ...source,
+          watermark: canCommit ? scan.watermark : watermark,
+          resumeCursor: canCommit ? null : scan.resumeCursor,
+        });
       }
 
-      return { imported, failed, truncated };
+      return { imported, reconciled, failed, truncated };
     });
 
   const syncOnce = Effect.gen(function* () {
@@ -305,6 +360,7 @@ export const make = Effect.gen(function* () {
     return {
       instancesScanned: results.length,
       threadsImported: results.reduce((total, result) => total + result.imported, 0),
+      threadsReconciled: results.reduce((total, result) => total + result.reconciled, 0),
       threadsFailed: results.reduce((total, result) => total + result.failed, 0),
       truncatedPasses: results.reduce((total, result) => total + result.truncated, 0),
     } satisfies NativeCatalogSyncSummary;

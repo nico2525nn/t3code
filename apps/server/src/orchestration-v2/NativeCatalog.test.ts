@@ -63,9 +63,13 @@ describe("compareNativeUpdatedAt", () => {
 
 describe("isCoveredByWatermark", () => {
   it("treats an unparsable row as uncovered rather than stale", () => {
-    // Re-reading one conversation is cheap; dropping it would lose history.
     expect(isCoveredByWatermark("not-a-date", "2026-10-01T00:00:00Z")).toBe(false);
-    expect(isCoveredByWatermark("2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z")).toBe(true);
+  });
+
+  it("re-reads a row that sits exactly on the watermark", () => {
+    // `updated_at` is not unique. A conversation created later at the very
+    // instant the watermark holds would otherwise never be discovered.
+    expect(isCoveredByWatermark("2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z")).toBe(false);
     expect(isCoveredByWatermark("2026-09-30T00:00:00Z", "2026-10-01T00:00:00Z")).toBe(true);
   });
 });
@@ -84,7 +88,8 @@ describe("scanNativeCatalog", () => {
         ),
         {
           archived: false,
-          watermark: "2026-10-02T00:00:00Z",
+          watermark: "2026-10-01T00:00:00Z",
+          resumeCursor: undefined,
           pageSize: NATIVE_CATALOG_PAGE_SIZE,
           maxPages: NATIVE_CATALOG_MAX_PAGES_PER_PASS,
         },
@@ -93,8 +98,9 @@ describe("scanNativeCatalog", () => {
 
     // An idle sync must cost exactly one request, not one per conversation.
     expect(requests).toHaveLength(1);
-    expect(scan.changed.map((entry) => entry.nativeId)).toEqual(["a"]);
-    expect(scan.truncated).toBe(false);
+    expect(scan.changed.map((entry) => entry.nativeId)).toEqual(["a", "b"]);
+    expect(scan.complete).toBe(true);
+    expect(scan.resumeCursor).toBeNull();
   });
 
   it("returns everything newer than the watermark and raises it", async () => {
@@ -109,45 +115,19 @@ describe("scanNativeCatalog", () => {
         {
           archived: false,
           watermark: "2026-10-03T00:00:00Z",
+          resumeCursor: undefined,
           pageSize: 2,
           maxPages: NATIVE_CATALOG_MAX_PAGES_PER_PASS,
         },
       ),
     );
 
-    expect(scan.changed.map((entry) => entry.nativeId)).toEqual(["a", "b"]);
-    expect(scan.watermark).toBe("2026-10-05T00:00:00Z");
-  });
-
-  it("reads the whole catalog when no watermark exists yet", async () => {
-    const requests: Array<ProviderAdapterV2ListNativeThreadsInput> = [];
-    const scan = await Effect.runPromise(
-      scanNativeCatalog(
-        catalog(
-          [
-            thread({ nativeId: "a", updatedAt: "2026-10-05T00:00:00Z" }),
-            thread({ nativeId: "b", updatedAt: "2026-10-04T00:00:00Z" }),
-            thread({ nativeId: "c", updatedAt: "2026-10-03T00:00:00Z" }),
-          ],
-          requests,
-        ),
-        {
-          archived: false,
-          watermark: undefined,
-          pageSize: 2,
-          maxPages: NATIVE_CATALOG_MAX_PAGES_PER_PASS,
-        },
-      ),
-    );
-
-    expect(requests).toHaveLength(2);
     expect(scan.changed.map((entry) => entry.nativeId)).toEqual(["a", "b", "c"]);
     expect(scan.watermark).toBe("2026-10-05T00:00:00Z");
+    expect(scan.complete).toBe(true);
   });
 
   it("keeps paging past the newest row instead of stopping after one page", async () => {
-    // Regression guard: the stop test must use the caller's watermark, not the
-    // newest row seen so far, or every scan would end one page early.
     const scan = await Effect.runPromise(
       scanNativeCatalog(
         catalog([
@@ -158,6 +138,7 @@ describe("scanNativeCatalog", () => {
         {
           archived: false,
           watermark: "2026-10-01T00:00:00Z",
+          resumeCursor: undefined,
           pageSize: 1,
           maxPages: NATIVE_CATALOG_MAX_PAGES_PER_PASS,
         },
@@ -165,6 +146,7 @@ describe("scanNativeCatalog", () => {
     );
 
     expect(scan.changed.map((entry) => entry.nativeId)).toEqual(["a", "b", "c"]);
+    expect(scan.complete).toBe(true);
   });
 
   it("skips ephemeral conversations, which are never durable", async () => {
@@ -177,6 +159,7 @@ describe("scanNativeCatalog", () => {
         {
           archived: false,
           watermark: undefined,
+          resumeCursor: undefined,
           pageSize: NATIVE_CATALOG_PAGE_SIZE,
           maxPages: NATIVE_CATALOG_MAX_PAGES_PER_PASS,
         },
@@ -186,20 +169,57 @@ describe("scanNativeCatalog", () => {
     expect(scan.changed.map((entry) => entry.nativeId)).toEqual(["a"]);
   });
 
-  it("bounds a pass that the watermark cannot stop", async () => {
+  it("does not claim completion when the page budget stops it", async () => {
+    // 1500 rows with no watermark and a 1-row page: the pass cannot reach the
+    // end, so committing its newest timestamp would hide everything behind the
+    // boundary forever. It must report an unfinished pass and a resume point.
+    const rows = Array.from({ length: 1_500 }, (_, index) =>
+      thread({ nativeId: `n${index}`, updatedAt: "2026-10-05T00:00:00Z" }),
+    );
     const scan = await Effect.runPromise(
-      scanNativeCatalog(
-        catalog([
-          thread({ nativeId: "a", updatedAt: "2026-10-05T00:00:00Z" }),
-          thread({ nativeId: "b", updatedAt: "2026-10-04T00:00:00Z" }),
-          thread({ nativeId: "c", updatedAt: "2026-10-03T00:00:00Z" }),
-          thread({ nativeId: "d", updatedAt: "2026-10-02T00:00:00Z" }),
-        ]),
-        { archived: false, watermark: "2020-01-01T00:00:00Z", pageSize: 1, maxPages: 2 },
-      ),
+      scanNativeCatalog(catalog(rows), {
+        archived: false,
+        watermark: undefined,
+        resumeCursor: undefined,
+        pageSize: 100,
+        maxPages: NATIVE_CATALOG_MAX_PAGES_PER_PASS,
+      }),
     );
 
-    assert.isTrue(scan.truncated);
-    expect(scan.changed).toHaveLength(2);
+    assert.isFalse(scan.complete);
+    expect(scan.resumeCursor).not.toBeNull();
+    expect(scan.changed).toHaveLength(800);
+  });
+
+  it("finishes a large catalog by resuming from the recorded cursor", async () => {
+    const rows = Array.from({ length: 1_500 }, (_, index) =>
+      thread({ nativeId: `n${index}`, updatedAt: "2026-10-05T00:00:00Z" }),
+    );
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    let passes = 0;
+
+    while (passes < 20) {
+      passes += 1;
+      const scan: Awaited<ReturnType<typeof scanPass>> = await scanPass(cursor);
+      seen.push(...scan.changed.map((entry) => entry.nativeId));
+      if (scan.complete) break;
+      cursor = scan.resumeCursor ?? undefined;
+    }
+
+    expect(seen).toHaveLength(1_500);
+    expect(new Set(seen).size).toBe(1_500);
+
+    async function scanPass(from: string | undefined) {
+      return Effect.runPromise(
+        scanNativeCatalog(catalog(rows), {
+          archived: false,
+          watermark: undefined,
+          resumeCursor: from,
+          pageSize: 100,
+          maxPages: NATIVE_CATALOG_MAX_PAGES_PER_PASS,
+        }),
+      );
+    }
   });
 });

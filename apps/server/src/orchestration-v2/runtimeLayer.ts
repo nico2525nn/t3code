@@ -312,6 +312,7 @@ export const OrchestrationV2ProductionLayerLive = Layer.mergeAll(
         threadLaunchProvided,
         providerAdapterRegistryProvided,
         idAllocatorLayer,
+        projectionStoreLayer,
       ),
     ),
   ),

@@ -14,11 +14,11 @@ import type {
 export const NATIVE_CATALOG_PAGE_SIZE = 100;
 
 /**
- * Defensive bound for a single sync pass.
+ * Defensive bound on one paging turn.
  *
- * A watermark miss (a rewritten `updatedAt`, a driver that ignores cursors)
- * must degrade into "sync fewer threads this pass", never into an unbounded
- * scan that stalls startup.
+ * A pass that stops here is not lost work: the caller keeps its cursor and
+ * resumes from it, so a very large backfill still completes across passes. It
+ * only bounds how long a single turn can run.
  */
 export const NATIVE_CATALOG_MAX_PAGES_PER_PASS = 8;
 
@@ -36,9 +36,8 @@ export function isParsableInstant(value: string): boolean {
  * Compare native timestamps as instants rather than strings.
  *
  * Providers emit ISO-8601 with differing offsets (`+09:00` vs `Z`), so lexical
- * comparison would order them wrongly and would stop a watermark scan early or
- * late. Returns `undefined` when either side cannot be parsed, because no
- * ordering of an unknown instant can be trusted.
+ * comparison would order them wrongly. Returns `undefined` when either side
+ * cannot be parsed, because no ordering of an unknown instant can be trusted.
  */
 export function compareNativeUpdatedAt(left: string, right: string): number | undefined {
   const leftMs = Date.parse(left);
@@ -50,51 +49,64 @@ export function compareNativeUpdatedAt(left: string, right: string): number | un
 }
 
 /**
- * True when `candidate` is provably already covered by a scan up to `watermark`.
+ * Whether a row may be treated as already covered by a scan up to `watermark`.
  *
- * An unparsable timestamp is not proof of staleness, so such a row is treated
- * as new and re-synced. Re-reading one conversation is cheap; silently
- * dropping it would lose the user's history.
+ * `updated_at` is not a unique cursor, so equality is deliberately *not*
+ * covered: a conversation that appears later at exactly the watermark instant
+ * would otherwise be invisible forever. Re-reading the boundary rows is cheap
+ * because imports are keyed by native identity, and losing a conversation is
+ * not.
+ *
+ * An unparsable timestamp is not proof of staleness either, so it is treated as
+ * new and re-synced.
  */
 export function isCoveredByWatermark(candidate: string, watermark: string): boolean {
   const order = compareNativeUpdatedAt(candidate, watermark);
-  return order !== undefined && order <= 0;
+  return order !== undefined && order < 0;
 }
 
 export interface NativeCatalogScan {
-  /** Conversations newer than the watermark. */
+  /** Conversations this pass found that the committed watermark does not cover. */
   readonly changed: ReadonlyArray<ProviderAdapterV2NativeThreadSummary>;
-  /** Newest parsable `updatedAt` observed, to become the next watermark. */
+  /** Newest parsable `updatedAt` seen, which is the candidate commit point. */
   readonly watermark: string | undefined;
-  /** True when the page cap stopped the scan before the catalog was exhausted. */
-  readonly truncated: boolean;
+  /**
+   * Where to resume if this pass did not finish. `null` once the scan reached
+   * the committed watermark or the end of the catalog.
+   */
+  readonly resumeCursor: string | null;
+  /** True when the scan reached its commit point and the watermark may advance. */
+  readonly complete: boolean;
 }
 
 /**
- * Walk a native catalog from newest to oldest, stopping at `watermark`.
+ * Walk a native catalog from newest to oldest toward the committed watermark.
  *
- * Descending pages plus an early exit are what make an idle sync cost one
- * request instead of one per conversation. Anything the watermark already
- * covers is known to T3, so reading past it could only rediscover finished work.
+ * Descending pages plus the early exit are what make an idle sync cost one
+ * request instead of one per conversation.
+ *
+ * The committed watermark is a commit point, not a progress counter. It may
+ * only advance when this pass actually reached it or ran out of catalog; a pass
+ * that stopped at its page budget returns the cursor to resume from instead, so
+ * the rows behind the boundary are read on a later pass rather than skipped
+ * forever.
  */
 export function scanNativeCatalog(
   readPage: ProviderAdapterV2NativeThreadPageReader,
   input: {
     readonly archived: boolean;
+    /** Committed watermark; rows strictly older than it are already imported. */
     readonly watermark: string | undefined;
+    /** Where an unfinished previous pass stopped. */
+    readonly resumeCursor: string | undefined;
     readonly pageSize: number;
     readonly maxPages: number;
   },
 ): Effect.Effect<NativeCatalogScan, ProviderAdapterV2Error> {
   return Effect.gen(function* () {
     const changed: ProviderAdapterV2NativeThreadSummary[] = [];
-    let cursor: string | undefined;
-    // The stop test compares against the watermark the caller passed in.
-    // Advancing it while paging would make the next page look stale and would
-    // end the scan one page early.
-    const stopAt = input.watermark;
+    let cursor = input.resumeCursor;
     let newest = input.watermark;
-    let truncated = false;
 
     for (let page = 0; page < input.maxPages; page += 1) {
       const result = yield* readPage({
@@ -104,14 +116,17 @@ export function scanNativeCatalog(
       });
       for (const thread of result.threads) {
         if (thread.ephemeral) continue;
-        if (stopAt !== undefined && isCoveredByWatermark(thread.updatedAt, stopAt)) {
+        if (
+          input.watermark !== undefined &&
+          isCoveredByWatermark(thread.updatedAt, input.watermark)
+        ) {
           // Descending order guarantees every later row is older still, so the
           // rest of the catalog cannot contain unseen work.
-          return { changed, watermark: newest, truncated };
+          return { changed, watermark: newest, resumeCursor: null, complete: true };
         }
         changed.push(thread);
-        // Skip rows the running watermark already covers; only a strictly
-        // newer instant may replace it.
+        // Skip rows the running watermark already covers; only a strictly newer
+        // instant may replace the candidate commit point.
         if (newest !== undefined && isCoveredByWatermark(thread.updatedAt, newest)) {
           continue;
         }
@@ -120,12 +135,11 @@ export function scanNativeCatalog(
         }
       }
       if (result.nextCursor === null) {
-        return { changed, watermark: newest, truncated };
+        return { changed, watermark: newest, resumeCursor: null, complete: true };
       }
       cursor = result.nextCursor;
-      truncated = true;
     }
 
-    return { changed, watermark: newest, truncated };
+    return { changed, watermark: newest, resumeCursor: cursor ?? null, complete: false };
   });
 }

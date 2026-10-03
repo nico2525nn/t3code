@@ -334,6 +334,19 @@ export interface ProjectionStoreV2Shape {
   readonly getThreadShell: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2ThreadShell | null, ProjectionStoreV2Error>;
+  /**
+   * The app thread that already owns a provider conversation, if any.
+   *
+   * The native catalog lists conversations T3 created itself, so a catalog row
+   * must be matched against the provider-thread table before it becomes a new
+   * app thread. Matching on the projected native id keeps that lookup indexed
+   * rather than a scan over payload JSON.
+   */
+  readonly findThreadIdByNativeIdentity: (identity: {
+    readonly driver: string;
+    readonly providerInstanceId: string;
+    readonly nativeThreadId: string;
+  }) => Effect.Effect<ThreadId | null, ProjectionStoreV2Error>;
   readonly getThread: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2AppThread, ProjectionStoreV2Error>;
@@ -5378,6 +5391,30 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
     // Per-thread shell for the live shell streams: reads only the target thread
     // plus its fork-source chain instead of materializing every thread. Returns
     // null when the thread is deleted or unknown.
+    const findThreadIdByNativeIdentity: ProjectionStoreV2Shape["findThreadIdByNativeIdentity"] = (
+      identity,
+    ) =>
+      sql<{ readonly thread_id: string }>`
+          SELECT thread_id
+          FROM orchestration_v2_projection_provider_threads
+          WHERE driver = ${identity.driver}
+            AND provider_instance_id = ${identity.providerInstanceId}
+            AND native_thread_id = ${identity.nativeThreadId}
+          LIMIT 1
+        `.pipe(
+        Effect.map((rows) => {
+          const found = rows.at(0)?.thread_id;
+          return found === undefined ? null : ThreadId.make(found);
+        }),
+        Effect.mapError(
+          (cause) =>
+            new ProjectionStoreReadError({
+              threadId: ThreadId.make(identity.nativeThreadId),
+              cause,
+            }),
+        ),
+      );
+
     const getThreadShell: ProjectionStoreV2Shape["getThreadShell"] = (threadId) =>
       sql
         .withTransaction(
@@ -5444,6 +5481,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       apply,
       getShellSnapshot,
       getThreadShell,
+      findThreadIdByNativeIdentity,
+
       getThread,
       getSettlementCandidates,
       getThreadsWithPullRequests,
@@ -5534,6 +5573,20 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
             threads: visible.filter((thread) => thread.archivedAt === null),
             archivedThreads: visible.filter((thread) => thread.archivedAt !== null),
           };
+        }),
+      findThreadIdByNativeIdentity: (identity) =>
+        Effect.gen(function* () {
+          const projections = (yield* Ref.get(replayState)).projections;
+          for (const projection of projections.values()) {
+            const thread = projection.providerThreads.find(
+              (candidate) =>
+                candidate.driver === identity.driver &&
+                candidate.providerInstanceId === identity.providerInstanceId &&
+                candidate.nativeThreadRef?.nativeId === identity.nativeThreadId,
+            );
+            if (thread !== undefined) return thread.appThreadId;
+          }
+          return null;
         }),
       getThreadShell: (threadId) =>
         Effect.gen(function* () {
