@@ -1,5 +1,6 @@
 import { assert, describe, expect, it } from "@effect/vitest";
 import { ProjectId, ProviderDriverKind, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationV2ThreadProjection } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -86,7 +87,8 @@ const baseLayer = (adapter: ProviderAdapter.ProviderAdapterV2Shape, launched: st
             launched.push(String(request.commandId));
             return Effect.succeed({
               threadId: request.threadId ?? ThreadId.make("missing"),
-              projection: undefined as never,
+              // A catalog import never reads the launch projection.
+              projection: null as unknown as OrchestrationV2ThreadProjection,
               resumed: false,
             });
           },

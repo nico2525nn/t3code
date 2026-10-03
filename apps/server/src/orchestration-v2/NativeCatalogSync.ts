@@ -9,7 +9,6 @@ import {
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
@@ -38,6 +37,18 @@ export class NativeCatalogSyncError extends Schema.TaggedError<NativeCatalogSync
   }
 }
 
+export class NativeThreadImportError extends Schema.TaggedError<NativeThreadImportError>()(
+  "NativeThreadImportError",
+  {
+    nativeThreadId: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Failed to import native thread ${this.nativeThreadId}.`;
+  }
+}
+
 export interface NativeCatalogSyncSummary {
   readonly instancesScanned: number;
   readonly threadsImported: number;
@@ -50,6 +61,7 @@ interface NativeCatalogWatermarkRow {
   readonly watermark: string | null;
 }
 
+/** One catalog partition: a driver instance's threads on one side of the archive split. */
 interface CatalogSource {
   readonly driver: ProviderDriverKind;
   readonly providerInstanceId: ProviderInstanceId;
@@ -125,6 +137,12 @@ interface InstanceSyncResult {
   readonly truncated: number;
 }
 
+const noInstanceWork = {
+  imported: 0,
+  failed: 0,
+  truncated: 0,
+} satisfies InstanceSyncResult;
+
 export class NativeCatalogSync extends Context.Service<
   NativeCatalogSync,
   { readonly syncOnce: Effect.Effect<NativeCatalogSyncSummary, never> }
@@ -142,45 +160,50 @@ export const make = Effect.gen(function* () {
     thread: ProviderAdapter.ProviderAdapterV2NativeThreadSummary,
   ) =>
     Effect.gen(function* () {
+      const failure = (cause: unknown) =>
+        new NativeThreadImportError({ nativeThreadId: thread.nativeId, cause });
+
       // `bootstrap` resolves by workspace root, so a replayed pass reuses the
       // project an earlier pass created instead of forking a second one.
-      const project = yield* projects
+      const { project } = yield* projects
         .bootstrap({
           commandId: projectCommandId(thread.cwd),
           projectId: yield* ids.allocate.project({ fixtureName: thread.cwd }),
           title: thread.cwd.split("/").filter(Boolean).at(-1) ?? thread.cwd,
           workspaceRoot: thread.cwd,
         })
-        .pipe(Effect.orDie);
+        .pipe(Effect.mapError(failure));
 
-      yield* threadLaunch.launch({
-        commandId: importCommandId({
-          driver: adapter.driver,
-          providerInstanceId: adapter.instanceId,
-          nativeThreadId: thread.nativeId,
-        }),
-        threadId: IdAllocator.deriveThreadFromProviderThread({
-          driver: adapter.driver,
-          providerInstanceId: adapter.instanceId,
-          nativeThreadId: thread.nativeId,
-        }),
-        projectId: project.project.id,
-        title: thread.title ?? thread.nativeId,
-        modelSelection: { instanceId: adapter.instanceId, model: DEFAULT_MODEL },
-        runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        workspaceStrategy: { type: "root" },
-        importedNativeThread: {
-          ref: { driver: adapter.driver, nativeId: thread.nativeId, strength: "strong" },
-          metadata: {
-            itemIdentityVersion: 2,
-            ...(thread.title === undefined ? {} : { title: thread.title }),
-            updatedAt: thread.updatedAt,
+      yield* threadLaunch
+        .launch({
+          commandId: importCommandId({
+            driver: adapter.driver,
+            providerInstanceId: adapter.instanceId,
+            nativeThreadId: thread.nativeId,
+          }),
+          threadId: IdAllocator.deriveThreadFromProviderThread({
+            driver: adapter.driver,
+            providerInstanceId: adapter.instanceId,
+            nativeThreadId: thread.nativeId,
+          }),
+          projectId: project.id,
+          title: thread.title ?? thread.nativeId,
+          modelSelection: { instanceId: adapter.instanceId, model: DEFAULT_MODEL },
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          workspaceStrategy: { type: "root" },
+          importedNativeThread: {
+            ref: { driver: adapter.driver, nativeId: thread.nativeId, strength: "strong" },
+            metadata: {
+              itemIdentityVersion: 2,
+              ...(thread.title === undefined ? {} : { title: thread.title }),
+              updatedAt: thread.updatedAt,
+            },
           },
-        },
-        createdBy: "system",
-        creationSource: "server",
-      });
+          createdBy: "system",
+          creationSource: "server",
+        })
+        .pipe(Effect.mapError(failure));
     });
 
   const syncInstance = (
@@ -191,7 +214,7 @@ export const make = Effect.gen(function* () {
       // An adapter without a native catalog is simply not a source of threads
       // that started outside T3.
       if (withCatalog === undefined) {
-        return { imported: 0, failed: 0, truncated: 0 };
+        return noInstanceWork;
       }
 
       let imported = 0;
@@ -226,28 +249,24 @@ export const make = Effect.gen(function* () {
           failed += 1;
           continue;
         }
+
         const scan = scanned.success;
         if (scan.truncated) {
           truncated += 1;
         }
         for (const thread of scan.changed) {
-          const outcome = yield* Effect.exit(
-            importThread(adapter, thread).pipe(
-              Effect.catchCause((cause) =>
-                Effect.logWarning("native catalog import failed", {
-                  driver: adapter.driver,
-                  providerInstanceId: adapter.instanceId,
-                  nativeThreadId: thread.nativeId,
-                  cause,
-                }),
-              ),
-            ),
-          );
-          if (Exit.isSuccess(outcome)) {
+          const outcome = yield* Effect.result(importThread(adapter, thread));
+          if (Result.isSuccess(outcome)) {
             imported += 1;
-          } else {
-            failed += 1;
+            continue;
           }
+          failed += 1;
+          yield* Effect.logWarning("native catalog import failed", {
+            driver: adapter.driver,
+            providerInstanceId: adapter.instanceId,
+            nativeThreadId: thread.nativeId,
+            cause: outcome.failure,
+          });
         }
         if (scan.watermark !== undefined) {
           yield* writeWatermark(sql, { ...source, watermark: scan.watermark });
@@ -277,9 +296,7 @@ export const make = Effect.gen(function* () {
               driver: adapter.driver,
               providerInstanceId: adapter.instanceId,
               cause,
-            }).pipe(
-              Effect.as({ imported: 0, failed: 0, truncated: 0 } satisfies InstanceSyncResult),
-            ),
+            }).pipe(Effect.as(noInstanceWork)),
           ),
         ),
       { concurrency: 1 },

@@ -23,6 +23,16 @@ export const NATIVE_CATALOG_PAGE_SIZE = 100;
 export const NATIVE_CATALOG_MAX_PAGES_PER_PASS = 8;
 
 /**
+ * Whether a timestamp names an instant this scan can order.
+ *
+ * An unparsable value is not a usable watermark: every comparison against it
+ * would be meaningless, so it must never become one.
+ */
+export function isParsableInstant(value: string): boolean {
+  return !Number.isNaN(Date.parse(value));
+}
+
+/**
  * Compare native timestamps as instants rather than strings.
  *
  * Providers emit ISO-8601 with differing offsets (`+09:00` vs `Z`), so lexical
@@ -100,10 +110,12 @@ export function scanNativeCatalog(
           return { changed, watermark: newest, truncated };
         }
         changed.push(thread);
-        const order = newest === undefined ? 1 : compareNativeUpdatedAt(thread.updatedAt, newest);
-        // An unparsable timestamp must not become the watermark: every later
-        // comparison against it would be meaningless.
-        if (order !== undefined && order > 0) {
+        // Skip rows the running watermark already covers; only a strictly
+        // newer instant may replace it.
+        if (newest !== undefined && isCoveredByWatermark(thread.updatedAt, newest)) {
+          continue;
+        }
+        if (isParsableInstant(thread.updatedAt)) {
           newest = thread.updatedAt;
         }
       }
