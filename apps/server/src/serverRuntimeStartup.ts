@@ -32,6 +32,7 @@ import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as EffectWorker from "./orchestration-v2/EffectWorker.ts";
 import * as LegacyV1ThreadImporter from "./orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
+import * as NativeCatalogSync from "./orchestration-v2/NativeCatalogSync.ts";
 import * as ProviderRuntimeRecovery from "./orchestration-v2/ProviderRuntimeRecoveryService.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as ThreadLaunch from "./orchestration-v2/ThreadLaunchService.ts";
@@ -412,6 +413,7 @@ const make = (options?: StartupOptions) =>
     const serverConfig = yield* ServerConfig.ServerConfig;
     const keybindings = yield* Keybindings.Keybindings;
     const legacyV1ThreadImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
+    const nativeCatalogSync = yield* NativeCatalogSync.NativeCatalogSync;
     const providerRuntimeRecovery = yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService;
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const agentAwarenessRelay = yield* AgentAwarenessRelay.AgentAwarenessRelay;
@@ -558,6 +560,20 @@ const make = (options?: StartupOptions) =>
             )
           : importPendingTranscripts
       ).pipe(forkParked);
+
+      // Conversations created outside T3 (a CLI, another client, another
+      // machine) only become visible once their native catalog is read. Parked
+      // so an unreachable provider cannot delay the rest of startup, and
+      // idempotent so the next pass resumes from the stored watermark.
+      yield* forkParked(
+        nativeCatalogSync.syncOnce.pipe(
+          Effect.tap((summary) => Effect.logInfo("Native conversation catalog synced", summary)),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Native conversation catalog sync failed", { cause }),
+          ),
+          Effect.asVoid,
+        ),
+      );
 
       yield* forkParked(
         Effect.gen(function* () {

@@ -578,6 +578,77 @@ export interface ProviderAdapterV2SessionRuntime {
   ) => Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapterV2Error>;
 }
 
+/**
+ * One conversation the provider owns natively, independent of whether T3 ever
+ * created it. `updatedAt` is the catalog's own clock and is the only ordering
+ * key a sync may rely on: a driver that cannot page by descending update time
+ * forces every sync to walk its entire history.
+ */
+export interface ProviderAdapterV2NativeThreadSummary {
+  readonly nativeId: string;
+  /** Native user-facing title. `undefined` means the provider has not named it yet. */
+  readonly title: string | undefined;
+  /** Absolute working directory the conversation belongs to. */
+  readonly cwd: string;
+  /** ISO-8601 instant the provider last modified the conversation. */
+  readonly updatedAt: string;
+  readonly createdAt: string | undefined;
+  readonly archived: boolean;
+  /** Ephemeral conversations are never materialized on disk and must not be listed. */
+  readonly ephemeral: boolean;
+  /** True when the driver can stream this conversation while it is already running. */
+  readonly active: boolean;
+}
+
+export interface ProviderAdapterV2NativeThreadPage {
+  readonly threads: ReadonlyArray<ProviderAdapterV2NativeThreadSummary>;
+  /** Opaque continuation cursor, or `null` when the catalog is exhausted. */
+  readonly nextCursor: string | null;
+}
+
+export interface ProviderAdapterV2ListNativeThreadsInput {
+  readonly archived: boolean;
+  readonly cursor: string | undefined;
+  readonly limit: number;
+}
+
+/**
+ * One conversation the provider owns natively, independent of whether T3 ever
+ * created it. `updatedAt` is the catalog's own clock and is the only ordering
+ * key a sync may rely on: a driver that cannot page by descending update time
+ * forces every sync to walk its entire history.
+ */
+export interface ProviderAdapterV2NativeThreadSummary {
+  readonly nativeId: string;
+  readonly title: string | undefined;
+  /** Absolute working directory the conversation belongs to. */
+  readonly cwd: string;
+  /** ISO-8601 instant the provider last modified the conversation. */
+  readonly updatedAt: string;
+  readonly createdAt: string | undefined;
+  readonly archived: boolean;
+  /** Ephemeral conversations are never materialized on disk and must not be listed. */
+  readonly ephemeral: boolean;
+  /** True when the driver can stream this conversation while it is already running. */
+  readonly active: boolean;
+}
+
+export interface ProviderAdapterV2NativeThreadPage {
+  readonly threads: ReadonlyArray<ProviderAdapterV2NativeThreadSummary>;
+  /** Opaque continuation cursor, or `null` when the catalog is exhausted. */
+  readonly nextCursor: string | null;
+}
+
+export interface ProviderAdapterV2ListNativeThreadsInput {
+  readonly archived: boolean;
+  readonly cursor: string | undefined;
+  readonly limit: number;
+}
+
+export type ProviderAdapterV2NativeThreadPageReader = (
+  input: ProviderAdapterV2ListNativeThreadsInput,
+) => Effect.Effect<ProviderAdapterV2NativeThreadPage, ProviderAdapterV2Error>;
+
 export interface ProviderAdapterV2Shape {
   readonly instanceId: ProviderInstanceId;
   readonly driver: ProviderDriverKind;
@@ -585,6 +656,20 @@ export interface ProviderAdapterV2Shape {
     OrchestrationV2ProviderCapabilities,
     ProviderAdapterV2Error
   >;
+  /**
+   * Enumerate conversations this driver owns natively, so threads started
+   * outside T3 (a CLI, another client, another machine) become visible.
+   *
+   * `use` receives a page reader already bound to one provider connection, so
+   * a caller can walk many pages without paying a connection per page. Pages
+   * must be ordered by descending update time: that ordering is what lets a
+   * sync stop at a watermark instead of reading the driver's entire history.
+   */
+  readonly withNativeCatalog?: <A>(
+    use: (
+      readPage: ProviderAdapterV2NativeThreadPageReader,
+    ) => Effect.Effect<A, ProviderAdapterV2Error>,
+  ) => Effect.Effect<A, ProviderAdapterV2Error>;
   readonly planSelectionTransition: (
     input: ProviderSelectionTransitionInput,
   ) => Effect.Effect<ProviderSelectionTransitionPlan, ProviderAdapterV2Error>;

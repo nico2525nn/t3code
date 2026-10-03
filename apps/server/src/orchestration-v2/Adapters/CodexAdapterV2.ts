@@ -1169,12 +1169,36 @@ type CodexSubAgentActivityItem = Extract<
   { readonly type: "subAgentActivity" }
 >;
 
+/**
+ * Identifies an app-server connection that exists only to read the native
+ * conversation catalog. Such a connection owns no provider session, but spawn
+ * failures still need an attributable id in logs and errors.
+ */
+export const CODEX_CATALOG_PROVIDER_SESSION_ID =
+  "codex-native-catalog" as OrchestrationV2ProviderSession["id"];
+
+/**
+ * Conversation sources that represent a user-visible thread. Sub-agent
+ * lineages are excluded: they are execution children of a root thread, and
+ * listing them would surface hundreds of rows that are not threads a user
+ * started.
+ */
+export const CODEX_NATIVE_THREAD_SOURCE_KINDS = [
+  "cli",
+  "vscode",
+  "exec",
+  "appServer",
+  "unknown",
+] as const satisfies ReadonlyArray<CodexSchema.V2ThreadListParams__ThreadSourceKind>;
+
 export interface CodexAppServerClientFactoryShape {
   readonly open: (input: {
     readonly instanceId: ProviderInstanceId;
-    readonly threadId: ThreadId;
-    readonly providerSessionId: OrchestrationV2ProviderSession["id"];
-    readonly runtimePolicy: ProviderAdapterV2RuntimePolicy;
+    /** Omitted for a catalog connection, which attaches to no app thread. */
+    readonly threadId?: ThreadId | undefined;
+    /** Omitted for a catalog connection, which owns no provider session. */
+    readonly providerSessionId?: OrchestrationV2ProviderSession["id"] | undefined;
+    readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy | undefined;
     readonly settings: CodexSettings;
     readonly environment: NodeJS.ProcessEnv;
   }) => Effect.Effect<
@@ -1288,7 +1312,7 @@ const makeCodexAppServerClientFactoryCommandLayer = (
                 (cause) =>
                   new ProviderAdapterOpenSessionError({
                     driver: CODEX_PROVIDER,
-                    providerSessionId: input.providerSessionId,
+                    providerSessionId: input.providerSessionId ?? CODEX_CATALOG_PROVIDER_SESSION_ID,
                     cause,
                   }),
               ),
@@ -1407,16 +1431,19 @@ export const codexAppServerClientFactoryFromSettingsLayer: Layer.Layer<
               (cause) =>
                 new ProviderAdapterOpenSessionError({
                   driver: CODEX_PROVIDER,
-                  providerSessionId: input.providerSessionId,
+                  providerSessionId: input.providerSessionId ?? CODEX_CATALOG_PROVIDER_SESSION_ID,
                   cause,
                 }),
             ),
           );
-          const protocolLogger = makeCodexAppServerProtocolLogger({
-            nativeEventLogger,
-            threadId: input.threadId,
-            providerSessionId: input.providerSessionId,
-          });
+          const protocolLogger =
+            input.threadId === undefined
+              ? undefined
+              : makeCodexAppServerProtocolLogger({
+                  nativeEventLogger,
+                  threadId: input.threadId,
+                  providerSessionId: input.providerSessionId ?? CODEX_CATALOG_PROVIDER_SESSION_ID,
+                });
           const clientOptions: CodexClient.CodexAppServerClientOptions =
             protocolLogger === undefined
               ? {}
@@ -1550,6 +1577,68 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
   const continuationRequests = adapterOptions.continuationRequests;
 
   return ProviderAdapterV2.of({
+    withNativeCatalog: (use) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const client = yield* clientFactory.open({
+            instanceId: adapterOptions.instanceId,
+            settings: adapterOptions.settings,
+            environment: adapterOptions.environment,
+          });
+          // The factory only spawns the process; every request before this
+          // handshake fails with "Not initialized".
+          const catalogFailure = (detail: string) => (cause: unknown) =>
+            new ProviderAdapterProtocolError({ driver: CODEX_PROVIDER, detail, cause });
+          yield* client
+            .request("initialize", {
+              // Codex uses the client name as the request originator, so
+              // catalog reads identify themselves exactly like a session.
+              clientInfo: buildCodexInitializeParams().clientInfo,
+              capabilities: CODEX_CLIENT_CAPABILITIES,
+            })
+            .pipe(Effect.mapError(catalogFailure("Failed to initialize the Codex catalog.")));
+          yield* client
+            .notify("initialized", undefined)
+            .pipe(
+              Effect.mapError(catalogFailure("Failed to complete the Codex catalog handshake.")),
+            );
+          return yield* use((page) =>
+            client
+              .request("thread/list", {
+                archived: page.archived,
+                limit: page.limit,
+                cursor: page.cursor ?? null,
+                // Descending update time is a contract, not a preference: the
+                // caller stops paging at a watermark, and only this ordering
+                // makes that stop correct.
+                sortKey: "updated_at",
+                sortDirection: "desc",
+                sourceKinds: CODEX_NATIVE_THREAD_SOURCE_KINDS,
+              })
+              .pipe(
+                Effect.mapError(catalogFailure("Failed to read the native Codex thread catalog.")),
+                Effect.map((response) => ({
+                  threads: response.data.map((thread) => ({
+                    nativeId: thread.id,
+                    title: thread.name ?? thread.preview ?? undefined,
+                    cwd: thread.cwd,
+                    updatedAt: DateTime.formatIso(codexTimestamp(thread.updatedAt)),
+                    createdAt:
+                      thread.createdAt === undefined
+                        ? undefined
+                        : DateTime.formatIso(codexTimestamp(thread.createdAt)),
+                    archived: page.archived,
+                    ephemeral: thread.ephemeral,
+                    // `thread/list` never populates turns, so activity is
+                    // probed separately and only for threads that changed.
+                    active: false,
+                  })),
+                  nextCursor: response.nextCursor ?? null,
+                })),
+              ),
+          );
+        }),
+      ),
     instanceId: adapterOptions.instanceId,
     driver: CODEX_PROVIDER,
     getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
