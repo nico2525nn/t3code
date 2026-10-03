@@ -4,9 +4,7 @@ import * as Schema from "effect/Schema";
 import * as CodexSchema from "effect-codex-app-server/schema";
 
 import * as NativeTimeline from "./NativeTimeline.ts";
-import type { NativeTimelineItem, NativeTimelineTurn } from "./NativeTimeline.ts";
-
-export type { NativeTimelineItem };
+import type { NativeTimelineItem } from "./NativeTimeline.ts";
 
 /**
  * Codex item text shapes, decoded leniently.
@@ -212,20 +210,4 @@ export function partitionTimelineItems(entries: ReadonlyArray<unknown>): {
     }
   }
   return { byTurn, approximateBytes };
-}
-
-export function toNativeTimelineTurn(input: {
-  readonly turnId: string;
-  readonly status: CodexSchema.V2ThreadListResponse__Turn["status"];
-  readonly startedAt: string | undefined;
-  readonly completedAt: string | undefined;
-  readonly items: ReadonlyArray<NativeTimelineItem>;
-}): NativeTimelineTurn {
-  return {
-    nativeTurnId: input.turnId,
-    status: input.status,
-    startedAt: input.startedAt,
-    completedAt: input.completedAt,
-    items: input.items,
-  };
 }

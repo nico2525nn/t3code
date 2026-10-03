@@ -246,12 +246,25 @@ export function mergeNativeTimeline(input: {
     return snapshot;
   }
 
+  // The wire timeline is built from `visibleTurnItems`, not `turnItems`. Adding
+  // to only the latter moves rows into the projection that no reader ever looks
+  // at, which is what an adopted thread used to do.
+  const mergedTurnItems = [...projection.turnItems, ...turnItems];
+  const visible = turnItems.map((item, offset) => ({
+    position: projection.visibleTurnItems.length + offset,
+    visibility: "inherited" as const,
+    sourceThreadId: projection.thread.id,
+    sourceItemId: item.id,
+    item,
+  }));
+
   return {
     ...snapshot,
     projection: {
       ...projection,
-      turnItems: [...projection.turnItems, ...turnItems],
+      turnItems: mergedTurnItems,
       messages: [...projection.messages, ...messages],
+      visibleTurnItems: [...projection.visibleTurnItems, ...visible],
     },
   };
 }

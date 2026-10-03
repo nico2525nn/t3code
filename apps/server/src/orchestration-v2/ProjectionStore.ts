@@ -2908,7 +2908,17 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           `
               : sql<PayloadRow>`
             SELECT payload_json FROM orchestration_v2_projection_provider_threads
-            WHERE (thread_id = ${threadId} AND status = 'active')
+            WHERE (
+                  thread_id = ${threadId}
+                  AND (
+                    status = 'active'
+                    -- A conversation adopted from a provider has no run yet, so
+                    -- it is never "active". Without this it would be absent from
+                    -- every windowed read, and a reader could never learn it
+                    -- exists.
+                    OR first_run_ordinal IS NULL
+                  )
+                )
               OR provider_thread_id IN (SELECT value FROM json_each(${cohortProviderThreadIds}))
               OR owner_node_id IN (SELECT value FROM json_each(${cohortNodeIds}))
             ORDER BY COALESCE(first_run_ordinal, 0), provider_thread_id ASC

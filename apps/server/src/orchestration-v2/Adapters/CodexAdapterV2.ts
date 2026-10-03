@@ -1611,12 +1611,9 @@ const readNativeTurnItems = (
   client: CodexClient.CodexAppServerClient["Service"],
   nativeThreadId: string,
   nativeTurnId: string,
-): Effect.Effect<
-  ReadonlyArray<NativeTimelineProjection.NativeTimelineItem>,
-  ProviderAdapterProtocolError
-> =>
+): Effect.Effect<ReadonlyArray<NativeTimeline.NativeTimelineItem>, ProviderAdapterProtocolError> =>
   Effect.gen(function* () {
-    const items: Array<NativeTimelineProjection.NativeTimelineItem> = [];
+    const items: Array<NativeTimeline.NativeTimelineItem> = [];
     let cursor: string | null = null;
     let bytes = 0;
     const seenCursors = new Set<string | null>();
@@ -1682,21 +1679,19 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               );
               const turns = yield* Effect.forEach(turnPage.data, (turn) =>
                 readNativeTurnItems(client, request.nativeThreadId, turn.id).pipe(
-                  Effect.map((items) =>
-                    NativeTimelineProjection.toNativeTimelineTurn({
-                      turnId: turn.id,
-                      status: turn.status,
-                      startedAt:
-                        turn.startedAt === undefined
-                          ? undefined
-                          : DateTime.formatIso(codexTimestamp(turn.startedAt)),
-                      completedAt:
-                        turn.completedAt === undefined
-                          ? undefined
-                          : DateTime.formatIso(codexTimestamp(turn.completedAt)),
-                      items,
-                    }),
-                  ),
+                  Effect.map((items) => ({
+                    nativeTurnId: turn.id,
+                    status: turn.status,
+                    startedAt:
+                      turn.startedAt === undefined
+                        ? undefined
+                        : DateTime.formatIso(codexTimestamp(turn.startedAt)),
+                    completedAt:
+                      turn.completedAt === undefined
+                        ? undefined
+                        : DateTime.formatIso(codexTimestamp(turn.completedAt)),
+                    items,
+                  })),
                 ),
               );
               return {

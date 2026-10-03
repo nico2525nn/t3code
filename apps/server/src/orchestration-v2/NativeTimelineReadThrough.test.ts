@@ -37,6 +37,13 @@ const snapshot = (input?: {
       thread: appThread,
       turnItems: (input?.itemIds ?? []).map((id) => ({ id })),
       messages: (input?.messageIds ?? []).map((id) => ({ id })),
+      visibleTurnItems: (input?.itemIds ?? []).map((id, position) => ({
+        position,
+        visibility: "local",
+        sourceThreadId: THREAD_ID,
+        sourceItemId: id,
+        item: { id },
+      })),
     },
   }) as unknown as ReturnType<typeof mergeNativeTimeline> extends never
     ? never
