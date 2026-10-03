@@ -2048,6 +2048,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 first_run_ordinal,
                 last_run_ordinal,
                 updated_at,
+                native_thread_id,
                 payload_json
               )
               VALUES (
@@ -2062,6 +2063,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ${event.payload.firstRunOrdinal},
                 ${event.payload.lastRunOrdinal},
                 ${stringField(payload, "updatedAt")},
+                ${event.payload.nativeThreadRef?.nativeId ?? null},
                 ${payloadJson}
               )
               ON CONFLICT(provider_thread_id)
@@ -2076,6 +2078,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 first_run_ordinal = excluded.first_run_ordinal,
                 last_run_ordinal = excluded.last_run_ordinal,
                 updated_at = excluded.updated_at,
+                native_thread_id = excluded.native_thread_id,
                 payload_json = excluded.payload_json
             `;
             if (

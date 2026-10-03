@@ -19,6 +19,7 @@ import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
+import * as NativeTimelineReader from "./NativeTimelineReader.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 
@@ -332,6 +333,9 @@ it.effect("preserves failed legacy materialization when reading checkpoint conte
         }),
         Layer.mock(LegacyV1ThreadImporter.LegacyV1ThreadImporter)({
           ensureTranscript: () => Effect.fail(importError),
+        }),
+        Layer.mock(NativeTimelineReader.NativeTimelineReader)({
+          readThrough: (snapshot) => Effect.succeed(snapshot),
         }),
       ),
     ),
