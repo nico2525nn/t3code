@@ -1780,6 +1780,15 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             environment: adapterOptions.environment,
           });
           yield* codexHandshake(client);
+          // A turn running in another app-server process is invisible until this
+          // connection joins the conversation. Resuming is what joins it; the
+          // turns/list below then reports what the provider is actually doing.
+          yield* client
+            .request("thread/resume", { threadId: nativeThreadId, excludeTurns: true })
+            .pipe(
+              Effect.mapError(codexReadFailure("Failed to join the native conversation.")),
+              Effect.asVoid,
+            );
           const newest = yield* client
             .request("thread/turns/list", {
               threadId: nativeThreadId,
