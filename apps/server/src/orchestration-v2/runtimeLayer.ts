@@ -26,6 +26,8 @@ import { layerFromStores as eventSinkLayer } from "./EventSink.ts";
 import { layerFromOrchestrationEventStore as eventStoreLayer } from "./EventStore.ts";
 import { layer as idAllocatorLayer } from "./IdAllocator.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
+import * as NativeTimelineReader from "./NativeTimelineReader.ts";
+import * as NativeCatalogSync from "./NativeCatalogSync.ts";
 import { layer as orchestratorLayer } from "./Orchestrator.ts";
 import { layer as projectionStoreLayer } from "./ProjectionStore.ts";
 import { layer as projectionMaintenanceLayer } from "./ProjectionMaintenance.ts";
@@ -224,8 +226,17 @@ const agentSessionImporterProvided = agentSessionImporterLayer.pipe(
   ),
 );
 
+const nativeTimelineReaderProvided = NativeTimelineReader.layer.pipe(
+  Layer.provide(providerAdapterRegistryProvided),
+);
 const threadManagementProvided = threadManagementServiceLayer.pipe(
-  Layer.provide(Layer.merge(orchestratorProvided, legacyV1ThreadImporterProvided)),
+  Layer.provide(
+    Layer.mergeAll(
+      orchestratorProvided,
+      legacyV1ThreadImporterProvided,
+      nativeTimelineReaderProvided,
+    ),
+  ),
 );
 export const ProjectSetupScriptRunnerLayerLive = projectSetupScriptRunnerLayer.pipe(
   Layer.provide(ProjectServiceLayerLive),
@@ -304,6 +315,17 @@ export const OrchestrationV2ProductionLayerLive = Layer.mergeAll(
   ProjectServiceLayerLive,
   managedProjectFoldersProvided,
   threadLaunchProvided,
+  NativeCatalogSync.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        ProjectServiceLayerLive,
+        threadLaunchProvided,
+        providerAdapterRegistryProvided,
+        idAllocatorLayer,
+        projectionStoreLayer,
+      ),
+    ),
+  ),
   threadLifecycleProvided,
   scheduledTaskProvided,
   UsageLimitRecoveryWorker.workerLive.pipe(

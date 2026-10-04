@@ -1633,7 +1633,8 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               (cause) =>
                 new ProviderAdapterOpenSessionError({
                   driver: CodexAdapterV2.CODEX_DRIVER_KIND,
-                  providerSessionId: openInput.providerSessionId,
+                  providerSessionId:
+                    openInput.providerSessionId ?? CodexAdapterV2.CODEX_CATALOG_PROVIDER_SESSION_ID,
                   cause,
                 }),
             ),

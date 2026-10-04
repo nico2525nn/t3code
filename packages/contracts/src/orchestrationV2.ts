@@ -2858,6 +2858,22 @@ const OrchestrationV2InternalCommand = Schema.Union([
     providerThreadId: ProviderThreadId,
     providerTurnId: ProviderTurnId,
   }),
+  /**
+   * Adopts work the provider is already running for a thread T3 did not start.
+   *
+   * A run is otherwise created by a user message, so a conversation started in
+   * another client had no way to appear as live work. The run this creates
+   * carries a system-authored message rather than having none: a run is defined
+   * by the message it answers, and every consumer of that relation already
+   * handles a message nobody typed.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.external-run.attach"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    providerInstanceId: ProviderInstanceId,
+    nativeTurnId: TrimmedNonEmptyString,
+  }),
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;
 

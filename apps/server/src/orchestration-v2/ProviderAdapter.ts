@@ -39,6 +39,8 @@ import type * as Effect from "effect/Effect";
 import type * as Scope from "effect/Scope";
 import type * as Stream from "effect/Stream";
 
+import type { NativeTimelinePage, NativeTimelineReadInput } from "./NativeTimeline.ts";
+
 import type {
   ProviderSelectionTransitionInput,
   ProviderSelectionTransitionPlan,
@@ -578,6 +580,61 @@ export interface ProviderAdapterV2SessionRuntime {
   ) => Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapterV2Error>;
 }
 
+/**
+ * created it. `updatedAt` is the catalog own clock and is the only ordering
+ * key a sync may rely on: a driver that cannot page by descending update time
+ * forces every sync to walk its entire history.
+ *
+ * `active` is the drivers own claim that the conversation is running. Catalog
+ * listings that cannot answer this report false; nothing consumes it yet.
+ * One conversation the provider owns natively, independent of whether T3 ever
+ */
+export interface ProviderAdapterV2NativeThreadSummary {
+  readonly nativeId: string;
+  readonly title: string | undefined;
+  /** Absolute working directory the conversation belongs to. */
+  readonly cwd: string;
+  /** ISO-8601 instant the provider last modified the conversation. */
+  readonly updatedAt: string;
+  readonly createdAt: string | undefined;
+  readonly archived: boolean;
+  /** Ephemeral conversations are never materialized on disk and must not be listed. */
+  readonly ephemeral: boolean;
+  /** True when the driver can stream this conversation while it is already running. */
+  readonly active: boolean;
+}
+
+export interface ProviderAdapterV2NativeThreadPage {
+  readonly threads: ReadonlyArray<ProviderAdapterV2NativeThreadSummary>;
+  /** Opaque continuation cursor, or `null` when the catalog is exhausted. */
+  readonly nextCursor: string | null;
+}
+
+export interface ProviderAdapterV2ListNativeThreadsInput {
+  readonly archived: boolean;
+  readonly cursor: string | undefined;
+  readonly limit: number;
+}
+
+/**
+ * Models for conversations this driver owns, keyed by native id.
+ *
+ * A listing cannot answer this, so a driver reads it per thread. Absent ids are
+ * omitted rather than answered with a guess: a wrong model is worse than the
+ * default T3 would have used.
+ */
+export type ProviderAdapterV2NativeModelReader = (
+  nativeThreadIds: ReadonlyArray<string>,
+) => Effect.Effect<Readonly<Record<string, string>>, ProviderAdapterV2Error>;
+
+export type ProviderAdapterV2NativeTimelineReader = (
+  input: NativeTimelineReadInput,
+) => Effect.Effect<NativeTimelinePage, ProviderAdapterV2Error>;
+
+export type ProviderAdapterV2NativeThreadPageReader = (
+  input: ProviderAdapterV2ListNativeThreadsInput,
+) => Effect.Effect<ProviderAdapterV2NativeThreadPage, ProviderAdapterV2Error>;
+
 export interface ProviderAdapterV2Shape {
   readonly instanceId: ProviderInstanceId;
   readonly driver: ProviderDriverKind;
@@ -585,6 +642,55 @@ export interface ProviderAdapterV2Shape {
     OrchestrationV2ProviderCapabilities,
     ProviderAdapterV2Error
   >;
+  /**
+   * Enumerate conversations this driver owns natively, so threads started
+   * outside T3 (a CLI, another client, another machine) become visible.
+   *
+   * `use` receives a page reader already bound to one provider connection, so
+   * a caller can walk many pages without paying a connection per page. Pages
+   * must be ordered by descending update time: that ordering is what lets a
+   * sync stop at a watermark instead of reading the driver's entire history.
+   */
+  /**
+   * Read a conversation the provider owns, without attaching a session to it.
+   *
+   * `use` receives a reader bound to one provider connection. A driver pages
+   * by descending turn order so an older page can be requested on demand; the
+   * caller supplies the turn budget and the byte budget is the driver's
+   * responsibility, because only the driver knows how large one of its items
+   * can be.
+   *
+   * Reading is lazy by design: the catalog sync must not pull transcripts.
+   */
+  readonly withNativeTimeline?: <A>(
+    use: (read: ProviderAdapterV2NativeTimelineReader) => Effect.Effect<A, ProviderAdapterV2Error>,
+  ) => Effect.Effect<A, ProviderAdapterV2Error>;
+  readonly withNativeCatalog?: <A>(
+    use: (
+      readPage: ProviderAdapterV2NativeThreadPageReader,
+    ) => Effect.Effect<A, ProviderAdapterV2Error>,
+  ) => Effect.Effect<A, ProviderAdapterV2Error>;
+  /**
+   * Models for conversations this driver owns, keyed by native id.
+   *
+   * A listing cannot report them, so they are read per conversation. A driver
+   * omits ids it cannot answer rather than returning a guess: resuming a
+   * conversation under a model nobody chose is worse than not knowing.
+   */
+  /**
+   * The turn this driver is running for a conversation right now, if any.
+   *
+   * A catalog listing cannot answer this: it leaves turns empty. Without a
+   * probe a conversation started outside T3 stays indistinguishable from one
+   * that finished days ago, which is the difference between a working session
+   * and a stale row in the list.
+   */
+  readonly readNativeActiveTurn?: (
+    nativeThreadId: string,
+  ) => Effect.Effect<{ readonly turnId: string } | null, ProviderAdapterV2Error>;
+  readonly readNativeModels?: (
+    nativeThreadIds: ReadonlyArray<string>,
+  ) => Effect.Effect<Readonly<Record<string, string>>, ProviderAdapterV2Error>;
   readonly planSelectionTransition: (
     input: ProviderSelectionTransitionInput,
   ) => Effect.Effect<ProviderSelectionTransitionPlan, ProviderAdapterV2Error>;

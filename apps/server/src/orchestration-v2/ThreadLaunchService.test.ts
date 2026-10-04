@@ -1788,6 +1788,8 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
     };
     const failed = yield* ThreadMessageIntake.launchThread(input).pipe(
       Effect.provideService(ThreadLaunch.ThreadLaunchService, {
+        reconcileImportedThread: () => Effect.void,
+        attachRunningThread: () => Effect.void,
         launch: (request) =>
           launches.launch(request).pipe(
             Effect.andThen(

@@ -62,6 +62,8 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import * as CodexClient from "effect-codex-app-server/client";
+import * as NativeTimeline from "../NativeTimeline.ts";
+import * as NativeTimelineProjection from "../NativeTimelineProjection.ts";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexSchema from "effect-codex-app-server/schema";
 import * as Context from "effect/Context";
@@ -74,6 +76,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -1169,12 +1172,36 @@ type CodexSubAgentActivityItem = Extract<
   { readonly type: "subAgentActivity" }
 >;
 
+/**
+ * Identifies an app-server connection that exists only to read the native
+ * conversation catalog. Such a connection owns no provider session, but spawn
+ * failures still need an attributable id in logs and errors.
+ */
+export const CODEX_CATALOG_PROVIDER_SESSION_ID =
+  "codex-native-catalog" as OrchestrationV2ProviderSession["id"];
+
+/**
+ * Conversation sources that represent a user-visible thread. Sub-agent
+ * lineages are excluded: they are execution children of a root thread, and
+ * listing them would surface hundreds of rows that are not threads a user
+ * started.
+ */
+export const CODEX_NATIVE_THREAD_SOURCE_KINDS = [
+  "cli",
+  "vscode",
+  "exec",
+  "appServer",
+  "unknown",
+] as const satisfies ReadonlyArray<CodexSchema.V2ThreadListParams__ThreadSourceKind>;
+
 export interface CodexAppServerClientFactoryShape {
   readonly open: (input: {
     readonly instanceId: ProviderInstanceId;
-    readonly threadId: ThreadId;
-    readonly providerSessionId: OrchestrationV2ProviderSession["id"];
-    readonly runtimePolicy: ProviderAdapterV2RuntimePolicy;
+    /** Omitted for a catalog connection, which attaches to no app thread. */
+    readonly threadId?: ThreadId | undefined;
+    /** Omitted for a catalog connection, which owns no provider session. */
+    readonly providerSessionId?: OrchestrationV2ProviderSession["id"] | undefined;
+    readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy | undefined;
     readonly settings: CodexSettings;
     readonly environment: NodeJS.ProcessEnv;
   }) => Effect.Effect<
@@ -1288,7 +1315,7 @@ const makeCodexAppServerClientFactoryCommandLayer = (
                 (cause) =>
                   new ProviderAdapterOpenSessionError({
                     driver: CODEX_PROVIDER,
-                    providerSessionId: input.providerSessionId,
+                    providerSessionId: input.providerSessionId ?? CODEX_CATALOG_PROVIDER_SESSION_ID,
                     cause,
                   }),
               ),
@@ -1407,16 +1434,19 @@ export const codexAppServerClientFactoryFromSettingsLayer: Layer.Layer<
               (cause) =>
                 new ProviderAdapterOpenSessionError({
                   driver: CODEX_PROVIDER,
-                  providerSessionId: input.providerSessionId,
+                  providerSessionId: input.providerSessionId ?? CODEX_CATALOG_PROVIDER_SESSION_ID,
                   cause,
                 }),
             ),
           );
-          const protocolLogger = makeCodexAppServerProtocolLogger({
-            nativeEventLogger,
-            threadId: input.threadId,
-            providerSessionId: input.providerSessionId,
-          });
+          const protocolLogger =
+            input.threadId === undefined
+              ? undefined
+              : makeCodexAppServerProtocolLogger({
+                  nativeEventLogger,
+                  threadId: input.threadId,
+                  providerSessionId: input.providerSessionId ?? CODEX_CATALOG_PROVIDER_SESSION_ID,
+                });
           const clientOptions: CodexClient.CodexAppServerClientOptions =
             protocolLogger === undefined
               ? {}
@@ -1545,11 +1575,258 @@ export interface CodexAdapterV2Options {
   };
 }
 
+const codexReadFailure = (detail: string) => (cause: unknown) =>
+  new ProviderAdapterProtocolError({ driver: CODEX_PROVIDER, detail, cause });
+
+/**
+ * Complete the app-server handshake on a freshly spawned connection.
+ *
+ * The factory only spawns; every request before `initialized` fails with
+ * "Not initialized", which no mocked client would reveal.
+ */
+const codexHandshake = (client: CodexClient.CodexAppServerClient["Service"]) =>
+  Effect.gen(function* () {
+    yield* client
+      .request("initialize", {
+        // Codex uses the client name as the request originator, so reads
+        // identify themselves exactly like a session does.
+        clientInfo: buildCodexInitializeParams().clientInfo,
+        capabilities: CODEX_CLIENT_CAPABILITIES,
+      })
+      .pipe(Effect.mapError(codexReadFailure("Failed to initialize the Codex connection.")));
+    yield* client
+      .notify("initialized", undefined)
+      .pipe(Effect.mapError(codexReadFailure("Failed to complete the Codex handshake.")));
+  });
+
+/**
+ * Read one turn's items, stopping at the byte budget.
+ *
+ * A turn budget alone is not a size bound: a single agentic turn can hold tens
+ * of thousands of items, and one page of them would outgrow the history window
+ * it is meant to fill. The budget keeps a read-through proportional to the page
+ * rather than to the age of the conversation.
+ */
+const readNativeTurnItems = (
+  client: CodexClient.CodexAppServerClient["Service"],
+  nativeThreadId: string,
+  nativeTurnId: string,
+): Effect.Effect<ReadonlyArray<NativeTimeline.NativeTimelineItem>, ProviderAdapterProtocolError> =>
+  Effect.gen(function* () {
+    const items: Array<NativeTimeline.NativeTimelineItem> = [];
+    let cursor: string | null = null;
+    let bytes = 0;
+    const seenCursors = new Set<string | null>();
+
+    for (;;) {
+      // A provider that repeats a cursor must not spin forever.
+      if (seenCursors.has(cursor)) break;
+      seenCursors.add(cursor);
+      const page: CodexSchema.V2ThreadItemsListResponse = yield* client
+        .request("thread/items/list", {
+          threadId: nativeThreadId,
+          turnId: nativeTurnId,
+          limit: NativeTimeline.NATIVE_TIMELINE_ITEM_PAGE_SIZE,
+          sortDirection: "asc",
+          cursor,
+        })
+        .pipe(Effect.mapError(codexReadFailure("Failed to read native conversation items.")));
+      const { byTurn, approximateBytes } = NativeTimelineProjection.partitionTimelineItems(
+        page.data,
+      );
+      bytes += approximateBytes;
+      items.push(...(byTurn.get(nativeTurnId) ?? []));
+      cursor = page.nextCursor ?? null;
+      if (cursor === null || bytes >= NativeTimeline.NATIVE_TIMELINE_ITEM_BYTE_BUDGET) {
+        break;
+      }
+    }
+
+    return items;
+  });
+
 export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): ProviderAdapterV2Shape {
   const { clientFactory, fileSystem, idAllocator, serverConfig } = adapterOptions;
   const continuationRequests = adapterOptions.continuationRequests;
 
   return ProviderAdapterV2.of({
+    /**
+     * Read a conversation T3 adopted, without attaching a session to it.
+     *
+     * The catalog stays metadata-only; a transcript is read here, on demand,
+     * the first time a reader actually asks for it.
+     */
+    withNativeTimeline: (use) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const client = yield* clientFactory.open({
+            instanceId: adapterOptions.instanceId,
+            settings: adapterOptions.settings,
+            environment: adapterOptions.environment,
+          });
+          yield* codexHandshake(client);
+          return yield* use((request) =>
+            Effect.gen(function* () {
+              const turnPage: CodexSchema.V2ThreadTurnsListResponse = yield* client.request(
+                "thread/turns/list",
+                {
+                  threadId: request.nativeThreadId,
+                  limit: NativeTimeline.NATIVE_TIMELINE_TURN_PAGE_SIZE,
+                  sortDirection: "desc",
+                  itemsView: "summary",
+                  ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+                },
+              );
+              const turns = yield* Effect.forEach(turnPage.data, (turn) =>
+                readNativeTurnItems(client, request.nativeThreadId, turn.id).pipe(
+                  Effect.map((items) => ({
+                    nativeTurnId: turn.id,
+                    status: turn.status,
+                    startedAt:
+                      turn.startedAt === undefined
+                        ? undefined
+                        : DateTime.formatIso(codexTimestamp(turn.startedAt)),
+                    completedAt:
+                      turn.completedAt === undefined
+                        ? undefined
+                        : DateTime.formatIso(codexTimestamp(turn.completedAt)),
+                    items,
+                  })),
+                ),
+              );
+              return {
+                // Turns arrive newest-first; a timeline reads oldest-first.
+                turns: NativeTimeline.chronological(turns),
+                nextCursor: turnPage.nextCursor ?? null,
+              };
+            }).pipe(Effect.mapError(codexReadFailure("Failed to read native conversation."))),
+          );
+        }),
+      ),
+    withNativeCatalog: (use) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const client = yield* clientFactory.open({
+            instanceId: adapterOptions.instanceId,
+            settings: adapterOptions.settings,
+            environment: adapterOptions.environment,
+          });
+          yield* codexHandshake(client);
+          return yield* use((page) =>
+            client
+              .request("thread/list", {
+                archived: page.archived,
+                limit: page.limit,
+                cursor: page.cursor ?? null,
+                // Descending update time is a contract, not a preference: the
+                // caller stops paging at a watermark, and only this ordering
+                // makes that stop correct.
+                sortKey: "updated_at",
+                sortDirection: "desc",
+                sourceKinds: CODEX_NATIVE_THREAD_SOURCE_KINDS,
+              })
+              .pipe(
+                Effect.mapError(
+                  codexReadFailure("Failed to read the native Codex thread catalog."),
+                ),
+                Effect.map((response) => ({
+                  threads: response.data.map((thread) => ({
+                    nativeId: thread.id,
+                    title: thread.name ?? thread.preview ?? undefined,
+                    cwd: thread.cwd,
+                    updatedAt: DateTime.formatIso(codexTimestamp(thread.updatedAt)),
+                    createdAt:
+                      thread.createdAt === undefined
+                        ? undefined
+                        : DateTime.formatIso(codexTimestamp(thread.createdAt)),
+                    archived: page.archived,
+                    ephemeral: thread.ephemeral,
+                    // `thread/list` leaves turns empty, so a listing cannot say
+                    // whether a conversation is mid-turn. Nothing consumes this
+                    // yet; the field exists so a driver that can answer does not
+                    // have to change the shape later.
+                    active: false,
+                  })),
+                  nextCursor: response.nextCursor ?? null,
+                })),
+              ),
+          );
+        }),
+      ),
+    /**
+     * Read the model each conversation runs on.
+     *
+     * `thread/list` carries no model, and reading one conversation's whole
+     * history to learn which model it uses would defeat the point of a lazy
+     * catalog. `thread/read` without turns answers it cheaply.
+     *
+     * A conversation whose model cannot be read is left out of the result
+     * rather than guessed: resuming it under a model nobody chose would be a
+     * silent switch.
+     */
+    /**
+     * Read the turn a conversation is running right now.
+     *
+     * `thread/turns/list` with a single newest turn answers this without
+     * touching item bodies, so the cost is one small request rather than a
+     * transcript read. `itemsView: "notLoaded"` is what keeps it that way.
+     */
+    readNativeActiveTurn: (nativeThreadId) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const client = yield* clientFactory.open({
+            instanceId: adapterOptions.instanceId,
+            settings: adapterOptions.settings,
+            environment: adapterOptions.environment,
+          });
+          yield* codexHandshake(client);
+          // A turn running in another app-server process is invisible until this
+          // connection joins the conversation. Resuming is what joins it; the
+          // turns/list below then reports what the provider is actually doing.
+          yield* client
+            .request("thread/resume", { threadId: nativeThreadId, excludeTurns: true })
+            .pipe(
+              Effect.mapError(codexReadFailure("Failed to join the native conversation.")),
+              Effect.asVoid,
+            );
+          const newest = yield* client
+            .request("thread/turns/list", {
+              threadId: nativeThreadId,
+              limit: 1,
+              sortDirection: "desc",
+              itemsView: "notLoaded",
+            })
+            .pipe(
+              Effect.mapError(codexReadFailure("Failed to read the native active turn.")),
+              Effect.map((page) => page.data[0]),
+            );
+          return newest?.status === "inProgress" ? { turnId: newest.id } : null;
+        }),
+      ),
+    readNativeModels: (nativeThreadIds) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          if (nativeThreadIds.length === 0) return {};
+          const client = yield* clientFactory.open({
+            instanceId: adapterOptions.instanceId,
+            settings: adapterOptions.settings,
+            environment: adapterOptions.environment,
+          });
+          yield* codexHandshake(client);
+          const models: Record<string, string> = {};
+          for (const nativeThreadId of nativeThreadIds) {
+            const read = yield* Effect.result(
+              client.request("thread/read", { threadId: nativeThreadId, includeTurns: false }),
+            );
+            if (Result.isFailure(read)) continue;
+            const model = read.success.thread.model;
+            if (model !== undefined && model !== null) {
+              models[nativeThreadId] = model;
+            }
+          }
+          return models;
+        }),
+      ),
     instanceId: adapterOptions.instanceId,
     driver: CODEX_PROVIDER,
     getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),

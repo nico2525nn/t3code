@@ -31,6 +31,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import * as NativeTimelineReader from "./NativeTimelineReader.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 
@@ -375,6 +376,7 @@ function latestSteerableRun(
 
 const make = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
+  const nativeTimelineReader = yield* NativeTimelineReader.NativeTimelineReader;
   const legacyImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
 
   const ensureLegacyTranscript = Effect.fn(
@@ -430,16 +432,31 @@ const make = Effect.gen(function* () {
       Effect.andThen(orchestrator.getCheckpointContext(threadId)),
     );
 
+  // A conversation the catalog adopted carries no transcript. The first
+  // reader asks the provider for one; every later read finds local rows and
+  // skips it, so this costs one provider read per adopted thread rather than
+  // one per open. Both read paths go through it: a client without the paging
+  // layers asks for the plain snapshot, and a client with them asks for the
+  // window, so covering only one would leave half the clients seeing nothing.
+  const withNativeHistory = (snapshot: NativeTimelineReader.NativeTimelineSnapshotReader) =>
+    nativeTimelineReader.readThrough(snapshot);
+
   const getThreadSnapshot: ThreadManagementServiceShape["getThreadSnapshot"] = (threadId) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getThreadSnapshot(threadId)),
+      Effect.flatMap(withNativeHistory),
     );
+  // A conversation the catalog adopted carries no transcript. The first
+  // reader asks the provider for one; every later read finds local rows and
+  // skips it, so this costs a provider read once per adopted thread rather than
+  // once per open.
   const getThreadSnapshotWindow: ThreadManagementServiceShape["getThreadSnapshotWindow"] = (
     threadId,
     options,
   ) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getThreadSnapshotWindow(threadId, options)),
+      Effect.flatMap(withNativeHistory),
     );
 
   const dispatch: ThreadManagementServiceShape["dispatch"] = (command) =>
@@ -752,11 +769,20 @@ const legacyV1ThreadImporterNoopLayer = Layer.succeed(
   }),
 );
 
+const nativeTimelineReaderNoopLayer = Layer.succeed(NativeTimelineReader.NativeTimelineReader, {
+  // Without a provider registry there is nothing to read through.
+  readThrough: (snapshot) => Effect.succeed(snapshot),
+});
+
 export const layer: Layer.Layer<ThreadManagementService, never, Orchestrator.OrchestratorV2> =
-  Layer.effect(ThreadManagementService, make).pipe(Layer.provide(legacyV1ThreadImporterNoopLayer));
+  Layer.effect(ThreadManagementService, make).pipe(
+    Layer.provide(Layer.merge(legacyV1ThreadImporterNoopLayer, nativeTimelineReaderNoopLayer)),
+  );
 
 export const layerWithLegacyImporter: Layer.Layer<
   ThreadManagementService,
   never,
-  LegacyV1ThreadImporter.LegacyV1ThreadImporter | Orchestrator.OrchestratorV2
+  | LegacyV1ThreadImporter.LegacyV1ThreadImporter
+  | NativeTimelineReader.NativeTimelineReader
+  | Orchestrator.OrchestratorV2
 > = Layer.effect(ThreadManagementService, make);
