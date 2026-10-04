@@ -5,6 +5,7 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   CommandId,
   type ChatAttachment,
+  type ProviderInstanceId,
   type MessageId,
   type ModelSelection,
   type OrchestrationV2Actor,
@@ -141,6 +142,19 @@ export class ThreadLaunchService extends Context.Service<
       readonly projectId: ProjectId;
       readonly threadId: ThreadId;
       readonly title: string;
+    }) => Effect.Effect<void, ThreadLaunchError>;
+    /**
+     * Attach to a conversation the provider is already running.
+     *
+     * Lives here rather than in the catalog sync because dispatching needs a
+     * command surface the sync cannot reach without closing a layer cycle.
+     */
+    readonly attachRunningThread: (input: {
+      readonly commandId: CommandId;
+      readonly projectId: ProjectId;
+      readonly threadId: ThreadId;
+      readonly providerInstanceId: ProviderInstanceId;
+      readonly nativeTurnId: string;
     }) => Effect.Effect<void, ThreadLaunchError>;
   }
 >()("t3/orchestration-v2/ThreadLaunchService") {}
@@ -874,7 +888,30 @@ const make = Effect.gen(function* () {
         ),
       );
 
-  return ThreadLaunchService.of({ launch, reconcileImportedThread });
+  const attachRunningThread: ThreadLaunchService["Service"]["attachRunningThread"] = (input) =>
+    threads
+      .dispatch({
+        type: "thread.external-run.attach",
+        commandId: input.commandId,
+        threadId: input.threadId,
+        providerInstanceId: input.providerInstanceId,
+        nativeTurnId: input.nativeTurnId,
+      })
+      .pipe(
+        Effect.asVoid,
+        Effect.mapError(
+          (cause) =>
+            new ThreadLaunchError({
+              operation: "update-thread",
+              commandId: input.commandId,
+              projectId: input.projectId,
+              threadId: input.threadId,
+              cause,
+            }),
+        ),
+      );
+
+  return ThreadLaunchService.of({ launch, reconcileImportedThread, attachRunningThread });
 });
 
 export const layer = Layer.effect(ThreadLaunchService, make);

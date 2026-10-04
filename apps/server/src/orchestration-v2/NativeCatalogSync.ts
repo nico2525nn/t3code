@@ -292,7 +292,7 @@ export const make = Effect.gen(function* () {
 
   const syncInstance = (
     adapter: ProviderAdapter.ProviderAdapterV2Shape,
-  ): Effect.Effect<InstanceSyncResult, NativeCatalogSyncError> =>
+  ): Effect.Effect<InstanceSyncResult, NativeCatalogSyncError | NativeThreadImportError> =>
     Effect.gen(function* () {
       const withCatalog = adapter.withNativeCatalog;
       // An adapter without a native catalog is simply not a source of threads
@@ -353,16 +353,24 @@ export const make = Effect.gen(function* () {
         // Which of these conversations are running right now, somewhere other
         // than T3? Only the rows this pass touched are probed, so an idle pass
         // still costs one page per partition.
-        const running =
+        const running: Readonly<Record<string, string>> =
           scan.changed.length === 0 || adapter.readNativeActiveTurn === undefined
-            ? []
+            ? {}
             : yield* Effect.forEach(scan.changed, (thread) =>
                 Effect.result(adapter.readNativeActiveTurn!(thread.nativeId)).pipe(
                   Effect.map((result) =>
-                    Result.isSuccess(result) && result.success !== null ? thread.nativeId : null,
+                    Result.isSuccess(result) && result.success !== null
+                      ? ([thread.nativeId, result.success.turnId] as const)
+                      : null,
                   ),
                 ),
-              ).pipe(Effect.map((ids) => ids.filter((id): id is string => id !== null)));
+              ).pipe(
+                Effect.map((pairs) =>
+                  Object.fromEntries(
+                    pairs.filter((pair): pair is readonly [string, string] => pair !== null),
+                  ),
+                ),
+              );
 
         for (const thread of scan.changed) {
           const outcome = yield* Effect.result(
@@ -390,15 +398,41 @@ export const make = Effect.gen(function* () {
         // reached the previous one (or the end of the catalog) and every row
         // it saw imported cleanly; otherwise the rows behind the boundary are
         // retried from the recorded cursor.
-        // A conversation running elsewhere cannot be adopted by re-creating it:
-        // what it needs is an attachment, which is the next step. Reporting it
-        // keeps the gap visible instead of looking like an idle conversation.
-        for (const nativeThreadId of running) {
-          yield* Effect.logInfo("native conversation is running outside T3", {
+        // A conversation running elsewhere cannot be adopted by re-creating it.
+        // Attaching gives it a run, which is what makes the provider resume it
+        // and stream its notifications into the projection.
+        for (const [nativeThreadId, nativeTurnId] of Object.entries(running)) {
+          const threadId = IdAllocator.deriveThreadFromProviderThread({
             driver: adapter.driver,
             providerInstanceId: adapter.instanceId,
             nativeThreadId,
           });
+          const owner = yield* projectionStore
+            .getThreadShell(threadId)
+            .pipe(
+              Effect.mapError((cause) => new NativeThreadImportError({ nativeThreadId, cause })),
+            );
+          if (owner === null || owner.projectId === undefined) continue;
+          yield* threadLaunch
+            .attachRunningThread({
+              commandId: CommandId.make(
+                `native-catalog:${adapter.driver}:${adapter.instanceId}:${nativeThreadId}:attach`,
+              ),
+              projectId: owner.projectId,
+              threadId,
+              providerInstanceId: adapter.instanceId,
+              nativeTurnId,
+            })
+            .pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("native running conversation attach failed", {
+                  driver: adapter.driver,
+                  providerInstanceId: adapter.instanceId,
+                  nativeThreadId,
+                  cause,
+                }),
+              ),
+            );
         }
 
         if (!scan.complete) {
