@@ -365,33 +365,11 @@ export const make = Effect.gen(function* () {
         // miss exactly the case that matters. Conversations T3 has already
         // attached to are excluded, so the set stays small and the probe runs
         // against a conversation T3 is not already driving.
+        const adopted = yield* Ref.get(detachedNativeIds);
         const probeCandidates =
           adapter.readNativeActiveTurn === undefined
             ? []
-            : yield* Effect.forEach(
-                [
-                  ...new Set([
-                    ...scan.changed.map((t) => t.nativeId),
-                    ...(yield* Ref.get(detachedNativeIds)),
-                  ]),
-                ],
-                (nativeThreadId) => {
-                  const threadId = IdAllocator.deriveThreadFromProviderThread({
-                    driver: adapter.driver,
-                    providerInstanceId: adapter.instanceId,
-                    nativeThreadId,
-                  });
-                  return projectionStore.getThreadRecords(threadId, ["providerThreads"]).pipe(
-                    Effect.map((records) => {
-                      const detached = records.providerThreads.every(
-                        (providerThread) => providerThread.status === "not_loaded",
-                      );
-                      return detached ? nativeThreadId : null;
-                    }),
-                    Effect.orElseSucceed(() => null),
-                  );
-                },
-              ).pipe(Effect.map((ids) => ids.filter((id): id is string => id !== null)));
+            : [...new Set([...scan.changed.map((t) => t.nativeId), ...adopted])];
 
         const running: Readonly<Record<string, string>> =
           probeCandidates.length === 0
