@@ -677,6 +677,17 @@ export interface ProviderAdapterV2Shape {
    * omits ids it cannot answer rather than returning a guess: resuming a
    * conversation under a model nobody chose is worse than not knowing.
    */
+  /**
+   * The turn this driver is running for a conversation right now, if any.
+   *
+   * A catalog listing cannot answer this: it leaves turns empty. Without a
+   * probe a conversation started outside T3 stays indistinguishable from one
+   * that finished days ago, which is the difference between a working session
+   * and a stale row in the list.
+   */
+  readonly readNativeActiveTurn?: (
+    nativeThreadId: string,
+  ) => Effect.Effect<{ readonly turnId: string } | null, ProviderAdapterV2Error>;
   readonly readNativeModels?: (
     nativeThreadIds: ReadonlyArray<string>,
   ) => Effect.Effect<Readonly<Record<string, string>>, ProviderAdapterV2Error>;

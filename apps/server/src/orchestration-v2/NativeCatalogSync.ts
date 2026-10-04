@@ -350,6 +350,20 @@ export const make = Effect.gen(function* () {
                 adapter.readNativeModels(scan.changed.map((thread) => thread.nativeId)),
               ).pipe(Effect.map(Result.getOrElse(() => ({}) as Readonly<Record<string, string>>)));
 
+        // Which of these conversations are running right now, somewhere other
+        // than T3? Only the rows this pass touched are probed, so an idle pass
+        // still costs one page per partition.
+        const running =
+          scan.changed.length === 0 || adapter.readNativeActiveTurn === undefined
+            ? []
+            : yield* Effect.forEach(scan.changed, (thread) =>
+                Effect.result(adapter.readNativeActiveTurn!(thread.nativeId)).pipe(
+                  Effect.map((result) =>
+                    Result.isSuccess(result) && result.success !== null ? thread.nativeId : null,
+                  ),
+                ),
+              ).pipe(Effect.map((ids) => ids.filter((id): id is string => id !== null)));
+
         for (const thread of scan.changed) {
           const outcome = yield* Effect.result(
             importThread(adapter, thread, models[thread.nativeId]),
@@ -376,6 +390,17 @@ export const make = Effect.gen(function* () {
         // reached the previous one (or the end of the catalog) and every row
         // it saw imported cleanly; otherwise the rows behind the boundary are
         // retried from the recorded cursor.
+        // A conversation running elsewhere cannot be adopted by re-creating it:
+        // what it needs is an attachment, which is the next step. Reporting it
+        // keeps the gap visible instead of looking like an idle conversation.
+        for (const nativeThreadId of running) {
+          yield* Effect.logInfo("native conversation is running outside T3", {
+            driver: adapter.driver,
+            providerInstanceId: adapter.instanceId,
+            nativeThreadId,
+          });
+        }
+
         if (!scan.complete) {
           truncated += 1;
         }

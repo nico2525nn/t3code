@@ -1764,6 +1764,36 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
      * rather than guessed: resuming it under a model nobody chose would be a
      * silent switch.
      */
+    /**
+     * Read the turn a conversation is running right now.
+     *
+     * `thread/turns/list` with a single newest turn answers this without
+     * touching item bodies, so the cost is one small request rather than a
+     * transcript read. `itemsView: "notLoaded"` is what keeps it that way.
+     */
+    readNativeActiveTurn: (nativeThreadId) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const client = yield* clientFactory.open({
+            instanceId: adapterOptions.instanceId,
+            settings: adapterOptions.settings,
+            environment: adapterOptions.environment,
+          });
+          yield* codexHandshake(client);
+          const newest = yield* client
+            .request("thread/turns/list", {
+              threadId: nativeThreadId,
+              limit: 1,
+              sortDirection: "desc",
+              itemsView: "notLoaded",
+            })
+            .pipe(
+              Effect.mapError(codexReadFailure("Failed to read the native active turn.")),
+              Effect.map((page) => page.data[0]),
+            );
+          return newest?.status === "inProgress" ? { turnId: newest.id } : null;
+        }),
+      ),
     readNativeModels: (nativeThreadIds) =>
       Effect.scoped(
         Effect.gen(function* () {
