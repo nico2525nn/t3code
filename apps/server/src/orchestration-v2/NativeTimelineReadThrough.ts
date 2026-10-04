@@ -17,6 +17,7 @@ import type { OrchestrationV2ThreadProjection } from "@t3tools/contracts";
 import type { NativeTimelineItem, NativeTimelineTurn } from "./NativeTimeline.ts";
 
 /** The wire snapshot the HTTP layer reads; mirrors the orchestrator return. */
+/** What both read paths return, before any native history is overlaid. */
 export interface NativeTimelineSnapshot {
   readonly schemaVersion: number;
   readonly snapshotSequence: number;

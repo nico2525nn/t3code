@@ -1,31 +1,19 @@
-import { type OrchestrationV2ThreadProjection, type ProviderDriverKind } from "@t3tools/contracts";
+import { type ProviderDriverKind } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
-import * as Schema from "effect/Schema";
 
 import * as NativeTimeline from "./NativeTimeline.ts";
 import * as NativeTimelineReadThrough from "./NativeTimelineReadThrough.ts";
 import * as ProviderAdapter from "./ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 
-export class NativeTimelineUnavailableError extends Schema.TaggedError<NativeTimelineUnavailableError>()(
-  "NativeTimelineUnavailableError",
-  { threadId: Schema.String, detail: Schema.String, cause: Schema.optional(Schema.Defect()) },
-) {
-  override get message(): string {
-    return `Native timeline unavailable for ${this.threadId}: ${this.detail}`;
-  }
-}
+import type { NativeTimelineSnapshot as NativeTimelineSnapshotReader } from "./NativeTimelineReadThrough.ts";
 
-export interface NativeTimelineSnapshotReader {
-  readonly projection: OrchestrationV2ThreadProjection;
-  readonly schemaVersion: number;
-  readonly snapshotSequence: number;
-}
+export type { NativeTimelineSnapshotReader };
 
 /**
  * Overlay provider-owned history onto a snapshot that does not yet have it.
