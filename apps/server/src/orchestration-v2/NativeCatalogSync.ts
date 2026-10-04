@@ -11,6 +11,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -196,6 +197,13 @@ export const make = Effect.gen(function* () {
   const ids = yield* IdAllocator.IdAllocatorV2;
   const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
   const sql = yield* SqlClient.SqlClient;
+  /**
+   * Conversations adopted but never attached, so the probe keeps re-checking
+   * them. A conversation can start producing output long after adoption, and
+   * probing only what the watermark just moved past would miss exactly that.
+   * Entries leave the set once T3 attaches and drives the conversation itself.
+   */
+  const detachedNativeIds = yield* Ref.make<ReadonlySet<string>>(new Set<string>());
 
   const importThread = (
     adapter: ProviderAdapter.ProviderAdapterV2Shape,
@@ -350,17 +358,49 @@ export const make = Effect.gen(function* () {
                 adapter.readNativeModels(scan.changed.map((thread) => thread.nativeId)),
               ).pipe(Effect.map(Result.getOrElse(() => ({}) as Readonly<Record<string, string>>)));
 
-        // Which of these conversations are running right now, somewhere other
-        // than T3? Only the rows this pass touched are probed, so an idle pass
-        // still costs one page per partition.
+        // Which conversations are running right now, somewhere other than T3?
+        //
+        // This pass's rows are not enough: a conversation imported minutes ago
+        // can start producing output later, and probing only what changed would
+        // miss exactly the case that matters. Conversations T3 has already
+        // attached to are excluded, so the set stays small and the probe runs
+        // against a conversation T3 is not already driving.
+        const probeCandidates =
+          adapter.readNativeActiveTurn === undefined
+            ? []
+            : yield* Effect.forEach(
+                [
+                  ...new Set([
+                    ...scan.changed.map((t) => t.nativeId),
+                    ...(yield* Ref.get(detachedNativeIds)),
+                  ]),
+                ],
+                (nativeThreadId) => {
+                  const threadId = IdAllocator.deriveThreadFromProviderThread({
+                    driver: adapter.driver,
+                    providerInstanceId: adapter.instanceId,
+                    nativeThreadId,
+                  });
+                  return projectionStore.getThreadRecords(threadId, ["providerThreads"]).pipe(
+                    Effect.map((records) => {
+                      const detached = records.providerThreads.every(
+                        (providerThread) => providerThread.status === "not_loaded",
+                      );
+                      return detached ? nativeThreadId : null;
+                    }),
+                    Effect.orElseSucceed(() => null),
+                  );
+                },
+              ).pipe(Effect.map((ids) => ids.filter((id): id is string => id !== null)));
+
         const running: Readonly<Record<string, string>> =
-          scan.changed.length === 0 || adapter.readNativeActiveTurn === undefined
+          probeCandidates.length === 0
             ? {}
-            : yield* Effect.forEach(scan.changed, (thread) =>
-                Effect.result(adapter.readNativeActiveTurn!(thread.nativeId)).pipe(
+            : yield* Effect.forEach(probeCandidates, (nativeThreadId) =>
+                Effect.result(adapter.readNativeActiveTurn!(nativeThreadId)).pipe(
                   Effect.map((result) =>
                     Result.isSuccess(result) && result.success !== null
-                      ? ([thread.nativeId, result.success.turnId] as const)
+                      ? ([nativeThreadId, result.success.turnId] as const)
                       : null,
                   ),
                 ),
@@ -377,6 +417,11 @@ export const make = Effect.gen(function* () {
             importThread(adapter, thread, models[thread.nativeId]),
           );
           if (Result.isSuccess(outcome)) {
+            yield* Ref.update(detachedNativeIds, (existing) => {
+              const next = new Set(existing);
+              next.add(thread.nativeId);
+              return next;
+            });
             if (outcome.success.kind === "imported") {
               imported += 1;
             } else {
@@ -402,6 +447,12 @@ export const make = Effect.gen(function* () {
         // Attaching gives it a run, which is what makes the provider resume it
         // and stream its notifications into the projection.
         for (const [nativeThreadId, nativeTurnId] of Object.entries(running)) {
+          // T3 now drives this conversation itself, so it stops being probed.
+          yield* Ref.update(detachedNativeIds, (existing) => {
+            const next = new Set(existing);
+            next.delete(nativeThreadId);
+            return next;
+          });
           const threadId = IdAllocator.deriveThreadFromProviderThread({
             driver: adapter.driver,
             providerInstanceId: adapter.instanceId,
@@ -412,6 +463,7 @@ export const make = Effect.gen(function* () {
             .pipe(
               Effect.mapError((cause) => new NativeThreadImportError({ nativeThreadId, cause })),
             );
+
           if (owner === null || owner.projectId === undefined) continue;
           yield* threadLaunch
             .attachRunningThread({
