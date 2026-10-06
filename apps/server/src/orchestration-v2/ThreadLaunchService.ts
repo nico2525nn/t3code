@@ -12,6 +12,7 @@ import {
   type OrchestrationV2ProviderThreadNativeMetadata,
   type OrchestrationV2ThreadProjection,
   type ProviderDriverKind,
+  type ProviderInstanceId,
   type ProviderInteractionMode,
   ProjectId,
   type RunId,
@@ -153,6 +154,29 @@ export class ThreadLaunchService extends Context.Service<
     readonly launch: (
       input: ThreadLaunchInput,
     ) => Effect.Effect<ThreadLaunchResult, ThreadLaunchError>;
+    /**
+     * Refresh shell metadata on a thread that already exists.
+     * Used when the provider owns the conversation: the app thread is already
+     * canonical, so a rename reaches it instead of creating a second thread.
+     */
+    readonly reconcileImportedThread: (input: {
+      readonly commandId: CommandId;
+      readonly projectId: ProjectId;
+      readonly threadId: ThreadId;
+      readonly title: string;
+    }) => Effect.Effect<void, ThreadLaunchError>;
+    /**
+     * Attach to a conversation the provider is already running.
+     * Dispatches a command the orchestrator turns into a run; the normal
+     * session path then resumes the native conversation and streams it.
+     */
+    readonly attachRunningThread: (input: {
+      readonly commandId: CommandId;
+      readonly projectId: ProjectId;
+      readonly threadId: ThreadId;
+      readonly providerInstanceId: ProviderInstanceId;
+      readonly nativeTurnId: string;
+    }) => Effect.Effect<void, ThreadLaunchError>;
     /** Dispatches prepared-run.retry and prepares the run's workspace again. */
     readonly retryPreparation: (
       input: ThreadLaunchRetryInput,
@@ -977,7 +1001,53 @@ const make = Effect.gen(function* () {
     );
   };
 
-  return ThreadLaunchService.of({ launch, retryPreparation });
+  return ThreadLaunchService.of({
+    launch,
+    reconcileImportedThread: (input) =>
+      threads
+        .dispatch({
+          type: "thread.metadata.update",
+          commandId: input.commandId,
+          threadId: input.threadId,
+          title: input.title,
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError(
+            (cause) =>
+              new ThreadLaunchError({
+                operation: "update-thread",
+                commandId: input.commandId,
+                projectId: input.projectId,
+                threadId: input.threadId,
+                cause,
+              }),
+          ),
+        ),
+    attachRunningThread: (input) =>
+      threads
+        .dispatch({
+          type: "thread.external-run.attach",
+          commandId: input.commandId,
+          threadId: input.threadId,
+          providerInstanceId: input.providerInstanceId,
+          nativeTurnId: input.nativeTurnId,
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError(
+            (cause) =>
+              new ThreadLaunchError({
+                operation: "update-thread",
+                commandId: input.commandId,
+                projectId: input.projectId,
+                threadId: input.threadId,
+                cause,
+              }),
+          ),
+        ),
+    retryPreparation,
+  });
 });
 
 export const layer = Layer.effect(ThreadLaunchService, make);

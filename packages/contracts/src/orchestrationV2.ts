@@ -3111,6 +3111,20 @@ const OrchestrationV2InternalCommand = Schema.Union([
     reason: Schema.optional(Schema.String),
   }),
   /**
+   * Attach to work the provider is already running for this thread.
+   * The catalog sync dispatches it when a probe finds an in-progress native
+   * turn on an adopted conversation; the decider turns it into a run the
+   * normal session path then drives. Internal so only the server can claim a
+   * thread is running elsewhere.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.external-run.attach"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    providerInstanceId: ProviderInstanceId,
+    nativeTurnId: Schema.String,
+  }),
+  /**
    * Records or updates a secret an agent asked the user for. Internal so no
    * client can mark a request saved without the value being stored.
    */

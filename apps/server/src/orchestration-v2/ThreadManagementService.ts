@@ -35,6 +35,8 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as Orchestrator from "./Orchestrator.ts";
+import * as NativeTimeline from "./NativeTimeline.ts";
+import * as NativeHistoryReader from "./NativeHistoryReader.ts";
 import { projectTurnItemForDetail } from "./WireProjection.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 
@@ -399,6 +401,7 @@ function latestSteerableRun(
 const make = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const legacyImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
+  const nativeHistory = yield* Effect.serviceOption(NativeHistoryReader.NativeHistoryReader);
 
   const ensureLegacyTranscript = Effect.fn(
     "orchestrationV2.threadManagement.ensureLegacyTranscript",
@@ -448,6 +451,15 @@ const make = Effect.gen(function* () {
       Effect.andThen(orchestrator.getThreadProjection(threadId)),
     );
 
+  // Adopted conversations carry no transcript. The first reader pulls it from
+  // the provider; later reads find local rows and skip it.
+  const readThroughNativeHistory = (
+    snapshot: NativeTimeline.NativeTimelineSnapshot,
+  ): Effect.Effect<NativeTimeline.NativeTimelineSnapshot, never> =>
+    Option.isSome(nativeHistory)
+      ? nativeHistory.value.readThrough(snapshot)
+      : Effect.succeed(snapshot);
+
   const getCheckpointContext: ThreadManagementServiceShape["getCheckpointContext"] = (threadId) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getCheckpointContext(threadId)),
@@ -456,6 +468,7 @@ const make = Effect.gen(function* () {
   const getThreadSnapshot: ThreadManagementServiceShape["getThreadSnapshot"] = (threadId) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getThreadSnapshot(threadId)),
+      Effect.flatMap((snapshot) => readThroughNativeHistory(snapshot)),
     );
   const getThreadSnapshotWindow: ThreadManagementServiceShape["getThreadSnapshotWindow"] = (
     threadId,
@@ -463,6 +476,7 @@ const make = Effect.gen(function* () {
   ) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getThreadSnapshotWindow(threadId, options)),
+      Effect.flatMap((snapshot) => readThroughNativeHistory(snapshot)),
     );
 
   const dispatch: ThreadManagementServiceShape["dispatch"] = (command) =>

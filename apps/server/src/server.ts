@@ -5,6 +5,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
+import * as CodexExternalThreadWorker from "./orchestration-v2/CodexExternalThreadWorker.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
 
@@ -55,6 +56,7 @@ import * as GitLabCli from "./sourceControl/GitLabCli.ts";
 import * as ForgejoCli from "./sourceControl/ForgejoCli.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
+import * as ProviderOrchestrationAdapterInfrastructure from "./provider/ProviderOrchestrationAdapterInfrastructure.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
@@ -485,6 +487,18 @@ const layerThreadPullRequestWorker = Layer.effectDiscard(
   ThreadPullRequestService.make.pipe(Effect.flatMap((service) => service.start())),
 ).pipe(Layer.provide(layerPullRequestService));
 
+// Adopt Codex conversations that started outside T3: catalog sync + attach.
+const layerCodexExternalThreadWorker = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const worker = yield* CodexExternalThreadWorker.CodexExternalThreadWorker;
+    yield* worker.start();
+  }),
+).pipe(
+  Layer.provide(CodexExternalThreadWorker.layer),
+  Layer.provide(layerOrchestrationV2Runtime),
+  Layer.provide(ProviderOrchestrationAdapterInfrastructure.layer),
+);
+
 const layerProviderInstallationRefresh = Layer.effectDiscard(
   Effect.gen(function* () {
     const antigravity = yield* AntigravityInstallation.AntigravityInstallation;
@@ -526,6 +540,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.provide(ProjectionStoreV2.layer),
   ),
   layerThreadPullRequestWorker,
+  layerCodexExternalThreadWorker,
   Layer.effectDiscard(
     Effect.gen(function* () {
       const service = yield* PullRequestSyncReactor.PullRequestSyncReactor;

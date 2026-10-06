@@ -344,6 +344,16 @@ export interface ProjectionStoreV2Shape {
   readonly getThreadShell: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2ThreadShell | null, ProjectionStoreV2Error>;
+  /**
+   * The app thread that already owns a provider conversation, if any.
+   * The catalog lists conversations T3 created itself, so a row must be
+   * matched before it becomes a second app thread.
+   */
+  readonly findThreadIdByNativeIdentity: (identity: {
+    readonly driver: string;
+    readonly providerInstanceId: string;
+    readonly nativeThreadId: string;
+  }) => Effect.Effect<ThreadId | null, ProjectionStoreV2Error>;
   readonly getThread: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2AppThread, ProjectionStoreV2Error>;
@@ -2127,6 +2137,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 first_run_ordinal,
                 last_run_ordinal,
                 updated_at,
+                native_thread_id,
                 payload_json
               )
               VALUES (
@@ -2141,6 +2152,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ${event.payload.firstRunOrdinal},
                 ${event.payload.lastRunOrdinal},
                 ${stringField(payload, "updatedAt")},
+                ${event.payload.nativeThreadRef?.nativeId ?? null},
                 ${payloadJson}
               )
               ON CONFLICT(provider_thread_id)
@@ -2155,6 +2167,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 first_run_ordinal = excluded.first_run_ordinal,
                 last_run_ordinal = excluded.last_run_ordinal,
                 updated_at = excluded.updated_at,
+                native_thread_id = excluded.native_thread_id,
                 payload_json = excluded.payload_json
             `;
             if (
@@ -2984,7 +2997,16 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           `
               : sql<PayloadRow>`
             SELECT payload_json FROM orchestration_v2_projection_provider_threads
-            WHERE (thread_id = ${threadId} AND status = 'active')
+            WHERE (
+                  thread_id = ${threadId}
+                  AND (
+                    status = 'active'
+                    -- An adopted conversation has no run yet, so it is never
+                    -- "active". Without this it vanishes from every windowed
+                    -- read and no reader can learn it exists.
+                    OR first_run_ordinal IS NULL
+                  )
+                )
               OR provider_thread_id IN (SELECT value FROM json_each(${cohortProviderThreadIds}))
               OR owner_node_id IN (SELECT value FROM json_each(${cohortNodeIds}))
             ORDER BY COALESCE(first_run_ordinal, 0), provider_thread_id ASC
@@ -5672,6 +5694,27 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       apply,
       getShellSnapshot,
       getThreadShell,
+      findThreadIdByNativeIdentity: (identity) =>
+        sql<{ readonly thread_id: string | null }>`
+          SELECT thread_id
+          FROM orchestration_v2_projection_provider_threads
+          WHERE driver = ${identity.driver}
+            AND provider_instance_id = ${identity.providerInstanceId}
+            AND native_thread_id = ${identity.nativeThreadId}
+          LIMIT 1
+        `.pipe(
+          Effect.map((rows) => {
+            const found = rows.at(0)?.thread_id;
+            return found === null || found === undefined ? null : ThreadId.make(found);
+          }),
+          Effect.mapError(
+            (cause) =>
+              new ProjectionStoreReadError({
+                threadId: ThreadId.make(identity.nativeThreadId),
+                cause,
+              }),
+          ),
+        ),
       getThread,
       getSettlementCandidates,
       getThreadsWithPullRequests,
@@ -5782,6 +5825,20 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
             return yield* new ProjectionStoreThreadNotFoundError({ threadId });
           }
           return projection.thread;
+        }),
+      findThreadIdByNativeIdentity: (identity) =>
+        Effect.gen(function* () {
+          const projections = (yield* Ref.get(replayState)).projections;
+          for (const projection of projections.values()) {
+            const found = projection.providerThreads.find(
+              (candidate) =>
+                candidate.driver === identity.driver &&
+                candidate.providerInstanceId === identity.providerInstanceId &&
+                candidate.nativeThreadRef?.nativeId === identity.nativeThreadId,
+            );
+            if (found !== undefined) return found.appThreadId;
+          }
+          return null;
         }),
       getSettlementCandidates: (threadId) =>
         Effect.gen(function* () {

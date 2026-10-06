@@ -209,6 +209,8 @@ export function codexProviderTurnTokenUsage(
   };
 }
 const DEFAULT_CODEX_SETTINGS = Schema.decodeSync(CodexSettings)({});
+
+export { DEFAULT_CODEX_SETTINGS };
 const CODEX_ASSISTANT_DELTA_FLUSH_INTERVAL_MS = 50;
 const CodexBackgroundTerminalTerminateResponse = Schema.Struct({
   terminated: Schema.Boolean,
@@ -228,7 +230,7 @@ const decodeCodexBackgroundTerminalTerminateResponse = Schema.decodeUnknownEffec
 const decodeCodexBackgroundTerminalsListResponse = Schema.decodeUnknownEffect(
   CodexBackgroundTerminalsListResponse,
 );
-const CODEX_CLIENT_CAPABILITIES = {
+export const CODEX_CLIENT_CAPABILITIES = {
   experimentalApi: true,
   optOutNotificationMethods: ["turn/diff/updated"],
 } as const;

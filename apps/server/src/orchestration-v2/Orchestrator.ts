@@ -428,6 +428,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "checkpoint.rollback":
     case "checkpoint.rollback.fail":
     case "thread.background-work.settle":
+    case "thread.external-run.attach":
     case "thread.stop":
     case "provider.switch":
       return command.threadId;
@@ -8470,6 +8471,121 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
     });
 
+  const dispatchExternalRunAttach = (
+    command: Extract<
+      OrchestrationV2InternalCommand,
+      { readonly type: "thread.external-run.attach" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+  ) =>
+    Effect.gen(function* () {
+      const [projection, now, eventId] = yield* Effect.all([
+        projectionStore.getThreadProjection(command.threadId),
+        DateTime.now,
+        idAllocator.allocate.event({
+          commandId: command.commandId,
+          threadId: command.threadId,
+        }),
+      ]).pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+      // A live run already drives this thread; a second one would double it.
+      const alreadyRunning = projection.runs.some(
+        (run) =>
+          run.status === "queued" ||
+          run.status === "preparing" ||
+          run.status === "starting" ||
+          run.status === "running" ||
+          run.status === "waiting",
+      );
+      if (alreadyRunning) return;
+      const providerThread = projection.providerThreads.find(
+        (candidate) => candidate.providerInstanceId === command.providerInstanceId,
+      );
+      if (providerThread === undefined) return;
+
+      const ordinal = Math.max(0, ...projection.runs.map((run) => run.ordinal)) + 1;
+      const runId = idAllocator.derive.run({ threadId: command.threadId, ordinal });
+      const nodeId = idAllocator.derive.rootNode({ runId });
+      const attemptId = idAllocator.derive.runAttempt({ runId, attemptOrdinal: 1 });
+      // Derived from the command id so a replayed attach is absorbed by the
+      // command receipt instead of starting a second run.
+      const messageId = MessageId.make(`${command.commandId}:attached`);
+      const base = {
+        threadId: command.threadId,
+        runId,
+        nodeId,
+        providerInstanceId: command.providerInstanceId,
+        occurredAt: now,
+      };
+      const message: OrchestrationV2ConversationMessage = {
+        id: messageId,
+        threadId: command.threadId,
+        runId,
+        nodeId,
+        role: "user",
+        // Empty so it cannot be read as something the person typed.
+        text: "",
+        attachments: [],
+        streaming: false,
+        createdBy: "system",
+        creationSource: "provider",
+        createdAt: now,
+        updatedAt: now,
+      };
+      const run: OrchestrationV2Run = {
+        id: runId,
+        threadId: command.threadId,
+        ordinal,
+        providerInstanceId: command.providerInstanceId,
+        modelSelection: projection.thread.modelSelection,
+        providerThreadId: providerThread.id,
+        userMessageId: messageId,
+        rootNodeId: nodeId,
+        activeAttemptId: attemptId,
+        status: "queued",
+        queuePosition: 0,
+        requestedAt: now,
+        startedAt: null,
+        completedAt: null,
+        checkpointId: null,
+        contextHandoffId: null,
+      };
+      const attempt: OrchestrationV2RunAttempt = {
+        id: attemptId,
+        runId,
+        attemptOrdinal: 1,
+        rootNodeId: nodeId,
+        providerInstanceId: command.providerInstanceId,
+        providerThreadId: providerThread.id,
+        providerTurnId: null,
+        // The provider reported a turn already running, which is what recovery
+        // from a lost process looks like from here.
+        reason: "provider_recovery",
+        status: "pending",
+        startedAt: null,
+        completedAt: null,
+      };
+      yield* Ref.update(events, (existing) => [
+        ...existing,
+        { ...base, id: eventId, type: "message.updated", payload: message } as const,
+        { ...base, id: eventId, type: "run.created", payload: run } as const,
+        { ...base, id: eventId, type: "run-attempt.created", payload: attempt } as const,
+      ]);
+      yield* Ref.update(effects, (existing) => [
+        ...existing,
+        {
+          id: `effect:${command.commandId}:provider-turn.start:${runId}`,
+          commandId: command.commandId,
+          threadId: command.threadId,
+          request: { type: "provider-turn.start", runId },
+        } satisfies PendingOrchestrationEffectV2,
+      ]);
+    });
+
   const dispatchBackgroundWorkSettle = (
     command: Extract<
       OrchestrationV2InternalCommand,
@@ -10309,6 +10425,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "thread.background-work.settle":
         yield* dispatchBackgroundWorkSettle(command, events, effects);
+        break;
+      case "thread.external-run.attach":
+        yield* dispatchExternalRunAttach(command, events, effects);
         break;
       case "thread.fork":
         yield* dispatchThreadFork(command, events);
