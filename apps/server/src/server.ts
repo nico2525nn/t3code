@@ -496,7 +496,10 @@ const layerCodexExternalThreadWorker = Layer.effectDiscard(
 ).pipe(
   Layer.provide(CodexExternalThreadWorker.layer),
   Layer.provide(layerOrchestrationV2Runtime),
+  Layer.provide(RuntimeLayer.layerProjectService),
+  Layer.provide(ProjectionStoreV2.layer),
   Layer.provide(ProviderOrchestrationAdapterInfrastructure.layer),
+  Layer.provide(ProviderInstanceRegistryHydration.layer),
 );
 
 const layerProviderInstallationRefresh = Layer.effectDiscard(

@@ -5,16 +5,16 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { forkParked } from "../serverActivation.ts";
 import { CodexAppServerClientFactory, DEFAULT_CODEX_SETTINGS } from "./Adapters/CodexAdapterV2.ts";
 import * as IdAllocator from "./IdAllocator.ts";
 import * as NativeCatalogSync from "./NativeCatalogSync.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
-import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 
 /**
  * Adopt Codex conversations that started outside T3.
@@ -29,7 +29,7 @@ export class CodexExternalThreadWorker extends Context.Service<
 >()("t3/orchestration-v2/CodexExternalThreadWorker") {}
 
 const make = Effect.gen(function* () {
-  const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
+  const instances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const projects = yield* ProjectService.ProjectService;
   const ids = yield* IdAllocator.IdAllocatorV2;
@@ -60,10 +60,12 @@ const make = Effect.gen(function* () {
 
   const start = () =>
     Effect.gen(function* () {
-      const instanceIds = yield* registry.list().pipe(Effect.orElseSucceed(() => [] as const));
-      const codexInstances = instanceIds.filter((id) => String(id).includes("codex"));
+      const all = yield* instances.listInstances.pipe(Effect.orElseSucceed(() => [] as const));
+      const codexInstances = all.filter(
+        (instance) => String(instance.driverKind) === "codex" && instance.enabled,
+      );
       yield* forkParked(
-        Effect.forEach(codexInstances, runInstance, { concurrency: 1, discard: true }),
+        Effect.forEach(codexInstances, (instance) => runInstance(instance.instanceId), { concurrency: 1, discard: true }),
       );
     });
 
