@@ -45,6 +45,8 @@ import * as RunFinalizationService from "./RunFinalizationService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
+import * as NativeHistoryReader from "./NativeHistoryReader.ts";
+import * as ProviderOrchestrationAdapterInfrastructure from "../provider/ProviderOrchestrationAdapterInfrastructure.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadLifecycleService from "./ThreadLifecycleService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
@@ -246,6 +248,9 @@ const layerThreadManagementProvided = ThreadManagementService.layerWithLegacyImp
       layerLegacyV1ThreadImporterProvided,
       layerCommandReceiptStoreProvided,
       layerProviderSessionManagerProvided,
+      NativeHistoryReader.layer.pipe(
+        Layer.provide(ProviderOrchestrationAdapterInfrastructure.layer),
+      ),
     ),
   ),
 );

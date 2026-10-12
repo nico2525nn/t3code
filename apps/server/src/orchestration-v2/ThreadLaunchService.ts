@@ -171,6 +171,13 @@ export class ThreadLaunchService extends Context.Service<
       ThreadLaunchResult,
       ThreadLaunchError | ThreadManagement.ThreadManagementProviderInstanceDisabledError
     >;
+    /** Reconcile provider-owned thread metadata without duplicating the thread. */
+    readonly reconcileImportedThread: (input: {
+      readonly commandId: CommandId;
+      readonly projectId: ProjectId;
+      readonly threadId: ThreadId;
+      readonly title: string;
+    }) => Effect.Effect<void, ThreadLaunchError>;
     /**
      * Fails when a new worktree's base ref cannot give provisioning a commit.
      * `launch` accepts such a launch and reports the failure inside the
@@ -1050,7 +1057,27 @@ const make = Effect.gen(function* () {
     );
   };
 
-  return ThreadLaunchService.of({ launch, checkWorktreeBase, retryPreparation });
+  return ThreadLaunchService.of({
+    launch,
+    checkWorktreeBase,
+    retryPreparation,
+    reconcileImportedThread: (input) =>
+      threads.dispatch({
+        type: "thread.metadata.update",
+        commandId: input.commandId,
+        threadId: input.threadId,
+        title: input.title,
+      }).pipe(
+        Effect.asVoid,
+        Effect.mapError((cause) => new ThreadLaunchError({
+          operation: "update-thread",
+          commandId: input.commandId,
+          projectId: input.projectId,
+          threadId: input.threadId,
+          cause,
+        })),
+      ),
+  });
 });
 
 export const layer = Layer.effect(ThreadLaunchService, make);
