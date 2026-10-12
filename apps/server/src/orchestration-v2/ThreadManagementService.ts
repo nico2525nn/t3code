@@ -48,6 +48,8 @@ import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { DispatchModeLimit, exceededDispatchModeLimit } from "./DispatchModeLimit.ts";
+import * as NativeTimeline from "./NativeTimeline.ts";
+import * as NativeHistoryReader from "./NativeHistoryReader.ts";
 import { projectTurnItemForDetail } from "./WireProjection.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -555,6 +557,7 @@ const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => Option.none()),
       Effect.map(Option.isSome),
     );
+  const nativeHistory = yield* Effect.serviceOption(NativeHistoryReader.NativeHistoryReader);
 
   const ensureLegacyTranscript = Effect.fn(
     "orchestrationV2.threadManagement.ensureLegacyTranscript",
@@ -604,6 +607,15 @@ const make = Effect.gen(function* () {
       Effect.andThen(orchestrator.getThreadProjection(threadId)),
     );
 
+  // Adopted conversations carry no transcript. The first reader pulls it from
+  // the provider; later reads find local rows and skip it.
+  const readThroughNativeHistory = (
+    snapshot: NativeTimeline.NativeTimelineSnapshot,
+  ): Effect.Effect<NativeTimeline.NativeTimelineSnapshot, never> =>
+    Option.isSome(nativeHistory)
+      ? nativeHistory.value.readThrough(snapshot)
+      : Effect.succeed(snapshot);
+
   const getCheckpointContext: ThreadManagementServiceShape["getCheckpointContext"] = (threadId) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getCheckpointContext(threadId)),
@@ -612,6 +624,7 @@ const make = Effect.gen(function* () {
   const getThreadSnapshot: ThreadManagementServiceShape["getThreadSnapshot"] = (threadId) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getThreadSnapshot(threadId)),
+      Effect.flatMap((snapshot) => readThroughNativeHistory(snapshot)),
     );
   const getThreadSnapshotWindow: ThreadManagementServiceShape["getThreadSnapshotWindow"] = (
     threadId,
@@ -619,6 +632,7 @@ const make = Effect.gen(function* () {
   ) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getThreadSnapshotWindow(threadId, options)),
+      Effect.flatMap((snapshot) => readThroughNativeHistory(snapshot)),
     );
 
   // Every path that can start or wake a provider turn funnels through this

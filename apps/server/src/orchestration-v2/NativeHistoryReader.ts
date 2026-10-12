@@ -6,7 +6,9 @@ import * as Layer from "effect/Layer";
 
 import * as NativeTimeline from "./NativeTimeline.ts";
 import * as CodexExternalThreads from "./Adapters/CodexExternalThreads.ts";
-import { ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
+import { ProviderDriverKind } from "@t3tools/contracts";
+import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import { CodexAppServerClientFactory, DEFAULT_CODEX_SETTINGS } from "./Adapters/CodexAdapterV2.ts";
 
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
 
@@ -21,9 +23,7 @@ const CODEX_DRIVER = ProviderDriverKind.make("codex");
  * still returned.
  */
 export interface NativeHistoryReaderOptions
-  extends CodexExternalThreads.CodexExternalThreadsOptions {
-  readonly instanceId: ProviderInstanceId;
-}
+  extends Omit<CodexExternalThreads.CodexExternalThreadsOptions, "instanceId"> {}
 
 export class NativeHistoryReader extends Context.Service<
   NativeHistoryReader,
@@ -36,13 +36,6 @@ export class NativeHistoryReader extends Context.Service<
 
 export const make = (options: NativeHistoryReaderOptions) =>
   Effect.gen(function* () {
-    const external: CodexExternalThreads.CodexExternalThreadsOptions = {
-      instanceId: options.instanceId,
-      clientFactory: options.clientFactory,
-      settings: options.settings,
-      environment: options.environment,
-    };
-
     const readThrough: NativeHistoryReader["Service"]["readThrough"] = (snapshot) =>
       Effect.orElseSucceed(
         Effect.gen(function* () {
@@ -51,14 +44,13 @@ export const make = (options: NativeHistoryReaderOptions) =>
             snapshot.projection.providerThreads,
           );
           if (providerThread === undefined) return snapshot;
-          if (providerThread.providerInstanceId !== options.instanceId) return snapshot;
           if (providerThread.driver !== "codex") return snapshot;
           const nativeId = providerThread.nativeThreadRef?.nativeId ?? undefined;
           if (nativeId === undefined) return snapshot;
 
           const page = yield* Effect.exit(
             Effect.scoped(
-              CodexExternalThreads.readNativeTimeline(external, {
+              CodexExternalThreads.readNativeTimeline({ ...options, instanceId: providerThread.providerInstanceId }, {
                 nativeThreadId: nativeId,
                 cursor: undefined,
               }),
@@ -85,8 +77,14 @@ export const make = (options: NativeHistoryReaderOptions) =>
     return NativeHistoryReader.of({ readThrough });
   });
 
-export const layer = (options: NativeHistoryReaderOptions) =>
-  Layer.effect(NativeHistoryReader, make(options));
+export const layer = Layer.effect(
+  NativeHistoryReader,
+  Effect.gen(function* () {
+    const clientFactory = yield* CodexAppServerClientFactory;
+    const environment = yield* HostProcessEnvironment;
+    return yield* make({ clientFactory, environment, settings: DEFAULT_CODEX_SETTINGS });
+  }),
+);
 
 export const layerNoop: Layer.Layer<NativeHistoryReader> = Layer.succeed(
   NativeHistoryReader,
