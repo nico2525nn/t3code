@@ -228,42 +228,60 @@ function toTimelineItem(
 }
 
 /** Newest turns with conversation-bearing items, oldest-last for the merger. */
+/**
+ * Read up to 200 native turns through one short-lived App Server connection.
+ * Bound the work per UI request; return a cursor when older turns remain.
+ * Important: do not spawn a new CLI process for every page.
+ */
 export const readNativeTimeline = (
   options: CodexExternalThreadsOptions,
   input: { readonly nativeThreadId: string; readonly cursor: string | undefined },
 ): Effect.Effect<CodexNativeTimelinePage, CodexNativeReadError, Scope.Scope> =>
   withClient(options, (client) =>
     Effect.gen(function* () {
-      const page = yield* client
-        .request("thread/turns/list", {
-          threadId: input.nativeThreadId,
-          limit: NATIVE_TIMELINE_TURN_PAGE_SIZE,
-          sortDirection: "desc",
-          // Summary drops reasoning and tool rows; the read-through exists to
-          // show the conversation, so it pays for the full items.
-          itemsView: "full",
-          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-        })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new CodexNativeReadError({
-                operation: "list-turns",
-                nativeThreadId: input.nativeThreadId,
-                cause,
-              }),
-          ),
-        );
-      const turns: NativeTimelineTurn[] = page.data.map((turn) => ({
-        nativeTurnId: turn.id,
-        status: turn.status,
-        startedAt: toIso(turn.startedAt),
-        completedAt: toIso(turn.completedAt),
-        items: turn.items.flatMap((item) => {
-          const mapped = toTimelineItem(item);
-          return mapped === undefined ? [] : [mapped];
-        }),
-      }));
-      return { turns, nextCursor: page.nextCursor ?? null };
+      const turns: NativeTimelineTurn[] = [];
+      let cursor: string | undefined = input.cursor;
+      for (let i = 0; i < 20; i += 1) {
+        const page = yield* client
+          .request("thread/turns/list", {
+            threadId: input.nativeThreadId,
+            limit: NATIVE_TIMELINE_TURN_PAGE_SIZE,
+            sortDirection: "desc",
+            itemsView: "full",
+            ...(cursor === undefined ? {} : { cursor }),
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new CodexNativeReadError({
+                  operation: "list-turns",
+                  nativeThreadId: input.nativeThreadId,
+                  cause,
+                }),
+            ),
+          );
+        turns.push(...page.data.map((turn): NativeTimelineTurn => ({
+          nativeTurnId: turn.id,
+          status: turn.status,
+          startedAt: toIso(turn.startedAt),
+          completedAt: toIso(turn.completedAt),
+          items: turn.items.flatMap((item) => {
+            const mapped = toTimelineItem(item);
+            return mapped === undefined ? [] : [mapped];
+          }),
+        })));
+        if (!page.nextCursor) {
+          return { turns, nextCursor: null };
+        }
+        if (page.nextCursor === cursor) {
+          throw new CodexNativeReadError({
+            operation: "list-turns",
+            nativeThreadId: input.nativeThreadId,
+            cause: new Error("provider returned the same pagination cursor"),
+          });
+        }
+        cursor = page.nextCursor;
+      }
+      return { turns, nextCursor: cursor ?? null };
     }),
   );
