@@ -6,9 +6,12 @@ import * as Layer from "effect/Layer";
 
 import * as NativeTimeline from "./NativeTimeline.ts";
 import * as CodexExternalThreads from "./Adapters/CodexExternalThreads.ts";
-import { ProviderDriverKind } from "@t3tools/contracts";
+import { ProviderDriverKind, CodexSettings } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+import * as ServerSettings from "../serverSettings.ts";
+import { deriveProviderInstanceConfigMap } from "../provider/ProviderInstanceRegistryHydration.ts";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
-import { CodexAppServerClientFactory, DEFAULT_CODEX_SETTINGS } from "./Adapters/CodexAdapterV2.ts";
+import { CodexAppServerClientFactory } from "./Adapters/CodexAdapterV2.ts";
 
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
 
@@ -23,7 +26,9 @@ const CODEX_DRIVER = ProviderDriverKind.make("codex");
  * still returned.
  */
 export interface NativeHistoryReaderOptions
-  extends Omit<CodexExternalThreads.CodexExternalThreadsOptions, "instanceId"> {}
+  extends Omit<CodexExternalThreads.CodexExternalThreadsOptions, "instanceId" | "settings"> {
+  readonly serverSettings: ServerSettings.ServerSettingsService["Service"];
+}
 
 export class NativeHistoryReader extends Context.Service<
   NativeHistoryReader,
@@ -51,7 +56,14 @@ export const make = (options: NativeHistoryReaderOptions) =>
           const nativeId = providerThread.nativeThreadRef?.nativeId ?? undefined;
           if (nativeId === undefined) return snapshot;
 
-          const key = `${providerThread.providerInstanceId}:${nativeId}`;
+          const configured = yield* options.serverSettings.getSettings;
+          const config = deriveProviderInstanceConfigMap(configured)[providerThread.providerInstanceId];
+          const settings = Schema.decodeUnknownSync(CodexSettings)(config?.config ?? {});
+          const environment = { ...options.environment };
+          for (const entry of config?.environment ?? []) {
+            if (entry.value) environment[entry.name] = entry.value;
+          }
+          const key = `${providerThread.providerInstanceId}:${nativeId}:${settings.homePath ?? ""}:${settings.binaryPath ?? ""}`;
           const nowMs = Date.now();
           const cached = cache.get(key);
           const canUseCache = cached !== undefined && nowMs - cached.at < 45_000;
@@ -65,7 +77,7 @@ export const make = (options: NativeHistoryReaderOptions) =>
             const page = yield* Effect.exit(
               Effect.scoped(
                 CodexExternalThreads.readNativeTimeline(
-                  { ...options, instanceId: providerThread.providerInstanceId },
+                  { clientFactory: options.clientFactory, settings, environment, instanceId: providerThread.providerInstanceId },
                   { nativeThreadId: nativeId, cursor: undefined },
                 ),
               ),
@@ -109,7 +121,8 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const clientFactory = yield* CodexAppServerClientFactory;
     const environment = yield* HostProcessEnvironment;
-    return yield* make({ clientFactory, environment, settings: DEFAULT_CODEX_SETTINGS });
+    const serverSettings = yield* ServerSettings.ServerSettingsService;
+    return yield* make({ clientFactory, environment, serverSettings });
   }),
 );
 
