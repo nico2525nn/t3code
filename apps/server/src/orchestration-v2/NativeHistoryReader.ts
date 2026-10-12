@@ -36,6 +36,9 @@ export class NativeHistoryReader extends Context.Service<
 
 export const make = (options: NativeHistoryReaderOptions) =>
   Effect.gen(function* () {
+    // Only recently viewed native histories are cached; no eager transcript copies.
+    // Expiration lets an external CLI's new turns become visible on reopen.
+    const cache = new Map<string, { at: number; turns: ReadonlyArray<NativeTimeline.NativeTimelineTurn>; truncated: boolean }>();
     const readThrough: NativeHistoryReader["Service"]["readThrough"] = (snapshot) =>
       Effect.orElseSucceed(
         Effect.gen(function* () {
@@ -48,26 +51,50 @@ export const make = (options: NativeHistoryReaderOptions) =>
           const nativeId = providerThread.nativeThreadRef?.nativeId ?? undefined;
           if (nativeId === undefined) return snapshot;
 
-          const page = yield* Effect.exit(
-            Effect.scoped(
-              CodexExternalThreads.readNativeTimeline({ ...options, instanceId: providerThread.providerInstanceId }, {
-                nativeThreadId: nativeId,
-                cursor: undefined,
-              }),
-            ),
-          );
-          if (Exit.isFailure(page)) {
-            yield* Effect.logWarning("native timeline read-through failed", {
-              threadId: snapshot.projection.thread.id,
-            });
-            return snapshot;
+          const key = `${providerThread.providerInstanceId}:${nativeId}`;
+          const nowMs = Date.now();
+          const cached = cache.get(key);
+          const canUseCache = cached !== undefined && nowMs - cached.at < 45_000;
+          let turns: ReadonlyArray<NativeTimeline.NativeTimelineTurn>;
+          if (canUseCache && cached !== undefined) {
+            turns = cached.turns;
+            // Preserve LRU order.
+            cache.delete(key);
+            cache.set(key, cached);
+          } else {
+            const page = yield* Effect.exit(
+              Effect.scoped(
+                CodexExternalThreads.readNativeTimeline(
+                  { ...options, instanceId: providerThread.providerInstanceId },
+                  { nativeThreadId: nativeId, cursor: undefined },
+                ),
+              ),
+            );
+            if (Exit.isFailure(page)) {
+              yield* Effect.logWarning("native timeline read-through failed", {
+                threadId: snapshot.projection.thread.id,
+              });
+              return snapshot;
+            }
+            turns = page.value.turns;
+            const truncated = page.value.nextCursor !== null;
+            if (truncated) {
+              yield* Effect.logWarning("native timeline exceeds 200-turn window", {
+                threadId: snapshot.projection.thread.id,
+              });
+            }
+            if (JSON.stringify(turns).length < 2_000_000) {
+              cache.delete(key);
+              cache.set(key, { at: nowMs, turns, truncated });
+              while (cache.size > 8) cache.delete(cache.keys().next().value!);
+            }
           }
           return NativeTimeline.mergeNativeTimeline({
             snapshot,
             providerThread,
             driver: CODEX_DRIVER,
             providerInstanceId: providerThread.providerInstanceId,
-            turns: page.value.turns,
+            turns,
             readAt: yield* DateTime.now,
           });
         }),
