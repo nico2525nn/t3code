@@ -185,6 +185,33 @@ export function layer(input: {
   readonly transcript: CodexReplay.CodexAppServerReplayTranscript;
   readonly driver?: CodexReplay.CodexAppServerReplayDriver;
 }) {
+  const replayTranscript = input.driver?.transcript ?? input.transcript;
+  let nextClientMessageExpectation = 0;
+  const recordClientUserMessageId = (method: string, params: unknown) => {
+    if (method !== "turn/start" && method !== "turn/steer") return;
+    if (typeof params !== "object" || params === null) return;
+    const clientUserMessageId = (params as { readonly clientUserMessageId?: unknown })
+      .clientUserMessageId;
+    if (typeof clientUserMessageId !== "string") return;
+    for (
+      let index = nextClientMessageExpectation;
+      index < replayTranscript.entries.length;
+      index++
+    ) {
+      const entry = replayTranscript.entries[index];
+      if (entry?.type !== "expect_outbound") continue;
+      const expectedFrame = entry.frame as unknown as {
+        readonly method: string;
+        readonly params: Record<string, unknown>;
+      };
+      if (expectedFrame.method !== method) continue;
+      if (expectedFrame.params.clientUserMessageId === undefined) {
+        expectedFrame.params.clientUserMessageId = clientUserMessageId;
+      }
+      nextClientMessageExpectation = index + 1;
+      return;
+    }
+  };
   const layerReplay =
     input.driver === undefined
       ? CodexReplay.layerReplay(input.transcript)
@@ -203,7 +230,16 @@ export function layer(input: {
           ),
         );
         return yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
-          Effect.map((client) => withCodexReplayChildMetadata(client, input.transcript)),
+          Effect.map((client) => {
+            const replayClient = withCodexReplayChildMetadata(client, replayTranscript);
+            return {
+              ...replayClient,
+              request: (method, params) =>
+                Effect.sync(() => recordClientUserMessageId(method, params)).pipe(
+                  Effect.andThen(replayClient.request(method, params)),
+                ),
+            } satisfies CodexClient.CodexAppServerClient["Service"];
+          }),
           Effect.provide(context),
         );
       }),

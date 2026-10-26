@@ -5,10 +5,12 @@ import type {
   OrchestrationV2Checkpoint,
   OrchestrationV2DomainEvent,
   OrchestrationV2ContextHandoff,
+  OrchestrationV2ProviderThread,
   OrchestrationV2Subagent,
   OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadStreamItem,
   OrchestrationV2TurnItem,
+  TurnItemId,
 } from "@t3tools/contracts";
 import {
   dedupeSubagentBodies,
@@ -20,10 +22,122 @@ import {
   toolOutputImages,
   toolOutputIndicatesFailure,
 } from "@t3tools/shared/toolOutput";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as DateTime from "effect/DateTime";
 
 const MAX_DETAIL_STRING_BYTES = 32_768;
 const MAX_DYNAMIC_VALUE_BYTES = 16_384;
 const MAX_ON_DEMAND_BYTES = 256 * 1024;
+const LEGACY_CODEX_DUPLICATE_WINDOW_MS = 1_000;
+
+export function duplicateLegacyCodexUserMessageItemIds(input: {
+  readonly providerThreads: ReadonlyArray<
+    Pick<OrchestrationV2ProviderThread, "id" | "nativeThreadRef" | "nativeMetadata">
+  >;
+  readonly turnItems: ReadonlyArray<OrchestrationV2TurnItem>;
+}): ReadonlySet<TurnItemId> {
+  const syncedCodexThreadIds = new Set(
+    input.providerThreads.flatMap((thread) =>
+      thread.nativeThreadRef?.driver === "codex" &&
+      typeof thread.nativeMetadata?.historySyncUpdatedAt === "string"
+        ? [thread.id]
+        : [],
+    ),
+  );
+  if (syncedCodexThreadIds.size === 0) return new Set();
+
+  const nativeMessagesByText = new Map<string, Array<number>>();
+  for (const item of input.turnItems) {
+    if (
+      item.type !== "user_message" ||
+      item.providerThreadId === null ||
+      !syncedCodexThreadIds.has(item.providerThreadId) ||
+      item.providerTurnId === null ||
+      item.nativeItemRef?.driver !== "codex" ||
+      item.nativeItemRef.nativeId === null ||
+      item.startedAt === null
+    ) {
+      continue;
+    }
+    const timestamp = Date.parse(DateTime.formatIso(item.startedAt));
+    if (!Number.isFinite(timestamp)) continue;
+    const timestamps = nativeMessagesByText.get(item.text) ?? [];
+    timestamps.push(timestamp);
+    nativeMessagesByText.set(item.text, timestamps);
+  }
+
+  const duplicateIds = new Set<TurnItemId>();
+  for (const item of input.turnItems) {
+    if (
+      item.type !== "user_message" ||
+      item.createdBy !== "user" ||
+      item.creationSource !== "server" ||
+      item.runId !== null ||
+      item.providerThreadId !== null ||
+      item.providerTurnId !== null ||
+      item.nativeItemRef !== null ||
+      item.startedAt === null
+    ) {
+      continue;
+    }
+    const timestamp = Date.parse(DateTime.formatIso(item.startedAt));
+    if (!Number.isFinite(timestamp)) continue;
+    const nativeTimestamps = nativeMessagesByText.get(item.text);
+    if (
+      nativeTimestamps?.some(
+        (nativeTimestamp) =>
+          Math.abs(nativeTimestamp - timestamp) <= LEGACY_CODEX_DUPLICATE_WINDOW_MS,
+      )
+    ) {
+      duplicateIds.add(item.id);
+    }
+  }
+  return duplicateIds;
+}
+
+export function legacyCodexAssistantCounterpartTurnItemId(
+  item: OrchestrationV2TurnItem,
+): TurnItemId | null {
+  if (
+    item.type !== "assistant_message" ||
+    !item.id.startsWith("migration:v1:turn-item:assistant:") ||
+    item.nativeItemRef?.driver !== "codex" ||
+    item.nativeItemRef.strength !== "strong" ||
+    item.nativeItemRef.nativeId === null
+  ) {
+    return null;
+  }
+  return IdAllocator.derive.turnItemFromProviderItem({
+    driver: item.nativeItemRef.driver,
+    nativeItemId: item.nativeItemRef.nativeId,
+  });
+}
+
+export function duplicateLegacyCodexAssistantMessageItemIds(
+  turnItems: ReadonlyArray<OrchestrationV2TurnItem>,
+): ReadonlySet<TurnItemId> {
+  const itemsById = new Map(turnItems.map((item) => [item.id, item] as const));
+  const duplicateIds = new Set<TurnItemId>();
+  for (const legacyItem of turnItems) {
+    if (legacyItem.type !== "assistant_message") continue;
+    const counterpartId = legacyCodexAssistantCounterpartTurnItemId(legacyItem);
+    if (counterpartId === null) continue;
+    const counterpart = itemsById.get(counterpartId);
+    if (
+      counterpart?.type === "assistant_message" &&
+      counterpart.nativeItemRef?.driver === "codex" &&
+      counterpart.nativeItemRef.strength === "strong" &&
+      counterpart.nativeItemRef.nativeId === legacyItem.nativeItemRef?.nativeId &&
+      counterpart.messageId === legacyItem.messageId &&
+      counterpart.providerThreadId === legacyItem.providerThreadId &&
+      counterpart.providerTurnId === legacyItem.providerTurnId &&
+      counterpart.text === legacyItem.text
+    ) {
+      duplicateIds.add(legacyItem.id);
+    }
+  }
+  return duplicateIds;
+}
 
 function truncateDetail(
   value: string | undefined,
@@ -218,6 +332,22 @@ export function projectContextHandoffForWire(
 export function projectThreadProjectionForWire(
   projection: OrchestrationV2ThreadProjection,
 ): OrchestrationV2ThreadProjection {
+  const visibleItems = projection.visibleTurnItems.map((row) => row.item);
+  const duplicateIds = new Set([
+    ...duplicateLegacyCodexUserMessageItemIds(projection),
+    ...duplicateLegacyCodexAssistantMessageItemIds([...projection.turnItems, ...visibleItems]),
+  ]);
+  const turnItems = projection.turnItems.filter((item) => !duplicateIds.has(item.id));
+  const duplicateMessageIds = new Set(
+    projection.turnItems.flatMap((item) =>
+      duplicateIds.has(item.id) && item.type === "user_message" ? [item.messageId] : [],
+    ),
+  );
+  const retainedMessageIds = new Set(
+    turnItems.flatMap((item) =>
+      item.type === "user_message" || item.type === "assistant_message" ? [item.messageId] : [],
+    ),
+  );
   const projectedById = new Map<string, OrchestrationV2TurnItem>();
   const project = (item: OrchestrationV2TurnItem) => {
     const key = `${item.threadId}:${item.id}`;
@@ -230,11 +360,16 @@ export function projectThreadProjectionForWire(
   return {
     ...projection,
     contextHandoffs: projection.contextHandoffs.map(projectContextHandoffForWire),
-    turnItems: projection.turnItems.map(project),
-    visibleTurnItems: projection.visibleTurnItems.map((row) => ({
-      ...row,
-      item: project(row.item),
-    })),
+    messages: projection.messages.filter(
+      (message) => !duplicateMessageIds.has(message.id) || retainedMessageIds.has(message.id),
+    ),
+    turnItems: turnItems.map(project),
+    visibleTurnItems: projection.visibleTurnItems
+      .filter((row) => !duplicateIds.has(row.item.id))
+      .map((row) => ({
+        ...row,
+        item: project(row.item),
+      })),
   };
 }
 

@@ -169,8 +169,8 @@ export function getRenderablePatch(
   options: RenderablePatchOptions = {},
 ): RenderablePatch | null {
   if (!patch) return null;
-  const normalizedPatch = patch.trim();
-  if (normalizedPatch.length === 0) return null;
+  const normalizedPatch = patch.replace(/^(?:\r?\n)+|(?:\r?\n)+$/g, "");
+  if (normalizedPatch.trim().length === 0) return null;
 
   try {
     const parsedPatches = parsePatchFiles(

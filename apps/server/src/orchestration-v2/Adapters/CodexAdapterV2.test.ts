@@ -917,6 +917,35 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     readChildMetadata?: Parameters<typeof withCodexReplayChildMetadata>[2],
   ) =>
     Effect.gen(function* () {
+      const replayTranscript = structuredClone(transcript);
+      let nextClientMessageExpectation = 0;
+      const recordClientUserMessageId = (method: string, params: unknown) => {
+        if (method !== "turn/start" && method !== "turn/steer") {
+          return;
+        }
+        if (typeof params !== "object" || params === null) return;
+        const clientUserMessageId = (params as { readonly clientUserMessageId?: unknown })
+          .clientUserMessageId;
+        if (typeof clientUserMessageId !== "string") return;
+        for (
+          let index = nextClientMessageExpectation;
+          index < replayTranscript.entries.length;
+          index++
+        ) {
+          const entry = replayTranscript.entries[index];
+          if (entry?.type !== "expect_outbound") continue;
+          const expectedFrame = entry.frame as unknown as {
+            readonly method: string;
+            readonly params: Record<string, unknown>;
+          };
+          if (expectedFrame.method !== method) continue;
+          if (expectedFrame.params.clientUserMessageId === undefined) {
+            expectedFrame.params.clientUserMessageId = clientUserMessageId;
+          }
+          nextClientMessageExpectation = index + 1;
+          return;
+        }
+      };
       const fileSystem = yield* FileSystem.FileSystem;
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const serverConfig = yield* makeReplayServerConfig(transcript.scenario).pipe(Effect.orDie);
@@ -925,7 +954,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         [];
       const clientFactory: CodexAdapterV2.CodexAppServerClientFactoryShape = {
         open: (openInput) =>
-          Layer.build(CodexReplay.layerReplay(transcript)).pipe(
+          Layer.build(CodexReplay.layerReplay(replayTranscript)).pipe(
             Effect.mapError(
               (cause) =>
                 new ProviderAdapter.ProviderAdapterOpenSessionError({
@@ -944,7 +973,8 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                     ({
                       ...client,
                       request: (method, params) =>
-                        onRequest(method, params).pipe(
+                        Effect.sync(() => recordClientUserMessageId(method, params)).pipe(
+                          Effect.andThen(onRequest(method, params)),
                           Effect.andThen(client.request(method, params)),
                         ),
                     }) satisfies CodexClient.CodexAppServerClient["Service"],
@@ -2086,6 +2116,111 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     ),
   );
 
+  it.effect("binds an imported active run before resumed Codex items arrive", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const scenario = "codex-resume-active-run";
+        const nativeThreadId = `native-${scenario}-thread`;
+        const nativeTurnId = `native-${scenario}-turn`;
+        const now = DateTime.makeUnsafe(1782622440000);
+        const transcript = makeCodexReplayTranscript({
+          scenario,
+          entries: [
+            ...codexReplayPreamble({
+              nativeThreadId,
+              nativeTurnId: "unused-turn",
+              prompt: "unused-prompt",
+            }).slice(0, 5),
+            {
+              type: "expect_outbound",
+              label: "thread/resume",
+              frame: {
+                id: 3,
+                method: "thread/resume",
+                params: {
+                  threadId: nativeThreadId,
+                  excludeTurns: true,
+                  config: CodexAdapterV2.CODEX_THREAD_CONFIG,
+                },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "thread/resume",
+              frame: { id: 3, result: { thread: { id: nativeThreadId, updatedAt: 1782622440 } } },
+            },
+            {
+              type: "emit_inbound",
+              label: "item/started/resumed-compaction",
+              frame: {
+                method: "item/started",
+                params: {
+                  threadId: nativeThreadId,
+                  turnId: nativeTurnId,
+                  startedAtMs: 1782622440500,
+                  item: { type: "contextCompaction", id: "resumed-compaction" },
+                },
+              },
+            },
+          ],
+        });
+        const harness = yield* makeCodexReplayHarness(transcript);
+        const turnInput = makeCodexTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now,
+          attemptId: RunAttemptId.make("resumed-active-attempt"),
+          text: "Continue this native run.",
+        });
+        const providerTurn: OrchestrationV2ProviderTurn = {
+          id: ProviderTurnId.make("resumed-active-provider-turn"),
+          providerThreadId: harness.providerThread.id,
+          nodeId: turnInput.rootNodeId,
+          runAttemptId: turnInput.attemptId,
+          nativeTurnRef: {
+            driver: CodexAdapterV2.CODEX_DRIVER_KIND,
+            nativeId: nativeTurnId,
+            strength: "strong",
+          },
+          ordinal: turnInput.providerTurnOrdinal,
+          status: "running",
+          startedAt: now,
+          completedAt: null,
+        };
+
+        yield* harness.runtime.resumeThread({
+          providerThread: harness.providerThread,
+          modelSelection: CODEX_TEST_MODEL_SELECTION,
+          runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+          nativeActiveTurn: { turnInput, providerTurn, nativeTurnId, startedAt: now },
+        });
+        yield* harness.until(() =>
+          harness.events.some(
+            (event) =>
+              event.type === "turn_item.updated" &&
+              event.turnItem.nativeItemRef?.nativeId === "resumed-compaction",
+          ),
+        );
+        const item = harness.events.find(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.nativeItemRef?.nativeId === "resumed-compaction",
+        );
+
+        assert.isDefined(item);
+        if (item?.type === "turn_item.updated") {
+          assert.equal(item.turnItem.runId, turnInput.runId);
+          assert.isNotNull(item.turnItem.providerTurnId);
+          assert.equal(item.turnItem.status, "running");
+        }
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
   // regression: #15389 archived native Codex sessions resume via thread/unarchive
   it.effect.each(
     (
@@ -2658,6 +2793,153 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         assert.deepEqual(
           assistantMessages(harness.events).map((event) => event.message.text),
           ["CODEX_RECOVERY_OK"],
+        );
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("keeps native root prompts and suppresses the echoed T3 prompt", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const scenario = "codex-root-user-message-sync";
+        const nativeThreadId = `native-${scenario}-thread`;
+        const nativeTurnId = `native-${scenario}-turn`;
+        const t3MessageId = MessageId.make("message-codex-root-user-message-sync");
+        const notification = (
+          id: string,
+          clientId: string | null,
+          text: string,
+          startedAtMs: number,
+        ): ReadonlyArray<CodexReplay.CodexAppServerReplayEntry> => [
+          {
+            type: "emit_inbound",
+            label: `item/started/${id}`,
+            frame: {
+              method: "item/started",
+              params: {
+                item: {
+                  type: "userMessage",
+                  id,
+                  clientId,
+                  content: [{ type: "text", text, text_elements: [] }],
+                },
+                threadId: nativeThreadId,
+                turnId: nativeTurnId,
+                startedAtMs,
+              },
+            },
+          },
+          {
+            type: "emit_inbound",
+            label: `item/completed/${id}`,
+            frame: {
+              method: "item/completed",
+              params: {
+                item: {
+                  type: "userMessage",
+                  id,
+                  clientId,
+                  content: [{ type: "text", text, text_elements: [] }],
+                },
+                threadId: nativeThreadId,
+                turnId: nativeTurnId,
+                completedAtMs: startedAtMs + 10,
+              },
+            },
+          },
+        ];
+        const transcript = makeCodexReplayTranscript({
+          scenario,
+          entries: [
+            ...codexReplayPreamble({
+              nativeThreadId,
+              nativeTurnId,
+              prompt: "T3 prompt echo",
+            }),
+            ...notification("t3-prompt-echo", String(t3MessageId), "T3 prompt echo", 1782622440100),
+            ...notification("external-root-prompt", null, "Sent from Codex CLI", 1782622440200),
+            {
+              type: "emit_inbound",
+              label: "item/completed/root-answer",
+              frame: {
+                method: "item/completed",
+                params: {
+                  item: {
+                    type: "agentMessage",
+                    id: "root-answer-user-sync",
+                    text: "Captured",
+                    phase: "final_answer",
+                    memoryCitation: null,
+                  },
+                  threadId: nativeThreadId,
+                  turnId: nativeTurnId,
+                  completedAtMs: 1782622441000,
+                },
+              },
+            },
+            {
+              type: "emit_inbound",
+              label: "turn/completed",
+              frame: {
+                method: "turn/completed",
+                params: {
+                  threadId: nativeThreadId,
+                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+                },
+              },
+            },
+          ],
+        });
+        const outbound: Array<{ readonly method: string; readonly params: unknown }> = [];
+        const harness = yield* makeCodexReplayHarness(
+          transcript,
+          () => Effect.void,
+          (method, params) =>
+            Effect.sync(() => {
+              outbound.push({ method, params });
+            }),
+        );
+        const now = yield* DateTime.now;
+        const turnInput = makeCodexTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now,
+          attemptId: RunAttemptId.make("attempt-codex-root-user-message-sync"),
+          text: "T3 prompt echo",
+        });
+        yield* harness.runtime.startTurn({
+          ...turnInput,
+          message: { ...turnInput.message, messageId: t3MessageId },
+        });
+        yield* harness.awaitTerminal(1);
+
+        const turnStart = outbound.find((request) => request.method === "turn/start");
+        assert.isDefined(turnStart);
+        assert.equal(
+          (turnStart.params as { readonly clientUserMessageId?: string }).clientUserMessageId,
+          String(t3MessageId),
+        );
+        const nativeUserMessages = harness.events.filter(
+          (event) => event.type === "message.updated" && event.message.role === "user",
+        );
+        assert.lengthOf(nativeUserMessages, 1);
+        assert.equal(
+          nativeUserMessages[0]?.type === "message.updated"
+            ? nativeUserMessages[0].message.text
+            : null,
+          "Sent from Codex CLI",
+        );
+        assert.isTrue(
+          harness.events.some(
+            (event) =>
+              event.type === "turn_item.updated" &&
+              event.turnItem.type === "user_message" &&
+              event.turnItem.nativeItemRef?.nativeId === "external-root-prompt",
+          ),
         );
       }).pipe(
         Effect.provide(

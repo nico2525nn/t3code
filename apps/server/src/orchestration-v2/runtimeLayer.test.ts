@@ -36,6 +36,7 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
@@ -70,6 +71,7 @@ import { PULL_REQUEST_WATCH_WAKE_LIMIT } from "./pullRequestWatch.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
+import * as CodexNativeThreadSyncService from "./CodexNativeThreadSyncService.ts";
 import * as RuntimeLayer from "./runtimeLayer.ts";
 import { shellStreamItemFromThreadShell } from "./ShellStream.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
@@ -366,6 +368,112 @@ const layerProjectDeletionTest = Layer.mergeAll(
   Layer.provide(layerGitWorkflowTest),
   Layer.provide(layerPlatformTest),
 );
+
+it.effect("exposes Codex native thread sync to WebSocket services", () =>
+  Effect.gen(function* () {
+    const service = yield* Effect.serviceOption(
+      CodexNativeThreadSyncService.CodexNativeThreadSyncService,
+    );
+    assert.isTrue(Option.isSome(service));
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.layer(layerTest)("Codex native thread ownership", (it) => {
+  it.effect("reclaims a stale provider thread while rejecting a conflicting owner", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      const canonicalThreadId = ThreadId.make("codex:native-owner-reclaim");
+      const staleImportThreadId = ThreadId.make("import:codex:native-owner-reclaim");
+      const conflictingThreadId = ThreadId.make("codex:native-owner-conflict");
+      const projectId = ProjectId.make("native-owner-reclaim-project");
+      const nativeThreadId = "native-owner-reclaim";
+      const providerThreadId = ProviderThreadId.make("native-owner-reclaim-provider-thread");
+
+      for (const [threadId, title] of [
+        [canonicalThreadId, "Canonical Codex thread"],
+        [staleImportThreadId, "Stale imported Codex thread"],
+        [conflictingThreadId, "Conflicting Codex thread"],
+      ] as const) {
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "system",
+          creationSource: "server",
+          commandId: CommandId.make(`${threadId}-create`),
+          threadId,
+          projectId,
+          title,
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+        });
+      }
+
+      const providerThreadEvent = (threadId: ThreadId) => ({
+        id: EventId.make(`${threadId}-provider-thread`),
+        type: "provider-thread.updated" as const,
+        threadId,
+        providerInstanceId: modelSelection.instanceId,
+        driver,
+        occurredAt: now,
+        payload: {
+          id: providerThreadId,
+          driver,
+          providerInstanceId: modelSelection.instanceId,
+          providerSessionId: null,
+          appThreadId: threadId,
+          ownerNodeId: null,
+          nativeThreadRef: { driver, nativeId: nativeThreadId, strength: "strong" as const },
+          nativeConversationHeadRef: null,
+          status: "idle" as const,
+          firstRunOrdinal: null,
+          lastRunOrdinal: null,
+          handoffIds: [],
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      yield* eventSink.write({ events: [providerThreadEvent(staleImportThreadId)] });
+      const reclaimed = yield* eventSink.write({
+        events: [providerThreadEvent(canonicalThreadId)],
+        unlessNativeThreadOwned: {
+          id: providerThreadId,
+          driver,
+          providerInstanceId: modelSelection.instanceId,
+          appThreadId: canonicalThreadId,
+          nativeThreadRef: { driver, nativeId: nativeThreadId, strength: "strong" },
+          reclaimFromThreadId: staleImportThreadId,
+        },
+      });
+
+      assert.lengthOf(reclaimed, 1);
+      assert.equal(
+        (yield* projections.getThreadProjection(canonicalThreadId)).providerThreads[0]?.id,
+        providerThreadId,
+      );
+      assert.isEmpty((yield* projections.getThreadProjection(staleImportThreadId)).providerThreads);
+
+      const rejected = yield* eventSink.write({
+        events: [providerThreadEvent(conflictingThreadId)],
+        unlessNativeThreadOwned: {
+          id: ProviderThreadId.make("different-provider-thread"),
+          driver,
+          providerInstanceId: modelSelection.instanceId,
+          appThreadId: conflictingThreadId,
+          nativeThreadRef: { driver, nativeId: nativeThreadId, strength: "strong" },
+        },
+      });
+      assert.isEmpty(rejected);
+      assert.isEmpty((yield* projections.getThreadProjection(conflictingThreadId)).providerThreads);
+    }),
+  );
+});
 
 it.layer(layerProjectDeletionTest)("project deletion during thread commands", (it) => {
   it.effect.each(["thread", "project"] as const)(

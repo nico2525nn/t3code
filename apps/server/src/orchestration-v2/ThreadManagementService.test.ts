@@ -7,13 +7,19 @@ import {
   ProviderThreadId,
   ProviderDriverKind,
   ProviderSessionId,
+  ProviderTurnId,
+  NodeId,
   type OrchestrationV2StoredEvent,
+  type OrchestrationV2ThreadHistoryPage,
   type OrchestrationV2ThreadProjection,
+  type OrchestrationV2TurnItem,
   ProjectId,
   ProviderInstanceId,
   RunId,
   ThreadId,
+  TurnItemId,
 } from "@t3tools/contracts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as Deferred from "effect/Deferred";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
@@ -441,3 +447,131 @@ it.effect.each([
     expect(dispatched).toEqual(settles ? ["thread.settle"] : []);
   }),
 );
+
+it.effect("filters migrated Codex assistant duplicates from bounded and paged history", () => {
+  const threadId = ThreadId.make("codex:native-thread");
+  const providerThreadId = ProviderThreadId.make("provider-thread:codex:native-thread");
+  const providerTurnId = ProviderTurnId.make("provider-turn:codex:native-turn");
+  const runId = RunId.make("run:codex:native-thread:ordinal:2");
+  const nativeId = "msg_native_assistant";
+  const nativeItemId = IdAllocator.derive.turnItemFromProviderItem({
+    driver: ProviderDriverKind.make("codex"),
+    nativeItemId: nativeId,
+  });
+  const makeAssistant = (id: TurnItemId): OrchestrationV2TurnItem => ({
+    id,
+    threadId,
+    runId,
+    nodeId: NodeId.make("node:codex:native-thread"),
+    providerThreadId,
+    providerTurnId,
+    nativeItemRef: {
+      driver: ProviderDriverKind.make("codex"),
+      nativeId,
+      strength: "strong",
+    },
+    parentItemId: null,
+    ordinal: 1,
+    status: "completed",
+    title: null,
+    type: "assistant_message",
+    messageId: MessageId.make(`assistant:${nativeId}`),
+    text: "same response",
+    streaming: false,
+    startedAt: DateTime.makeUnsafe("2026-10-26T01:00:00.000Z"),
+    completedAt: DateTime.makeUnsafe("2026-10-26T01:00:01.000Z"),
+    updatedAt: DateTime.makeUnsafe("2026-10-26T01:00:01.000Z"),
+  });
+  const legacyItem = makeAssistant(TurnItemId.make(`migration:v1:turn-item:assistant:${nativeId}`));
+  const nativeItem = makeAssistant(nativeItemId);
+  const row = {
+    visibility: "local" as const,
+    sourceThreadId: threadId,
+    sourceItemId: legacyItem.id,
+    item: legacyItem,
+    position: 0,
+  };
+  const projection = {
+    thread: { id: threadId },
+    providerThreads: [],
+    turnItems: [legacyItem],
+    visibleTurnItems: [row],
+    messages: [],
+    contextHandoffs: [],
+  } as unknown as OrchestrationV2ThreadProjection;
+  const historyPage = {
+    snapshotSequence: 1,
+    items: [row],
+    nextCursor: null,
+    hasMoreHistory: false,
+  } satisfies OrchestrationV2ThreadHistoryPage;
+  const nativeRow = {
+    ...row,
+    sourceItemId: nativeItem.id,
+    item: nativeItem,
+    position: 1,
+  };
+  const pairedProjection = {
+    ...projection,
+    turnItems: [legacyItem, nativeItem],
+    visibleTurnItems: [row, nativeRow],
+  };
+  const pairedHistoryPage = { ...historyPage, items: [row, nativeRow] };
+  let projectionForRead = projection;
+  let historyPageForRead = historyPage;
+  const layerTest = ThreadManagementService.layer.pipe(
+    Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+    Layer.provide(
+      Layer.mock(Orchestrator.OrchestratorV2)({
+        getThreadSnapshotWindow: () =>
+          Effect.succeed({ snapshotSequence: 1, projection: projectionForRead } as never),
+        getThreadHistoryPage: () => Effect.succeed(historyPageForRead),
+        getTimelinePage: () =>
+          Effect.succeed({
+            items: historyPageForRead.items,
+            totalItems: historyPageForRead.items.length,
+          } as never),
+        getThreadRecords: (_threadId, fields, filter) =>
+          Effect.succeed({
+            ...(fields.some((field) => String(field) === "providerThreads")
+              ? { providerThreads: [] }
+              : {}),
+            ...(fields.some((field) => String(field) === "turnItems")
+              ? {
+                  turnItems: filter?.turnItemIds?.includes(nativeItem.id) ? [nativeItem] : [],
+                }
+              : {}),
+          } as never),
+      }),
+    ),
+    Layer.provide(ServerSettings.layerTest()),
+    Layer.provide(layerReceiptsTest),
+  );
+
+  return Effect.gen(function* () {
+    const service = yield* ThreadManagementService.ThreadManagementService;
+    const snapshot = yield* service.getThreadSnapshotWindow(threadId, { rowLimit: 10 });
+    const page = yield* service.getThreadHistoryPage(threadId, "cursor");
+
+    expect(snapshot.projection.visibleTurnItems).toEqual([]);
+    expect(snapshot.projection.turnItems).toEqual([]);
+    expect(page.items).toEqual([]);
+
+    projectionForRead = pairedProjection;
+    historyPageForRead = pairedHistoryPage;
+    const pairedSnapshot = yield* service.getThreadSnapshotWindow(threadId, { rowLimit: 10 });
+    const pairedPage = yield* service.getThreadHistoryPage(threadId, "cursor");
+    const pairedTimeline = yield* service.getTimelinePage(threadId, {
+      view: "activity",
+      limit: 10,
+    });
+
+    expect(pairedSnapshot.projection.visibleTurnItems.map((item) => item.item.id)).toEqual([
+      nativeItem.id,
+    ]);
+    expect(pairedSnapshot.projection.turnItems.map((item) => item.id)).toEqual([nativeItem.id]);
+    expect(pairedPage.items.map((item) => item.item.id)).toEqual([nativeItem.id]);
+    expect(pairedTimeline.items.map((item) => item.item.id)).toEqual([nativeItem.id]);
+    expect(pairedTimeline.totalItems).toBe(1);
+  }).pipe(Effect.provide(layerTest));
+});

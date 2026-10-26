@@ -605,6 +605,22 @@ function rewriteExternalRefs(
   ) as Schema.Json;
 }
 
+function includeNativeRootTurnId(schema: Schema.Json): Schema.Json {
+  if (schema === null || typeof schema !== "object" || Array.isArray(schema)) return schema;
+  const record = schema as Record<string, Schema.Json>;
+  const properties = record.properties;
+  if (properties === null || typeof properties !== "object" || Array.isArray(properties)) {
+    return schema;
+  }
+  return {
+    ...record,
+    properties: {
+      ...(properties as Record<string, Schema.Json>),
+      rootTurnId: { type: ["string", "null"] },
+    },
+  };
+}
+
 const generateFiles = Effect.fn("generateFiles")(function* () {
   yield* ensureGeneratedDir();
 
@@ -636,10 +652,16 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
     );
 
     for (const [definitionName, definitionSchema] of Object.entries(parsed.definitions ?? {})) {
+      const sourceSchema =
+        definitionName === "Turn" &&
+        (file.qualifiedName === "v2/ThreadTurnsListResponse" ||
+          file.qualifiedName === "v2/ThreadReadResponse")
+          ? includeNativeRootTurnId(definitionSchema)
+          : definitionSchema;
       aggregateSchemas[localDefinitionNames.get(definitionName)!] = stripNullDefaults(
         normalizeNullableTypes(
           rewriteExternalRefs(
-            DefinitionOverrides[definitionName] ?? definitionSchema,
+            DefinitionOverrides[definitionName] ?? sourceSchema,
             localDefinitionNames,
             file.namespace,
             exportNameByQualifiedName,

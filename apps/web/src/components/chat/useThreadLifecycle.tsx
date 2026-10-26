@@ -526,6 +526,10 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
           threadId: activeThread.id,
           goal: activeGoal,
           isWorking,
+          workingStartedAt:
+            activeThreadShell?.latestRun?.startedAt ??
+            activeThreadShell?.runtime?.activityStartedAt ??
+            null,
           onSendCommand: sendStandaloneCommandStable,
         })
       : null;

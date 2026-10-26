@@ -12,6 +12,28 @@ import {
 } from "./diffRendering";
 
 describe("getRenderablePatch", () => {
+  it("preserves a final blank context line in Git patches", () => {
+    const patch = [
+      "diff --git a/example.ts b/example.ts",
+      "--- a/example.ts",
+      "+++ b/example.ts",
+      "@@ -1,3 +1,3 @@",
+      " before",
+      "-old",
+      "+new",
+      " ",
+    ].join("\n");
+
+    const parsed = getRenderablePatch(patch);
+    expect(parsed?.kind).toBe("files");
+    if (parsed?.kind !== "files") return;
+    expect(parsed.files[0]?.hunks[0]).toMatchObject({
+      additionCount: 3,
+      deletionCount: 3,
+      unifiedLineCount: 4,
+    });
+  });
+
   it("hides indentation changes around inserted JSX without moving review lines", () => {
     const patch = [
       "diff --git a/item.tsx b/item.tsx",

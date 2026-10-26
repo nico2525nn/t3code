@@ -11,6 +11,7 @@ import {
   NodeId,
   type ProjectId,
   ThreadId,
+  TurnItemId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -71,11 +72,15 @@ export interface EventSinkV2Shape {
     /** Return no events if another thread owns this native session at commit time. */
     readonly unlessNativeThreadOwned?: Pick<
       OrchestrationV2ProviderThread,
-      "driver" | "providerInstanceId" | "appThreadId" | "nativeThreadRef"
-    >;
+      "id" | "driver" | "providerInstanceId" | "appThreadId" | "nativeThreadRef"
+    > & { readonly reclaimFromThreadId?: ThreadId };
     readonly guardPendingUserInputCancellations?: boolean;
     readonly commandId?: CommandId;
     readonly events: ReadonlyArray<OrchestrationV2DomainEvent>;
+    readonly turnItemOrder?: {
+      readonly threadId: ThreadId;
+      readonly turnItemIds: ReadonlyArray<TurnItemId>;
+    };
   }) => Effect.Effect<ReadonlyArray<OrchestrationV2StoredEvent>, EventSinkV2Error>;
   readonly writeWithEffects: (input: {
     /**
@@ -85,12 +90,16 @@ export interface EventSinkV2Shape {
     readonly updateDelegatedCompletionOnly?: boolean;
     readonly unlessNativeThreadOwned?: Pick<
       OrchestrationV2ProviderThread,
-      "driver" | "providerInstanceId" | "appThreadId" | "nativeThreadRef"
-    >;
+      "id" | "driver" | "providerInstanceId" | "appThreadId" | "nativeThreadRef"
+    > & { readonly reclaimFromThreadId?: ThreadId };
     readonly guardPendingUserInputCancellations?: boolean;
     readonly commandId?: CommandId;
     readonly events: ReadonlyArray<OrchestrationV2DomainEvent>;
     readonly effects: ReadonlyArray<EffectOutbox.PendingOrchestrationEffectV2>;
+    readonly turnItemOrder?: {
+      readonly threadId: ThreadId;
+      readonly turnItemIds: ReadonlyArray<TurnItemId>;
+    };
   }) => Effect.Effect<ReadonlyArray<OrchestrationV2StoredEvent>, EventSinkV2Error>;
   readonly writeIfRunCurrent: (input: {
     readonly guardPendingUserInputCancellations?: boolean;
@@ -397,16 +406,45 @@ const layerBase: Layer.Layer<
           // Check ownership in the same transaction that claims the native session.
           const imported = input.unlessNativeThreadOwned;
           if (imported?.nativeThreadRef != null) {
-            const owners = yield* sql`
-              SELECT provider_thread_id
+            const owners = yield* sql<{
+              readonly provider_thread_id: string;
+              readonly thread_id: string;
+              readonly has_history: number;
+            }>`
+              SELECT
+                owner.provider_thread_id,
+                owner.thread_id,
+                (
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_runs WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_run_attempts WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_nodes WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_provider_turns WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_provider_sessions WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_messages WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_turn_items WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_checkpoints WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_checkpoint_scopes WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_plans WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_subagents WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_runtime_requests WHERE thread_id = owner.thread_id) OR
+                  EXISTS (SELECT 1 FROM orchestration_v2_projection_context_handoffs WHERE thread_id = owner.thread_id)
+                ) AS has_history
               FROM orchestration_v2_projection_provider_threads
-              WHERE driver = ${imported.driver}
-                AND provider_instance_id = ${imported.providerInstanceId}
-                AND thread_id IS NOT ${imported.appThreadId}
-                AND json_extract(payload_json, '$.nativeThreadRef.nativeId') = ${imported.nativeThreadRef.nativeId}
-              LIMIT 1
+              AS owner
+              WHERE owner.driver = ${imported.driver}
+                AND owner.provider_instance_id = ${imported.providerInstanceId}
+                AND owner.thread_id IS NOT ${imported.appThreadId}
+                AND json_extract(owner.payload_json, '$.nativeThreadRef.nativeId') = ${imported.nativeThreadRef.nativeId}
             `;
-            if (owners.length > 0) return { committed: [], outcomes: [] };
+            if (owners.length > 0) {
+              const canReclaim =
+                owners.length === 1 &&
+                imported.reclaimFromThreadId !== undefined &&
+                owners[0]?.thread_id === imported.reclaimFromThreadId &&
+                owners[0]?.provider_thread_id === imported.id &&
+                owners[0]?.has_history === 0;
+              if (!canReclaim) return { committed: [], outcomes: [] };
+            }
           }
           // Checkpoint capture can finish after a cohort writer reads its parent run.
           // Merge in this transaction so the event log and projection keep that completion.
@@ -432,6 +470,9 @@ const layerBase: Layer.Layer<
                 }),
               )
             : input.events;
+          if (input.turnItemOrder !== undefined) {
+            yield* turnItemPositions.reorder(input.turnItemOrder);
+          }
           const normalized = yield* normalizeEvents(
             input.guardPendingUserInputCancellations === true
               ? yield* guardUserInputCancellations(events)

@@ -15,6 +15,7 @@ export class TurnItemPositionStoreError extends Schema.TaggedError<TurnItemPosit
 ) {}
 
 const isTurnItemPositionStoreError = Schema.is(TurnItemPositionStoreError);
+const encodeTurnItemIds = Schema.encodeSync(Schema.fromJsonString(Schema.Array(Schema.String)));
 
 export interface TurnItemPositionStoreV2Shape {
   readonly allocate: (input: {
@@ -27,6 +28,10 @@ export interface TurnItemPositionStoreV2Shape {
     item: OrchestrationV2TurnItem,
     runOrdinal?: number,
   ) => Effect.Effect<OrchestrationV2TurnItem, TurnItemPositionStoreError>;
+  readonly reorder: (input: {
+    readonly threadId: ThreadId;
+    readonly turnItemIds: ReadonlyArray<TurnItemId>;
+  }) => Effect.Effect<void, TurnItemPositionStoreError>;
 }
 
 export class TurnItemPositionStoreV2 extends Context.Service<
@@ -111,6 +116,39 @@ export const layer: Layer.Layer<TurnItemPositionStoreV2, never, SqlClient.SqlCli
           runId: item.runId,
           ...(runOrdinal === undefined ? {} : { runOrdinal }),
         }).pipe(Effect.map((ordinal) => (item.ordinal === ordinal ? item : { ...item, ordinal })));
+      }),
+      reorder: Effect.fn("TurnItemPositionStoreV2.reorder")(function* ({ threadId, turnItemIds }) {
+        yield* sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const orderedIds = encodeTurnItemIds(turnItemIds);
+              yield* sql`
+              UPDATE orchestration_v2_turn_item_positions
+              SET ordinal = -rowid
+              WHERE thread_id = ${threadId}
+            `;
+              yield* sql`
+                WITH ordered AS (
+                  SELECT CAST(key AS INTEGER) + 1 AS ordinal, value AS turn_item_id
+                  FROM json_each(${orderedIds})
+                )
+                INSERT INTO orchestration_v2_turn_item_positions (thread_id, turn_item_id, ordinal)
+                SELECT ${threadId}, turn_item_id, ordinal FROM ordered WHERE 1
+                ON CONFLICT(thread_id, turn_item_id) DO UPDATE SET ordinal = excluded.ordinal
+              `;
+            }),
+          )
+          .pipe(
+            Effect.mapError((cause) =>
+              isTurnItemPositionStoreError(cause)
+                ? cause
+                : new TurnItemPositionStoreError({
+                    threadId,
+                    turnItemId: turnItemIds[0] ?? TurnItemId.make("codex-native"),
+                    cause,
+                  }),
+            ),
+          );
       }),
     });
   }),

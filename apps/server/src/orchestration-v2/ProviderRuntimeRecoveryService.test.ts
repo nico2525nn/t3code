@@ -4,6 +4,7 @@ import {
   NodeId,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProjectId,
   ProviderSessionId,
   ProviderThreadId,
   ProviderTurnId,
@@ -79,6 +80,199 @@ it.effect("expires orphaned runtime requests before command readiness", () => {
       assert.equal(command.events[0].payload.status, "expired");
       assert.equal(command.events[0].payload.responseCapability.type, "not_resumable");
     }
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("preserves the Codex run matching the native head and cancels stale runs", () => {
+  const threadId = ThreadId.make("thread_codex_native_running_recovery");
+  const projectId = ProjectId.make("project_codex_native_running_recovery");
+  const providerInstanceId = ProviderInstanceId.make("codex");
+  const providerThreadId = ProviderThreadId.make("provider_thread_codex_native_running");
+  const providerSessionId = ProviderSessionId.make("provider_session_codex_native_running");
+  const runId = RunId.make("run_codex_native_running");
+  const attemptId = RunAttemptId.make("attempt_codex_native_running");
+  const providerTurnId = ProviderTurnId.make("provider_turn_codex_native_running");
+  const rootNodeId = NodeId.make("node_codex_native_running");
+  const staleRunId = RunId.make("run_codex_native_stale");
+  const staleAttemptId = RunAttemptId.make("attempt_codex_native_stale");
+  const staleProviderTurnId = ProviderTurnId.make("provider_turn_codex_native_stale");
+  const staleRootNodeId = NodeId.make("node_codex_native_stale");
+  const staleItemId = TurnItemId.make("turn_item_codex_native_stale");
+  let committedInput: Parameters<EventSink.EventSinkV2["Service"]["commitCommand"]>[0] | null =
+    null;
+  const commitCommand = vi.fn((input) => {
+    committedInput = input;
+    return Effect.succeed({ committed: true, cancelledEffectCount: 0 } as never);
+  });
+  const projection = {
+    thread: {
+      id: threadId,
+      projectId,
+      providerInstanceId,
+      archivedAt: null,
+      deletedAt: null,
+      settledOverride: null,
+      snoozedUntil: null,
+    },
+    runtimeRequests: [],
+    providerSessions: [
+      {
+        id: providerSessionId,
+        providerInstanceId,
+        driver: ProviderDriverKind.make("codex"),
+        status: "ready",
+      },
+    ],
+    providerThreads: [
+      {
+        id: providerThreadId,
+        appThreadId: threadId,
+        providerInstanceId,
+        providerSessionId,
+        driver: ProviderDriverKind.make("codex"),
+        ownerNodeId: null,
+        status: "active",
+        nativeThreadRef: {
+          driver: ProviderDriverKind.make("codex"),
+          nativeId: "native-thread",
+          strength: "strong",
+        },
+        nativeConversationHeadRef: {
+          driver: ProviderDriverKind.make("codex"),
+          nativeId: "native-turn",
+          strength: "strong",
+        },
+        pendingBackgroundTasks: [],
+      },
+    ],
+    runs: [
+      {
+        id: runId,
+        threadId,
+        providerInstanceId,
+        providerThreadId,
+        activeAttemptId: attemptId,
+        status: "running",
+        ordinal: 1,
+        userMessageId: MessageId.make("message_codex_native_running"),
+        rootNodeId,
+      },
+      {
+        id: staleRunId,
+        threadId,
+        providerInstanceId,
+        providerThreadId,
+        activeAttemptId: staleAttemptId,
+        status: "running",
+        ordinal: 2,
+        userMessageId: MessageId.make("message_codex_native_stale"),
+        rootNodeId: staleRootNodeId,
+      },
+    ],
+    attempts: [
+      {
+        id: attemptId,
+        runId,
+        rootNodeId,
+        providerTurnId,
+        status: "running",
+      },
+      {
+        id: staleAttemptId,
+        runId: staleRunId,
+        rootNodeId: staleRootNodeId,
+        providerTurnId: staleProviderTurnId,
+        status: "running",
+      },
+    ],
+    providerTurns: [
+      {
+        id: providerTurnId,
+        providerThreadId,
+        runAttemptId: attemptId,
+        status: "running",
+        nativeTurnRef: {
+          driver: ProviderDriverKind.make("codex"),
+          nativeId: "native-turn",
+          strength: "strong",
+        },
+      },
+      {
+        id: staleProviderTurnId,
+        providerThreadId,
+        runAttemptId: staleAttemptId,
+        status: "running",
+        nativeTurnRef: {
+          driver: ProviderDriverKind.make("codex"),
+          nativeId: "old-native-turn",
+          strength: "strong",
+        },
+      },
+    ],
+    nodes: [
+      { id: rootNodeId, runId, providerThreadId, status: "running" },
+      { id: staleRootNodeId, runId: staleRunId, providerThreadId, status: "running" },
+    ],
+    subagents: [],
+    messages: [],
+    turnItems: [
+      {
+        id: staleItemId,
+        runId: staleRunId,
+        nodeId: staleRootNodeId,
+        providerThreadId,
+        type: "command_execution",
+        status: "running",
+      },
+    ],
+  } as unknown as OrchestrationV2ThreadProjection;
+  const layer = ProviderRuntimeRecovery.layer.pipe(
+    Layer.provide(ServerSettings.layerTest({ continueThreadsAfterServerUpdate: true })),
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(ProjectionStore.ProjectionStoreV2)({
+          getRecoveryThreadIds: () => Effect.succeed([threadId]),
+          getRuntimeRecoveryProjection: () => Effect.succeed(projection),
+        }),
+        Layer.mock(EventSink.EventSinkV2)({ commitCommand }),
+        IdAllocator.layer,
+        Layer.mock(EffectWorker.OrchestrationEffectWorkerV2)({
+          runRecoveryOnce: Effect.succeed(false),
+        }),
+        Layer.mock(EffectOutbox.EffectOutboxV2)({
+          cancelUnsettled: () => Effect.succeed([]),
+          signalCancellations: () => Effect.void,
+          reconcileAfterProcessLoss: Effect.succeed({ requeued: 0, cancelled: 0 }),
+        }),
+      ),
+    ),
+  );
+
+  return Effect.gen(function* () {
+    const result = yield* (yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService).reconcile(
+      "startup",
+    );
+    assert.equal(result.terminalizedRuns, 1);
+    assert.equal(result.stoppedSessions, 0);
+    const command = committedInput;
+    assert.isNotNull(command);
+    if (command === null) return;
+    assert.deepEqual(
+      command.events.flatMap((event) =>
+        event.type === "run.updated" && event.payload.status === "cancelled"
+          ? [event.payload.id]
+          : [],
+      ),
+      [staleRunId],
+    );
+    assert.isTrue(
+      command.events.some(
+        (event) =>
+          event.type === "turn-item.updated" &&
+          event.payload.id === staleItemId &&
+          event.payload.status === "cancelled",
+      ),
+    );
   }).pipe(Effect.provide(layer));
 });
 

@@ -11,6 +11,7 @@ import {
 import { childThreadInputsTitle } from "@t3tools/client-runtime/state/threads";
 import { GitBranchIcon, MessageCircleIcon, ShieldQuestionIcon, TargetIcon } from "lucide-react";
 import { Fragment } from "react";
+import { useNowSecond } from "../../hooks/useNowSecond";
 import { cn } from "~/lib/utils";
 import { Button, InlineButton } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -54,24 +55,27 @@ export function goalBannerItem(input: {
   readonly threadId: ThreadId;
   readonly goal: OrchestrationV2ProviderGoal;
   readonly isWorking: boolean;
+  readonly workingStartedAt?: string | null | undefined;
   readonly onSendCommand: (text: string, failureMessage: string) => Promise<void>;
 }): ComposerBannerStackItem {
   const { isWorking, onSendCommand } = input;
-  const presentation = presentProviderGoal(input.goal, isWorking);
   return {
     id: `goal:${input.threadId}`,
     variant: "default",
     priority: "activity",
     icon: <TargetIcon />,
-    title:
-      presentation.usage === null
-        ? presentation.title
-        : `${presentation.title} · ${presentation.usage}`,
-    description: presentation.objective,
+    title: (
+      <GoalBannerTitle
+        goal={input.goal}
+        isWorking={isWorking}
+        workingStartedAt={input.workingStartedAt}
+      />
+    ),
+    description: input.goal.objective,
     // Clear stops goal work; Resume would stop unrelated work, so it waits.
     actions: (
       <>
-        {presentation.canResume && !isWorking ? (
+        {input.goal.status !== "active" && input.goal.status !== "complete" && !isWorking ? (
           <Button
             size="xs"
             variant="ghost"
@@ -90,6 +94,41 @@ export function goalBannerItem(input: {
       </>
     ),
   };
+}
+
+function GoalBannerTitle(props: {
+  readonly goal: OrchestrationV2ProviderGoal;
+  readonly isWorking: boolean;
+  readonly workingStartedAt?: string | null | undefined;
+}) {
+  if (props.goal.status === "active" && props.isWorking) {
+    return <ActiveGoalBannerTitle {...props} />;
+  }
+  return <GoalBannerTitleText {...props} nowMs={0} />;
+}
+
+function ActiveGoalBannerTitle(props: {
+  readonly goal: OrchestrationV2ProviderGoal;
+  readonly isWorking: boolean;
+  readonly workingStartedAt?: string | null | undefined;
+}) {
+  const nowMs = useNowSecond();
+  return <GoalBannerTitleText {...props} nowMs={nowMs} />;
+}
+
+function GoalBannerTitleText(props: {
+  readonly goal: OrchestrationV2ProviderGoal;
+  readonly isWorking: boolean;
+  readonly workingStartedAt?: string | null | undefined;
+  readonly nowMs: number;
+}) {
+  const presentation = presentProviderGoal(props.goal, props.isWorking, {
+    workingStartedAt: props.workingStartedAt,
+    nowMs: props.nowMs,
+  });
+  return presentation.usage === null
+    ? presentation.title
+    : `${presentation.title} · ${presentation.usage}`;
 }
 
 export function backgroundWorkBannerItem(input: {

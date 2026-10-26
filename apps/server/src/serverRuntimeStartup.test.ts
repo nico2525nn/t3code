@@ -33,6 +33,7 @@ import * as Keybindings from "./keybindings.ts";
 import * as EffectWorker from "./orchestration-v2/EffectWorker.ts";
 import * as LegacyV1ThreadImporter from "./orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
+import * as CodexNativeThreadSyncService from "./orchestration-v2/CodexNativeThreadSyncService.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ProviderRuntimeRecovery from "./orchestration-v2/ProviderRuntimeRecoveryService.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
@@ -60,6 +61,7 @@ it.effect.each([
         scenario === "disabled-default" ? "custom" : "codex",
       );
       const events: ServerLifecycleStreamEvent[] = [];
+      const startupPhases: string[] = [];
       const recovery = {
         terminalizedRuns: 0,
         stoppedSessions: 0,
@@ -111,9 +113,19 @@ it.effect.each([
           importPendingTranscripts: Effect.succeed(imports),
         }),
         Layer.mock(ProviderRuntimeRecovery.ProviderRuntimeRecoveryService)({
-          recover: Effect.succeed(recovery),
+          recover: Effect.sync(() => {
+            startupPhases.push("recovery");
+            return recovery;
+          }),
           prepareForShutdown: Effect.void,
           reconcile: () => Effect.succeed(recovery),
+        }),
+        Layer.mock(CodexNativeThreadSyncService.CodexNativeThreadSyncService)({
+          syncCatalog: () => Effect.void,
+          startCatalogSync: () =>
+            Effect.sync(() => {
+              startupPhases.push("catalog-sync");
+            }),
         }),
         Layer.mock(Orchestrator.OrchestratorV2)({ recoverDelegatedTasks: Effect.void }),
         Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({ shutdown: Effect.void }),
@@ -225,6 +237,10 @@ it.effect.each([
         yield* startup.markHttpListening;
         const ready = yield* Effect.exit(startup.awaitCommandReady);
         assert.equal(Exit.isSuccess(ready), scenario !== "project-failure");
+        assert.deepEqual(
+          startupPhases,
+          scenario === "project-failure" ? ["recovery"] : ["recovery", "catalog-sync"],
+        );
         const welcome = events.find((event) => event.type === "welcome");
         if (scenario === "project-failure") {
           assert.isUndefined(welcome);

@@ -39,6 +39,7 @@ import {
   type FileManagerRevealKind,
   type OrchestrationClientOrigin,
   type OrchestrationV2Command,
+  type OrchestrationV2StoredEvent,
   type GitActionProgressEvent,
   type GitManagerServiceError,
   type MessageId,
@@ -113,6 +114,7 @@ import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
+import * as CodexNativeThreadSyncService from "./orchestration-v2/CodexNativeThreadSyncService.ts";
 import * as CommandOutputHub from "./orchestration-v2/CommandOutputHub.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
@@ -160,6 +162,7 @@ import {
 } from "./orchestration-v2/threadHistoryPaging.ts";
 import {
   makeLiveBodyDeduper,
+  legacyCodexAssistantCounterpartTurnItemId,
   projectDomainEventForWire,
   projectThreadProjectionForWire,
 } from "./orchestration-v2/WireProjection.ts";
@@ -794,11 +797,32 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
     readonly acceptCompactIds?: boolean;
   }) {
     const threadManagement = yield* ThreadManagementService.ThreadManagementService;
+    const codexNativeSync = yield* Effect.serviceOption(
+      CodexNativeThreadSyncService.CodexNativeThreadSyncService,
+    );
     const dedupeBodies = input.acceptDedupedBodies === true;
     // Replay, snapshot, and live tail share one deduper: it must see every delivered record.
     const withLiveDedupe = <E, R>(stream: Stream.Stream<OrchestrationV2ThreadStreamItem, E, R>) =>
       dedupeBodies ? Stream.suspend(() => Stream.map(stream, makeLiveBodyDeduper())) : stream;
     const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
+    const eventStreamItemForWire = (stored: OrchestrationV2StoredEvent) => {
+      const item = stored.event.type === "turn-item.updated" ? stored.event.payload : null;
+      const projected = {
+        kind: "event" as const,
+        sequence: stored.sequence,
+        event: projectDomainEventForWire(stored.event),
+      };
+      if (item === null || legacyCodexAssistantCounterpartTurnItemId(item) === null) {
+        return Effect.succeed(Result.succeed(projected));
+      }
+      return threadManagement
+        .getDuplicateCodexAssistantTurnItemIds([item])
+        .pipe(
+          Effect.map((duplicateIds) =>
+            duplicateIds.has(item.id) ? Result.failVoid : Result.succeed(projected),
+          ),
+        );
+    };
 
     yield* Effect.annotateCurrentSpan({
       "orchestration_v2.thread_id": input.threadId,
@@ -813,6 +837,9 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
           }),
       ),
     );
+    if (Option.isSome(codexNativeSync)) {
+      yield* codexNativeSync.value.startThreadSync(input.threadId, { resume: true });
+    }
 
     const eventStreamFrom = (afterSequence: number) =>
       threadManagement
@@ -821,11 +848,8 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
           afterSequence,
         })
         .pipe(
-          Stream.map((stored) => ({
-            kind: "event" as const,
-            sequence: stored.sequence,
-            event: projectDomainEventForWire(stored.event),
-          })),
+          Stream.mapEffect(eventStreamItemForWire),
+          Stream.filterMap((item) => item),
           coalesceThreadLiveStream,
           Stream.mapError(
             (cause) =>
@@ -848,13 +872,28 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
           skipUnknownEventTypes: true,
         })
         .pipe(
-          Stream.map((stored) => ({
-            kind: "event" as const,
-            sequence: stored.sequence,
-            event: projectDomainEventForWire(stored.event),
-          })),
           Stream.runCollect,
           Effect.map((items) => Array.from(items)),
+          Effect.flatMap((storedEvents) => {
+            const turnItems = storedEvents.flatMap((stored) =>
+              stored.event.type === "turn-item.updated" ? [stored.event.payload] : [],
+            );
+            return threadManagement.getDuplicateCodexAssistantTurnItemIds(turnItems).pipe(
+              Effect.map((ids) =>
+                storedEvents
+                  .filter(
+                    (stored) =>
+                      stored.event.type !== "turn-item.updated" ||
+                      !ids.has(stored.event.payload.id),
+                  )
+                  .map((stored) => ({
+                    kind: "event" as const,
+                    sequence: stored.sequence,
+                    event: projectDomainEventForWire(stored.event),
+                  })),
+              ),
+            );
+          }),
           Effect.mapError(
             (cause) =>
               new OrchestrationV2GetThreadProjectionError({
@@ -997,10 +1036,16 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   }) {
     const sql = yield* SqlClient.SqlClient;
     const threadManagement = yield* ThreadManagementService.ThreadManagementService;
+    const codexNativeSync = yield* Effect.serviceOption(
+      CodexNativeThreadSyncService.CodexNativeThreadSyncService,
+    );
     const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
     const projects = yield* ProjectStore.ProjectStoreV2;
     const projectService = yield* ProjectService.ProjectService;
     const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
+    if (Option.isSome(codexNativeSync)) {
+      yield* codexNativeSync.value.startCatalogSync();
+    }
     let subagentThreadIds = new Set<string>();
     const filterSubagentTranscript = (stored: ApplicationStoredEvent) =>
       shouldPublishShellApplicationEvent(stored, subagentThreadIds);

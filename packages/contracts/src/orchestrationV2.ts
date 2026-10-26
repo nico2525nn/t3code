@@ -947,6 +947,16 @@ export const OrchestrationV2ProviderThreadNativeMetadata = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   title: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   updatedAt: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** Last complete App Server history version materialized into T3 projections. */
+  historySyncUpdatedAt: Schema.optional(TrimmedNonEmptyString),
+  /** Codex thread-list revision whose history was last materialized into T3 projections. */
+  historySyncCatalogUpdatedAt: Schema.optional(TrimmedNonEmptyString),
+  /** Codex native turn grouping used while projecting the App Server history. */
+  historyMappingVersion: Schema.optional(Schema.Int),
+  /** Older stored history is preserved while only the live tail is synchronized. */
+  historyMappingDeferred: Schema.optional(Schema.Boolean),
+  /** App Server item order is persisted for canonical T3 timeline reads. */
+  timelineOrderVersion: Schema.optional(Schema.Int),
   itemIdentityVersion: Schema.optional(Schema.Literal(2)),
   forkHeadMessageId: Schema.optional(TrimmedNonEmptyString),
   claudeAttachmentBudget: Schema.optional(
@@ -972,6 +982,7 @@ export const OrchestrationV2ProviderGoal = Schema.Struct({
   tokensUsed: Schema.optional(NonNegativeInt),
   tokenBudget: Schema.optional(Schema.NullOr(NonNegativeInt)),
   timeUsedSeconds: Schema.optional(NonNegativeInt),
+  updatedAt: Schema.optional(Schema.String),
   checks: Schema.optional(NonNegativeInt),
   lastCheck: Schema.optional(Schema.String),
 });

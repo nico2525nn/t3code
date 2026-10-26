@@ -56,3 +56,46 @@ it.effect("reuses an item's position without attempting another allocation inser
     );
   }).pipe(Effect.provide(layerTest)),
 );
+
+it.effect("reorders a thread's items atomically and idempotently", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const positions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
+    const threadId = ThreadId.make("thread:position-reorder");
+    const items = ["first", "second", "third"].map((id) => TurnItemId.make(`item:${id}`));
+    for (const turnItemId of items) {
+      yield* positions.allocate({ threadId, turnItemId, runId: null });
+    }
+
+    yield* positions.reorder({ threadId, turnItemIds: [items[2]!, items[0]!, items[1]!] });
+    const reordered = yield* sql<{
+      readonly turn_item_id: string;
+      readonly ordinal: number;
+    }>`
+      SELECT turn_item_id, ordinal
+      FROM orchestration_v2_turn_item_positions
+      WHERE thread_id = ${threadId}
+      ORDER BY ordinal
+    `;
+    assert.deepEqual(
+      reordered.map((row) => [row.turn_item_id, row.ordinal]),
+      [
+        [items[2]!, 1],
+        [items[0]!, 2],
+        [items[1]!, 3],
+      ],
+    );
+
+    yield* positions.reorder({ threadId, turnItemIds: [items[2]!, items[0]!, items[1]!] });
+    const repeated = yield* sql<{ readonly ordinal: number }>`
+      SELECT ordinal
+      FROM orchestration_v2_turn_item_positions
+      WHERE thread_id = ${threadId}
+      ORDER BY ordinal
+    `;
+    assert.deepEqual(
+      repeated.map((row) => row.ordinal),
+      [1, 2, 3],
+    );
+  }).pipe(Effect.provide(layerTest)),
+);

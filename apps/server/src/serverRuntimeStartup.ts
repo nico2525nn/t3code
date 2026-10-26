@@ -20,6 +20,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -34,6 +35,7 @@ import * as EffectWorker from "./orchestration-v2/EffectWorker.ts";
 import * as LegacyV1ThreadImporter from "./orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
 import * as ProviderRuntimeRecovery from "./orchestration-v2/ProviderRuntimeRecoveryService.ts";
+import * as CodexNativeThreadSyncService from "./orchestration-v2/CodexNativeThreadSyncService.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as ThreadLaunch from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "./orchestration-v2/ThreadManagementService.ts";
@@ -446,6 +448,9 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
   const keybindings = yield* Keybindings.Keybindings;
   const legacyV1ThreadImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
   const providerRuntimeRecovery = yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService;
+  const codexNativeThreadSync = yield* Effect.serviceOption(
+    CodexNativeThreadSyncService.CodexNativeThreadSyncService,
+  );
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
   const agentAwarenessRelay = yield* AgentAwarenessRelay.AgentAwarenessRelay;
@@ -633,6 +638,12 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
 
     yield* Effect.logDebug("startup phase: waiting for http listener");
     yield* runStartupPhase("http.wait", Deferred.await(httpListening));
+    if (Option.isSome(codexNativeThreadSync)) {
+      yield* runStartupPhase(
+        "orchestration-v2.codex-catalog-sync",
+        codexNativeThreadSync.value.startCatalogSync(),
+      );
+    }
     yield* runStartupPhase("auxiliary-roots.parked", options?.awaitAuxiliaryParked ?? Effect.void);
 
     const updateOutcome = yield* launcher.prepareTrial;

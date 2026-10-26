@@ -190,6 +190,17 @@ it.effect.each(["sqlite", "memory"] as const)(
         occurredAt: now,
         payload: item,
       });
+      assert.isFunction(store.getTurnItemCount);
+      assert.equal(yield* store.getTurnItemCount!(threadId), 1);
+      assert.deepEqual(
+        (yield* store.getThreadRecords(threadId, ["turnItems"], { turnItemIds: [item.id] }))
+          .turnItems,
+        [item],
+      );
+      assert.deepEqual(
+        (yield* store.getThreadRecords(threadId, ["turnItems"], { turnItemIds: [] })).turnItems,
+        [],
+      );
       if (storage === "sqlite") {
         const sql = yield* SqlClient.SqlClient;
         yield* sql`INSERT INTO orchestration_v2_projection_messages

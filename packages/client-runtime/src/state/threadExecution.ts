@@ -385,6 +385,10 @@ function formatGoalTokens(tokens: number): string {
 export function presentProviderGoal(
   goal: OrchestrationV2ProviderGoal,
   working: boolean,
+  options: {
+    readonly workingStartedAt?: string | null | undefined;
+    readonly nowMs?: number | undefined;
+  } = {},
 ): ProviderGoalPresentation {
   const usage: Array<string> = [];
   if (goal.tokensUsed !== undefined && goal.tokensUsed > 0) {
@@ -394,8 +398,24 @@ export function presentProviderGoal(
         : `${formatGoalTokens(goal.tokensUsed)} / ${formatGoalTokens(goal.tokenBudget)} tokens`,
     );
   }
-  if (goal.timeUsedSeconds !== undefined && goal.timeUsedSeconds >= 60) {
-    usage.push(formatDuration(goal.timeUsedSeconds * 1_000));
+  if (goal.timeUsedSeconds !== undefined) {
+    const updatedAtMs = goal.updatedAt === undefined ? Number.NaN : Date.parse(goal.updatedAt);
+    const workingStartedAtMs =
+      options.workingStartedAt == null ? Number.NaN : Date.parse(options.workingStartedAt);
+    const baselineMs = Math.max(updatedAtMs, workingStartedAtMs);
+    const nowMs = options.nowMs;
+    const elapsedSeconds =
+      goal.status === "active" &&
+      working &&
+      nowMs !== undefined &&
+      Number.isFinite(baselineMs) &&
+      Number.isFinite(nowMs)
+        ? Math.max(0, Math.floor((nowMs - baselineMs) / 1_000))
+        : 0;
+    const timeUsedSeconds = goal.timeUsedSeconds + elapsedSeconds;
+    if (timeUsedSeconds >= 60) {
+      usage.push(formatDuration(timeUsedSeconds * 1_000));
+    }
   }
   if (goal.checks !== undefined && goal.checks > 0) {
     usage.push(`${goal.checks} ${goal.checks === 1 ? "check" : "checks"}`);

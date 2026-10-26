@@ -53,8 +53,14 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { projectedRowEncodedBytes } from "./threadHistoryPaging.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
+import * as CodexNativeThreadSyncService from "./CodexNativeThreadSyncService.ts";
 import { DispatchModeLimit, exceededDispatchModeLimit } from "./DispatchModeLimit.ts";
-import { projectTurnItemForDetail } from "./WireProjection.ts";
+import {
+  duplicateLegacyCodexAssistantMessageItemIds,
+  duplicateLegacyCodexUserMessageItemIds,
+  legacyCodexAssistantCounterpartTurnItemId,
+  projectTurnItemForDetail,
+} from "./WireProjection.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
 
@@ -349,6 +355,9 @@ export interface ThreadManagementServiceShape {
   >;
   readonly getThreadHistoryPage: Orchestrator.OrchestratorV2["Service"]["getThreadHistoryPage"];
   readonly getTimelinePage: Orchestrator.OrchestratorV2["Service"]["getTimelinePage"];
+  readonly getDuplicateCodexAssistantTurnItemIds: (
+    items: ReadonlyArray<OrchestrationV2TurnItem>,
+  ) => Effect.Effect<ReadonlySet<TurnItemId>, Orchestrator.OrchestratorV2Error>;
   readonly getMessageCount: Orchestrator.OrchestratorV2["Service"]["getMessageCount"];
   readonly getTurnItem: (input: {
     readonly threadId: ThreadId;
@@ -534,6 +543,9 @@ const make = Effect.gen(function* () {
   const sessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
   const layerScope = yield* Effect.scope;
   const legacyImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
+  const codexNativeSync = yield* Effect.serviceOption(
+    CodexNativeThreadSyncService.CodexNativeThreadSyncService,
+  );
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
 
@@ -621,6 +633,43 @@ const make = Effect.gen(function* () {
       Effect.andThen(orchestrator.getThreadProjection(threadId)),
     );
 
+  const readLegacyCodexAssistantDuplicates = Effect.fn(
+    "ThreadManagementService.readLegacyCodexAssistantDuplicates",
+  )(function* (items: ReadonlyArray<OrchestrationV2TurnItem>) {
+    const duplicateIds = new Set(duplicateLegacyCodexAssistantMessageItemIds(items));
+    const itemIdsByThread = new Map<ThreadId, Set<TurnItemId>>();
+    const itemIdsByThreadAndId = new Set(items.map((item) => `${item.threadId}:${item.id}`));
+    for (const item of items) {
+      const counterpartId = legacyCodexAssistantCounterpartTurnItemId(item);
+      if (
+        counterpartId === null ||
+        duplicateIds.has(item.id) ||
+        itemIdsByThreadAndId.has(`${item.threadId}:${counterpartId}`)
+      ) {
+        continue;
+      }
+      const ids = itemIdsByThread.get(item.threadId) ?? new Set<TurnItemId>();
+      ids.add(counterpartId);
+      itemIdsByThread.set(item.threadId, ids);
+    }
+    if (itemIdsByThread.size === 0) return duplicateIds;
+
+    const records = yield* Effect.forEach(
+      Array.from(itemIdsByThread),
+      ([sourceThreadId, turnItemIds]) =>
+        orchestrator.getThreadRecords(sourceThreadId, ["turnItems"], {
+          turnItemIds: Array.from(turnItemIds),
+        }),
+    );
+    for (const id of duplicateLegacyCodexAssistantMessageItemIds([
+      ...items,
+      ...records.flatMap((record) => record.turnItems),
+    ])) {
+      duplicateIds.add(id);
+    }
+    return duplicateIds;
+  });
+
   const getCheckpointContext: ThreadManagementServiceShape["getCheckpointContext"] = (threadId) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getCheckpointContext(threadId)),
@@ -634,11 +683,18 @@ const make = Effect.gen(function* () {
     function* (threadId: ThreadId) {
       const { projection } = yield* getThreadSnapshot(threadId);
       const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
+      const duplicateIds = new Set([
+        ...duplicateLegacyCodexUserMessageItemIds(projection),
+        ...(yield* readLegacyCodexAssistantDuplicates([
+          ...projection.turnItems,
+          ...projection.visibleTurnItems.map((row) => row.item),
+        ])),
+      ]);
       const transcript = {
         threadId: projection.thread.id,
         title: projection.thread.title,
         updatedAt: projection.updatedAt,
-        items: projection.visibleTurnItems,
+        items: projection.visibleTurnItems.filter((row) => !duplicateIds.has(row.item.id)),
       };
       let sizeBytes = Buffer.byteLength(
         threadTranscriptHeader(yield* environment.getEnvironmentId, transcript),
@@ -662,6 +718,28 @@ const make = Effect.gen(function* () {
   ) =>
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getThreadSnapshotWindow(threadId, options)),
+      Effect.flatMap((snapshot) => {
+        const visibleItems = snapshot.projection.visibleTurnItems.map((row) => row.item);
+        const currentItems = [...snapshot.projection.turnItems, ...visibleItems];
+        return readLegacyCodexAssistantDuplicates(currentItems).pipe(
+          Effect.map((duplicateIds) =>
+            duplicateIds.size === 0
+              ? snapshot
+              : {
+                  ...snapshot,
+                  projection: {
+                    ...snapshot.projection,
+                    turnItems: snapshot.projection.turnItems.filter(
+                      (item) => !duplicateIds.has(item.id),
+                    ),
+                    visibleTurnItems: snapshot.projection.visibleTurnItems.filter(
+                      (row) => !duplicateIds.has(row.item.id),
+                    ),
+                  },
+                },
+          ),
+        );
+      }),
     );
 
   const assertDispatchTargetEnabled = (command: OrchestrationV2ServerCommand) => {
@@ -695,6 +773,30 @@ const make = Effect.gen(function* () {
     ensureCommandTranscripts(command).pipe(
       Effect.andThen(assertDispatchTargetEnabled(command)),
       Effect.andThen(orchestrator.dispatch(command)),
+      Effect.tap(() =>
+        Effect.gen(function* () {
+          if (Option.isNone(codexNativeSync)) return;
+          switch (command.type) {
+            case "thread.archive":
+            case "thread.unarchive":
+            case "thread.delete":
+              yield* codexNativeSync.value.applyThreadCommand({
+                type: command.type,
+                threadId: command.threadId,
+              });
+              break;
+            case "thread.metadata.update":
+              if (command.title !== undefined) {
+                yield* codexNativeSync.value.applyThreadCommand({
+                  type: command.type,
+                  threadId: command.threadId,
+                  title: command.title,
+                });
+              }
+              break;
+          }
+        }),
+      ),
     );
 
   const getProjectThread: ThreadManagementServiceShape["getProjectThread"] = (input) =>
@@ -1210,12 +1312,33 @@ const make = Effect.gen(function* () {
       );
     }),
     dispatch,
+    getDuplicateCodexAssistantTurnItemIds: readLegacyCodexAssistantDuplicates,
     getThreadHistoryPage: Effect.fn("ThreadManagementService.getThreadHistoryPage")(
       function (threadId, cursor, throughEntryId, conversationOnly) {
         return ensureProjectionTranscript(threadId).pipe(
           Effect.andThen(
             orchestrator.getThreadHistoryPage(threadId, cursor, throughEntryId, conversationOnly),
           ),
+          Effect.flatMap((page) => {
+            const pageItems = page.items.map((row) => row.item);
+            return Effect.all([
+              orchestrator.getThreadRecords(threadId, ["providerThreads"]),
+              readLegacyCodexAssistantDuplicates(pageItems),
+            ]).pipe(
+              Effect.map(([records, duplicateAssistantIds]) => {
+                const duplicateIds = new Set([
+                  ...duplicateLegacyCodexUserMessageItemIds({
+                    providerThreads: records.providerThreads,
+                    turnItems: pageItems,
+                  }),
+                  ...duplicateAssistantIds,
+                ]);
+                return duplicateIds.size === 0
+                  ? page
+                  : { ...page, items: page.items.filter((row) => !duplicateIds.has(row.item.id)) };
+              }),
+            );
+          }),
         );
       },
     ),
@@ -1223,6 +1346,21 @@ const make = Effect.gen(function* () {
       function (threadId, options) {
         return ensureProjectionTranscript(threadId).pipe(
           Effect.andThen(orchestrator.getTimelinePage(threadId, options)),
+          Effect.flatMap((page) => {
+            const pageItems = page.items.map((row) => row.item);
+            return readLegacyCodexAssistantDuplicates(pageItems).pipe(
+              Effect.mapError(() => new Orchestrator.OrchestratorProjectionError({ threadId })),
+              Effect.map((duplicateIds) =>
+                duplicateIds.size === 0
+                  ? page
+                  : {
+                      ...page,
+                      items: page.items.filter((row) => !duplicateIds.has(row.item.id)),
+                      totalItems: Math.max(0, page.totalItems - duplicateIds.size),
+                    },
+              ),
+            );
+          }),
         );
       },
     ),

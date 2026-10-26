@@ -25,6 +25,7 @@ import {
   deriveRunlessWorkStartedAt,
   deriveThreadActivityRun,
   deriveThreadRuntime,
+  presentProviderGoal,
   threadRuntimeHasInterruptibleRun,
 } from "./threadExecution.ts";
 
@@ -51,6 +52,27 @@ function run(id: string, ordinal: number, status: OrchestrationV2RunStatus) {
 }
 
 describe("thread execution presentation", () => {
+  it("keeps an active Codex goal timer advancing from the latest goal or run timestamp", () => {
+    const goal = {
+      objective: "Ship the feature",
+      status: "active" as const,
+      timeUsedSeconds: 120,
+      updatedAt: "2026-07-28T09:59:00.000Z",
+    };
+    expect(
+      presentProviderGoal(goal, true, {
+        workingStartedAt: "2026-07-28T10:00:30.000Z",
+        nowMs: Date.parse("2026-07-28T10:02:00.000Z"),
+      }).usage,
+    ).toBe("3m 30s");
+    expect(
+      presentProviderGoal(goal, false, {
+        workingStartedAt: "2026-07-28T10:00:30.000Z",
+        nowMs: Date.parse("2026-07-28T10:02:00.000Z"),
+      }).usage,
+    ).toBe("2m");
+  });
+
   it("derives the current root failure without inheriting errors from children or previous runs", () => {
     const failed = { ...run("limited", 1, "failed"), rootNodeId: NodeId.make("root") };
     const item = {

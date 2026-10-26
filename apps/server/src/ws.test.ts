@@ -2,16 +2,22 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   AuthSessionId,
+  EventId,
   EnvironmentId,
+  MessageId,
   ProjectId,
-  ThreadId,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProviderThreadId,
+  ProviderTurnId,
+  ThreadId,
+  TurnItemId,
   WS_METHODS,
   WsServerRefreshProvidersRpc,
   WsSubscribeServerConfigRpc,
   type OrchestrationV2StoredEvent,
   type OrchestrationV2ThreadShell,
+  type OrchestrationV2ThreadStreamItem,
   type OrchestrationProjectShell,
   type ServerConfig,
   type ServerConfigStreamEvent,
@@ -103,6 +109,7 @@ import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as ServerConfigModule from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerSettings from "./serverSettings.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 
 import * as EventStore from "./orchestration-v2/EventStore.ts";
 import * as ProjectionMaintenance from "./orchestration-v2/ProjectionMaintenance.ts";
@@ -261,6 +268,7 @@ it.live.each(["thread", "shell"] as const)(
       const items = yield* subscription.pipe(
         Effect.provideService(ThreadManagement.ThreadManagementService, {
           ensureLegacyTranscript: () => Effect.void,
+          getDuplicateCodexAssistantTurnItemIds: () => Effect.succeed(new Set()),
           getShellSnapshot: () => Effect.die("shell resume must not load a full snapshot"),
           listActiveSubagentThreadIds: () => Effect.succeed([]),
           streamStoredEventsFrom: (
@@ -862,6 +870,7 @@ it.effect("thread resume across compacted history keeps message order and final 
       ),
       Effect.provideService(ThreadManagement.ThreadManagementService, {
         ensureLegacyTranscript: () => Effect.void,
+        getDuplicateCodexAssistantTurnItemIds: () => Effect.succeed(new Set()),
         streamStoredEventsFrom: () => Stream.never,
       } as unknown as ThreadManagement.ThreadManagementService["Service"]),
     );
@@ -886,4 +895,102 @@ it.effect("thread resume across compacted history keeps message order and final 
       ),
     ),
   ),
+);
+
+it.effect("thread replay and live events omit migrated Codex assistant aliases", () =>
+  Effect.gen(function* () {
+    const eventStore = yield* OrchestrationEventStore.OrchestrationEventStore;
+    const threadId = ThreadId.make("thread:codex-assistant-alias-replay");
+    const now = DateTime.makeUnsafe("2026-10-26T04:00:00.000Z");
+    const nativeId = "codex-assistant-alias";
+    const nativeItemId = IdAllocator.derive.turnItemFromProviderItem({
+      driver: ProviderDriverKind.make("codex"),
+      nativeItemId: nativeId,
+    });
+    const makeItem = (id: TurnItemId) => ({
+      id,
+      threadId,
+      runId: null,
+      nodeId: null,
+      providerThreadId: ProviderThreadId.make("provider-thread:codex-assistant-alias"),
+      providerTurnId: ProviderTurnId.make("provider-turn:codex-assistant-alias"),
+      nativeItemRef: {
+        driver: ProviderDriverKind.make("codex"),
+        nativeId,
+        strength: "strong" as const,
+      },
+      parentItemId: null,
+      ordinal: 1,
+      status: "completed" as const,
+      title: null,
+      startedAt: now,
+      completedAt: now,
+      updatedAt: now,
+      type: "assistant_message" as const,
+      messageId: MessageId.make(`message:${nativeId}`),
+      text: "same response",
+      streaming: false,
+    });
+    const legacyItem = makeItem(TurnItemId.make(`migration:v1:turn-item:assistant:${nativeId}`));
+    const nativeItem = makeItem(nativeItemId);
+    const [legacyStored, nativeStored] = yield* eventStore.appendAgentEvents({
+      events: [legacyItem, nativeItem].map((payload, index) => ({
+        id: EventId.make(`event:codex-assistant-alias:${index}`),
+        type: "turn-item.updated" as const,
+        threadId,
+        occurredAt: now,
+        payload,
+      })),
+    });
+    let liveEvents: Stream.Stream<OrchestrationV2StoredEvent> = Stream.empty;
+    const duplicateLookups: Array<ReadonlyArray<TurnItemId>> = [];
+    let liveStreamCalls = 0;
+    const threadManagement = {
+      ensureLegacyTranscript: () => Effect.void,
+      getDuplicateCodexAssistantTurnItemIds: (items: ReadonlyArray<{ readonly id: TurnItemId }>) =>
+        Effect.sync(() => {
+          duplicateLookups.push(items.map((item) => item.id));
+          return new Set(items.flatMap((item) => (item.id === legacyItem.id ? [item.id] : [])));
+        }),
+      streamStoredEventsFrom: () => {
+        liveStreamCalls += 1;
+        return liveEvents;
+      },
+    } as unknown as ThreadManagement.ThreadManagementService["Service"];
+    const collect = (afterSequence: number) =>
+      subscribeOrchestrationV2Thread({ threadId, afterSequence }).pipe(
+        Effect.flatMap((stream) => stream.pipe(Stream.runCollect)),
+        Effect.provideService(ThreadManagement.ThreadManagementService, threadManagement),
+      );
+    const assistantIds = (items: ReadonlyArray<OrchestrationV2ThreadStreamItem>) =>
+      Array.from(items).flatMap((item) =>
+        item.kind === "event" && item.event.type === "turn-item.updated"
+          ? [item.event.payload.id]
+          : [],
+      );
+
+    const replay = yield* collect(0);
+    assert.deepEqual(assistantIds(replay), [nativeItemId]);
+
+    liveEvents = Stream.fromIterable([legacyStored!, nativeStored!]);
+    const live = yield* collect(nativeStored!.sequence);
+    assert.equal(liveStreamCalls, 2);
+    assert.deepEqual(duplicateLookups.at(-1), [legacyItem.id]);
+    assert.deepEqual(
+      assistantIds(live),
+      [nativeItemId],
+      JSON.stringify(
+        Array.from(live, (item) =>
+          item.kind === "event"
+            ? {
+                kind: item.kind,
+                sequence: item.sequence,
+                eventType: item.event.type,
+                turnItemId: item.event.type === "turn-item.updated" ? item.event.payload.id : null,
+              }
+            : { kind: item.kind },
+        ),
+      ),
+    );
+  }).pipe(Effect.provide(ReplayTestLayer)),
 );

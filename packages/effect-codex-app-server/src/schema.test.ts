@@ -9,6 +9,26 @@ const isThreadResumeResponse = Schema.is(CodexSchema.V2ThreadResumeResponse);
 const isThreadForkResponse = Schema.is(CodexSchema.V2ThreadForkResponse);
 const isTurnCompletedNotification = Schema.is(CodexSchema.V2TurnCompletedNotification);
 const decodeThreadResumeResponse = Schema.decodeUnknownSync(CodexSchema.V2ThreadResumeResponse);
+const decodeThreadTurnsListResponseTurn = Schema.decodeUnknownSync(
+  CodexSchema.V2ThreadTurnsListResponse__Turn,
+);
+
+it("preserves native root turn ids in paginated history", () => {
+  const turn = decodeThreadTurnsListResponseTurn({
+    id: "retry-turn",
+    rootTurnId: "root-turn",
+    items: [],
+    status: "completed",
+  });
+  assert.equal(turn.rootTurnId, "root-turn");
+  const rootTurn = decodeThreadTurnsListResponseTurn({
+    id: "root-turn",
+    rootTurnId: null,
+    items: [],
+    status: "completed",
+  });
+  assert.isNull(rootTurn.rootTurnId);
+});
 
 it("keeps async questions in live notifications and thread history", () => {
   const item = {

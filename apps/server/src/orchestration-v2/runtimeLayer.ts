@@ -50,6 +50,7 @@ import * as ResourceCleanupService from "./ResourceCleanupService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
+import * as CodexNativeThreadSyncService from "./CodexNativeThreadSyncService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadLifecycleService from "./ThreadLifecycleService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
@@ -250,6 +251,20 @@ const layerAgentSessionImporterProvided = AgentSessionImporter.layer.pipe(
   ),
 );
 
+const layerCodexNativeThreadSyncProvided = CodexNativeThreadSyncService.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      layerEventSinkProvided,
+      IdAllocator.layer,
+      ProjectStore.layer,
+      ProjectionStore.layer,
+      layerProviderAdapterRegistryProvided,
+      layerProviderSessionManagerProvided,
+      layerRuntimePolicyProvided,
+      layerProviderEventIngestorProvided,
+    ),
+  ),
+);
 const layerThreadManagementProvided = ThreadManagementService.layerWithLegacyImporter.pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -257,6 +272,7 @@ const layerThreadManagementProvided = ThreadManagementService.layerWithLegacyImp
       layerLegacyV1ThreadImporterProvided,
       layerCommandReceiptStoreProvided,
       layerProviderSessionManagerProvided,
+      layerCodexNativeThreadSyncProvided,
     ),
   ),
 );
@@ -352,6 +368,7 @@ export const layer = Layer.mergeAll(
   layerCommandOutputHubProvided,
   layerOrchestratorProvided,
   layerMcpAppRequestsProvided,
+  layerCodexNativeThreadSyncProvided,
   layerThreadManagementProvided,
   layerEffectWorkerProvided,
   layerProviderSessionManagerProvided,

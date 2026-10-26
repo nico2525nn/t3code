@@ -88,6 +88,56 @@ function nonterminalRuns(projection: ProjectionStore.ProjectionRuntimeRecoverySt
   });
 }
 
+function activeCodexNativeWork(projection: ProjectionStore.ProjectionRuntimeRecoveryState) {
+  const activeThreads = projection.providerThreads.filter(
+    (providerThread) =>
+      providerThread.driver === "codex" &&
+      providerThread.status === "active" &&
+      providerThread.nativeThreadRef?.driver === "codex" &&
+      providerThread.nativeThreadRef.strength === "strong" &&
+      providerThread.nativeThreadRef.nativeId !== null,
+  );
+  const threadIds = new Set(activeThreads.map((providerThread) => providerThread.id));
+  const activeRuns = nonterminalRuns(projection).filter(
+    (run) =>
+      (run.status === "starting" || run.status === "running") &&
+      run.providerThreadId !== null &&
+      threadIds.has(run.providerThreadId),
+  );
+  const runIds = new Set<OrchestrationV2ThreadProjection["runs"][number]["id"]>();
+  for (const providerThread of activeThreads) {
+    const candidates = activeRuns.filter((run) => run.providerThreadId === providerThread.id);
+    const headId = providerThread.nativeConversationHeadRef?.nativeId;
+    const matchingHeadRuns =
+      providerThread.nativeConversationHeadRef?.driver === "codex" &&
+      providerThread.nativeConversationHeadRef.strength === "strong" &&
+      headId !== null &&
+      headId !== undefined
+        ? candidates.filter((run) => {
+            const attempt = projection.attempts.find(
+              (candidate) => candidate.id === run.activeAttemptId && candidate.runId === run.id,
+            );
+            return (
+              attempt !== undefined &&
+              projection.providerTurns.some(
+                (turn) =>
+                  turn.providerThreadId === providerThread.id &&
+                  turn.runAttemptId === attempt.id &&
+                  turn.nativeTurnRef?.driver === "codex" &&
+                  turn.nativeTurnRef.strength === "strong" &&
+                  turn.nativeTurnRef.nativeId === headId,
+              )
+            );
+          })
+        : [];
+    const preservedRun = [...(matchingHeadRuns.length > 0 ? matchingHeadRuns : candidates)].sort(
+      (left, right) => (runRanAfter(left, right) ? -1 : runRanAfter(right, left) ? 1 : 0),
+    )[0];
+    if (preservedRun !== undefined) runIds.add(preservedRun.id);
+  }
+  return { threadIds, runIds };
+}
+
 function isBackgroundCapableTurnItemType(type: string): boolean {
   return type === "command_execution" || type === "dynamic_tool" || type === "subagent";
 }
@@ -198,9 +248,11 @@ export const make = Effect.gen(function* () {
       continueAfterRestart: boolean,
       stoppedThisPass: ReadonlyMap<string, RecoverySession> = new Map(),
     ) {
+      const activeNativeCodex = activeCodexNativeWork(projection);
       const now = yield* DateTime.now;
       const runs = [] as Array<OrchestrationV2ThreadProjection["runs"][number]>;
       for (const run of nonterminalRuns(projection)) {
+        if (activeNativeCodex.runIds.has(run.id)) continue;
         if (run.status === "waiting") {
           const checkpointEffects = yield* outbox
             .listByCommandId(CommandId.make(`command:effect:checkpoint.capture:${run.id}`))
@@ -232,8 +284,16 @@ export const make = Effect.gen(function* () {
           )
           .map((request) => request.nodeId),
       );
+      const preservedActiveNodeIds = new Set(
+        projection.nodes
+          .filter((node) => node.runId !== null && activeNativeCodex.runIds.has(node.runId))
+          .map((node) => node.id),
+      );
       const requests = projection.runtimeRequests.filter(
-        (request) => request.status === "pending" && request.responseCapability.type !== "message",
+        (request) =>
+          request.status === "pending" &&
+          request.responseCapability.type !== "message" &&
+          !preservedActiveNodeIds.has(request.nodeId),
       );
       // Delegated task rows, items and nodes stay open: the child settles them.
       const delegatedTaskNodeIds = new Set<string>([
@@ -478,7 +538,12 @@ export const make = Effect.gen(function* () {
       const recoveredNonterminalRunIds = new Set(runs.map((run) => run.id));
       const cancelledStaleNodeIds = new Set<string>();
       for (const item of projection.turnItems ?? []) {
-        if (item.runId !== null && recoveredNonterminalRunIds.has(item.runId)) {
+        if (
+          item.runId !== null
+            ? recoveredNonterminalRunIds.has(item.runId) || activeNativeCodex.runIds.has(item.runId)
+            : item.providerThreadId != null &&
+              activeNativeCodex.threadIds.has(item.providerThreadId)
+        ) {
           continue;
         }
         if (!isBackgroundCapableTurnItemType(item.type)) {
@@ -521,6 +586,13 @@ export const make = Effect.gen(function* () {
       }
       // No provider process survives the server; open native subagents can never report completion.
       for (const subagent of projection.subagents ?? []) {
+        if (
+          subagent.runId !== null
+            ? activeNativeCodex.runIds.has(subagent.runId)
+            : subagent.providerThreadId !== null &&
+              activeNativeCodex.threadIds.has(subagent.providerThreadId)
+        )
+          continue;
         events.push(
           ...(yield* endOrphanedNativeSubagent({
             projection,
@@ -537,7 +609,23 @@ export const make = Effect.gen(function* () {
         ...(yield* endRunlessRootTurns({
           threadId: projection.thread.id,
           providerInstanceId: projection.thread.providerInstanceId,
-          projection,
+          projection: {
+            nodes: (projection.nodes ?? []).filter(
+              (node) =>
+                node.providerThreadId == null ||
+                !activeNativeCodex.threadIds.has(node.providerThreadId),
+            ),
+            providerTurns: (projection.providerTurns ?? []).filter(
+              (turn) =>
+                turn.providerThreadId == null ||
+                !activeNativeCodex.threadIds.has(turn.providerThreadId),
+            ),
+            turnItems: (projection.turnItems ?? []).filter(
+              (item) =>
+                item.providerThreadId == null ||
+                !activeNativeCodex.threadIds.has(item.providerThreadId),
+            ),
+          },
           status: "cancelled",
           now,
           emitted: events,
@@ -545,6 +633,7 @@ export const make = Effect.gen(function* () {
         })),
       );
       for (const providerThread of projection.providerThreads ?? []) {
+        if (activeNativeCodex.threadIds.has(providerThread.id)) continue;
         const needsIdle = providerThread.status === "active";
         const needsRosterClear = providerThreadHasPendingBackgroundTasks(providerThread);
         if (!needsIdle && !needsRosterClear) {
@@ -579,7 +668,14 @@ export const make = Effect.gen(function* () {
         });
       }
       for (const session of projection.providerSessions.filter(
-        (candidate) => candidate.status !== "stopped" && candidate.status !== "error",
+        (candidate) =>
+          candidate.status !== "stopped" &&
+          candidate.status !== "error" &&
+          !projection.providerThreads.some(
+            (providerThread) =>
+              activeNativeCodex.threadIds.has(providerThread.id) &&
+              providerThread.providerSessionId === candidate.id,
+          ),
       )) {
         events.push({
           id: yield* allocateEventId(),
@@ -612,7 +708,7 @@ export const make = Effect.gen(function* () {
         });
       }
       const continuationRun =
-        continueAfterRestart && trigger === "startup"
+        continueAfterRestart && trigger === "startup" && activeNativeCodex.threadIds.size === 0
           ? restartContinuationRun(
               { ...projection, providerSessions: sessionsLiveAtStart(projection, stoppedThisPass) },
               now,
@@ -629,7 +725,14 @@ export const make = Effect.gen(function* () {
           ]
         : [];
       const stoppedSessions = projection.providerSessions.filter(
-        (candidate) => candidate.status !== "stopped" && candidate.status !== "error",
+        (candidate) =>
+          candidate.status !== "stopped" &&
+          candidate.status !== "error" &&
+          !projection.providerThreads.some(
+            (providerThread) =>
+              activeNativeCodex.threadIds.has(providerThread.id) &&
+              providerThread.providerSessionId === candidate.id,
+          ),
       ).length;
       let retiredEffects: number;
       if (events.length === 0) {
@@ -749,6 +852,7 @@ export const make = Effect.gen(function* () {
     for (const threadId of threadIds) {
       yield* Effect.gen(function* () {
         const projection = yield* projections.getRuntimeRecoveryProjection(threadId);
+        if (activeCodexNativeWork(projection).threadIds.size > 0) return;
         if (
           !resolveProjectSettings(enabled, projection.thread.projectId).settings
             .continueThreadsAfterServerUpdate

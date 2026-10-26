@@ -460,6 +460,73 @@ export interface ProviderAdapterV2ThreadSnapshot {
   readonly providerPayload?: unknown;
 }
 
+export interface ProviderAdapterV2NativeThread {
+  readonly nativeId: string;
+  readonly cwd: string;
+  readonly title: string | null;
+  readonly preview: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly model: string | null;
+  readonly reasoningEffort: string | null;
+  readonly archived: boolean;
+  readonly status: string;
+  readonly latestTurn: {
+    readonly nativeId: string;
+    readonly startedAt: number | null;
+    readonly completedAt: number | null;
+    readonly status: string;
+  } | null;
+  readonly parentNativeId: string | null;
+  readonly forkedFromNativeId?: string | null;
+}
+
+export interface ProviderAdapterV2NativeItem {
+  readonly nativeId: string;
+  readonly type: string;
+  readonly startedAt: number | null;
+  readonly completedAt: number | null;
+  readonly payload: unknown;
+}
+
+export interface ProviderAdapterV2NativeTurn {
+  readonly nativeId: string;
+  readonly rootNativeId?: string;
+  readonly startedAt: number | null;
+  readonly completedAt: number | null;
+  readonly status: string;
+  readonly items: ReadonlyArray<ProviderAdapterV2NativeItem>;
+}
+
+export interface ProviderAdapterV2NativeThreadManagement {
+  readonly listThreads: () => Effect.Effect<
+    ReadonlyArray<ProviderAdapterV2NativeThread>,
+    ProviderAdapterV2Error
+  >;
+  readonly readThread: (input: {
+    readonly nativeThreadId: string;
+    readonly archived?: boolean;
+    readonly knownUpdatedAt?: number;
+    /** Native turns whose item bodies are already stored in the T3 projection. */
+    readonly knownNativeTurnIds?: ReadonlyArray<string>;
+    /** Load item bodies from only the newest turn while keeping older turn headers. */
+    readonly latestTurnOnly?: boolean;
+  }) => Effect.Effect<
+    {
+      readonly thread: ProviderAdapterV2NativeThread;
+      readonly turns: ReadonlyArray<ProviderAdapterV2NativeTurn>;
+    },
+    ProviderAdapterV2Error
+  >;
+  readonly setName: (input: {
+    readonly nativeThreadId: string;
+    readonly name: string;
+  }) => Effect.Effect<void, ProviderAdapterV2Error>;
+  readonly archive: (nativeThreadId: string) => Effect.Effect<void, ProviderAdapterV2Error>;
+  readonly unarchive: (nativeThreadId: string) => Effect.Effect<void, ProviderAdapterV2Error>;
+  readonly delete: (nativeThreadId: string) => Effect.Effect<void, ProviderAdapterV2Error>;
+}
+
 export interface ProviderAdapterV2ReadThreadSnapshotInput {
   readonly providerThread: OrchestrationV2ProviderThread;
 }
@@ -568,6 +635,13 @@ export interface ProviderAdapterV2SessionRuntime {
     readonly threadId?: ThreadId;
     readonly modelSelection?: ModelSelection;
     readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
+    /** Existing native turn context to bind before App Server replays live notifications. */
+    readonly nativeActiveTurn?: {
+      readonly turnInput: ProviderAdapterV2TurnInput;
+      readonly providerTurn: OrchestrationV2ProviderTurn;
+      readonly nativeTurnId: string;
+      readonly startedAt: NonNullable<OrchestrationV2ProviderTurn["startedAt"]>;
+    };
   }) => Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapterV2Error>;
   /** False means the native protocol explicitly does not support history injection. */
   readonly injectHistory?: (
@@ -634,6 +708,7 @@ export class ProviderAdapterV2 extends Context.Service<
   {
     readonly instanceId: ProviderInstanceId;
     readonly driver: ProviderDriverKind;
+    readonly nativeThreadManagement?: ProviderAdapterV2NativeThreadManagement;
     readonly getCapabilities: () => Effect.Effect<
       OrchestrationV2ProviderCapabilities,
       ProviderAdapterV2Error
